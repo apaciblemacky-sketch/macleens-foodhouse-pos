@@ -389,28 +389,54 @@ def investor_analytics():
 @app.route('/staff/login', methods=['GET', 'POST'])
 def staff_login():
     if request.method == 'POST':
-        username = request.form.get('username').strip()
-        pin = request.form.get('pin').strip()
-        user = Staff.query.filter_by(username=username, active=True).first()
-        if user and check_password_hash(user.pin_hash, pin):
-            session['staff_user'] = user.username
-            session['staff_role'] = user.role
-            session.permanent = True
+        username = request.form.get('username')
+        pin = request.form.get('pin')
+        
+        staff = Staff.query.filter_by(username=username).first()
+        if staff and check_password_hash(staff.pin_hash, pin):
+            session['staff_id'] = staff.id
+            session['staff_user'] = staff.username
+            session['staff_role'] = staff.role
             
-            if user.role in ['ADMIN', 'CASHIER']:
-                return redirect(url_for('cashier_terminal'))
-            elif user.role == 'KITCHEN':
-                return redirect(url_for('kitchen_queue'))
-            elif user.role == 'RIDER':
+            # Send each account to its own dedicated station
+            if staff.role == 'ADMIN':
+                return redirect(url_for('admin_dashboard'))
+            elif staff.role == 'CASHIER':
+                return redirect(url_for('cashier_pos'))
+            elif staff.role == 'KITCHEN':
+                return redirect(url_for('kitchen_kds'))
+            elif staff.role == 'RIDER':
                 return redirect(url_for('rider_portal'))
-            elif user.role == 'INVESTOR':
-                return redirect(url_for('investor_analytics'))
-        flash("Invalid Staff PIN/Role credentials.", "error")
+            elif staff.role == 'INVESTOR':
+                return redirect(url_for('investor_dashboard'))
+        
+        flash('Invalid Username or Security PIN.', 'error')
     return render_template('staff_login.html')
+@app.route('/admin')
+def admin_dashboard():
+    if session.get('staff_role') != 'ADMIN':
+        return redirect(url_for('staff_login'))
+    
+    products = Product.query.order_by(Product.category_name, Product.name).all()
+    categories = Category.query.all()
+    staff_members = Staff.query.all()
+    customers = Customer.query.order_by(Customer.id.desc()).all()
+    
+    total_sales = db.session.query(db.func.sum(Order.total_amount)).filter(Order.status == 'COMPLETED').scalar() or 0.0
+    total_ar = db.session.query(db.func.sum(Customer.ar_balance)).scalar() or 0.0
+    
+    return render_template('admin.html', 
+                           products=products, 
+                           categories=categories, 
+                           staff_members=staff_members, 
+                           customers=customers,
+                           total_sales=total_sales,
+                           total_ar=total_ar)
 
 @app.route('/staff/logout')
 def staff_logout():
     session.clear()
+    flash('Logged out successfully.', 'info')
     return redirect(url_for('staff_login'))
 
 # Database Initializer, Staff Seeder & Auto Menu Loader
