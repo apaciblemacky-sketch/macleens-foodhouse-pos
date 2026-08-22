@@ -417,13 +417,35 @@ def admin_dashboard():
     if session.get('staff_role') != 'ADMIN':
         return redirect(url_for('staff_login'))
     
-    products = Product.query.order_by(Product.category_name, Product.name).all()
-    categories = Category.query.all()
-    staff_members = Staff.query.all()
-    customers = Customer.query.order_by(Customer.id.desc()).all()
-    
-    total_sales = db.session.query(db.func.sum(Order.total_amount)).filter(Order.status == 'COMPLETED').scalar() or 0.0
-    total_ar = db.session.query(db.func.sum(Customer.ar_balance)).scalar() or 0.0
+    try:
+        products = Product.query.order_by(Product.category_name, Product.name).all()
+    except Exception:
+        products = []
+        
+    try:
+        categories = Category.query.all()
+    except Exception:
+        categories = []
+        
+    try:
+        staff_members = Staff.query.all()
+    except Exception:
+        staff_members = []
+        
+    try:
+        customers = Customer.query.order_by(Customer.id.desc()).all()
+    except Exception:
+        customers = []
+
+    try:
+        total_sales = db.session.query(db.func.sum(Order.total_amount)).filter(Order.status == 'COMPLETED').scalar() or 0.0
+    except Exception:
+        total_sales = 0.0
+
+    try:
+        total_ar = db.session.query(db.func.sum(Customer.ar_balance)).scalar() or 0.0
+    except Exception:
+        total_ar = 0.0
     
     return render_template('admin.html', 
                            products=products, 
