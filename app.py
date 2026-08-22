@@ -415,8 +415,16 @@ def staff_logout():
 
 # Database Initializer, Staff Seeder & Auto Menu Loader
 with app.app_context():
-    db.create_all()
-
+    # If the schema is outdated, drop and create fresh tables
+    try:
+        # Check if the existing table has the new schema
+        db.session.execute(text("SELECT order_type FROM \"order\" LIMIT 1;"))
+    except Exception:
+        db.session.rollback()
+        # Drop mismatched legacy tables so full POS schema builds cleanly
+        db.drop_all()
+        db.create_all()
+    
     # 1. Site Metrics
     if not SiteMetric.query.first():
         db.session.add(SiteMetric(store_open=True, visitor_count=0))
@@ -433,7 +441,7 @@ with app.app_context():
         if not Staff.query.filter_by(username=user).first():
             db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))
 
-    # 3. Auto-load 104 Products & Categories if Empty
+    # 3. Auto-load 104 Products & Categories
     if not Product.query.first():
         cat_names = [
             "Daily Specials", "Rice Meals", "Ulam", "Street Food", 
@@ -580,6 +588,3 @@ with app.app_context():
             ))
 
     db.session.commit()
-
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
