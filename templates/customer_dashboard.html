@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customer Rewards Dashboard</title>
+  <style>
+    :root { --pink: #ec4899; --pink-dark: #be185d; --purple: #9333ea; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+    body { background: #fff5f7; padding: 1.5rem 1rem; }
+    .container { max-width: 800px; margin: 0 auto; }
+    .card { background: white; padding: 1.2rem; border-radius: 12px; border: 1px solid #fbcfe8; margin-bottom: 1.2rem; }
+    .btn { padding: 8px 16px; background: var(--pink); color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    .stat-val { font-size: 1.8rem; font-weight: 800; color: var(--pink-dark); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+      <div>
+        <h2>Hello, {{ cust.name }}! 👋</h2>
+        <span style="background: #fce7f3; color: var(--pink-dark); padding: 3px 8px; border-radius: 6px; font-size: 0.8rem; font-weight: bold;">Card: {{ cust.card_number }} ({{ cust.card_status }})</span>
+      </div>
+      <a href="/staff/logout" style="color: #6b7280; font-size: 0.9rem;">Sign Out</a>
+    </div>
+
+    <!-- Points & Wi-Fi Cards -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.2rem;">
+      <div class="card" style="text-align: center;">
+        <p style="color: #6b7280; font-size: 0.85rem; font-weight: bold;">REWARDS POINTS</p>
+        <div class="stat-val">{{ "%.1f"|format(cust.points_balance) }} pts</div>
+        <small style="color: #9ca3af;">1 pt = ₱1 Discount (Min 20 pts)</small>
+      </div>
+
+      <div class="card" style="text-align: center; display: flex; flex-direction: column; justify-content: center; align-items: center;">
+        <p style="color: #6b7280; font-size: 0.85rem; font-weight: bold;">DAILY FREE WI-FI (10 Mins)</p>
+        <form action="/portal/claim-wifi" method="POST" style="margin-top: 6px;">
+          <button class="btn" style="background: #10b981;">📶 Claim Today's Wi-Fi</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Ulam of the Day Voting -->
+    <div class="card">
+      <h3 style="color: var(--pink-dark); margin-bottom: 0.5rem;">🗳️ Daily Ulam Voting (+3 Points)</h3>
+      <p style="font-size: 0.85rem; color: #6b7280; margin-bottom: 1rem;">Vote for your favorite dish! 1st vote daily gives +3 Rewards points.</p>
+      
+      <form action="/portal/vote-ulam" method="POST" style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <select name="product_id" style="flex: 1; padding: 0.6rem; border: 1px solid #fbcfe8; border-radius: 6px;">
+          {% for ulam in ulam_products %}
+            <option value="{{ ulam.id }}" {% if today_vote and today_vote.product_id == ulam.id %}selected{% endif %}>{{ ulam.name }} (₱{{ ulam.price }})</option>
+          {% endfor %}
+        </select>
+        <button type="submit" class="btn">Cast / Update Vote</button>
+      </form>
+    </div>
+  </div>
+</body>
+</html>

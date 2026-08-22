@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Macleen's Kitchen Display Queue</title>
+  <meta http-equiv="refresh" content="15"> <!-- Auto refresh queue every 15s -->
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+    body { background: #111827; color: white; padding: 1.5rem; }
+    .kds-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; margin-top: 1rem; }
+    .kds-card { background: #1f2937; border-radius: 10px; border: 2px solid #374151; overflow: hidden; }
+    .kds-header { padding: 10px; background: #374151; display: flex; justify-content: space-between; font-weight: bold; }
+    .preparing { border-color: #f59e0b; }
+    .preparing .kds-header { background: #f59e0b; color: black; }
+    .btn { padding: 10px; border: none; width: 100%; font-weight: bold; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <h1>🍳 Kitchen KDS Queue</h1>
+    <span>Auto-refreshing (15s)</span>
+  </div>
+
+  <div class="kds-grid">
+    {% for ord in queue %}
+      <div class="kds-card {% if ord.status == 'PREPARING' %}preparing{% endif %}">
+        <div class="kds-header">
+          <span>#{{ ord.id }} ({{ ord.order_type }})</span>
+          <span>{{ ord.status }}</span>
+        </div>
+        <div style="padding: 1rem;">
+          <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 8px;">Order Time: {{ ord.created_at.strftime('%I:%M %p') }}</p>
+          {% if ord.notes %}<p style="background: #374151; padding: 6px; border-radius: 4px; font-size: 0.85rem; margin-bottom: 8px;">📝 {{ ord.notes }}</p>{% endif %}
+          <ul style="list-style: none;">
+            {% for it in ord.items %}
+              <li style="font-size: 1.1rem; padding: 4px 0; border-bottom: 1px solid #374151;">
+                <strong>{{ it.quantity }}x</strong> {{ it.product_name }}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+        <form action="{{ url_for('update_kitchen_status', order_id=ord.id) }}" method="POST">
+          {% if ord.status == 'KITCHEN_QUEUE' %}
+            <button name="status" value="PREPARING" class="btn" style="background: #f59e0b; color: black;">Start Cooking</button>
+          {% else %}
+            <button name="status" value="READY" class="btn" style="background: #10b981; color: white;">Mark Ready</button>
+          {% endif %}
+        </form>
+      </div>
+    {% else %}
+      <p style="color: #9ca3af; margin-top: 2rem;">Kitchen queue is clear!</p>
+    {% endfor %}
+  </div>
+</body>
+</html>

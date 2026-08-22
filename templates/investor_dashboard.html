@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Food House - Investor View</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+    body { background: #faf5ff; padding: 2rem 1rem; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+    .card { background: white; border: 1px solid #e9d5ff; border-radius: 12px; padding: 1.2rem; text-align: center; }
+    .val { font-size: 1.8rem; font-weight: 800; color: #7e22ce; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <div>
+        <h2 style="color: #581c87;">📊 Investor Financial Overview</h2>
+        <p style="color: #6b7280; font-size: 0.9rem;">Real-time business performance & asset monitoring</p>
+      </div>
+      <a href="/staff/logout" style="color: #7e22ce; font-weight: bold;">Log Out</a>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <small style="color: #6b7280; font-weight: bold;">TOTAL REVENUE</small>
+        <div class="val">₱{{ "{:,.2f}".format(total_sales) }}</div>
+      </div>
+      <div class="card">
+        <small style="color: #6b7280; font-weight: bold;">COMPLETED ORDERS</small>
+        <div class="val">{{ total_orders }}</div>
+      </div>
+      <div class="card">
+        <small style="color: #6b7280; font-weight: bold;">ACCOUNTS RECEIVABLE</small>
+        <div class="val">₱{{ "{:,.2f}".format(total_ar) }}</div>
+      </div>
+      <div class="card">
+        <small style="color: #6b7280; font-weight: bold;">INVENTORY VALUATION</small>
+        <div class="val">₱{{ "{:,.2f}".format(inventory_val) }}</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

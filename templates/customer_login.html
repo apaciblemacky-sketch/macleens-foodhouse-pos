@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Customer Loyalty Login</title>
+  <style>
+    * { box-sizing: border-box; font-family: sans-serif; }
+    body { background: #fff5f7; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
+    .card { background: white; padding: 2rem; border-radius: 12px; border: 1px solid #fbcfe8; width: 100%; max-width: 380px; box-shadow: 0 4px 12px rgba(236,72,153,0.1); }
+    input { width: 100%; padding: 0.75rem; margin: 0.3rem 0 1rem 0; border: 1px solid #fbcfe8; border-radius: 6px; }
+    .btn { width: 100%; padding: 0.8rem; background: #ec4899; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    a { color: #be185d; text-decoration: none; font-size: 0.85rem; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2 style="color: #831843; text-align: center; margin-bottom: 0.5rem;">🎁 Customer Rewards</h2>
+    <p style="text-align: center; color: #6b7280; font-size: 0.85rem; margin-bottom: 1.5rem;">Check points, claim daily Wi-Fi & vote for Ulam</p>
+    {% with msgs = get_flashed_messages() %}
+      {% if msgs %}<p style="color: red; font-size: 0.85rem; margin-bottom: 8px;">{{ msgs[0] }}</p>{% endif %}
+    {% endwith %}
+    <form method="POST">
+      <label style="font-size: 0.85rem; font-weight: bold;">Mobile Contact Number</label>
+      <input type="text" name="contact" placeholder="09xxxxxxxxx" required>
+      
+      <label style="font-size: 0.85rem; font-weight: bold;">Account PIN</label>
+      <input type="password" name="pin" placeholder="Enter PIN" required>
+      
+      <button class="btn" type="submit">Sign In</button>
+    </form>
+    <div style="text-align: center; margin-top: 1.2rem;">
+      <a href="/portal/register">No account yet? Register here</a>
+    </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Food House - Cashier POS</title>
+  <style>
+    :root { --pink: #ec4899; --pink-dark: #be185d; --purple: #9333ea; --gold: #f59e0b; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+    body { background: #fff5f7; display: flex; height: 100vh; overflow: hidden; }
+    .sidebar { width: 350px; background: white; border-right: 2px solid #fbcfe8; display: flex; flex-direction: column; }
+    .main-pos { flex: 1; padding: 1.5rem; overflow-y: auto; }
+    .header { padding: 1rem; background: var(--pink); color: white; display: flex; justify-content: space-between; }
+    .card { background: white; padding: 1rem; border-radius: 8px; border: 1px solid #fbcfe8; margin-bottom: 1rem; }
+    .badge { padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 0.75rem; }
+    .btn { padding: 6px 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; }
+    .btn-accept { background: #10b981; }
+    .btn-reject { background: #ef4444; }
+    .btn-complete { background: var(--purple); width: 100%; padding: 10px; }
+  </style>
+</head>
+<body>
+  <!-- Sidebar: Verification Pipeline -->
+  <div class="sidebar">
+    <div class="header">
+      <h3>Incoming & Verification</h3>
+      <span>{{ pending_verification|length }} Pending</span>
+    </div>
+    <div style="padding: 1rem; overflow-y: auto; flex: 1;">
+      {% for o in pending_verification %}
+        <div class="card">
+          <div style="display: flex; justify-content: space-between;">
+            <strong>Order #{{ o.id }} ({{ o.order_type }})</strong>
+            <span class="badge" style="background: #fef3c7; color: #d97706;">{{ o.payment_method }}</span>
+          </div>
+          <p style="font-size: 0.85rem; color: #4b5563; margin: 4px 0;">{{ o.customer_name }} • {{ o.contact_number }}</p>
+          <ul style="font-size: 0.85rem; margin-left: 1rem; margin-bottom: 8px;">
+            {% for item in o.items %}
+              <li>{{ item.product_name }} x{{ item.quantity }}</li>
+            {% endfor %}
+          </ul>
+          <div style="font-weight: bold; color: var(--pink-dark); margin-bottom: 8px;">Total: ₱{{ "{:,.2f}".format(o.total_amount) }}</div>
+          <form action="{{ url_for('verify_order', order_id=o.id) }}" method="POST" style="display: flex; gap: 8px;">
+            <button name="action" value="ACCEPT" class="btn btn-accept" style="flex: 1;">Verify & Cook</button>
+            <button name="action" value="REJECT" class="btn btn-reject">Reject</button>
+          </form>
+        </div>
+      {% else %}
+        <p style="color: #9ca3af; text-align: center; margin-top: 2rem;">No pending verifications.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Main POS: Ready Orders and Direct Register -->
+  <div class="main-pos">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 1.5rem;">
+      <h2>🎀 Macleen's POS Terminal</h2>
+      <a href="{{ url_for('staff_logout') }}" style="color: var(--pink-dark); font-weight: bold; text-decoration: none;">Log Out</a>
+    </div>
+
+    <h3>🛍️ Orders Ready for Pickup ({{ ready_orders|length }})</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin: 1rem 0 2rem 0;">
+      {% for r in ready_orders if r.order_type != 'DELIVERY' %}
+        <div class="card" style="border-top: 4px solid #10b981;">
+          <h4>Order #{{ r.id }} - {{ r.customer_name }}</h4>
+          <p style="font-size: 0.9rem; color: #6b7280;">{{ r.contact_number }}</p>
+          <div style="font-size: 1.2rem; font-weight: bold; color: var(--pink); margin: 8px 0;">₱{{ "{:,.2f}".format(r.total_amount) }}</div>
+          <form action="{{ url_for('complete_pickup', order_id=r.id) }}" method="POST">
+            <button type="submit" class="btn btn-complete">Complete & Release</button>
+          </form>
+        </div>
+      {% else %}
+        <p style="color: #9ca3af;">No pickup orders waiting.</p>
+      {% endfor %}
+    </div>
+  </div>
+</body>
+</html>

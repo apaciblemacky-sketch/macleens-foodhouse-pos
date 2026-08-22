@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Food House - Rider Portal</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+    body { background: #f0fdf4; padding: 1.5rem 1rem; }
+    .container { max-width: 800px; margin: 0 auto; }
+    .card { background: white; border: 1px solid #bbf7d0; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+    .btn { padding: 8px 16px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; color: white; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+      <h2>🛵 Rider Delivery Hub</h2>
+      <a href="/staff/logout" style="color: #166534; font-weight: bold;">Log Out</a>
+    </div>
+
+    <h3 style="color: #166534; margin-bottom: 0.8rem;">📦 Ready Deliveries (Waiting Driver)</h3>
+    {% for ord in ready_deliveries %}
+      <div class="card">
+        <h4>Order #{{ ord.id }} - ₱{{ "{:,.2f}".format(ord.total_amount) }} ({{ ord.payment_method }})</h4>
+        <p><strong>Customer:</strong> {{ ord.customer_name }} (📞 {{ ord.contact_number }})</p>
+        <p><strong>Address:</strong> {{ ord.delivery_address }}</p>
+        <form action="/portal/rider/claim/{{ ord.id }}" method="POST" style="margin-top: 8px;">
+          <button class="btn" style="background: #16a34a;">Claim Delivery</button>
+        </form>
+      </div>
+    {% else %}
+      <p style="color: #9ca3af; margin-bottom: 1.5rem;">No unassigned deliveries waiting.</p>
+    {% endfor %}
+
+    <h3 style="color: #166534; margin: 1.5rem 0 0.8rem 0;">🚴 My Active Deliveries</h3>
+    {% for ord in my_deliveries %}
+      <div class="card" style="border: 2px solid #16a34a;">
+        <h4>Order #{{ ord.id }} - OUT FOR DELIVERY</h4>
+        <p><strong>Collect:</strong> ₱{{ "{:,.2f}".format(ord.total_amount) }} via {{ ord.payment_method }}</p>
+        <p><strong>Address:</strong> {{ ord.delivery_address }}</p>
+        <form action="/portal/rider/complete/{{ ord.id }}" method="POST" style="margin-top: 8px;">
+          <button class="btn" style="background: #2563eb;">Mark Delivered & Collected</button>
+        </form>
+      </div>
+    {% else %}
+      <p style="color: #9ca3af;">No active trips right now.</p>
+    {% endfor %}
+  </div>
+</body>
+</html>

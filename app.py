@@ -1,427 +1,436 @@
 import os
-from datetime import datetime
+import random
+from datetime import datetime, date, timedelta
 from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import text
 from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-crafts-secure-key-2026')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-pos-secret-2026')
 
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///crafts.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///foodhouse_pos.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-UPLOAD_FOLDER = os.path.join('static', 'uploads')
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=6)
 
 db = SQLAlchemy(app)
 
-# Database Models
-class AdminConfig(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    password_hash = db.Column(db.String(255), nullable=False)
+# ==================== DATA MODELS ====================
 
-class SiteVisitor(db.Model):
+class Staff(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    total_visits = db.Column(db.Integer, default=0)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    pin_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False)  # ADMIN, CASHIER, KITCHEN, RIDER, INVESTOR
+    active = db.Column(db.Boolean, default=True)
+
+class Customer(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    contact = db.Column(db.String(30), unique=True, nullable=False)
+    fb_messenger = db.Column(db.String(120), nullable=True)
+    pin_hash = db.Column(db.String(255), nullable=False)
+    
+    # Financials & Loyalty
+    points_balance = db.Column(db.Float, default=0.0)
+    wallet_balance = db.Column(db.Float, default=0.0)
+    is_credit_eligible = db.Column(db.Boolean, default=False)
+    credit_limit = db.Column(db.Float, default=0.0)
+    outstanding_ar = db.Column(db.Float, default=0.0)
+    accumulated_spend = db.Column(db.Float, default=0.0)
+    
+    # Wi-Fi & Cards
+    last_wifi_claim = db.Column(db.Date, nullable=True)
+    card_number = db.Column(db.String(20), unique=True, nullable=True)
+    card_status = db.Column(db.String(20), default="UNREGISTERED")  # UNREGISTERED, ACTIVE, EXPIRED, LOCKED
+    card_expires_at = db.Column(db.Date, nullable=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Category(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(80), unique=True, nullable=False)
-    image_url = db.Column(db.String(255), default="https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=500&auto=format&fit=crop")
-    items = db.relationship('CraftItem', backref='category_rel', lazy=True)
+    image_url = db.Column(db.String(255), default="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500")
 
-class CraftItem(db.Model):
+class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
-    description = db.Column(db.Text, nullable=False)
+    category_name = db.Column(db.String(80), nullable=False)
     price = db.Column(db.Float, nullable=False)
-    image_url = db.Column(db.String(255), default="https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=500&auto=format&fit=crop")
-    category_name = db.Column(db.String(80), db.ForeignKey('category.name'), nullable=True, default="General")
-    
-    # Inventory & Featured Settings
-    availability_type = db.Column(db.String(20), default="In Stock")
-    stock_quantity = db.Column(db.Integer, default=10)
-    is_top_seller = db.Column(db.Boolean, default=False)
+    cost = db.Column(db.Float, default=0.0)
+    stock = db.Column(db.Integer, default=50)
+    is_ulam = db.Column(db.Boolean, default=False)  # Flag for Ulam voting
     is_featured = db.Column(db.Boolean, default=False)
-    
-    likes = db.Column(db.Integer, default=0)
-    views = db.Column(db.Integer, default=0)
-    orders_count = db.Column(db.Integer, default=0)
-    comments = db.relationship('Comment', backref='craft_item', cascade="all, delete-orphan", lazy=True)
-    orders = db.relationship('Order', backref='craft_item', cascade="all, delete-orphan", lazy=True)
-
-class Comment(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    author = db.Column(db.String(80), nullable=False)
-    content = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-    item_id = db.Column(db.Integer, db.ForeignKey('craft_item.id'), nullable=False)
+    is_top_seller = db.Column(db.Boolean, default=False)
+    is_active = db.Column(db.Boolean, default=True)
+    image_url = db.Column(db.String(255), default="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500")
 
 class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    order_type = db.Column(db.String(20), nullable=False)  # PICKUP, DELIVERY, DINE_IN, TABLET
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
     customer_name = db.Column(db.String(100), nullable=False)
     contact_number = db.Column(db.String(50), nullable=False)
-    email = db.Column(db.String(120), nullable=False)
-    fb_account = db.Column(db.String(120), nullable=False)
-    quantity = db.Column(db.Integer, default=1, nullable=False)
-    total_price = db.Column(db.Float, nullable=False)
-    pickup_location = db.Column(db.String(150), default="Macleen's Food House")
-    status = db.Column(db.String(50), default="Pending")
+    delivery_address = db.Column(db.Text, nullable=True)
+    
+    # Financial Calculations
+    subtotal = db.Column(db.Float, nullable=False)
+    delivery_fee = db.Column(db.Float, default=0.0)
+    discount_points_used = db.Column(db.Float, default=0.0)
+    total_amount = db.Column(db.Float, nullable=False)
+    payment_method = db.Column(db.String(20), nullable=False)  # CASH, GCASH, CREDIT, COD, COP
+    payment_verified = db.Column(db.Boolean, default=False)
+    
+    # Workflow Status
+    status = db.Column(db.String(30), default="VERIFICATION") 
+    # Workflow: VERIFICATION -> KITCHEN_QUEUE -> PREPARING -> READY -> OUT_FOR_DELIVERY -> COMPLETED / CANCELLED
+    
+    assigned_rider = db.Column(db.String(80), nullable=True)
+    notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    item_id = db.Column(db.Integer, db.ForeignKey('craft_item.id'), nullable=False)
+    
+    items = db.relationship('OrderItem', backref='order_rel', cascade="all, delete-orphan", lazy=True)
 
-def login_required(f):
+class OrderItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    product_name = db.Column(db.String(120), nullable=False)
+    unit_price = db.Column(db.Float, nullable=False)
+    quantity = db.Column(db.Integer, nullable=False)
+    item_notes = db.Column(db.String(200), nullable=True)
+
+class UlamVote(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    vote_date = db.Column(db.Date, default=date.today)
+    points_awarded = db.Column(db.Boolean, default=False)
+
+class RewardLedger(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
+    points_change = db.Column(db.Float, nullable=False)
+    reason = db.Column(db.String(150), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class SiteMetric(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    store_open = db.Column(db.Boolean, default=True)
+    visitor_count = db.Column(db.Integer, default=0)
+
+# ==================== AUTH DECORATORS ====================
+
+def role_required(*roles):
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if 'staff_role' not in session or session['staff_role'] not in roles:
+                flash("Unauthorized access.", "error")
+                return redirect(url_for('staff_login'))
+            return f(*args, **kwargs)
+        return decorated_function
+    return decorator
+
+def customer_login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('is_admin'):
-            return redirect(url_for('admin_login'))
+        if 'customer_id' not in session:
+            return redirect(url_for('customer_login'))
         return f(*args, **kwargs)
     return decorated_function
 
-# ==================== PUBLIC STORE ====================
+# ==================== PUBLIC & CUSTOMER PORTALS ====================
 
 @app.route('/')
-def index():
-    # Track Site Visitors
-    visitor_record = SiteVisitor.query.first()
-    if not visitor_record:
-        visitor_record = SiteVisitor(total_visits=1)
-        db.session.add(visitor_record)
-    else:
-        visitor_record.total_visits += 1
-    db.session.commit()
-
-    selected_category = request.args.get('category')
-    categories = Category.query.all()
+def store_catalog():
+    metric = SiteMetric.query.first()
+    if metric:
+        metric.visitor_count += 1
+        db.session.commit()
     
-    top_sellers = CraftItem.query.filter_by(is_top_seller=True).all()
-    featured_items = CraftItem.query.filter_by(is_featured=True).all()
-
-    if selected_category:
-        items = CraftItem.query.filter_by(category_name=selected_category).all()
-    else:
-        items = CraftItem.query.all()
-
+    products = Product.query.filter_by(is_active=True).all()
+    categories = Category.query.all()
+    top_sellers = Product.query.filter_by(is_top_seller=True, is_active=True).all()
+    featured = Product.query.filter_by(is_featured=True, is_active=True).all()
+    
     return render_template(
-        'index.html',
-        items=items,
+        'store_catalog.html',
+        products=products,
         categories=categories,
-        selected_category=selected_category,
         top_sellers=top_sellers,
-        featured_items=featured_items,
-        site_visits=visitor_record.total_visits
+        featured=featured,
+        metric=metric
     )
 
-@app.route('/item/<int:item_id>')
-def item_detail(item_id):
-    item = CraftItem.query.get_or_404(item_id)
-    item.views += 1
-    db.session.commit()
-    return render_template('item_detail.html', item=item)
-
-@app.route('/like/<int:item_id>', methods=['POST'])
-def like_item(item_id):
-    item = CraftItem.query.get_or_404(item_id)
-    item.likes += 1
-    db.session.commit()
-    return redirect(url_for('item_detail', item_id=item_id))
-
-@app.route('/comment/<int:item_id>', methods=['POST'])
-def add_comment(item_id):
-    author = request.form.get('author', '').strip() or 'Anonymous Customer'
-    content = request.form.get('content', '').strip()
-    if content:
-        new_comment = Comment(author=author, content=content, item_id=item_id)
-        db.session.add(new_comment)
-        db.session.commit()
-    return redirect(url_for('item_detail', item_id=item_id))
-
-@app.route('/order/<int:item_id>', methods=['GET', 'POST'])
-def order_item(item_id):
-    item = CraftItem.query.get_or_404(item_id)
-    error = None
+@app.route('/portal/register', methods=['GET', 'POST'])
+def customer_register():
     if request.method == 'POST':
-        name = request.form.get('customer_name', '').strip()
-        contact = request.form.get('contact_number', '').strip()
-        email = request.form.get('email', '').strip()
-        fb = request.form.get('fb_account', '').strip()
-        quantity = int(request.form.get('quantity', 1))
+        name = request.form.get('name').strip()
+        contact = request.form.get('contact').strip()
+        messenger = request.form.get('fb_messenger', '').strip()
+        pin = request.form.get('pin').strip()
 
-        if item.availability_type == "In Stock" and quantity > item.stock_quantity:
-            error = f"Sorry, only {item.stock_quantity} item(s) currently available in stock."
-        elif name and contact and email and fb and quantity > 0:
-            total = item.price * quantity
-            if item.availability_type == "In Stock":
-                item.stock_quantity -= quantity
+        if Customer.query.filter_by(contact=contact).first():
+            flash("Contact number already registered.", "error")
+            return redirect(url_for('customer_register'))
 
-            new_order = Order(
-                customer_name=name,
-                contact_number=contact,
-                email=email,
-                fb_account=fb,
-                quantity=quantity,
-                total_price=total,
-                item_id=item.id
-            )
-            item.orders_count += quantity
-            db.session.add(new_order)
-            db.session.commit()
-            return render_template('order_success.html', order=new_order, item=item)
-
-    return render_template('order_form.html', item=item, error=error)
-
-# ==================== ADMIN ROUTES ====================
-
-@app.route('/admin/login', methods=['GET', 'POST'])
-def admin_login():
-    error = None
-    if request.method == 'POST':
-        entered_password = request.form.get('password', '')
-        config = AdminConfig.query.first()
-        if config and check_password_hash(config.password_hash, entered_password):
-            session['is_admin'] = True
-            return redirect(url_for('admin_dashboard'))
-        error = "Incorrect password. Please try again."
-    return render_template('admin_login.html', error=error)
-
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('is_admin', None)
-    return redirect(url_for('index'))
-
-@app.route('/admin/change-password', methods=['GET', 'POST'])
-@login_required
-def change_password():
-    message = None
-    error = None
-    if request.method == 'POST':
-        current_password = request.form.get('current_password', '')
-        new_password = request.form.get('new_password', '')
-        confirm_password = request.form.get('confirm_password', '')
-
-        config = AdminConfig.query.first()
-        if not check_password_hash(config.password_hash, current_password):
-            error = "Current password is incorrect."
-        elif len(new_password) < 4:
-            error = "New password must be at least 4 characters long."
-        elif new_password != confirm_password:
-            error = "New passwords do not match."
-        else:
-            config.password_hash = generate_password_hash(new_password)
-            db.session.commit()
-            message = "Password updated successfully!"
-
-    return render_template('change_password.html', message=message, error=error)
-
-@app.route('/admin')
-@login_required
-def admin_dashboard():
-    orders = Order.query.order_by(Order.created_at.desc()).all()
-    items = CraftItem.query.all()
-    categories = Category.query.all()
-    visitor_record = SiteVisitor.query.first()
-
-    total_views = sum(i.views for i in items)
-    total_likes = sum(i.likes for i in items)
-    total_orders = len(orders)
-    total_revenue = sum(o.total_price for o in orders)
-    completed_orders = sum(1 for o in orders if o.status == "Completed")
-    
-    low_stock_items = [i for i in items if i.availability_type == "In Stock" and i.stock_quantity <= 3]
-    out_of_stock_items = [i for i in items if i.availability_type == "In Stock" and i.stock_quantity == 0]
-
-    metrics = {
-        "site_visits": visitor_record.total_visits if visitor_record else 0,
-        "total_views": total_views,
-        "total_likes": total_likes,
-        "total_orders": total_orders,
-        "total_revenue": total_revenue,
-        "completed_orders": completed_orders,
-        "low_stock_count": len(low_stock_items),
-        "out_of_stock_count": len(out_of_stock_items)
-    }
-    return render_template('admin.html', items=items, orders=orders, categories=categories, metrics=metrics)
-
-@app.route('/admin/toggle-featured/<int:item_id>', methods=['POST'])
-@login_required
-def toggle_featured(item_id):
-    item = CraftItem.query.get_or_404(item_id)
-    item.is_featured = not item.is_featured
-    db.session.commit()
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin/toggle-top-seller/<int:item_id>', methods=['POST'])
-@login_required
-def toggle_top_seller(item_id):
-    item = CraftItem.query.get_or_404(item_id)
-    item.is_top_seller = not item.is_top_seller
-    db.session.commit()
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin/add-item', methods=['GET', 'POST'])
-@login_required
-def add_item():
-    categories = Category.query.all()
-    if request.method == 'POST':
-        name = request.form.get('name', '').strip()
-        description = request.form.get('description', '').strip()
-        price = float(request.form.get('price', 0.0))
-        category_name = request.form.get('category_name', 'General')
-        availability_type = request.form.get('availability_type', 'In Stock')
-        stock_quantity = int(request.form.get('stock_quantity', 0)) if availability_type == 'In Stock' else 0
-        is_top_seller = True if request.form.get('is_top_seller') else False
-        is_featured = True if request.form.get('is_featured') else False
-        
-        image_url = "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=500&auto=format&fit=crop"
-        file = request.files.get('image')
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
-            image_url = f"/static/uploads/{filename}"
-
-        new_item = CraftItem(
-            name=name, 
-            description=description, 
-            price=price, 
-            category_name=category_name, 
-            availability_type=availability_type,
-            stock_quantity=stock_quantity,
-            is_top_seller=is_top_seller,
-            is_featured=is_featured,
-            image_url=image_url
+        # Assign Physical Card Number
+        card_num = f"MFH-{random.randint(1, 1000):04d}"
+        new_cust = Customer(
+            name=name,
+            contact=contact,
+            fb_messenger=messenger,
+            pin_hash=generate_password_hash(pin),
+            card_number=card_num,
+            card_status="ACTIVE",
+            card_expires_at=date.today() + timedelta(days=365)
         )
-        db.session.add(new_item)
+        db.session.add(new_cust)
         db.session.commit()
-        return redirect(url_for('admin_dashboard'))
+        session['customer_id'] = new_cust.id
+        return redirect(url_for('customer_dashboard'))
+    return render_template('customer_register.html')
 
-    return render_template('add_item.html', categories=categories)
-
-@app.route('/admin/edit-item/<int:item_id>', methods=['GET', 'POST'])
-@login_required
-def edit_item(item_id):
-    item = CraftItem.query.get_or_404(item_id)
-    categories = Category.query.all()
+@app.route('/portal/login', methods=['GET', 'POST'])
+def customer_login():
     if request.method == 'POST':
-        item.name = request.form.get('name', item.name).strip()
-        item.description = request.form.get('description', item.description).strip()
-        item.price = float(request.form.get('price', item.price))
-        item.category_name = request.form.get('category_name', item.category_name)
-        item.availability_type = request.form.get('availability_type', 'In Stock')
-        item.stock_quantity = int(request.form.get('stock_quantity', 0)) if item.availability_type == 'In Stock' else 0
-        item.is_top_seller = True if request.form.get('is_top_seller') else False
-        item.is_featured = True if request.form.get('is_featured') else False
+        contact = request.form.get('contact').strip()
+        pin = request.form.get('pin').strip()
+        cust = Customer.query.filter_by(contact=contact).first()
+        if cust and check_password_hash(cust.pin_hash, pin):
+            session['customer_id'] = cust.id
+            return redirect(url_for('customer_dashboard'))
+        flash("Invalid Contact or PIN.", "error")
+    return render_template('customer_login.html')
 
-        file = request.files.get('image')
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
-            item.image_url = f"/static/uploads/{filename}"
+@app.route('/portal/dashboard')
+@customer_login_required
+def customer_dashboard():
+    cust = Customer.query.get(session['customer_id'])
+    orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).limit(10).all()
+    ulam_products = Product.query.filter_by(is_ulam=True, is_active=True).all()
+    today_vote = UlamVote.query.filter_by(customer_id=cust.id, vote_date=date.today()).first()
+    return render_template('customer_dashboard.html', cust=cust, orders=orders, ulam_products=ulam_products, today_vote=today_vote)
 
+@app.route('/portal/claim-wifi', methods=['POST'])
+@customer_login_required
+def claim_daily_wifi():
+    cust = Customer.query.get(session['customer_id'])
+    if cust.last_wifi_claim == date.today():
+        flash("Daily 10-minute Free Wi-Fi already claimed today!", "info")
+    else:
+        cust.last_wifi_claim = date.today()
         db.session.commit()
-        return redirect(url_for('admin_dashboard'))
+        flash("Daily 10 Mins Free Wi-Fi activated! Passcode given at cashier.", "success")
+    return redirect(url_for('customer_dashboard'))
 
-    return render_template('edit_item.html', item=item, categories=categories)
+@app.route('/portal/vote-ulam', methods=['POST'])
+@customer_login_required
+def vote_ulam():
+    cust = Customer.query.get(session['customer_id'])
+    prod_id = int(request.form.get('product_id'))
+    existing_vote = UlamVote.query.filter_by(customer_id=cust.id, vote_date=date.today()).first()
 
-@app.route('/admin/duplicate-item/<int:item_id>', methods=['POST'])
-@login_required
-def duplicate_item(item_id):
-    original = CraftItem.query.get_or_404(item_id)
-    duplicated = CraftItem(
-        name=f"{original.name} (Copy)",
-        description=original.description,
-        price=original.price,
-        image_url=original.image_url,
-        category_name=original.category_name,
-        availability_type=original.availability_type,
-        stock_quantity=original.stock_quantity,
-        is_top_seller=original.is_top_seller,
-        is_featured=original.is_featured
-    )
-    db.session.add(duplicated)
-    db.session.commit()
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin/delete-item/<int:item_id>', methods=['POST'])
-@login_required
-def delete_item(item_id):
-    item = CraftItem.query.get_or_404(item_id)
-    db.session.delete(item)
-    db.session.commit()
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/admin/add-category', methods=['POST'])
-@login_required
-def add_category():
-    cat_name = request.form.get('cat_name', '').strip()
-    image_url = "https://images.unsplash.com/photo-1513519245088-0e12902e5a38?w=500&auto=format&fit=crop"
-
-    file = request.files.get('cat_image')
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(file_path)
-        image_url = f"/static/uploads/{filename}"
-
-    if cat_name and not Category.query.filter_by(name=cat_name).first():
-        new_cat = Category(name=cat_name, image_url=image_url)
-        db.session.add(new_cat)
+    if existing_vote:
+        existing_vote.product_id = prod_id
         db.session.commit()
-    return redirect(url_for('admin_dashboard'))
+        flash("Your Ulam vote was updated (No additional points).", "info")
+    else:
+        # First vote grants +3 Rewards points
+        new_vote = UlamVote(customer_id=cust.id, product_id=prod_id, points_awarded=True)
+        cust.points_balance += 3
+        ledger = RewardLedger(customer_id=cust.id, points_change=3, reason="Daily Ulam Vote Reward")
+        db.session.add_all([new_vote, ledger])
+        db.session.commit()
+        flash("Vote cast! +3 Rewards Points added to your account!", "success")
 
-@app.route('/admin/delete-category/<int:cat_id>', methods=['POST'])
-@login_required
-def delete_category(cat_id):
-    category = Category.query.get_or_404(cat_id)
-    items_in_category = CraftItem.query.filter_by(category_name=category.name).all()
-    for item in items_in_category:
-        item.category_name = "General"
-    db.session.delete(category)
-    db.session.commit()
-    return redirect(url_for('admin_dashboard'))
+    return redirect(url_for('customer_dashboard'))
 
-@app.route('/admin/order-status/<int:order_id>', methods=['POST'])
-@login_required
-def update_order_status(order_id):
+# ==================== CASHIER & POS PORTAL ====================
+
+@app.route('/pos/cashier', methods=['GET', 'POST'])
+@role_required('ADMIN', 'CASHIER')
+def cashier_terminal():
+    categories = Category.query.all()
+    products = Product.query.filter_by(is_active=True).all()
+    pending_verification = Order.query.filter_by(status="VERIFICATION").order_by(Order.created_at.asc()).all()
+    ready_orders = Order.query.filter_by(status="READY").order_by(Order.created_at.asc()).all()
+    return render_template('cashier_pos.html', categories=categories, products=products, pending_verification=pending_verification, ready_orders=ready_orders)
+
+@app.route('/pos/verify-order/<int:order_id>', methods=['POST'])
+@role_required('ADMIN', 'CASHIER')
+def verify_order(order_id):
     order = Order.query.get_or_404(order_id)
-    new_status = request.form.get('status')
-    if new_status in ['Pending', 'Ready for Pickup', 'Completed']:
+    action = request.form.get('action') # ACCEPT, REJECT
+
+    if action == 'ACCEPT':
+        # Verify and Reserve Stock
+        for item in order.items:
+            prod = Product.query.get(item.product_id)
+            if prod and prod.stock < item.quantity:
+                flash(f"Insufficient stock for {prod.name} (Only {prod.stock} left).", "error")
+                return redirect(url_for('cashier_terminal'))
+            if prod:
+                prod.stock -= item.quantity
+        
+        order.payment_verified = True
+        order.status = "KITCHEN_QUEUE"
+        db.session.commit()
+        flash(f"Order #{order.id} sent to Kitchen KDS Queue.", "success")
+    else:
+        order.status = "CANCELLED"
+        db.session.commit()
+        flash(f"Order #{order.id} marked UNAVAILABLE / Cancelled.", "info")
+
+    return redirect(url_for('cashier_terminal'))
+
+@app.route('/pos/complete-pickup/<int:order_id>', methods=['POST'])
+@role_required('ADMIN', 'CASHIER')
+def complete_pickup(order_id):
+    order = Order.query.get_or_404(order_id)
+    order.status = "COMPLETED"
+    
+    # Award loyalty rewards if standard purchase (1 point per ₱30)
+    if order.customer_id and order.payment_method != "CREDIT":
+        cust = Customer.query.get(order.customer_id)
+        cust.accumulated_spend += order.total_amount
+        earned_pts = int(order.total_amount // 30)
+        if earned_pts > 0:
+            cust.points_balance += earned_pts
+            ledger = RewardLedger(customer_id=cust.id, points_change=earned_pts, reason=f"Purchase Order #{order.id}")
+            db.session.add(ledger)
+
+    db.session.commit()
+    flash(f"Order #{order.id} marked Completed & Archived.", "success")
+    return redirect(url_for('cashier_terminal'))
+
+# ==================== KITCHEN (KDS) QUEUE ====================
+
+@app.route('/portal/kitchen')
+@role_required('ADMIN', 'KITCHEN')
+def kitchen_queue():
+    active_queue = Order.query.filter(Order.status.in_(['KITCHEN_QUEUE', 'PREPARING'])).order_by(Order.created_at.asc()).all()
+    return render_template('kitchen_kds.html', queue=active_queue)
+
+@app.route('/portal/kitchen/update-status/<int:order_id>', methods=['POST'])
+@role_required('ADMIN', 'KITCHEN')
+def update_kitchen_status(order_id):
+    order = Order.query.get_or_404(order_id)
+    new_status = request.form.get('status') # PREPARING, READY
+    if new_status in ['PREPARING', 'READY']:
         order.status = new_status
         db.session.commit()
-    return redirect(url_for('admin_dashboard'))
+    return redirect(url_for('kitchen_queue'))
 
-# App Startup Initialization & Auto-Migration
+# ==================== RIDER / DELIVERY PORTAL ====================
+
+@app.route('/portal/rider')
+@role_required('ADMIN', 'RIDER')
+def rider_portal():
+    ready_deliveries = Order.query.filter_by(status="READY", order_type="DELIVERY").all()
+    my_deliveries = Order.query.filter_by(status="OUT_FOR_DELIVERY", assigned_rider=session.get('staff_user')).all()
+    return render_template('rider_portal.html', ready_deliveries=ready_deliveries, my_deliveries=my_deliveries)
+
+@app.route('/portal/rider/claim/<int:order_id>', methods=['POST'])
+@role_required('ADMIN', 'RIDER')
+def claim_delivery(order_id):
+    order = Order.query.get_or_404(order_id)
+    order.status = "OUT_FOR_DELIVERY"
+    order.assigned_rider = session.get('staff_user')
+    db.session.commit()
+    return redirect(url_for('rider_portal'))
+
+@app.route('/portal/rider/complete/<int:order_id>', methods=['POST'])
+@role_required('ADMIN', 'RIDER')
+def complete_delivery(order_id):
+    order = Order.query.get_or_404(order_id)
+    order.status = "COMPLETED"
+    
+    # Award loyalty points for completed delivery
+    if order.customer_id and order.payment_method != "CREDIT":
+        cust = Customer.query.get(order.customer_id)
+        earned_pts = int(order.total_amount // 30)
+        if earned_pts > 0:
+            cust.points_balance += earned_pts
+            ledger = RewardLedger(customer_id=cust.id, points_change=earned_pts, reason=f"Delivery Order #{order.id}")
+            db.session.add(ledger)
+            
+    db.session.commit()
+    return redirect(url_for('rider_portal'))
+
+# ==================== INVESTOR & ADMIN REPORTING ====================
+
+@app.route('/portal/investor')
+@role_required('ADMIN', 'INVESTOR')
+def investor_analytics():
+    completed_orders = Order.query.filter_by(status="COMPLETED").all()
+    total_sales = sum(o.total_amount for o in completed_orders)
+    total_orders = len(completed_orders)
+    total_ar = sum(c.outstanding_ar for c in Customer.query.all())
+    inventory_val = sum(p.stock * p.cost for p in Product.query.all())
+    
+    return render_template(
+        'investor_dashboard.html',
+        total_sales=total_sales,
+        total_orders=total_orders,
+        total_ar=total_ar,
+        inventory_val=inventory_val
+    )
+
+# ==================== STAFF AUTHENTICATION ====================
+
+@app.route('/staff/login', methods=['GET', 'POST'])
+def staff_login():
+    if request.method == 'POST':
+        username = request.form.get('username').strip()
+        pin = request.form.get('pin').strip()
+        user = Staff.query.filter_by(username=username, active=True).first()
+        if user and check_password_hash(user.pin_hash, pin):
+            session['staff_user'] = user.username
+            session['staff_role'] = user.role
+            session.permanent = True
+            
+            if user.role in ['ADMIN', 'CASHIER']:
+                return redirect(url_for('cashier_terminal'))
+            elif user.role == 'KITCHEN':
+                return redirect(url_for('kitchen_queue'))
+            elif user.role == 'RIDER':
+                return redirect(url_for('rider_portal'))
+            elif user.role == 'INVESTOR':
+                return redirect(url_for('investor_analytics'))
+        flash("Invalid Staff PIN/Role credentials.", "error")
+    return render_template('staff_login.html')
+
+@app.route('/staff/logout')
+def staff_logout():
+    session.clear()
+    return redirect(url_for('staff_login'))
+
+# Database Initializer & Staff Seeder
 with app.app_context():
     db.create_all()
-
-    # Automatically add new columns if they do not exist
-    with db.engine.connect() as conn:
-        try:
-            conn.execute(text("ALTER TABLE craft_item ADD COLUMN IF NOT EXISTS availability_type VARCHAR(20) DEFAULT 'In Stock';"))
-            conn.execute(text("ALTER TABLE craft_item ADD COLUMN IF NOT EXISTS stock_quantity INTEGER DEFAULT 10;"))
-            conn.execute(text("ALTER TABLE craft_item ADD COLUMN IF NOT EXISTS is_top_seller BOOLEAN DEFAULT FALSE;"))
-            conn.execute(text("ALTER TABLE craft_item ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT FALSE;"))
-            conn.commit()
-        except Exception as e:
-            print("Migration Note:", e)
-
-    if not AdminConfig.query.first():
-        default_admin = AdminConfig(password_hash=generate_password_hash("hederaadmin"))
-        db.session.add(default_admin)
-        db.session.commit()
+    if not SiteMetric.query.first():
+        db.session.add(SiteMetric(store_open=True, visitor_count=0))
+    
+    # Auto-seed Default Operational Roles
+    default_roles = [
+        ('admin', '1234', 'ADMIN'),
+        ('cashier1', '1111', 'CASHIER'),
+        ('kitchen1', '2222', 'KITCHEN'),
+        ('rider1', '3333', 'RIDER'),
+        ('investor1', '8888', 'INVESTOR')
+    ]
+    for user, pin, role in default_roles:
+        if not Staff.query.filter_by(username=user).first():
+            db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))
+    
+    db.session.commit()
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, port=5000)
