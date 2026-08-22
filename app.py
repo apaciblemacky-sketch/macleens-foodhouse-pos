@@ -413,13 +413,15 @@ def staff_logout():
     session.clear()
     return redirect(url_for('staff_login'))
 
-# Database Initializer & Staff Seeder
+# Database Initializer, Staff Seeder & Auto Menu Loader
 with app.app_context():
     db.create_all()
+
+    # 1. Site Metrics
     if not SiteMetric.query.first():
         db.session.add(SiteMetric(store_open=True, visitor_count=0))
     
-    # Auto-seed Default Operational Roles
+    # 2. Staff Accounts
     default_roles = [
         ('admin', '1234', 'ADMIN'),
         ('cashier1', '1111', 'CASHIER'),
@@ -430,7 +432,153 @@ with app.app_context():
     for user, pin, role in default_roles:
         if not Staff.query.filter_by(username=user).first():
             db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))
-    
+
+    # 3. Auto-load 104 Products & Categories if Empty
+    if not Product.query.first():
+        cat_names = [
+            "Daily Specials", "Rice Meals", "Ulam", "Street Food", 
+            "Coffee-Based", "Drinks", "Shake & Dessert", "Softdrinks", "Printing"
+        ]
+        for cname in cat_names:
+            if not Category.query.filter_by(name=cname).first():
+                db.session.add(Category(name=cname))
+        db.session.commit()
+
+        menu_data = [
+            # Printing
+            ("Printing", "Print - Black All Text", 5.0, True, False),
+            ("Printing", "Print - Semi Colored", 7.0, True, False),
+            ("Printing", "Print - Full Colored", 10.0, True, False),
+            ("Printing", "Print - Full Colored HD", 25.0, True, False),
+
+            # Daily Specials
+            ("Daily Specials", "Regular Burger", 35.0, True, False),
+            ("Daily Specials", "Cheese Burger", 40.0, True, False),
+            ("Daily Specials", "Cheesy Fries", 40.0, True, False),
+            ("Daily Specials", "Palabok", 50.0, False, False),
+            ("Daily Specials", "Pancit Canton", 35.0, True, False),
+
+            # Rice Meals
+            ("Rice Meals", "Siomai Rice", 35.0, True, False),
+            ("Rice Meals", "Longsilog", 45.0, True, False),
+            ("Rice Meals", "Hotsilog", 45.0, True, False),
+            ("Rice Meals", "Spamsilog", 45.0, True, False),
+            ("Rice Meals", "Tocilog", 45.0, True, False),
+
+            # Street Food
+            ("Street Food", "Siomai", 20.0, True, False),
+            ("Street Food", "Fishball", 20.0, True, False),
+            ("Street Food", "Cheesestick", 20.0, True, False),
+            ("Street Food", "Squidball", 20.0, True, False),
+            ("Street Food", "Lumpia", 20.0, False, False),
+            ("Street Food", "Kikiam", 20.0, True, False),
+            ("Street Food", "Tempura", 20.0, True, False),
+            ("Street Food", "Fries", 20.0, True, False),
+
+            # Softdrinks
+            ("Softdrinks", "Mt. Dew 12oz", 25.0, True, False),
+            ("Softdrinks", "Coke Small", 15.0, False, False),
+            ("Softdrinks", "Coke 12oz", 25.0, True, False),
+            ("Softdrinks", "Coke 1L", 50.0, True, False),
+            ("Softdrinks", "Royal Small", 15.0, False, False),
+            ("Softdrinks", "Royal 12oz", 25.0, False, False),
+            ("Softdrinks", "Sprite Small", 15.0, True, False),
+            ("Softdrinks", "Sprite 12oz", 25.0, False, False),
+
+            # Drinks
+            ("Drinks", "Lemonade - Blue 12oz", 20.0, False, False),
+            ("Drinks", "Lemonade - Blue 16oz", 30.0, False, False),
+            ("Drinks", "Lemonade - Blue 1L", 50.0, False, False),
+            ("Drinks", "Lemonade - Cucumber 12oz", 20.0, True, False),
+            ("Drinks", "Lemonade - Cucumber 16oz", 30.0, True, False),
+            ("Drinks", "Lemonade - Cucumber 1L", 50.0, True, False),
+            ("Drinks", "Lemonade - Pineapple 12oz", 20.0, True, False),
+            ("Drinks", "Lemonade - Pineapple 16oz", 30.0, True, False),
+            ("Drinks", "Lemonade - Pineapple 1L", 50.0, True, False),
+            ("Drinks", "Fruit Soda - Green Apple 12oz", 40.0, True, False),
+            ("Drinks", "Fruit Soda - Green Apple 16oz", 55.0, True, False),
+            ("Drinks", "Fruit Soda - Strawberry 12oz", 40.0, True, False),
+            ("Drinks", "Fruit Soda - Strawberry 16oz", 55.0, True, False),
+            ("Drinks", "Fruit Soda - Blueberry 12oz", 40.0, True, False),
+            ("Drinks", "Fruit Soda - Blueberry 16oz", 55.0, True, False),
+            ("Drinks", "Fruit Soda - Bubble Gum 12oz", 40.0, True, False),
+            ("Drinks", "Fruit Soda - Bubble Gum 16oz", 55.0, True, False),
+            ("Drinks", "Fruit Soda - Lychee 12oz", 40.0, True, False),
+            ("Drinks", "Fruit Soda - Lychee 16oz", 55.0, True, False),
+
+            # Shake & Dessert
+            ("Shake & Dessert", "Ice Scramble - Pink 12oz", 40.0, True, False),
+            ("Shake & Dessert", "Ice Scramble - Pink 16oz", 55.0, True, False),
+            ("Shake & Dessert", "Ice Scramble - Ube 12oz", 40.0, True, False),
+            ("Shake & Dessert", "Ice Scramble - Ube 16oz", 55.0, True, False),
+            ("Shake & Dessert", "Float - Coke 12oz", 40.0, True, False),
+            ("Shake & Dessert", "Float - Coke 16oz", 55.0, True, False),
+            ("Shake & Dessert", "Float - Milo 12oz", 40.0, True, False),
+            ("Shake & Dessert", "Float - Milo 16oz", 55.0, True, False),
+            ("Shake & Dessert", "Float - Chuckie 12oz", 40.0, True, False),
+            ("Shake & Dessert", "Float - Chuckie 16oz", 55.0, True, False),
+            ("Shake & Dessert", "Float - Dutchmill 12oz", 40.0, True, False),
+            ("Shake & Dessert", "Float - Dutchmill 16oz", 55.0, True, False),
+            ("Shake & Dessert", "Shake - Mango 12oz", 40.0, True, False),
+            ("Shake & Dessert", "Shake - Mango 16oz", 55.0, True, False),
+            ("Shake & Dessert", "Shake - Choco Hot Fudge 12oz", 40.0, False, False),
+            ("Shake & Dessert", "Shake - Choco Hot Fudge 16oz", 55.0, False, False),
+            ("Shake & Dessert", "Shake - Choco Kisses 12oz", 40.0, False, False),
+            ("Shake & Dessert", "Shake - Choco Kisses 16oz", 55.0, False, False),
+
+            # Coffee-Based
+            ("Coffee-Based", "Barako Blend Small", 20.0, True, False),
+            ("Coffee-Based", "Premium Blend Small", 35.0, True, False),
+            ("Coffee-Based", "Macleen's Signature Coffee 12oz", 75.0, False, False),
+            ("Coffee-Based", "Hot Latte Small", 50.0, True, False),
+            ("Coffee-Based", "Hot Latte 12oz", 85.0, False, False),
+            ("Coffee-Based", "Iced Americano 16oz", 55.0, True, False),
+            ("Coffee-Based", "Iced Latte 16oz", 70.0, True, False),
+            ("Coffee-Based", "Iced Mocha 16oz", 75.0, True, False),
+            ("Coffee-Based", "Iced Spanish Latte 16oz", 75.0, True, False),
+            ("Coffee-Based", "Iced Premium Latte 16oz", 105.0, True, False),
+            ("Coffee-Based", "Macleen's Creamshake Float 16oz", 195.0, True, False),
+
+            # Ulam (Registered for Ulam Voting System)
+            ("Ulam", "Laswa", 25.0, False, True),
+            ("Ulam", "Utan (Monggo Sayote Manok)", 25.0, False, True),
+            ("Ulam", "Paksiw Bangus", 40.0, False, True),
+            ("Ulam", "Fried Fish", 30.0, False, True),
+            ("Ulam", "Bangus Tinola", 40.0, False, True),
+            ("Ulam", "Pork Steak", 50.0, False, True),
+            ("Ulam", "Burger Steak", 30.0, False, True),
+            ("Ulam", "BIHON", 25.0, False, True),
+            ("Ulam", "Pancit", 25.0, False, True),
+            ("Ulam", "Bicol Express", 40.0, False, True),
+            ("Ulam", "Pinakbet", 25.0, False, True),
+            ("Ulam", "Hotdog", 15.0, False, True),
+            ("Ulam", "Porkchop", 50.0, False, True),
+            ("Ulam", "Pork Adobo", 50.0, False, True),
+            ("Ulam", "Tambo", 50.0, False, True),
+            ("Ulam", "Torta Talong", 50.0, False, True),
+            ("Ulam", "Chicken Menudo", 50.0, False, True),
+            ("Ulam", "Tilapia w/ Gata", 45.0, False, True),
+            ("Ulam", "Fried Egg - Sunny Side Up", 15.0, False, True),
+            ("Ulam", "Fried Egg - Scrambled", 15.0, False, True),
+            ("Ulam", "Longganisa", 20.0, False, True),
+            ("Ulam", "Utan (Monggo, Kalabasa & Puso w/ Gata)", 25.0, False, True),
+            ("Ulam", "Pagi w/ Gata", 35.0, False, True),
+            ("Ulam", "Pork Nilaga", 40.0, False, True),
+            ("Ulam", "Spam", 20.0, False, True),
+            ("Ulam", "Tocino", 20.0, False, True)
+        ]
+
+        for cat_name, p_name, price, active, is_ulam in menu_data:
+            db.session.add(Product(
+                name=p_name,
+                category_name=cat_name,
+                price=price,
+                stock=100,
+                is_active=active,
+                is_ulam=is_ulam,
+                image_url="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500"
+            ))
+
     db.session.commit()
 
 if __name__ == '__main__':
