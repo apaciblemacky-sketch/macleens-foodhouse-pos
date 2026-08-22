@@ -11,7 +11,6 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-pos-secret-2026')
 
 database_url = os.environ.get('DATABASE_URL')
-database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 
@@ -48,7 +47,7 @@ class Customer(db.Model):
     # Wi-Fi & Cards
     last_wifi_claim = db.Column(db.Date, nullable=True)
     card_number = db.Column(db.String(20), unique=True, nullable=True)
-    card_status = db.Column(db.String(20), default="UNREGISTERED")  # UNREGISTERED, ACTIVE, EXPIRED, LOCKED
+    card_status = db.Column(db.String(20), default="ACTIVE")
     card_expires_at = db.Column(db.Date, nullable=True)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -64,8 +63,8 @@ class Product(db.Model):
     category_name = db.Column(db.String(80), nullable=False)
     price = db.Column(db.Float, nullable=False)
     cost = db.Column(db.Float, default=0.0)
-    stock = db.Column(db.Integer, default=50)
-    is_ulam = db.Column(db.Boolean, default=False)  # Flag for Ulam voting
+    stock = db.Column(db.Integer, default=100)
+    is_ulam = db.Column(db.Boolean, default=False)
     is_featured = db.Column(db.Boolean, default=False)
     is_top_seller = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
@@ -75,11 +74,10 @@ class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     order_type = db.Column(db.String(20), nullable=False)  # PICKUP, DELIVERY, DINE_IN, TABLET
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
-    customer_name = db.Column(db.String(100), nullable=False)
-    contact_number = db.Column(db.String(50), nullable=False)
+    customer_name = db.Column(db.String(100), default='Walk-in Customer')
+    contact_number = db.Column(db.String(50), default='N/A')
     delivery_address = db.Column(db.Text, nullable=True)
     
-    # Financial Calculations
     subtotal = db.Column(db.Float, nullable=False)
     delivery_fee = db.Column(db.Float, default=0.0)
     discount_points_used = db.Column(db.Float, default=0.0)
@@ -87,10 +85,7 @@ class Order(db.Model):
     payment_method = db.Column(db.String(20), nullable=False)  # CASH, GCASH, CREDIT, COD, COP
     payment_verified = db.Column(db.Boolean, default=False)
     
-    # Workflow Status
-    status = db.Column(db.String(30), default="VERIFICATION") 
-    # Workflow: VERIFICATION -> KITCHEN_QUEUE -> PREPARING -> READY -> OUT_FOR_DELIVERY -> COMPLETED / CANCELLED
-    
+    status = db.Column(db.String(30), default="VERIFICATION")
     assigned_rider = db.Column(db.String(80), nullable=True)
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -181,7 +176,6 @@ def customer_register():
             flash("Contact number already registered.", "error")
             return redirect(url_for('customer_register'))
 
-        # Assign Physical Card Number
         card_num = f"MFH-{random.randint(1, 1000):04d}"
         new_cust = Customer(
             name=name,
@@ -241,9 +235,8 @@ def vote_ulam():
     if existing_vote:
         existing_vote.product_id = prod_id
         db.session.commit()
-        flash("Your Ulam vote was updated (No additional points).", "info")
+        flash("Your Ulam vote was updated.", "info")
     else:
-        # First vote grants +3 Rewards points
         new_vote = UlamVote(customer_id=cust.id, product_id=prod_id, points_awarded=True)
         cust.points_balance += 3
         ledger = RewardLedger(customer_id=cust.id, points_change=3, reason="Daily Ulam Vote Reward")
@@ -252,6 +245,69 @@ def vote_ulam():
         flash("Vote cast! +3 Rewards Points added to your account!", "success")
 
     return redirect(url_for('customer_dashboard'))
+
+# ==================== IN-STORE TABLET ORDERING KIOSK ====================
+
+@app.route('/tablet')
+def tablet_kiosk():
+    categories = Category.query.all()
+    products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
+    store_metric = SiteMetric.query.first()
+    is_open = store_metric.store_open if store_metric else True
+    return render_template('tablet.html', categories=categories, products=products, is_open=is_open)
+
+@app.route('/api/tablet-order', methods=['POST'])
+def api_tablet_order():
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    payment_method = data.get('payment_method', 'CASH')
+    customer_id = data.get('customer_id')
+    notes = data.get('notes', 'Tablet Self-Order')
+
+    if not items:
+        return jsonify({'success': False, 'message': 'Cart is empty.'}), 400
+
+    subtotal = 0.0
+    for it in items:
+        prod = Product.query.get(it['product_id'])
+        if prod:
+            subtotal += prod.price * int(it['quantity'])
+
+    new_order = Order(
+        order_type='TABLET',
+        customer_id=customer_id,
+        customer_name='Tablet In-Store Order',
+        contact_number='In-Store',
+        subtotal=subtotal,
+        total_amount=subtotal,
+        payment_method=payment_method,
+        payment_verified=(payment_method == 'CREDIT'),
+        status='VERIFICATION',
+        notes=notes
+    )
+    db.session.add(new_order)
+    db.session.flush()
+
+    for it in items:
+        prod = Product.query.get(it['product_id'])
+        if prod:
+            db.session.add(OrderItem(
+                order_id=new_order.id,
+                product_id=prod.id,
+                product_name=prod.name,
+                unit_price=prod.price,
+                quantity=int(it['quantity'])
+            ))
+            if prod.stock >= int(it['quantity']):
+                prod.stock -= int(it['quantity'])
+
+    if customer_id and payment_method == 'CREDIT':
+        cust = Customer.query.get(customer_id)
+        if cust:
+            cust.outstanding_ar = (cust.outstanding_ar or 0.0) + subtotal
+
+    db.session.commit()
+    return jsonify({'success': True, 'order_id': new_order.id, 'total': subtotal})
 
 # ==================== CASHIER & POS PORTAL ====================
 
@@ -268,14 +324,13 @@ def cashier_terminal():
 @role_required('ADMIN', 'CASHIER')
 def verify_order(order_id):
     order = Order.query.get_or_404(order_id)
-    action = request.form.get('action') # ACCEPT, REJECT
+    action = request.form.get('action')
 
     if action == 'ACCEPT':
-        # Verify and Reserve Stock
         for item in order.items:
             prod = Product.query.get(item.product_id)
             if prod and prod.stock < item.quantity:
-                flash(f"Insufficient stock for {prod.name} (Only {prod.stock} left).", "error")
+                flash(f"Insufficient stock for {prod.name}.", "error")
                 return redirect(url_for('cashier_terminal'))
             if prod:
                 prod.stock -= item.quantity
@@ -287,7 +342,7 @@ def verify_order(order_id):
     else:
         order.status = "CANCELLED"
         db.session.commit()
-        flash(f"Order #{order.id} marked UNAVAILABLE / Cancelled.", "info")
+        flash(f"Order #{order.id} cancelled.", "info")
 
     return redirect(url_for('cashier_terminal'))
 
@@ -297,18 +352,18 @@ def complete_pickup(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "COMPLETED"
     
-    # Award loyalty rewards if standard purchase (1 point per ₱30)
     if order.customer_id and order.payment_method != "CREDIT":
         cust = Customer.query.get(order.customer_id)
-        cust.accumulated_spend += order.total_amount
-        earned_pts = int(order.total_amount // 30)
-        if earned_pts > 0:
-            cust.points_balance += earned_pts
-            ledger = RewardLedger(customer_id=cust.id, points_change=earned_pts, reason=f"Purchase Order #{order.id}")
-            db.session.add(ledger)
+        if cust:
+            cust.accumulated_spend += order.total_amount
+            earned_pts = int(order.total_amount // 30)
+            if earned_pts > 0:
+                cust.points_balance += earned_pts
+                ledger = RewardLedger(customer_id=cust.id, points_change=earned_pts, reason=f"Purchase Order #{order.id}")
+                db.session.add(ledger)
 
     db.session.commit()
-    flash(f"Order #{order.id} marked Completed & Archived.", "success")
+    flash(f"Order #{order.id} marked Completed.", "success")
     return redirect(url_for('cashier_terminal'))
 
 # ==================== KITCHEN (KDS) QUEUE ====================
@@ -323,7 +378,7 @@ def kitchen_queue():
 @role_required('ADMIN', 'KITCHEN')
 def update_kitchen_status(order_id):
     order = Order.query.get_or_404(order_id)
-    new_status = request.form.get('status') # PREPARING, READY
+    new_status = request.form.get('status')
     if new_status in ['PREPARING', 'READY']:
         order.status = new_status
         db.session.commit()
@@ -353,28 +408,28 @@ def complete_delivery(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "COMPLETED"
     
-    # Award loyalty points for completed delivery
     if order.customer_id and order.payment_method != "CREDIT":
         cust = Customer.query.get(order.customer_id)
-        earned_pts = int(order.total_amount // 30)
-        if earned_pts > 0:
-            cust.points_balance += earned_pts
-            ledger = RewardLedger(customer_id=cust.id, points_change=earned_pts, reason=f"Delivery Order #{order.id}")
-            db.session.add(ledger)
+        if cust:
+            earned_pts = int(order.total_amount // 30)
+            if earned_pts > 0:
+                cust.points_balance += earned_pts
+                ledger = RewardLedger(customer_id=cust.id, points_change=earned_pts, reason=f"Delivery Order #{order.id}")
+                db.session.add(ledger)
             
     db.session.commit()
     return redirect(url_for('rider_portal'))
 
-# ==================== INVESTOR & ADMIN REPORTING ====================
+# ==================== INVESTOR & BUSINESS DASHBOARD ====================
 
 @app.route('/portal/investor')
 @role_required('ADMIN', 'INVESTOR')
-def investor_analytics():
+def investor_dashboard():
     completed_orders = Order.query.filter_by(status="COMPLETED").all()
     total_sales = sum(o.total_amount for o in completed_orders)
     total_orders = len(completed_orders)
-    total_ar = sum(c.outstanding_ar for c in Customer.query.all())
-    inventory_val = sum(p.stock * p.cost for p in Product.query.all())
+    total_ar = sum((c.outstanding_ar or 0.0) for c in Customer.query.all())
+    inventory_val = sum((p.stock * p.cost) for p in Product.query.all())
     
     return render_template(
         'investor_dashboard.html',
@@ -383,6 +438,28 @@ def investor_analytics():
         total_ar=total_ar,
         inventory_val=inventory_val
     )
+
+# ==================== MASTER ADMIN DASHBOARD ====================
+
+@app.route('/admin')
+def admin_dashboard():
+    if session.get('staff_role') != 'ADMIN':
+        return redirect(url_for('staff_login'))
+    
+    products = Product.query.order_by(Product.category_name, Product.name).all()
+    categories = Category.query.all()
+    staff_members = Staff.query.all()
+    customers = Customer.query.order_by(Customer.id.desc()).all()
+    total_sales = db.session.query(db.func.sum(Order.total_amount)).filter(Order.status == 'COMPLETED').scalar() or 0.0
+    total_ar = db.session.query(db.func.sum(Customer.outstanding_ar)).scalar() or 0.0
+    
+    return render_template('admin.html', 
+                           products=products, 
+                           categories=categories, 
+                           staff_members=staff_members, 
+                           customers=customers,
+                           total_sales=total_sales,
+                           total_ar=total_ar)
 
 # ==================== STAFF AUTHENTICATION ====================
 
@@ -398,13 +475,12 @@ def staff_login():
             session['staff_user'] = staff.username
             session['staff_role'] = staff.role
             
-            # Send each account to its own dedicated station
             if staff.role == 'ADMIN':
                 return redirect(url_for('admin_dashboard'))
             elif staff.role == 'CASHIER':
-                return redirect(url_for('cashier_pos'))
+                return redirect(url_for('cashier_terminal'))
             elif staff.role == 'KITCHEN':
-                return redirect(url_for('kitchen_kds'))
+                return redirect(url_for('kitchen_queue'))
             elif staff.role == 'RIDER':
                 return redirect(url_for('rider_portal'))
             elif staff.role == 'INVESTOR':
@@ -412,48 +488,6 @@ def staff_login():
         
         flash('Invalid Username or Security PIN.', 'error')
     return render_template('staff_login.html')
-@app.route('/admin')
-def admin_dashboard():
-    if session.get('staff_role') != 'ADMIN':
-        return redirect(url_for('staff_login'))
-    
-    try:
-        products = Product.query.order_by(Product.category_name, Product.name).all()
-    except Exception:
-        products = []
-        
-    try:
-        categories = Category.query.all()
-    except Exception:
-        categories = []
-        
-    try:
-        staff_members = Staff.query.all()
-    except Exception:
-        staff_members = []
-        
-    try:
-        customers = Customer.query.order_by(Customer.id.desc()).all()
-    except Exception:
-        customers = []
-
-    try:
-        total_sales = db.session.query(db.func.sum(Order.total_amount)).filter(Order.status == 'COMPLETED').scalar() or 0.0
-    except Exception:
-        total_sales = 0.0
-
-    try:
-        total_ar = db.session.query(db.func.sum(Customer.ar_balance)).scalar() or 0.0
-    except Exception:
-        total_ar = 0.0
-    
-    return render_template('admin.html', 
-                           products=products, 
-                           categories=categories, 
-                           staff_members=staff_members, 
-                           customers=customers,
-                           total_sales=total_sales,
-                           total_ar=total_ar)
 
 @app.route('/staff/logout')
 def staff_logout():
@@ -461,23 +495,16 @@ def staff_logout():
     flash('Logged out successfully.', 'info')
     return redirect(url_for('staff_login'))
 
-# Database Initializer, Staff Seeder & Auto Menu Loader
+# ==================== INITIALIZER & 104-ITEM AUTO-SEEDER ====================
+
 with app.app_context():
-    # If the schema is outdated, drop and create fresh tables
-    try:
-        # Check if the existing table has the new schema
-        db.session.execute(text("SELECT order_type FROM \"order\" LIMIT 1;"))
-    except Exception:
-        db.session.rollback()
-        # Drop mismatched legacy tables so full POS schema builds cleanly
-        db.drop_all()
-        db.create_all()
+    db.create_all()
     
     # 1. Site Metrics
     if not SiteMetric.query.first():
         db.session.add(SiteMetric(store_open=True, visitor_count=0))
     
-    # 2. Staff Accounts
+    # 2. Staff Roles
     default_roles = [
         ('admin', '1234', 'ADMIN'),
         ('cashier1', '1111', 'CASHIER'),
@@ -488,8 +515,8 @@ with app.app_context():
     for user, pin, role in default_roles:
         if not Staff.query.filter_by(username=user).first():
             db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))
-
-    # 3. Auto-load 104 Products & Categories
+    
+    # 3. 104 Menu Products & Categories
     if not Product.query.first():
         cat_names = [
             "Daily Specials", "Rice Meals", "Ulam", "Street Food", 
@@ -636,3 +663,6 @@ with app.app_context():
             ))
 
     db.session.commit()
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
