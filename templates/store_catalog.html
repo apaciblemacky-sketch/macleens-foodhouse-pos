@@ -27,15 +27,10 @@
     .container { max-width: 1100px; margin: 0 auto; padding: 12px; }
     .section-title { font-size: 1rem; font-weight: 900; color: var(--hk-dark); margin: 16px 0 10px; display: flex; justify-content: space-between; align-items: center; }
 
-    /* Single-Row Horizontal Carousel */
+    /* Single-Row Horizontal Carousel at the Top */
     .carousel-track { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
     .carousel-track::-webkit-scrollbar { display: none; }
     .carousel-card { min-width: 155px; max-width: 155px; background: white; border: 2px solid var(--hk-pink); border-radius: 12px; padding: 10px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 6px rgba(255,105,180,0.1); }
-
-    /* Multi-Row Bottom Grid for Overflowing Highlights */
-    .highlight-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 20px; }
-    @media(min-width:768px){ .highlight-grid { grid-template-columns: repeat(4, 1fr); gap: 12px; } }
-    @media(min-width:1024px){ .highlight-grid { grid-template-columns: repeat(5, 1fr); gap: 14px; } }
 
     .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
     @media(min-width:768px){ .cat-grid { grid-template-columns: repeat(6, 1fr); gap: 12px; } }
@@ -92,8 +87,8 @@
 
   <div class="container">
     
-    <!-- TOP PLACEMENT: Displays at the top only when ≤ 5 items -->
-    {% if featured and featured|length <= 5 %}
+    <!-- TOP CAROUSEL: Featured Specials -->
+    {% if featured %}
     <div class="section-title">✨ Chef's Featured Specials</div>
     <div class="carousel-track">
       {% for f in featured %}
@@ -111,7 +106,8 @@
     </div>
     {% endif %}
 
-    {% if top_sellers and top_sellers|length <= 5 %}
+    <!-- TOP CAROUSEL: Best Sellers -->
+    {% if top_sellers %}
     <div class="section-title">🔥 Best Sellers</div>
     <div class="carousel-track">
       {% for b in top_sellers %}
@@ -129,7 +125,7 @@
     </div>
     {% endif %}
 
-    <!-- CATEGORY BAR -->
+    <!-- CATEGORY FILTER BAR -->
     <div class="section-title">📂 Menu Categories</div>
     <div class="cat-grid">
       <div class="cat-card active" onclick="showCategory('ALL', this)">ALL MENU</div>
@@ -169,49 +165,6 @@
       </div>
       {% endfor %}
     </div>
-
-    <!-- BOTTOM PLACEMENT: Automatically transferred to bottom when > 5 items -->
-    {% if featured and featured|length > 5 %}
-    <div class="section-title" style="margin-top:30px; border-top:2px dashed var(--hk-border); padding-top:16px;">✨ Chef's Featured Highlights (Full Showcase)</div>
-    <div class="highlight-grid">
-      {% for f in featured %}
-      <div class="product-card" style="border:2px solid var(--hk-pink);">
-        <div>
-          {% if f.image_url %}
-            <img src="{{ f.image_url }}" referrerpolicy="no-referrer" loading="eager" class="p-img">
-          {% else %}
-            <div class="p-img" style="display:flex; justify-content:center; align-items:center; font-size:2rem;">✨</div>
-          {% endif %}
-          <span style="font-size:0.65rem; font-weight:bold; color:var(--hk-pink); background:#fdf2f8; padding:2px 6px; border-radius:10px;">FEATURED</span>
-          <div class="p-title">{{ f.name }}</div>
-          <div class="p-price">₱{{ "{:,.2f}".format(f.price) }}</div>
-        </div>
-        <button class="btn-add" onclick="addToCart({{ f.id }}, '{{ f.name }}', {{ f.price }})">+ Add to Basket</button>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if top_sellers and top_sellers|length > 5 %}
-    <div class="section-title" style="margin-top:20px; border-top:2px dashed #fed7aa; padding-top:16px; color:#c2410c;">🔥 All-Time Best Sellers</div>
-    <div class="highlight-grid">
-      {% for b in top_sellers %}
-      <div class="product-card" style="border:2px solid #f97316;">
-        <div>
-          {% if b.image_url %}
-            <img src="{{ b.image_url }}" referrerpolicy="no-referrer" loading="eager" class="p-img">
-          {% else %}
-            <div class="p-img" style="display:flex; justify-content:center; align-items:center; font-size:2rem;">🔥</div>
-          {% endif %}
-          <span style="font-size:0.65rem; font-weight:bold; color:#ea580c; background:#fff7ed; padding:2px 6px; border-radius:10px;">POPULAR</span>
-          <div class="p-title">{{ b.name }}</div>
-          <div class="p-price" style="color:#ea580c;">₱{{ "{:,.2f}".format(b.price) }}</div>
-        </div>
-        <button class="btn-add" style="background:#ea580c;" onclick="addToCart({{ b.id }}, '{{ b.name }}', {{ b.price }})">+ Add to Basket</button>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
 
   </div>
 
