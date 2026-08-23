@@ -1,10 +1,10 @@
 import os
 import random
+import string
 from datetime import datetime, date, timedelta
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import text
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -23,6 +23,7 @@ db = SQLAlchemy(app)
 # ==================== DATA MODELS ====================
 
 class Staff(db.Model):
+    __tablename__ = 'staff'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     pin_hash = db.Column(db.String(255), nullable=False)
@@ -30,34 +31,34 @@ class Staff(db.Model):
     active = db.Column(db.Boolean, default=True)
 
 class Customer(db.Model):
+    __tablename__ = 'customer'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     contact = db.Column(db.String(30), unique=True, nullable=False)
     fb_messenger = db.Column(db.String(120), nullable=True)
     pin_hash = db.Column(db.String(255), nullable=False)
     
-    # Financials & Loyalty
     points_balance = db.Column(db.Float, default=0.0)
-    wallet_balance = db.Column(db.Float, default=0.0)
     is_credit_eligible = db.Column(db.Boolean, default=False)
     credit_limit = db.Column(db.Float, default=0.0)
     outstanding_ar = db.Column(db.Float, default=0.0)
     accumulated_spend = db.Column(db.Float, default=0.0)
     
-    # Wi-Fi & Cards
-    last_wifi_claim = db.Column(db.Date, nullable=True)
     card_number = db.Column(db.String(20), unique=True, nullable=True)
     card_status = db.Column(db.String(20), default="ACTIVE")
     card_expires_at = db.Column(db.Date, nullable=True)
+    last_wifi_claim = db.Column(db.Date, nullable=True)
+    wifi_voucher_code = db.Column(db.String(20), nullable=True)
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Category(db.Model):
+    __tablename__ = 'category'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(80), unique=True, nullable=False)
-    image_url = db.Column(db.String(255), default="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500")
 
 class Product(db.Model):
+    __tablename__ = 'product'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     category_name = db.Column(db.String(80), nullable=False)
@@ -68,11 +69,11 @@ class Product(db.Model):
     is_featured = db.Column(db.Boolean, default=False)
     is_top_seller = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
-    image_url = db.Column(db.String(255), default="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500")
 
 class Order(db.Model):
+    __tablename__ = 'order'
     id = db.Column(db.Integer, primary_key=True)
-    order_type = db.Column(db.String(20), nullable=False)  # PICKUP, DELIVERY, DINE_IN, TABLET
+    order_type = db.Column(db.String(20), nullable=False)  # DINE_IN, PICKUP, DELIVERY, TABLET
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
     customer_name = db.Column(db.String(100), default='Walk-in Customer')
     contact_number = db.Column(db.String(50), default='N/A')
@@ -90,18 +91,21 @@ class Order(db.Model):
     notes = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
+    customer = db.relationship('Customer', backref='orders', lazy=True)
     items = db.relationship('OrderItem', backref='order_rel', cascade="all, delete-orphan", lazy=True)
 
 class OrderItem(db.Model):
+    __tablename__ = 'order_item'
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
     product_name = db.Column(db.String(120), nullable=False)
     unit_price = db.Column(db.Float, nullable=False)
     quantity = db.Column(db.Integer, nullable=False)
-    item_notes = db.Column(db.String(200), nullable=True)
+    subtotal = db.Column(db.Float, nullable=False)
 
 class UlamVote(db.Model):
+    __tablename__ = 'ulam_vote'
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
@@ -109,6 +113,7 @@ class UlamVote(db.Model):
     points_awarded = db.Column(db.Boolean, default=False)
 
 class RewardLedger(db.Model):
+    __tablename__ = 'reward_ledger'
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     points_change = db.Column(db.Float, nullable=False)
@@ -116,18 +121,19 @@ class RewardLedger(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class SiteMetric(db.Model):
+    __tablename__ = 'site_metric'
     id = db.Column(db.Integer, primary_key=True)
     store_open = db.Column(db.Boolean, default=True)
     visitor_count = db.Column(db.Integer, default=0)
 
-# ==================== AUTH DECORATORS ====================
+# ==================== ACCESS GUARDS ====================
 
 def role_required(*roles):
     def decorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if 'staff_role' not in session or session['staff_role'] not in roles:
-                flash("Unauthorized access.", "error")
+                flash("Unauthorized access. Please login.", "error")
                 return redirect(url_for('staff_login'))
             return f(*args, **kwargs)
         return decorated_function
@@ -141,7 +147,7 @@ def customer_login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# ==================== PUBLIC & CUSTOMER PORTALS ====================
+# ==================== PUBLIC STOREFRONT & CUSTOMER PORTAL ====================
 
 @app.route('/')
 def store_catalog():
@@ -167,16 +173,16 @@ def store_catalog():
 @app.route('/portal/register', methods=['GET', 'POST'])
 def customer_register():
     if request.method == 'POST':
-        name = request.form.get('name').strip()
-        contact = request.form.get('contact').strip()
+        name = request.form.get('name', '').strip()
+        contact = request.form.get('contact', '').strip()
         messenger = request.form.get('fb_messenger', '').strip()
-        pin = request.form.get('pin').strip()
+        pin = request.form.get('pin', '').strip()
 
         if Customer.query.filter_by(contact=contact).first():
-            flash("Contact number already registered.", "error")
+            flash("Contact number is already registered.", "error")
             return redirect(url_for('customer_register'))
 
-        card_num = f"MFH-{random.randint(1, 1000):04d}"
+        card_num = f"MFH-{random.randint(1, 100):04d}"
         new_cust = Customer(
             name=name,
             contact=contact,
@@ -195,13 +201,13 @@ def customer_register():
 @app.route('/portal/login', methods=['GET', 'POST'])
 def customer_login():
     if request.method == 'POST':
-        contact = request.form.get('contact').strip()
-        pin = request.form.get('pin').strip()
+        contact = request.form.get('contact', '').strip()
+        pin = request.form.get('pin', '').strip()
         cust = Customer.query.filter_by(contact=contact).first()
         if cust and check_password_hash(cust.pin_hash, pin):
             session['customer_id'] = cust.id
             return redirect(url_for('customer_dashboard'))
-        flash("Invalid Contact or PIN.", "error")
+        flash("Invalid Mobile Number or Security PIN.", "error")
     return render_template('customer_login.html')
 
 @app.route('/portal/dashboard')
@@ -218,11 +224,13 @@ def customer_dashboard():
 def claim_daily_wifi():
     cust = Customer.query.get(session['customer_id'])
     if cust.last_wifi_claim == date.today():
-        flash("Daily 10-minute Free Wi-Fi already claimed today!", "info")
+        flash(f"Daily Wi-Fi voucher already claimed today: {cust.wifi_voucher_code}", "info")
     else:
+        voucher = "MFH-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         cust.last_wifi_claim = date.today()
+        cust.wifi_voucher_code = voucher
         db.session.commit()
-        flash("Daily 10 Mins Free Wi-Fi activated! Passcode given at cashier.", "success")
+        flash(f"Daily 10-Minute Free Wi-Fi Activated! Passcode: {voucher}", "success")
     return redirect(url_for('customer_dashboard'))
 
 @app.route('/portal/vote-ulam', methods=['POST'])
@@ -235,18 +243,17 @@ def vote_ulam():
     if existing_vote:
         existing_vote.product_id = prod_id
         db.session.commit()
-        flash("Your Ulam vote was updated.", "info")
+        flash("Your Ulam vote has been updated.", "info")
     else:
         new_vote = UlamVote(customer_id=cust.id, product_id=prod_id, points_awarded=True)
         cust.points_balance += 3
-        ledger = RewardLedger(customer_id=cust.id, points_change=3, reason="Daily Ulam Vote Reward")
+        ledger = RewardLedger(customer_id=cust.id, points_change=3, reason="Daily Ulam Vote Reward (+3 pts)")
         db.session.add_all([new_vote, ledger])
         db.session.commit()
-        flash("Vote cast! +3 Rewards Points added to your account!", "success")
-
+        flash("Vote recorded! +3 Rewards Points awarded to your account!", "success")
     return redirect(url_for('customer_dashboard'))
 
-# ==================== IN-STORE TABLET ORDERING KIOSK ====================
+# ==================== TABLET IN-STORE KIOSK & MEMBER LOOKUP ====================
 
 @app.route('/tablet')
 def tablet_kiosk():
@@ -256,13 +263,30 @@ def tablet_kiosk():
     is_open = store_metric.store_open if store_metric else True
     return render_template('tablet.html', categories=categories, products=products, is_open=is_open)
 
+@app.route('/api/member-lookup', methods=['POST'])
+def api_member_lookup():
+    data = request.get_json() or {}
+    ident = data.get('identifier', '').strip()
+    pin = data.get('pin', '').strip()
+    
+    cust = Customer.query.filter((Customer.contact == ident) | (Customer.card_number == ident)).first()
+    if cust and check_password_hash(cust.pin_hash, pin):
+        return jsonify({
+            'success': True,
+            'customer_id': cust.id,
+            'name': cust.name,
+            'points': cust.points_balance,
+            'is_credit_eligible': cust.is_credit_eligible,
+            'available_credit': max(0.0, cust.credit_limit - (cust.outstanding_ar or 0.0))
+        })
+    return jsonify({'success': False, 'message': 'Invalid Card/Mobile or PIN.'}), 401
+
 @app.route('/api/tablet-order', methods=['POST'])
 def api_tablet_order():
     data = request.get_json() or {}
     items = data.get('items', [])
-    payment_method = data.get('payment_method', 'CASH')
+    payment_method = data.get('payment_method', 'CASH').upper()
     customer_id = data.get('customer_id')
-    notes = data.get('notes', 'Tablet Self-Order')
 
     if not items:
         return jsonify({'success': False, 'message': 'Cart is empty.'}), 400
@@ -273,45 +297,52 @@ def api_tablet_order():
         if prod:
             subtotal += prod.price * int(it['quantity'])
 
-    new_order = Order(
+    if payment_method == 'CREDIT':
+        if not customer_id:
+            return jsonify({'success': False, 'message': 'Member Login required to charge Credit.'}), 400
+        cust = Customer.query.get(customer_id)
+        if not cust or not cust.is_credit_eligible:
+            return jsonify({'success': False, 'message': 'Customer not authorized for A/R Credit.'}), 400
+        remaining_credit = cust.credit_limit - (cust.outstanding_ar or 0.0)
+        if subtotal > remaining_credit:
+            return jsonify({'success': False, 'message': f'Credit limit exceeded. Available: ₱{remaining_credit:,.2f}'}), 400
+        cust.outstanding_ar = (cust.outstanding_ar or 0.0) + subtotal
+
+    order = Order(
         order_type='TABLET',
         customer_id=customer_id,
-        customer_name='Tablet In-Store Order',
-        contact_number='In-Store',
+        customer_name='In-Store Tablet Order',
+        contact_number='Counter Service',
         subtotal=subtotal,
         total_amount=subtotal,
         payment_method=payment_method,
         payment_verified=(payment_method == 'CREDIT'),
         status='VERIFICATION',
-        notes=notes
+        notes='Tablet Self-Order'
     )
-    db.session.add(new_order)
+    db.session.add(order)
     db.session.flush()
 
     for it in items:
         prod = Product.query.get(it['product_id'])
         if prod:
             db.session.add(OrderItem(
-                order_id=new_order.id,
+                order_id=order.id,
                 product_id=prod.id,
                 product_name=prod.name,
                 unit_price=prod.price,
-                quantity=int(it['quantity'])
+                quantity=int(it['quantity']),
+                subtotal=prod.price * int(it['quantity'])
             ))
             if prod.stock >= int(it['quantity']):
                 prod.stock -= int(it['quantity'])
 
-    if customer_id and payment_method == 'CREDIT':
-        cust = Customer.query.get(customer_id)
-        if cust:
-            cust.outstanding_ar = (cust.outstanding_ar or 0.0) + subtotal
-
     db.session.commit()
-    return jsonify({'success': True, 'order_id': new_order.id, 'total': subtotal})
+    return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})
 
-# ==================== CASHIER & POS PORTAL ====================
+# ==================== CASHIER POS TERMINAL ====================
 
-@app.route('/pos/cashier', methods=['GET', 'POST'])
+@app.route('/pos/cashier')
 @role_required('ADMIN', 'CASHIER')
 def cashier_terminal():
     categories = Category.query.all()
@@ -327,19 +358,15 @@ def verify_order(order_id):
     action = request.form.get('action')
 
     if action == 'ACCEPT':
-        for item in order.items:
-            prod = Product.query.get(item.product_id)
-            if prod and prod.stock < item.quantity:
-                flash(f"Insufficient stock for {prod.name}.", "error")
-                return redirect(url_for('cashier_terminal'))
-            if prod:
-                prod.stock -= item.quantity
-        
         order.payment_verified = True
         order.status = "KITCHEN_QUEUE"
         db.session.commit()
-        flash(f"Order #{order.id} sent to Kitchen KDS Queue.", "success")
+        flash(f"Order #{order.id} verified and queued for Kitchen.", "success")
     else:
+        for item in order.items:
+            prod = Product.query.get(item.product_id)
+            if prod:
+                prod.stock += item.quantity
         order.status = "CANCELLED"
         db.session.commit()
         flash(f"Order #{order.id} cancelled.", "info")
@@ -351,7 +378,7 @@ def verify_order(order_id):
 def complete_pickup(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "COMPLETED"
-    
+
     if order.customer_id and order.payment_method != "CREDIT":
         cust = Customer.query.get(order.customer_id)
         if cust:
@@ -359,11 +386,14 @@ def complete_pickup(order_id):
             earned_pts = int(order.total_amount // 30)
             if earned_pts > 0:
                 cust.points_balance += earned_pts
-                ledger = RewardLedger(customer_id=cust.id, points_change=earned_pts, reason=f"Purchase Order #{order.id}")
-                db.session.add(ledger)
+                db.session.add(RewardLedger(
+                    customer_id=cust.id,
+                    points_change=earned_pts,
+                    reason=f"Completed Purchase Order #{order.id}"
+                ))
 
     db.session.commit()
-    flash(f"Order #{order.id} marked Completed.", "success")
+    flash(f"Order #{order.id} marked Completed & Archived.", "success")
     return redirect(url_for('cashier_terminal'))
 
 # ==================== KITCHEN (KDS) QUEUE ====================
@@ -371,8 +401,8 @@ def complete_pickup(order_id):
 @app.route('/portal/kitchen')
 @role_required('ADMIN', 'KITCHEN')
 def kitchen_queue():
-    active_queue = Order.query.filter(Order.status.in_(['KITCHEN_QUEUE', 'PREPARING'])).order_by(Order.created_at.asc()).all()
-    return render_template('kitchen_kds.html', queue=active_queue)
+    queue = Order.query.filter(Order.status.in_(['KITCHEN_QUEUE', 'PREPARING'])).order_by(Order.created_at.asc()).all()
+    return render_template('kitchen_kds.html', queue=queue)
 
 @app.route('/portal/kitchen/update-status/<int:order_id>', methods=['POST'])
 @role_required('ADMIN', 'KITCHEN')
@@ -407,16 +437,19 @@ def claim_delivery(order_id):
 def complete_delivery(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "COMPLETED"
-    
+
     if order.customer_id and order.payment_method != "CREDIT":
         cust = Customer.query.get(order.customer_id)
         if cust:
             earned_pts = int(order.total_amount // 30)
             if earned_pts > 0:
                 cust.points_balance += earned_pts
-                ledger = RewardLedger(customer_id=cust.id, points_change=earned_pts, reason=f"Delivery Order #{order.id}")
-                db.session.add(ledger)
-            
+                db.session.add(RewardLedger(
+                    customer_id=cust.id,
+                    points_change=earned_pts,
+                    reason=f"Delivered Order #{order.id}"
+                ))
+
     db.session.commit()
     return redirect(url_for('rider_portal'))
 
@@ -495,16 +528,14 @@ def staff_logout():
     flash('Logged out successfully.', 'info')
     return redirect(url_for('staff_login'))
 
-# ==================== INITIALIZER & 104-ITEM AUTO-SEEDER ====================
+# ==================== INITIALIZER & 104-ITEM AUTO SEEDER ====================
 
 with app.app_context():
     db.create_all()
     
-    # 1. Site Metrics
     if not SiteMetric.query.first():
         db.session.add(SiteMetric(store_open=True, visitor_count=0))
     
-    # 2. Staff Roles
     default_roles = [
         ('admin', '1234', 'ADMIN'),
         ('cashier1', '1111', 'CASHIER'),
@@ -516,7 +547,6 @@ with app.app_context():
         if not Staff.query.filter_by(username=user).first():
             db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))
     
-    # 3. 104 Menu Products & Categories
     if not Product.query.first():
         cat_names = [
             "Daily Specials", "Rice Meals", "Ulam", "Street Food", 
@@ -528,27 +558,23 @@ with app.app_context():
         db.session.commit()
 
         menu_data = [
-            # Printing
             ("Printing", "Print - Black All Text", 5.0, True, False),
             ("Printing", "Print - Semi Colored", 7.0, True, False),
             ("Printing", "Print - Full Colored", 10.0, True, False),
             ("Printing", "Print - Full Colored HD", 25.0, True, False),
 
-            # Daily Specials
             ("Daily Specials", "Regular Burger", 35.0, True, False),
             ("Daily Specials", "Cheese Burger", 40.0, True, False),
             ("Daily Specials", "Cheesy Fries", 40.0, True, False),
             ("Daily Specials", "Palabok", 50.0, False, False),
             ("Daily Specials", "Pancit Canton", 35.0, True, False),
 
-            # Rice Meals
             ("Rice Meals", "Siomai Rice", 35.0, True, False),
             ("Rice Meals", "Longsilog", 45.0, True, False),
             ("Rice Meals", "Hotsilog", 45.0, True, False),
             ("Rice Meals", "Spamsilog", 45.0, True, False),
             ("Rice Meals", "Tocilog", 45.0, True, False),
 
-            # Street Food
             ("Street Food", "Siomai", 20.0, True, False),
             ("Street Food", "Fishball", 20.0, True, False),
             ("Street Food", "Cheesestick", 20.0, True, False),
@@ -558,7 +584,6 @@ with app.app_context():
             ("Street Food", "Tempura", 20.0, True, False),
             ("Street Food", "Fries", 20.0, True, False),
 
-            # Softdrinks
             ("Softdrinks", "Mt. Dew 12oz", 25.0, True, False),
             ("Softdrinks", "Coke Small", 15.0, False, False),
             ("Softdrinks", "Coke 12oz", 25.0, True, False),
@@ -568,7 +593,6 @@ with app.app_context():
             ("Softdrinks", "Sprite Small", 15.0, True, False),
             ("Softdrinks", "Sprite 12oz", 25.0, False, False),
 
-            # Drinks
             ("Drinks", "Lemonade - Blue 12oz", 20.0, False, False),
             ("Drinks", "Lemonade - Blue 16oz", 30.0, False, False),
             ("Drinks", "Lemonade - Blue 1L", 50.0, False, False),
@@ -589,7 +613,6 @@ with app.app_context():
             ("Drinks", "Fruit Soda - Lychee 12oz", 40.0, True, False),
             ("Drinks", "Fruit Soda - Lychee 16oz", 55.0, True, False),
 
-            # Shake & Dessert
             ("Shake & Dessert", "Ice Scramble - Pink 12oz", 40.0, True, False),
             ("Shake & Dessert", "Ice Scramble - Pink 16oz", 55.0, True, False),
             ("Shake & Dessert", "Ice Scramble - Ube 12oz", 40.0, True, False),
@@ -609,7 +632,6 @@ with app.app_context():
             ("Shake & Dessert", "Shake - Choco Kisses 12oz", 40.0, False, False),
             ("Shake & Dessert", "Shake - Choco Kisses 16oz", 55.0, False, False),
 
-            # Coffee-Based
             ("Coffee-Based", "Barako Blend Small", 20.0, True, False),
             ("Coffee-Based", "Premium Blend Small", 35.0, True, False),
             ("Coffee-Based", "Macleen's Signature Coffee 12oz", 75.0, False, False),
@@ -622,7 +644,6 @@ with app.app_context():
             ("Coffee-Based", "Iced Premium Latte 16oz", 105.0, True, False),
             ("Coffee-Based", "Macleen's Creamshake Float 16oz", 195.0, True, False),
 
-            # Ulam (Registered for Ulam Voting System)
             ("Ulam", "Laswa", 25.0, False, True),
             ("Ulam", "Utan (Monggo Sayote Manok)", 25.0, False, True),
             ("Ulam", "Paksiw Bangus", 40.0, False, True),
@@ -658,8 +679,7 @@ with app.app_context():
                 price=price,
                 stock=100,
                 is_active=active,
-                is_ulam=is_ulam,
-                image_url="https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500"
+                is_ulam=is_ulam
             ))
 
     db.session.commit()
