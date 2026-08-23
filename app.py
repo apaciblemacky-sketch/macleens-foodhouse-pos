@@ -10,7 +10,7 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-hk-pos-2026')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-multi-station-pos-2026')
 
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
@@ -18,8 +18,6 @@ if database_url and database_url.startswith("postgres://"):
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///foodhouse_pos.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Permanent Session: 10 Years (No Auto-Logout)
 app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=3650)
 
@@ -76,6 +74,7 @@ class Product(db.Model):
     price = db.Column(db.Float, nullable=False)
     cost = db.Column(db.Float, default=0.0)
     stock = db.Column(db.Integer, default=100)
+    image_url = db.Column(db.Text, nullable=True)
     is_featured = db.Column(db.Boolean, default=False)
     is_top_seller = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
@@ -155,25 +154,46 @@ class SiteVisitor(db.Model):
     ip_address = db.Column(db.String(50), unique=True, nullable=False)
     visited_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# ==================== HELPERS ====================
+# ==================== INDEPENDENT GUARDS ====================
 
 def get_client_ip():
     if request.headers.get('X-Forwarded-For'):
         return request.headers.get('X-Forwarded-For').split(',')[0].strip()
     return request.remote_addr or '127.0.0.1'
 
-def role_required(*roles):
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if 'staff_role' not in session or session['staff_role'] not in roles:
-                flash("Unauthorized access. Please log in.", "error")
-                return redirect(url_for('staff_login'))
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
+def require_admin(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('admin_user'):
+            return redirect(url_for('staff_login', target='admin'))
+        return f(*args, **kwargs)
+    return decorated
 
-# ==================== STOREFRONT & API ====================
+def require_cashier(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not (session.get('cashier_user') or session.get('admin_user')):
+            return redirect(url_for('staff_login', target='cashier'))
+        return f(*args, **kwargs)
+    return decorated
+
+def require_kitchen(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not (session.get('kitchen_user') or session.get('admin_user')):
+            return redirect(url_for('staff_login', target='kitchen'))
+        return f(*args, **kwargs)
+    return decorated
+
+def require_rider(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not (session.get('rider_user') or session.get('admin_user')):
+            return redirect(url_for('staff_login', target='rider'))
+        return f(*args, **kwargs)
+    return decorated
+
+# ==================== STOREFRONT ====================
 
 @app.route('/')
 def store_catalog():
@@ -306,7 +326,7 @@ def api_storefront_checkout():
     db.session.commit()
     return jsonify({'success': True, 'order_id': order.id, 'total': total})
 
-# ==================== TABLET & CASHIER TERMINALS ====================
+# ==================== TABLET KIOSK ====================
 
 @app.route('/tablet')
 def tablet_kiosk():
@@ -314,8 +334,10 @@ def tablet_kiosk():
     products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
     return render_template('tablet.html', categories=categories, products=products)
 
+# ==================== CASHIER POS ====================
+
 @app.route('/pos/cashier')
-@role_required('ADMIN', 'CASHIER')
+@require_cashier
 def cashier_terminal():
     categories = Category.query.all()
     products = Product.query.filter_by(is_active=True).all()
@@ -328,7 +350,7 @@ def cashier_terminal():
                            riders=riders, today_wifi_claims=today_wifi_claims)
 
 @app.route('/pos/verify/<int:order_id>', methods=['POST'])
-@role_required('ADMIN', 'CASHIER')
+@require_cashier
 def verify_order(order_id):
     order = Order.query.get_or_404(order_id)
     action = request.form.get('action')
@@ -353,7 +375,7 @@ def verify_order(order_id):
     return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/complete/<int:order_id>', methods=['POST'])
-@role_required('ADMIN', 'CASHIER')
+@require_cashier
 def complete_order(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "COMPLETED"
@@ -374,13 +396,13 @@ def complete_order(order_id):
 # ==================== KITCHEN QUEUE ====================
 
 @app.route('/portal/kitchen')
-@role_required('ADMIN', 'KITCHEN')
+@require_kitchen
 def kitchen_queue():
     queue = Order.query.filter(Order.status.in_(['KITCHEN_QUEUE', 'PREPARING'])).order_by(Order.created_at.asc()).all()
     return render_template('kitchen_kds.html', queue=queue)
 
 @app.route('/portal/kitchen/status/<int:order_id>', methods=['POST'])
-@role_required('ADMIN', 'KITCHEN')
+@require_kitchen
 def update_kitchen_status(order_id):
     order = Order.query.get_or_404(order_id)
     new_status = request.form.get('status')
@@ -392,23 +414,24 @@ def update_kitchen_status(order_id):
 # ==================== RIDER HUB ====================
 
 @app.route('/portal/rider')
-@role_required('ADMIN', 'RIDER')
+@require_rider
 def rider_portal():
     ready_deliveries = Order.query.filter_by(status="READY", order_type="DELIVERY").all()
-    my_deliveries = Order.query.filter_by(status="OUT_FOR_DELIVERY", assigned_rider=session.get('staff_user')).all()
+    current_rider = session.get('rider_user')
+    my_deliveries = Order.query.filter_by(status="OUT_FOR_DELIVERY", assigned_rider=current_rider).all()
     return render_template('rider_portal.html', ready_deliveries=ready_deliveries, my_deliveries=my_deliveries)
 
 @app.route('/portal/rider/claim/<int:order_id>', methods=['POST'])
-@role_required('ADMIN', 'RIDER')
+@require_rider
 def claim_delivery(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "OUT_FOR_DELIVERY"
-    order.assigned_rider = session.get('staff_user')
+    order.assigned_rider = session.get('rider_user')
     db.session.commit()
     return redirect(url_for('rider_portal'))
 
 @app.route('/portal/rider/complete/<int:order_id>', methods=['POST'])
-@role_required('ADMIN', 'RIDER')
+@require_rider
 def complete_delivery(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "COMPLETED"
@@ -425,7 +448,7 @@ def complete_delivery(order_id):
 # ==================== MASTER ADMIN & ACCOUNTING ====================
 
 @app.route('/admin')
-@role_required('ADMIN')
+@require_admin
 def admin_dashboard():
     products = Product.query.order_by(Product.total_likes.desc()).all()
     categories = Category.query.all()
@@ -453,7 +476,7 @@ def admin_dashboard():
                            total_ar=total_ar)
 
 @app.route('/portal/accounting')
-@role_required('ADMIN')
+@require_admin
 def accounting_portal():
     today = date.today()
     week_ago = datetime.utcnow() - timedelta(days=7)
@@ -478,44 +501,23 @@ def accounting_portal():
                            w_rev=w_rev, w_cost=w_cost, w_profit=w_profit,
                            m_rev=m_rev, m_cost=m_cost, m_profit=m_profit)
 
-@app.route('/admin/change-password', methods=['POST'])
-def change_password():
-    new_pin = request.form.get('new_pin', '').strip()
-    if not new_pin:
-        flash("Password / PIN cannot be empty.", "error")
-        return redirect(request.referrer or url_for('staff_login'))
-
-    if 'staff_id' in session:
-        st = Staff.query.get(session['staff_id'])
-        if st:
-            st.pin_hash = generate_password_hash(new_pin)
-            db.session.commit()
-            flash("Staff PIN successfully updated.", "success")
-    elif 'customer_id' in session:
-        cust = Customer.query.get(session['customer_id'])
-        if cust:
-            cust.pin_hash = generate_password_hash(new_pin)
-            db.session.commit()
-            flash("Security PIN updated.", "success")
-
-    return redirect(request.referrer or url_for('store_catalog'))
-
 @app.route('/admin/add-product', methods=['POST'])
-@role_required('ADMIN')
+@require_admin
 def admin_add_product():
     name = request.form.get('name')
     category_name = request.form.get('category_name')
     price = float(request.form.get('price') or 0.0)
     cost = float(request.form.get('cost') or 0.0)
     stock = int(request.form.get('stock') or 100)
+    image_url = request.form.get('image_url', '').strip()
     
-    db.session.add(Product(name=name, category_name=category_name, price=price, cost=cost, stock=stock))
+    db.session.add(Product(name=name, category_name=category_name, price=price, cost=cost, stock=stock, image_url=image_url))
     db.session.commit()
     flash(f"Product '{name}' added successfully.", "success")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/batch-update-products', methods=['POST'])
-@role_required('ADMIN')
+@require_admin
 def admin_batch_update_products():
     for pid in request.form.getlist('product_id'):
         prod = Product.query.get(pid)
@@ -523,6 +525,7 @@ def admin_batch_update_products():
             prod.price = float(request.form.get(f'price_{pid}') or prod.price)
             prod.cost = float(request.form.get(f'cost_{pid}') or prod.cost)
             prod.stock = int(request.form.get(f'stock_{pid}') or prod.stock)
+            prod.image_url = request.form.get(f'image_url_{pid}', '').strip()
             prod.is_active = (f'is_active_{pid}' in request.form)
             prod.is_featured = (f'is_featured_{pid}' in request.form)
             prod.is_top_seller = (f'is_top_seller_{pid}' in request.form)
@@ -531,7 +534,7 @@ def admin_batch_update_products():
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/add-rider', methods=['POST'])
-@role_required('ADMIN')
+@require_admin
 def admin_add_rider():
     user = request.form.get('username', '').strip()
     pin = request.form.get('pin', '').strip()
@@ -544,6 +547,31 @@ def admin_add_rider():
         db.session.commit()
         flash(f"Rider {user} created.", "success")
     return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/change-password', methods=['POST'])
+def change_password():
+    new_pin = request.form.get('new_pin', '').strip()
+    if not new_pin:
+        flash("Password / PIN cannot be empty.", "error")
+        return redirect(request.referrer or url_for('staff_login'))
+
+    for role_key in ['admin_id', 'cashier_id', 'kitchen_id', 'rider_id']:
+        if role_key in session:
+            st = Staff.query.get(session[role_key])
+            if st:
+                st.pin_hash = generate_password_hash(new_pin)
+                db.session.commit()
+                flash("Staff PIN successfully updated.", "success")
+                return redirect(request.referrer or url_for('admin_dashboard'))
+
+    if 'customer_id' in session:
+        cust = Customer.query.get(session['customer_id'])
+        if cust:
+            cust.pin_hash = generate_password_hash(new_pin)
+            db.session.commit()
+            flash("Security PIN updated.", "success")
+
+    return redirect(request.referrer or url_for('store_catalog'))
 
 # ==================== CUSTOMER PORTAL ====================
 
@@ -587,7 +615,7 @@ def customer_dashboard():
         return redirect(url_for('customer_login'))
     cust = Customer.query.get(session['customer_id'])
     orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).limit(10).all()
-    return render_template('customer_dashboard.html', cust=cust, orders=orders)
+    return render_template('customer_dashboard.html', cust=cust, orders=orders, today=date.today())
 
 @app.route('/portal/update-profile-pic', methods=['POST'])
 def update_profile_pic():
@@ -618,31 +646,52 @@ def claim_daily_wifi():
         flash(f"Claimed 10-Mins Free Wi-Fi! Passcode: {voucher}", "success")
     return redirect(url_for('customer_dashboard'))
 
+# ==================== INDEPENDENT STAFF LOGIN ====================
+
 @app.route('/staff/login', methods=['GET', 'POST'])
 def staff_login():
+    target = request.args.get('target', '').lower()
     if request.method == 'POST':
-        user = request.form.get('username')
-        pin = request.form.get('pin')
+        user = request.form.get('username', '').strip()
+        pin = request.form.get('pin', '').strip()
         staff = Staff.query.filter_by(username=user).first()
         if staff and check_password_hash(staff.pin_hash, pin):
-            session['staff_id'] = staff.id
-            session['staff_user'] = staff.username
-            session['staff_role'] = staff.role
-            
-            if staff.role == 'ADMIN': return redirect(url_for('admin_dashboard'))
-            if staff.role == 'CASHIER': return redirect(url_for('cashier_terminal'))
-            if staff.role == 'KITCHEN': return redirect(url_for('kitchen_queue'))
-            if staff.role == 'RIDER': return redirect(url_for('rider_portal'))
-        flash('Invalid Credentials.', 'error')
-    return render_template('staff_login.html')
+            if staff.role == 'ADMIN':
+                session['admin_id'] = staff.id
+                session['admin_user'] = staff.username
+                return redirect(url_for('admin_dashboard'))
+            elif staff.role == 'CASHIER':
+                session['cashier_id'] = staff.id
+                session['cashier_user'] = staff.username
+                return redirect(url_for('cashier_terminal'))
+            elif staff.role == 'KITCHEN':
+                session['kitchen_id'] = staff.id
+                session['kitchen_user'] = staff.username
+                return redirect(url_for('kitchen_queue'))
+            elif staff.role == 'RIDER':
+                session['rider_id'] = staff.id
+                session['rider_user'] = staff.username
+                return redirect(url_for('rider_portal'))
+        flash('Invalid Username or PIN.', 'error')
+    return render_template('staff_login.html', target=target)
 
 @app.route('/staff/logout')
 def staff_logout():
-    session.clear()
+    role = request.args.get('role')
+    if role == 'admin':
+        session.pop('admin_id', None); session.pop('admin_user', None)
+    elif role == 'cashier':
+        session.pop('cashier_id', None); session.pop('cashier_user', None)
+    elif role == 'kitchen':
+        session.pop('kitchen_id', None); session.pop('kitchen_user', None)
+    elif role == 'rider':
+        session.pop('rider_id', None); session.pop('rider_user', None)
+    else:
+        session.clear()
     flash('Logged out.', 'info')
     return redirect(url_for('staff_login'))
 
-# ==================== SEEDER ====================
+# ==================== INITIAL SEEDER ====================
 
 with app.app_context():
     db.create_all()
