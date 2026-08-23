@@ -64,9 +64,10 @@
       <strong style="color:var(--hk-pink);">🖥️ CASHIER TERMINAL</strong>
       <span id="liveStatusBadge" style="background:#16a34a; color:white; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold;">LIVE (1s)</span>
     </div>
-    <div style="display:flex; gap:8px;">
-      <a href="/portal/accounting" style="background:#334155; color:white; padding:4px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Ledger</a>
-      <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:4px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Logout Cashier</a>
+    <div style="display:flex; gap:8px; align-items:center;">
+      <button onclick="openSettingsModal()" style="background:#ec4899; color:white; border:none; padding:5px 12px; border-radius:4px; font-size:0.8rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
+      <a href="/portal/accounting" style="background:#334155; color:white; padding:5px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Ledger</a>
+      <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Logout Cashier</a>
     </div>
   </header>
 
@@ -135,7 +136,10 @@
         {% endfor %}
       </div>
     </div>
-<!-- Today's Free Wi-Fi Claim Logs -->
+
+    <!-- Right Panels -->
+    <div class="pickup-panel">
+      <!-- Today's Free Wi-Fi Claim Logs -->
       <div style="background:#1e293b; border:1px solid #3b82f6; border-radius:6px; padding:8px; margin-bottom:12px;">
         <h3 style="font-size:0.82rem; color:#60a5fa; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
           <span>📶 Today's Free Wi-Fi Claims</span>
@@ -153,8 +157,7 @@
           {% endif %}
         </div>
       </div>
-    <!-- Right Panels -->
-    <div class="pickup-panel">
+
       <h3 style="font-size:0.88rem; color:#38bdf8; margin-bottom:8px;">🛵 Out For Delivery ({{ out_for_delivery|length }})</h3>
       {% for od in out_for_delivery %}
       <div style="background:#334155; padding:8px; border-radius:6px; margin-bottom:6px; font-size:0.78rem;">
@@ -178,10 +181,64 @@
     </div>
   </div>
 
+  <!-- Settings & Password Modal Popup -->
+  <div id="settingsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999; justify-content:center; align-items:center;">
+    <div style="background:#1e293b; color:white; border:2px solid #ec4899; border-radius:12px; width:90%; max-width:480px; padding:20px; box-shadow:0 10px 25px rgba(0,0,0,0.5);">
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #334155; padding-bottom:10px; margin-bottom:15px;">
+        <h3 style="color:#f472b6; margin:0; font-size:1.1rem;">⚙️ Store Settings & Password</h3>
+        <button onclick="closeSettingsModal()" style="background:none; border:none; color:#94a3b8; font-size:1.4rem; cursor:pointer;">✕</button>
+      </div>
+
+      <!-- Store & Delivery Schedule Form -->
+      <form action="/admin/settings/hours" method="POST" style="margin-bottom:20px;">
+        <h4 style="color:#fbcfe8; font-size:0.9rem; margin-bottom:8px;">⏰ Operating Hours</h4>
+        <div style="display:flex; gap:10px; margin-bottom:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#94a3b8;">Store Open / Close</label>
+            <div style="display:flex; gap:4px;">
+              <input type="time" name="store_open_time" value="{{ status.settings.store_open_time if status else '08:00' }}" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:4px 6px; border-radius:4px; font-size:0.8rem;" required>
+              <input type="time" name="store_close_time" value="{{ status.settings.store_close_time if status else '19:00' }}" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:4px 6px; border-radius:4px; font-size:0.8rem;" required>
+            </div>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#94a3b8;">Delivery Open / Close</label>
+            <div style="display:flex; gap:4px;">
+              <input type="time" name="delivery_open_time" value="{{ status.settings.delivery_open_time if status else '09:00' }}" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:4px 6px; border-radius:4px; font-size:0.8rem;" required>
+              <input type="time" name="delivery_close_time" value="{{ status.settings.delivery_close_time if status else '17:00' }}" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:4px 6px; border-radius:4px; font-size:0.8rem;" required>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; gap:15px; margin-bottom:10px; font-size:0.8rem;">
+          <label><input type="checkbox" name="is_store_open" {% if not status or status.settings.is_store_open == 'true' %}checked{% endif %}> Store Online</label>
+          <label><input type="checkbox" name="is_delivery_enabled" {% if not status or status.settings.is_delivery_enabled == 'true' %}checked{% endif %}> Delivery Online</label>
+        </div>
+        <button type="submit" style="background:#ec4899; color:white; border:none; padding:7px 12px; border-radius:6px; font-weight:bold; font-size:0.8rem; cursor:pointer; width:100%;">Save Schedule</button>
+      </form>
+
+      <!-- Change Staff / Admin Password Form -->
+      <form action="/auth/change-password" method="POST">
+        <h4 style="color:#fbcfe8; font-size:0.9rem; margin-bottom:8px;">🔒 Change Account Password</h4>
+        <input type="password" name="old_password" placeholder="Current PIN / Password" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:6px; border-radius:4px; font-size:0.8rem; margin-bottom:6px;" required>
+        <div style="display:flex; gap:6px; margin-bottom:10px;">
+          <input type="password" name="new_password" minlength="4" placeholder="New Password" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:6px; border-radius:4px; font-size:0.8rem;" required>
+          <input type="password" name="confirm_password" minlength="4" placeholder="Confirm" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:6px; border-radius:4px; font-size:0.8rem;" required>
+        </div>
+        <button type="submit" style="background:#334155; color:white; border:1px solid #64748b; padding:7px 12px; border-radius:6px; font-weight:bold; font-size:0.8rem; cursor:pointer; width:100%;">Update Password</button>
+      </form>
+    </div>
+  </div>
+
   <!-- Thermal Print Slip -->
   <div id="thermalReceipt" style="display:none;"></div>
 
   <script>
+    function openSettingsModal() {
+      document.getElementById('settingsModal').style.display = 'flex';
+    }
+    function closeSettingsModal() {
+      document.getElementById('settingsModal').style.display = 'none';
+    }
+
     function filterCat(cat, btn) {
       document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
