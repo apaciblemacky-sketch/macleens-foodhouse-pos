@@ -760,15 +760,39 @@ def customer_register():
             flash("Contact number already registered.", "error")
             return redirect(url_for('customer_register'))
 
+        # Check total existing customer count
+        total_registered_cust = Customer.query.count()
+        starting_bonus_points = 5.0 if total_registered_cust < 11 else 0.0
+
         new_cust = Customer(
-            name=name, email=email, contact=contact, fb_messenger=messenger, 
-            default_address=address, default_landmark=landmark,
+            name=name,
+            email=email,
+            contact=contact,
+            fb_messenger=messenger,
+            default_address=address,
+            default_landmark=landmark,
+            points_balance=starting_bonus_points,
             pin_hash=generate_password_hash(pin),
-            card_number=f"MFH-{random.randint(1, 100):04d}", card_expires_at=date.today() + timedelta(days=365)
+            card_number=f"MFH-{random.randint(1, 100):04d}",
+            card_expires_at=date.today() + timedelta(days=365)
         )
         db.session.add(new_cust)
+        db.session.flush()
+
+        # Record the ledger entry for the first 11 registrants
+        if starting_bonus_points > 0:
+            db.session.add(RewardLedger(
+                customer_id=new_cust.id,
+                points_change=5.0,
+                reason="Early Bird Launch Bonus (First 11 Registrants)"
+            ))
+
         db.session.commit()
         session['customer_id'] = new_cust.id
+
+        if starting_bonus_points > 0:
+            flash("🎉 Congratulations! You are one of the first 11 registrants and earned 5 BONUS points!", "success")
+            
         return redirect(url_for('customer_dashboard'))
     return render_template('customer_register.html')
 
