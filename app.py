@@ -764,7 +764,13 @@ def customer_register():
 def customer_dashboard():
     if 'customer_id' not in session:
         return redirect(url_for('customer_login'))
+    
     cust = Customer.query.get(session['customer_id'])
+    if not cust:
+        session.pop('customer_id', None)
+        flash("Account session expired. Please log in again.", "info")
+        return redirect(url_for('customer_login'))
+    
     my_orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).all()
     return render_template('customer_dashboard.html', cust=cust, orders=my_orders, today=date.today())
 

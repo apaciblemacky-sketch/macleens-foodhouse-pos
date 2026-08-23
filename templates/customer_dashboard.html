@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Customer Dashboard — Macleen's</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#ff69b4">
   <style>
     :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-border: #fbcfe8; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -29,11 +31,11 @@
     </div>
 
     <h2 style="color:var(--hk-dark);">{{ cust.name }}</h2>
-    <div style="font-size:0.85rem; color:#64748b;">Member Card: <strong>{{ cust.card_number }}</strong></div>
+    <div style="font-size:0.85rem; color:#64748b;">Member Card: <strong>{{ cust.card_number or 'MFH-0001' }}</strong></div>
 
     <div style="background:#fdf2f8; padding:12px; border-radius:10px; border:1px solid #fce7f3; margin:16px 0;">
       <div style="font-size:0.75rem; color:#64748b; font-weight:bold;">REWARD POINTS</div>
-      <div style="font-size:1.6rem; font-weight:900; color:var(--hk-pink);">{{ cust.points_balance|int }}</div>
+      <div style="font-size:1.6rem; font-weight:900; color:var(--hk-pink);">{{ (cust.points_balance or 0.0)|int }}</div>
       <div style="font-size:0.75rem; color:#94a3b8;">Earn 1 Point for every ₱30 spend on purchases</div>
     </div>
 
@@ -48,7 +50,10 @@
 
   <!-- Live Order Tracking -->
   <div class="card">
-    <h3 style="color:var(--hk-dark); font-size:1rem; margin-bottom:12px;">📦 Order Live Monitoring</h3>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h3 style="color:var(--hk-dark); font-size:1rem;">📦 Order Live Monitoring</h3>
+      <a href="/" style="font-size:0.8rem; color:var(--hk-pink); text-decoration:none; font-weight:bold;">+ Order More</a>
+    </div>
     
     {% for o in orders %}
     <div class="order-box">
@@ -57,10 +62,9 @@
         <span class="status-badge" style="background:#fce7f3; color:var(--hk-dark);">{{ o.status }}</span>
       </div>
       <div style="font-size:0.8rem; color:#64748b; margin-bottom:6px;">
-        Total: <strong>₱{{ "{:,.2f}".format(o.total_amount) }}</strong> | {{ o.created_at.strftime('%b %d, %I:%M %p') }}
+        Total: <strong>₱{{ "{:,.2f}".format(o.total_amount) }}</strong> | {{ o.created_at.strftime('%b %d, %I:%M %p') if o.created_at else '' }}
       </div>
 
-      <!-- Two-way Confirmation Action -->
       {% if o.status == 'OUT_FOR_DELIVERY' and not o.customer_delivered %}
         <form action="/portal/confirm-received/{{ o.id }}" method="POST" style="margin-top:6px;">
           <button type="submit" class="btn" style="background:#16a34a; padding:6px; font-size:0.8rem;">✓ I Have Received My Order</button>
@@ -83,6 +87,7 @@
       <input type="url" name="profile_image" placeholder="https://..." required style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; margin:4px 0 8px;">
       <button type="submit" class="btn" style="padding:8px;">Save Photo URL</button>
     </form>
+    <a href="/staff/logout" style="display:block; text-align:center; font-size:0.8rem; color:#ef4444; margin-top:8px; text-decoration:none;">Log Out Account</a>
   </div>
 
 </body>
