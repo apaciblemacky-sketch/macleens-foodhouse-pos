@@ -117,29 +117,31 @@
   </div>
 
   <!-- Customer A/R Credit Eligibility Manager -->
+  <!-- Customer A/R Credit & PIN Reset Manager -->
   <div class="card">
-    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:1rem;">👥 Registered Customer Credit Approvals</h3>
-    <div style="max-height: 250px; overflow-y: auto;">
+    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:1rem;">👥 Registered Customer Management & PIN Reset</h3>
+    <div style="max-height: 320px; overflow-y: auto;">
       <table>
         <thead>
           <tr>
             <th>Name</th>
             <th>Contact / Email</th>
-            <th>Default Address & Landmark</th>
-            <th>A/R Credit Authorized?</th>
+            <th>Address & Landmark</th>
+            <th>Credit Active?</th>
             <th>Credit Limit</th>
-            <th>Action</th>
+            <th>Toggle Credit</th>
+            <th>Reset PIN</th>
           </tr>
         </thead>
         <tbody>
           {% for c in customers %}
           <tr>
-            <td><strong>{{ c.name }}</strong></td>
+            <td><strong>{{ c.name }}</strong><br><span style="font-size:0.7rem; color:#64748b;">Card: {{ c.card_number }}</span></td>
             <td>{{ c.contact }}<br><span style="font-size:0.75rem; color:#64748b;">{{ c.email or 'No email' }}</span></td>
-            <td>{{ c.default_address or '—' }} ({{ c.default_landmark or '—' }})</td>
+            <td>{{ c.default_address or '—' }}<br><span style="font-size:0.7rem; color:#94a3b8;">🚩 {{ c.default_landmark or '—' }}</span></td>
             <td>
               {% if c.is_credit_eligible %}
-                <span style="color:#16a34a; font-weight:bold;">✓ Yes (Active)</span>
+                <span style="color:#16a34a; font-weight:bold;">✓ Yes</span>
               {% else %}
                 <span style="color:#94a3b8;">✕ No</span>
               {% endif %}
@@ -147,8 +149,14 @@
             <td>₱{{ "{:,.2f}".format(c.credit_limit or 0.0) }}</td>
             <td>
               <form action="/admin/toggle-credit/{{ c.id }}" method="POST" style="display:flex; gap:4px;">
-                <input type="number" name="credit_limit" value="{{ c.credit_limit or 1000 }}" placeholder="Limit" style="width:70px; padding:2px; font-size:0.75rem;">
-                <button type="submit" class="btn btn-pink" style="padding:2px 6px; font-size:0.75rem;">Toggle Credit</button>
+                <input type="number" name="credit_limit" value="{{ c.credit_limit or 1000 }}" placeholder="Limit" style="width:65px; padding:2px; font-size:0.75rem;">
+                <button type="submit" class="btn btn-pink" style="padding:2px 6px; font-size:0.75rem;">Set</button>
+              </form>
+            </td>
+            <td>
+              <form action="/admin/reset-customer-pin/{{ c.id }}" method="POST" style="display:flex; gap:4px;">
+                <input type="password" name="new_pin" placeholder="New PIN" required style="width:70px; padding:2px; font-size:0.75rem;">
+                <button type="submit" class="btn btn-dark" style="padding:2px 6px; font-size:0.75rem; background:#334155;">Reset</button>
               </form>
             </td>
           </tr>

@@ -719,6 +719,18 @@ def admin_manage_delivery_zones():
     flash("Delivery zones updated.", "success")
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/reset-customer-pin/<int:cust_id>', methods=['POST'])
+@require_admin
+def admin_reset_customer_pin(cust_id):
+    cust = Customer.query.get_or_404(cust_id)
+    new_pin = request.form.get('new_pin', '').strip()
+    if not new_pin or len(new_pin) < 4:
+        flash("PIN must be at least 4 digits.", "error")
+    else:
+        cust.pin_hash = generate_password_hash(new_pin)
+        db.session.commit()
+        flash(f"PIN for customer '{cust.name}' reset to {new_pin}.", "success")
+    return redirect(url_for('admin_dashboard'))
 # ==================== CUSTOMER PORTAL ====================
 
 @app.route('/portal/login', methods=['GET', 'POST'])
