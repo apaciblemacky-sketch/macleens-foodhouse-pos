@@ -3,20 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Macleen's Cashier POS & Dispatch</title>
+  <title>Macleen's Cashier POS</title>
   <style>
     :root { --hk-pink: #ff69b4; --hk-dark: #831843; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: #0f172a; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
     header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
-    .pos-layout { display: grid; grid-template-columns: 370px 1fr 320px; flex: 1; height: calc(100vh - 45px); }
+    .pos-layout { display: grid; grid-template-columns: 370px 1fr 340px; flex: 1; height: calc(100vh - 45px); }
 
-    /* Left Queue */
     .queue-panel { background: #1e293b; border-right: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .ticket-card { background: #334155; border-radius: 8px; padding: 10px; margin-bottom: 10px; border-left: 4px solid var(--hk-pink); font-size: 0.85rem; }
 
-    /* Middle Dish Catalog */
     .catalog-panel { background: #0f172a; padding: 10px; display: flex; flex-direction: column; overflow-y: auto; }
     .cat-bar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; flex-shrink: 0; }
     .cat-btn { background: #334155; color: white; border: none; padding: 10px 14px; border-radius: 6px; font-weight: 800; font-size: 0.78rem; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
@@ -25,15 +23,14 @@
     .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(115px, 1fr)); gap: 8px; }
     .dish-tile { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px; height: 85px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; }
 
-    /* Right Pickups & Claims */
     .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
 
-    /* Thermal Print Sheet */
+    /* Clean ESC/POS Thermal Print Stylesheet */
     @media print {
-      body * { visibility: hidden; }
-      #thermalPrintArea, #thermalPrintArea * { visibility: visible; }
-      #thermalPrintArea { position: absolute; left: 0; top: 0; width: 58mm; color: black; background: white; font-family: monospace; font-size: 11px; padding: 5px; }
+      body * { visibility: hidden !important; }
+      #thermalReceipt, #thermalReceipt * { visibility: visible !important; }
+      #thermalReceipt { position: absolute; left: 0; top: 0; width: 58mm; color: black !important; background: white !important; font-family: monospace !important; font-size: 11px !important; padding: 5px !important; }
     }
   </style>
 </head>
@@ -42,7 +39,7 @@
   <header>
     <div>
       <strong style="color:var(--hk-pink);">🖥️ CASHIER TERMINAL</strong>
-      <span style="font-size:0.75rem; color:#94a3b8; margin-left:8px;">Live Verification Queue</span>
+      <span style="font-size:0.75rem; color:#94a3b8; margin-left:8px;">Live Dispatch & Verification Queue</span>
     </div>
     <div style="display:flex; gap:8px;">
       <a href="/portal/accounting" style="background:#334155; color:white; padding:4px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Ledger</a>
@@ -55,7 +52,7 @@
     <div class="queue-panel">
       <h3 style="font-size:0.9rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
       {% for o in pending_orders %}
-      <div class="ticket-card" id="order-card-{{ o.id }}">
+      <div class="ticket-card">
         <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;">
           <span>#{{ o.id }} ({{ o.order_type }})</span>
           <span style="color:var(--hk-pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</span>
@@ -64,6 +61,7 @@
           👤 {{ o.customer_name }} | 📞 {{ o.contact_number }}<br>
           {% if o.fb_messenger %}💬 FB: {{ o.fb_messenger }}<br>{% endif %}
           💳 {{ o.payment_method }}{% if o.gcash_ref %} (Ref: {{ o.gcash_ref }}){% endif %}<br>
+          {% if o.landmark %}🚩 Landmark: <strong>{{ o.landmark }}</strong><br>{% endif %}
           📝 Notes: <strong>{{ o.notes }}</strong>
         </div>
 
@@ -73,8 +71,8 @@
           {% endfor %}
         </div>
 
-        <div style="display:flex; gap:4px; margin-bottom:6px;">
-          <button onclick="printThermal({{ o.id }}, '{{ o.customer_name }}', '{{ o.order_type }}', {{ o.total_amount }}, '{{ o.payment_method }}')" style="background:#64748b; color:white; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer; width:100%;">🖨️ Print Receipt Slip</button>
+        <div style="margin-bottom:6px;">
+          <button onclick="printOrderThermal({{ o.id }}, '{{ o.customer_name }}', '{{ o.order_type }}', {{ o.total_amount }}, '{{ o.payment_method }}')" style="background:#64748b; color:white; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer; width:100%;">🖨️ Print Slip</button>
         </div>
 
         <form action="/pos/verify/{{ o.id }}" method="POST">
@@ -115,31 +113,33 @@
       </div>
     </div>
 
-    <!-- Ready for Pickup & Wi-Fi Claims -->
+    <!-- Out For Delivery & Ready Pickups -->
     <div class="pickup-panel">
-      <h3 style="font-size:0.9rem; color:#4ade80; margin-bottom:8px;">🛍️ Ready For Pickup ({{ ready_orders|length }})</h3>
+      <h3 style="font-size:0.88rem; color:#38bdf8; margin-bottom:8px;">🛵 Out For Delivery ({{ out_for_delivery|length }})</h3>
+      {% for od in out_for_delivery %}
+      <div style="background:#334155; padding:8px; border-radius:6px; margin-bottom:6px; font-size:0.78rem;">
+        <div><strong>#{{ od.id }}</strong> — {{ od.customer_name }}</div>
+        <div style="color:#94a3b8;">Rider: {{ od.assigned_rider }}</div>
+        <form action="/pos/confirm-delivery/{{ od.id }}" method="POST" style="margin-top:4px;">
+          <button class="btn-act" style="background:#16a34a; color:white; width:100%; font-size:0.72rem;">✓ Confirm Delivery (Cashier Override)</button>
+        </form>
+      </div>
+      {% endfor %}
+
+      <h3 style="font-size:0.88rem; color:#4ade80; margin:14px 0 6px;">🛍️ Ready For Pickup ({{ ready_orders|length }})</h3>
       {% for ro in ready_orders %}
-      <div style="background:#334155; padding:8px; border-radius:6px; margin-bottom:6px; font-size:0.8rem;">
+      <div style="background:#334155; padding:8px; border-radius:6px; margin-bottom:6px; font-size:0.78rem;">
         <div><strong>#{{ ro.id }}</strong> — {{ ro.customer_name }}</div>
-        <div style="color:#94a3b8;">Total: ₱{{ "{:,.2f}".format(ro.total_amount) }}</div>
         <form action="/pos/complete/{{ ro.id }}" method="POST" style="margin-top:4px;">
           <button class="btn-act" style="background:#3b82f6; color:white; width:100%;">COMPLETE</button>
         </form>
       </div>
       {% endfor %}
-
-      <h3 style="font-size:0.9rem; color:#0284c7; margin:16px 0 8px;">📶 Today's Wi-Fi Claims ({{ today_wifi_claims|length }})</h3>
-      {% for w in today_wifi_claims %}
-      <div style="background:#334155; padding:6px; border-radius:4px; margin-bottom:4px; font-size:0.75rem;">
-        <strong>{{ w.name }}</strong> ({{ w.contact }})<br>
-        <span style="color:#38bdf8;">Code: {{ w.wifi_voucher_code }}</span>
-      </div>
-      {% endfor %}
     </div>
   </div>
 
-  <!-- Thermal Print Slip Container -->
-  <div id="thermalPrintArea" style="display:none;"></div>
+  <!-- Print Sheet Container -->
+  <div id="thermalReceipt" style="display:none;"></div>
 
   <script>
     function filterCat(cat, btn) {
@@ -150,43 +150,26 @@
       });
     }
 
-    // Thermal Printer Trigger
-    function printThermal(orderId, name, type, total, pay) {
-      const area = document.getElementById('thermalPrintArea');
+    function printOrderThermal(orderId, name, type, total, pay) {
+      const area = document.getElementById('thermalReceipt');
+      area.style.display = 'block';
       area.innerHTML = `
         <div style="text-align:center;">
           <strong>MACLEEN'S FOOD HOUSE</strong><br>
           San Teodoro, Oriental Mindoro<br>
-          --------------------------------<br>
+          ================================<br>
           ORDER #${orderId} (${type})<br>
           Customer: ${name}<br>
           Payment: ${pay}<br>
-          --------------------------------<br>
+          ================================<br>
           TOTAL: PHP ${total.toFixed(2)}<br>
-          --------------------------------<br>
+          ================================<br>
           Thank you for ordering!<br>
-          Wifi Voucher: Claim on Portal<br>
         </div>
       `;
       window.print();
+      area.style.display = 'none';
     }
-
-    // Audio chime on pending orders
-    const count = {{ pending_orders|length }};
-    if (count > 0) {
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-        osc.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.2);
-      } catch(e) {}
-    }
-
-    // Auto-refresh every 3s
-    setTimeout(() => { window.location.reload(); }, 3000);
   </script>
 </body>
 </html>

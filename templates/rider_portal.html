@@ -3,49 +3,79 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Macleen's Food House - Rider Portal</title>
+  <title>Macleen's Rider Dispatch Hub</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
-    body { background: #f0fdf4; padding: 1.5rem 1rem; }
-    .container { max-width: 800px; margin: 0 auto; }
-    .card { background: white; border: 1px solid #bbf7d0; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
-    .btn { padding: 8px 16px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; color: white; }
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #0f172a; color: white; padding: 1rem; }
+    .header { display: flex; justify-content: space-between; align-items: center; background: #1e293b; padding: 10px 16px; border-radius: 8px; margin-bottom: 1rem; }
+    .card { background: #1e293b; border-radius: 8px; padding: 12px; margin-bottom: 1rem; }
+    .btn { padding: 8px 14px; border-radius: 6px; font-weight: bold; border: none; cursor: pointer; }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-      <h2>🛵 Rider Delivery Hub</h2>
-      <a href="/staff/logout" style="color: #166534; font-weight: bold;">Log Out</a>
+
+  <div class="header">
+    <strong style="color:var(--hk-pink);">🛵 RIDER DISPATCH HUB</strong>
+    <div>
+      <span style="font-size:0.8rem; margin-right:8px;">Rider: <strong>{{ session.get('rider_user') }}</strong></span>
+      <a href="/staff/logout?role=rider" style="background:#ef4444; color:white; padding:4px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Logout</a>
     </div>
+  </div>
 
-    <h3 style="color: #166534; margin-bottom: 0.8rem;">📦 Ready Deliveries (Waiting Driver)</h3>
-    {% for ord in ready_deliveries %}
-      <div class="card">
-        <h4>Order #{{ ord.id }} - ₱{{ "{:,.2f}".format(ord.total_amount) }} ({{ ord.payment_method }})</h4>
-        <p><strong>Customer:</strong> {{ ord.customer_name }} (📞 {{ ord.contact_number }})</p>
-        <p><strong>Address:</strong> {{ ord.delivery_address }}</p>
-        <form action="/portal/rider/claim/{{ ord.id }}" method="POST" style="margin-top: 8px;">
-          <button class="btn" style="background: #16a34a;">Claim Delivery</button>
-        </form>
+  <!-- Batch Pickup Control -->
+  <div class="card">
+    <h3 style="color:var(--hk-pink); font-size:1rem; margin-bottom:8px;">📦 Ready For Pickup at Food House</h3>
+    
+    {% if not can_accept_more %}
+      <div style="background:#fee2e2; color:#991b1b; padding:10px; border-radius:6px; font-size:0.85rem; margin-bottom:10px; font-weight:bold;">
+        🔒 You have active deliveries in transit. Complete all current deliveries before accepting new orders.
       </div>
-    {% else %}
-      <p style="color: #9ca3af; margin-bottom: 1.5rem;">No unassigned deliveries waiting.</p>
-    {% endfor %}
+    {% endif %}
 
-    <h3 style="color: #166534; margin: 1.5rem 0 0.8rem 0;">🚴 My Active Deliveries</h3>
-    {% for ord in my_deliveries %}
-      <div class="card" style="border: 2px solid #16a34a;">
-        <h4>Order #{{ ord.id }} - OUT FOR DELIVERY</h4>
-        <p><strong>Collect:</strong> ₱{{ "{:,.2f}".format(ord.total_amount) }} via {{ ord.payment_method }}</p>
-        <p><strong>Address:</strong> {{ ord.delivery_address }}</p>
-        <form action="/portal/rider/complete/{{ ord.id }}" method="POST" style="margin-top: 8px;">
-          <button class="btn" style="background: #2563eb;">Mark Delivered & Collected</button>
-        </form>
+    <form action="/portal/rider/claim-batch" method="POST">
+      {% for o in ready_deliveries %}
+      <div style="background:#334155; padding:10px; border-radius:6px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+        <div>
+          <input type="checkbox" name="order_ids" value="{{ o.id }}" {% if not can_accept_more %}disabled{% endif %}>
+          <strong style="margin-left:6px;">Order #{{ o.id }}</strong> — {{ o.customer_name }}
+          <div style="font-size:0.78rem; color:#94a3b8; margin-top:2px;">
+            📍 {{ o.delivery_address }} | 🚩 Landmark: {{ o.landmark }}
+          </div>
+        </div>
+        <div style="font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</div>
       </div>
-    {% else %}
-      <p style="color: #9ca3af;">No active trips right now.</p>
+      {% endfor %}
+
+      {% if ready_deliveries and can_accept_more %}
+        <button type="submit" class="btn" style="background:#16a34a; color:white; width:100%; margin-top:6px;">PICK UP SELECTED ORDERS</button>
+      {% elif not ready_deliveries %}
+        <p style="color:#94a3b8; text-align:center; padding:15px;">No delivery orders waiting at the counter.</p>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- Active In-Transit Deliveries -->
+  <div class="card">
+    <h3 style="color:#38bdf8; font-size:1rem; margin-bottom:8px;">🚀 My Deliveries In Transit ({{ my_deliveries|length }})</h3>
+    {% for m in my_deliveries %}
+    <div style="background:#334155; padding:10px; border-radius:6px; margin-bottom:8px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+        <strong>Order #{{ m.id }}</strong>
+        <span style="color:#38bdf8; font-weight:bold;">₱{{ "{:,.2f}".format(m.total_amount) }}</span>
+      </div>
+      <div style="font-size:0.8rem; color:#cbd5e1; margin-bottom:8px;">
+        👤 {{ m.customer_name }} (📞 {{ m.contact_number }})<br>
+        📍 {{ m.delivery_address }}<br>
+        🚩 Landmark: <strong>{{ m.landmark }}</strong><br>
+        💳 {{ m.payment_method }}
+      </div>
+      <form action="/portal/rider/mark-delivered/{{ m.id }}" method="POST">
+        <button type="submit" class="btn" style="background:#3b82f6; color:white; width:100%;">✓ MARK AS DELIVERED</button>
+      </form>
+    </div>
     {% endfor %}
   </div>
+
 </body>
 </html>

@@ -8,7 +8,7 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-hk-pos-2026-secure')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-hk-pos-2026-master')
 
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
@@ -40,10 +40,14 @@ class Customer(db.Model):
     __tablename__ = 'customer'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120), nullable=True)
     contact = db.Column(db.String(30), unique=True, nullable=False)
     fb_messenger = db.Column(db.String(150), nullable=True)
     pin_hash = db.Column(db.String(255), nullable=False)
     profile_image = db.Column(db.Text, nullable=True)
+    
+    default_address = db.Column(db.Text, nullable=True)
+    default_landmark = db.Column(db.String(150), nullable=True)
     
     points_balance = db.Column(db.Float, default=0.0)
     is_credit_eligible = db.Column(db.Boolean, default=False)
@@ -56,8 +60,17 @@ class Customer(db.Model):
     card_expires_at = db.Column(db.Date, nullable=True)
     last_wifi_claim = db.Column(db.Date, nullable=True)
     wifi_voucher_code = db.Column(db.String(20), nullable=True)
-    accumulated_wifi_mins = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class DeliveryZone(db.Model):
+    __tablename__ = 'delivery_zone'
+    id = db.Column(db.Integer, primary_key=True)
+    place_name = db.Column(db.String(100), nullable=False)
+    barangay = db.Column(db.String(100), nullable=False)
+    rate = db.Column(db.Float, nullable=False)
+    distance = db.Column(db.String(50), nullable=True)
+    note = db.Column(db.String(150), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
 
 class Category(db.Model):
     __tablename__ = 'category'
@@ -85,7 +98,6 @@ class ProductLike(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='CASCADE'), nullable=False)
     ip_address = db.Column(db.String(50), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)
-    points_awarded = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class ProductComment(db.Model):
@@ -103,7 +115,7 @@ class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     order_type = db.Column(db.String(20), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
-    customer_name = db.Column(db.String(100), default='Walk-in')
+    customer_name = db.Column(db.String(100), default='Registered Customer')
     contact_number = db.Column(db.String(50), default='N/A')
     fb_messenger = db.Column(db.String(150), nullable=True)
     delivery_address = db.Column(db.Text, nullable=True)
@@ -121,6 +133,9 @@ class Order(db.Model):
     
     status = db.Column(db.String(30), default="VERIFICATION")
     assigned_rider = db.Column(db.String(80), nullable=True)
+    rider_delivered = db.Column(db.Boolean, default=False)
+    customer_delivered = db.Column(db.Boolean, default=False)
+    cashier_delivered = db.Column(db.Boolean, default=False)
     notes = db.Column(db.Text, nullable=False, default="None")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
@@ -150,45 +165,85 @@ class SiteVisitor(db.Model):
     __tablename__ = 'site_visitor'
     id = db.Column(db.Integer, primary_key=True)
     ip_address = db.Column(db.String(50), unique=True, nullable=False)
+    visit_count = db.Column(db.Integer, default=1)
     visited_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# ==================== HELPERS & GUARDS ====================
+# ==================== HELPERS & AUTH GUARDS ====================
 
 def get_client_ip():
     if request.headers.get('X-Forwarded-For'):
         return request.headers.get('X-Forwarded-For').split(',')[0].strip()
     return request.remote_addr or '127.0.0.1'
 
-def require_staff_role(*roles):
-    def decorator(f):
-        @wraps(f)
-        def decorated(*args, **kwargs):
-            # Check station session or global staff role
-            user_role = session.get('staff_role')
-            if not user_role or (roles and user_role not in roles and user_role != 'ADMIN'):
-                flash("Please log in with appropriate staff permissions.", "error")
-                return redirect(url_for('staff_login'))
-            return f(*args, **kwargs)
-        return decorated
-    return decorator
+def require_admin(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('admin_user'):
+            return redirect(url_for('staff_login', target='admin'))
+        return f(*args, **kwargs)
+    return decorated
+
+def require_cashier(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not (session.get('cashier_user') or session.get('admin_user')):
+            return redirect(url_for('staff_login', target='cashier'))
+        return f(*args, **kwargs)
+    return decorated
+
+def require_kitchen(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not (session.get('kitchen_user') or session.get('admin_user')):
+            return redirect(url_for('staff_login', target='kitchen'))
+        return f(*args, **kwargs)
+    return decorated
+
+def require_rider(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not (session.get('rider_user') or session.get('admin_user')):
+            return redirect(url_for('staff_login', target='rider'))
+        return f(*args, **kwargs)
+    return decorated
 
 # ==================== STOREFRONT ====================
 
 @app.route('/')
 def store_catalog():
     ip = get_client_ip()
-    if not SiteVisitor.query.filter_by(ip_address=ip).first():
-        db.session.add(SiteVisitor(ip_address=ip))
-        db.session.commit()
+    v = SiteVisitor.query.filter_by(ip_address=ip).first()
+    if not v:
+        db.session.add(SiteVisitor(ip_address=ip, visit_count=1))
+    else:
+        v.visit_count = (v.visit_count or 1) + 1
+    db.session.commit()
     
     unique_visitors = SiteVisitor.query.count()
+    total_accumulated_visits = db.session.query(db.func.sum(SiteVisitor.visit_count)).scalar() or unique_visitors
+
     categories = Category.query.all()
+    featured = Product.query.filter_by(is_featured=True, is_active=True).all()
+    top_sellers = Product.query.filter_by(is_top_seller=True, is_active=True).all()
     products = Product.query.filter_by(is_active=True).order_by(Product.total_likes.desc(), Product.id.asc()).all()
+    
+    liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=ip).all()}
+    delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()
+    
+    cust = None
+    if 'customer_id' in session:
+        cust = Customer.query.get(session['customer_id'])
     
     return render_template('store_catalog.html', 
                            categories=categories, 
+                           featured=featured, 
+                           top_sellers=top_sellers, 
                            products=products, 
-                           unique_visitors=unique_visitors)
+                           liked_ids=liked_ids,
+                           delivery_zones=delivery_zones,
+                           cust=cust,
+                           unique_visitors=unique_visitors,
+                           total_accumulated_visits=total_accumulated_visits)
 
 @app.route('/product/<int:product_id>')
 def product_detail(product_id):
@@ -210,17 +265,8 @@ def api_toggle_like(product_id):
         db.session.commit()
         return jsonify({'liked': False, 'total_likes': prod.total_likes})
     else:
-        new_like = ProductLike(product_id=product_id, ip_address=ip, customer_id=cust_id, points_awarded=bool(cust_id))
+        db.session.add(ProductLike(product_id=product_id, ip_address=ip, customer_id=cust_id))
         prod.total_likes = (prod.total_likes or 0) + 1
-        
-        # Award +2 points for first like if customer is logged in
-        if cust_id:
-            cust = Customer.query.get(cust_id)
-            if cust and not RewardLedger.query.filter_by(customer_id=cust.id, reason=f"Like Product #{product_id}").first():
-                cust.points_balance += 2
-                db.session.add(RewardLedger(customer_id=cust.id, points_change=2, reason=f"Like Product #{product_id}"))
-        
-        db.session.add(new_like)
         db.session.commit()
         return jsonify({'liked': True, 'total_likes': prod.total_likes})
 
@@ -239,7 +285,6 @@ def api_add_comment(product_id):
         if cust:
             name = cust.name
             
-    # No points awarded for comments
     comment = ProductComment(product_id=product_id, customer_id=cust_id, author_name=name, ip_address=ip, comment_text=text)
     db.session.add(comment)
     db.session.commit()
@@ -247,37 +292,60 @@ def api_add_comment(product_id):
 
 @app.route('/api/storefront-checkout', methods=['POST'])
 def api_storefront_checkout():
+    if 'customer_id' not in session:
+        return jsonify({'success': False, 'message': 'Registration / Login is required. No walk-in guest checkout.'}), 403
+
+    cust = Customer.query.get(session['customer_id'])
     data = request.get_json() or {}
     items = data.get('items', [])
     order_type = data.get('order_type', 'PICKUP').upper()
-    name = data.get('customer_name', '').strip()
-    contact = data.get('contact', '').strip()
-    fb = data.get('fb_messenger', '').strip()
     pay_method = data.get('payment_method', 'CASH').upper()
     notes = data.get('notes', '').strip() or 'None'
-    gcash_ref = data.get('gcash_ref', '').strip()
     target_time = data.get('target_time', '').strip()
+    landmark = data.get('landmark', '').strip()
+    delivery_address = data.get('delivery_address', '').strip()
+    zone_id = data.get('delivery_zone_id')
+    gcash_ref = data.get('gcash_ref', '').strip()
+    fb = data.get('fb_messenger', '').strip()
 
-    if not items or not name or not contact:
-        return jsonify({'success': False, 'message': 'Please fill all required fields.'}), 400
+    if not items or not target_time:
+        return jsonify({'success': False, 'message': 'Please complete your target time and cart items.'}), 400
+
+    if order_type == 'DELIVERY':
+        if not landmark or not delivery_address:
+            return jsonify({'success': False, 'message': 'Delivery address and Landmark are strictly required.'}), 400
+
+    if pay_method == 'CREDIT' and not cust.is_credit_eligible:
+        return jsonify({'success': False, 'message': 'Your account is not authorized for A/R Credit.'}), 403
 
     if pay_method in ['GCASH', 'CREDIT'] and not fb:
-        return jsonify({'success': False, 'message': 'Facebook account is required for GCash/Credit verification.'}), 400
+        return jsonify({'success': False, 'message': 'Facebook messenger link required for evaluation.'}), 400
 
     if pay_method == 'GCASH' and len(gcash_ref) < 6:
-        return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400
+        return jsonify({'success': False, 'message': 'Input the 6-digit GCash Reference Number.'}), 400
 
     subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
-    delivery_fee = 30.0 if order_type == 'DELIVERY' else 0.0
+    
+    delivery_fee = 0.0
+    if order_type == 'DELIVERY':
+        zone = DeliveryZone.query.get(zone_id) if zone_id else None
+        delivery_fee = zone.rate if zone else 40.0
+        
+        # Save default address for next time
+        cust.default_address = delivery_address
+        cust.default_landmark = landmark
+        cust.fb_messenger = fb
+
     total = subtotal + delivery_fee
 
     order = Order(
         order_type=order_type,
-        customer_name=name,
-        contact_number=contact,
+        customer_id=cust.id,
+        customer_name=cust.name,
+        contact_number=cust.contact,
         fb_messenger=fb,
-        delivery_address=data.get('delivery_address') if order_type == 'DELIVERY' else None,
-        landmark=data.get('landmark') if order_type == 'DELIVERY' else None,
+        delivery_address=delivery_address if order_type == 'DELIVERY' else None,
+        landmark=landmark if order_type == 'DELIVERY' else None,
         pickup_time=target_time if order_type == 'PICKUP' else None,
         target_time=target_time,
         change_for=float(data.get('change_for') or 0.0) if pay_method in ['CASH', 'COD'] else None,
@@ -307,31 +375,25 @@ def api_storefront_checkout():
     db.session.commit()
     return jsonify({'success': True, 'order_id': order.id, 'total': total})
 
-# ==================== TABLET KIOSK ====================
-
-@app.route('/tablet')
-def tablet_kiosk():
-    categories = Category.query.all()
-    products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
-    return render_template('tablet.html', categories=categories, products=products)
-
 # ==================== CASHIER TERMINAL ====================
 
 @app.route('/pos/cashier')
-@require_staff_role('ADMIN', 'CASHIER')
+@require_cashier
 def cashier_terminal():
     categories = Category.query.all()
     products = Product.query.filter_by(is_active=True).all()
     pending_orders = Order.query.filter_by(status="VERIFICATION").order_by(Order.created_at.asc()).all()
     ready_orders = Order.query.filter_by(status="READY").order_by(Order.created_at.asc()).all()
+    out_for_delivery = Order.query.filter_by(status="OUT_FOR_DELIVERY").order_by(Order.created_at.asc()).all()
     riders = Staff.query.filter_by(role='RIDER', active=True).all()
     today_wifi_claims = Customer.query.filter_by(last_wifi_claim=date.today()).all()
     return render_template('cashier_pos.html', categories=categories, products=products, 
                            pending_orders=pending_orders, ready_orders=ready_orders, 
-                           riders=riders, today_wifi_claims=today_wifi_claims)
+                           out_for_delivery=out_for_delivery, riders=riders, 
+                           today_wifi_claims=today_wifi_claims)
 
 @app.route('/pos/verify/<int:order_id>', methods=['POST'])
-@require_staff_role('ADMIN', 'CASHIER')
+@require_cashier
 def verify_order(order_id):
     order = Order.query.get_or_404(order_id)
     action = request.form.get('action')
@@ -355,8 +417,29 @@ def verify_order(order_id):
 
     return redirect(url_for('cashier_terminal'))
 
+@app.route('/pos/confirm-delivery/<int:order_id>', methods=['POST'])
+@require_cashier
+def cashier_confirm_delivery(order_id):
+    order = Order.query.get_or_404(order_id)
+    order.cashier_delivered = True
+    
+    # 2-Confirmation Rule: Rider + (Customer OR Cashier)
+    if order.rider_delivered and (order.customer_delivered or order.cashier_delivered):
+        order.status = "COMPLETED"
+        if order.customer_id and order.payment_method != "CREDIT":
+            cust = Customer.query.get(order.customer_id)
+            if cust:
+                cust.accumulated_spend += order.total_amount
+                earned = int(order.total_amount // 30)
+                if earned > 0:
+                    cust.points_balance += earned
+                    db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
+    db.session.commit()
+    flash(f"Order #{order.id} delivery verified by Cashier.", "success")
+    return redirect(url_for('cashier_terminal'))
+
 @app.route('/pos/complete/<int:order_id>', methods=['POST'])
-@require_staff_role('ADMIN', 'CASHIER')
+@require_cashier
 def complete_order(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "COMPLETED"
@@ -377,13 +460,13 @@ def complete_order(order_id):
 # ==================== KITCHEN QUEUE ====================
 
 @app.route('/portal/kitchen')
-@require_staff_role('ADMIN', 'KITCHEN')
+@require_kitchen
 def kitchen_queue():
     queue = Order.query.filter(Order.status.in_(['KITCHEN_QUEUE', 'PREPARING'])).order_by(Order.created_at.asc()).all()
     return render_template('kitchen_kds.html', queue=queue)
 
 @app.route('/portal/kitchen/status/<int:order_id>', methods=['POST'])
-@require_staff_role('ADMIN', 'KITCHEN')
+@require_kitchen
 def update_kitchen_status(order_id):
     order = Order.query.get_or_404(order_id)
     new_status = request.form.get('status')
@@ -395,48 +478,83 @@ def update_kitchen_status(order_id):
 # ==================== RIDER HUB ====================
 
 @app.route('/portal/rider')
-@require_staff_role('ADMIN', 'RIDER')
+@require_rider
 def rider_portal():
+    current_rider = session.get('rider_user')
+    
+    # Check pending deliveries assigned to rider that haven't been completed
+    pending_active_deliveries = Order.query.filter(
+        Order.assigned_rider == current_rider,
+        Order.status == 'OUT_FOR_DELIVERY'
+    ).count()
+    
+    can_accept_more = (pending_active_deliveries == 0) # Lock until batch completed
     ready_deliveries = Order.query.filter_by(status="READY", order_type="DELIVERY").all()
-    current_rider = session.get('staff_user')
     my_deliveries = Order.query.filter_by(status="OUT_FOR_DELIVERY", assigned_rider=current_rider).all()
-    return render_template('rider_portal.html', ready_deliveries=ready_deliveries, my_deliveries=my_deliveries)
+    
+    return render_template('rider_portal.html', 
+                           ready_deliveries=ready_deliveries, 
+                           my_deliveries=my_deliveries,
+                           can_accept_more=can_accept_more,
+                           pending_active_deliveries=pending_active_deliveries)
 
-@app.route('/portal/rider/claim/<int:order_id>', methods=['POST'])
-@require_staff_role('ADMIN', 'RIDER')
-def claim_delivery(order_id):
-    order = Order.query.get_or_404(order_id)
-    order.status = "OUT_FOR_DELIVERY"
-    order.assigned_rider = session.get('staff_user')
+@app.route('/portal/rider/claim-batch', methods=['POST'])
+@require_rider
+def rider_claim_batch():
+    current_rider = session.get('rider_user')
+    order_ids = request.form.getlist('order_ids')
+    for oid in order_ids:
+        order = Order.query.get(oid)
+        if order and order.status == 'READY':
+            order.status = "OUT_FOR_DELIVERY"
+            order.assigned_rider = current_rider
     db.session.commit()
+    flash(f"Claimed {len(order_ids)} orders for dispatch!", "success")
     return redirect(url_for('rider_portal'))
 
-@app.route('/portal/rider/complete/<int:order_id>', methods=['POST'])
-@require_staff_role('ADMIN', 'RIDER')
-def complete_delivery(order_id):
+@app.route('/portal/rider/mark-delivered/<int:order_id>', methods=['POST'])
+@require_rider
+def rider_mark_delivered(order_id):
     order = Order.query.get_or_404(order_id)
-    order.status = "COMPLETED"
-    if order.customer_id and order.payment_method != "CREDIT":
-        cust = Customer.query.get(order.customer_id)
-        if cust:
-            earned = int(order.total_amount // 30)
-            if earned > 0:
-                cust.points_balance += earned
-                db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Delivered Order #{order.id}"))
+    order.rider_delivered = True
+    
+    # Check 2-confirmation rule
+    if order.rider_delivered and (order.customer_delivered or order.cashier_delivered):
+        order.status = "COMPLETED"
+        if order.customer_id and order.payment_method != "CREDIT":
+            cust = Customer.query.get(order.customer_id)
+            if cust:
+                cust.accumulated_spend += order.total_amount
+                earned = int(order.total_amount // 30)
+                if earned > 0:
+                    cust.points_balance += earned
+                    db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
+
     db.session.commit()
+    flash(f"Order #{order.id} confirmed by Rider. Awaiting customer/cashier confirmation.", "info")
     return redirect(url_for('rider_portal'))
+
+# ==================== TABLET KIOSK ====================
+
+@app.route('/tablet')
+def tablet_kiosk():
+    categories = Category.query.all()
+    products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
+    return render_template('tablet.html', categories=categories, products=products)
 
 # ==================== MASTER ADMIN & ACCOUNTING ====================
 
 @app.route('/admin')
-@require_staff_role('ADMIN')
+@require_admin
 def admin_dashboard():
     products = Product.query.order_by(Product.total_likes.desc()).all()
     categories = Category.query.all()
     staff_members = Staff.query.all()
     customers = Customer.query.order_by(Customer.id.desc()).all()
+    delivery_zones = DeliveryZone.query.all()
+    
     unique_visitors = SiteVisitor.query.count()
-    comments = ProductComment.query.order_by(ProductComment.created_at.desc()).limit(15).all()
+    total_accumulated_visits = db.session.query(db.func.sum(SiteVisitor.visit_count)).scalar() or unique_visitors
     
     completed = Order.query.filter_by(status='COMPLETED').all()
     total_rev = sum(o.total_amount for o in completed)
@@ -449,15 +567,16 @@ def admin_dashboard():
                            categories=categories, 
                            staff_members=staff_members, 
                            customers=customers, 
+                           delivery_zones=delivery_zones,
                            unique_visitors=unique_visitors, 
-                           comments=comments,
+                           total_accumulated_visits=total_accumulated_visits,
                            total_rev=total_rev,
                            total_cost=total_cost,
                            estimated_profit=estimated_profit,
                            total_ar=total_ar)
 
 @app.route('/portal/accounting')
-@require_staff_role('ADMIN')
+@require_admin
 def accounting_portal():
     today = date.today()
     week_ago = datetime.utcnow() - timedelta(days=7)
@@ -483,7 +602,7 @@ def accounting_portal():
                            m_rev=m_rev, m_cost=m_cost, m_profit=m_profit)
 
 @app.route('/admin/add-product', methods=['POST'])
-@require_staff_role('ADMIN')
+@require_admin
 def admin_add_product():
     name = request.form.get('name')
     category_name = request.form.get('category_name')
@@ -491,14 +610,17 @@ def admin_add_product():
     cost = float(request.form.get('cost') or 0.0)
     stock = int(request.form.get('stock') or 100)
     image_url = request.form.get('image_url', '').strip()
+    is_featured = bool(request.form.get('is_featured'))
+    is_top_seller = bool(request.form.get('is_top_seller'))
     
-    db.session.add(Product(name=name, category_name=category_name, price=price, cost=cost, stock=stock, image_url=image_url))
+    db.session.add(Product(name=name, category_name=category_name, price=price, cost=cost, stock=stock, 
+                           image_url=image_url, is_featured=is_featured, is_top_seller=is_top_seller))
     db.session.commit()
-    flash(f"Product '{name}' added successfully.", "success")
+    flash(f"Product '{name}' added.", "success")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/batch-update-products', methods=['POST'])
-@require_staff_role('ADMIN')
+@require_admin
 def admin_batch_update_products():
     for pid in request.form.getlist('product_id'):
         prod = Product.query.get(pid)
@@ -514,44 +636,37 @@ def admin_batch_update_products():
     flash("Bulk product catalog updated.", "success")
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/admin/add-rider', methods=['POST'])
-@require_staff_role('ADMIN')
-def admin_add_rider():
-    user = request.form.get('username', '').strip()
-    pin = request.form.get('pin', '').strip()
-    plate = request.form.get('plate_number', '').strip()
-    
-    if Staff.query.filter_by(username=user).first():
-        flash("Username exists.", "error")
-    else:
-        db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role='RIDER', plate_number=plate))
-        db.session.commit()
-        flash(f"Rider {user} created.", "success")
+@app.route('/admin/toggle-credit/<int:cust_id>', methods=['POST'])
+@require_admin
+def admin_toggle_credit(cust_id):
+    cust = Customer.query.get_or_404(cust_id)
+    cust.is_credit_eligible = not cust.is_credit_eligible
+    limit = request.form.get('credit_limit')
+    if limit:
+        cust.credit_limit = float(limit)
+    db.session.commit()
+    flash(f"Credit eligibility updated for {cust.name}.", "success")
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/admin/change-password', methods=['POST'])
-def change_password():
-    new_pin = request.form.get('new_pin', '').strip()
-    if not new_pin:
-        flash("PIN cannot be empty.", "error")
-        return redirect(request.referrer or url_for('staff_login'))
-
-    if 'staff_id' in session:
-        st = Staff.query.get(session['staff_id'])
-        if st:
-            st.pin_hash = generate_password_hash(new_pin)
-            db.session.commit()
-            flash("Staff PIN successfully updated.", "success")
-            return redirect(request.referrer or url_for('admin_dashboard'))
-
-    if 'customer_id' in session:
-        cust = Customer.query.get(session['customer_id'])
-        if cust:
-            cust.pin_hash = generate_password_hash(new_pin)
-            db.session.commit()
-            flash("Security PIN updated.", "success")
-
-    return redirect(request.referrer or url_for('store_catalog'))
+@app.route('/admin/delivery-zones', methods=['POST'])
+@require_admin
+def admin_manage_delivery_zones():
+    action = request.form.get('action')
+    if action == 'ADD':
+        place = request.form.get('place_name')
+        brgy = request.form.get('barangay')
+        rate = float(request.form.get('rate') or 40.0)
+        dist = request.form.get('distance')
+        note = request.form.get('note')
+        db.session.add(DeliveryZone(place_name=place, barangay=brgy, rate=rate, distance=dist, note=note))
+    elif action == 'DELETE':
+        zid = request.form.get('zone_id')
+        zone = DeliveryZone.query.get(zid)
+        if zone:
+            db.session.delete(zone)
+    db.session.commit()
+    flash("Delivery zones updated.", "success")
+    return redirect(url_for('admin_dashboard'))
 
 # ==================== CUSTOMER PORTAL ====================
 
@@ -571,16 +686,21 @@ def customer_login():
 def customer_register():
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip()
         contact = request.form.get('contact', '').strip()
         messenger = request.form.get('fb_messenger', '').strip()
         pin = request.form.get('pin', '').strip()
+        address = request.form.get('default_address', '').strip()
+        landmark = request.form.get('default_landmark', '').strip()
 
         if Customer.query.filter_by(contact=contact).first():
             flash("Contact number already registered.", "error")
             return redirect(url_for('customer_register'))
 
         new_cust = Customer(
-            name=name, contact=contact, fb_messenger=messenger, pin_hash=generate_password_hash(pin),
+            name=name, email=email, contact=contact, fb_messenger=messenger, 
+            default_address=address, default_landmark=landmark,
+            pin_hash=generate_password_hash(pin),
             card_number=f"MFH-{random.randint(1, 100):04d}", card_expires_at=date.today() + timedelta(days=365)
         )
         db.session.add(new_cust)
@@ -594,8 +714,31 @@ def customer_dashboard():
     if 'customer_id' not in session:
         return redirect(url_for('customer_login'))
     cust = Customer.query.get(session['customer_id'])
-    orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).limit(10).all()
-    return render_template('customer_dashboard.html', cust=cust, orders=orders, today=date.today())
+    my_orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).all()
+    return render_template('customer_dashboard.html', cust=cust, orders=my_orders, today=date.today())
+
+@app.route('/portal/confirm-received/<int:order_id>', methods=['POST'])
+def customer_confirm_received(order_id):
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login'))
+    order = Order.query.get_or_404(order_id)
+    if order.customer_id != session['customer_id']:
+        return "Unauthorized", 403
+
+    order.customer_delivered = True
+    if order.rider_delivered and (order.customer_delivered or order.cashier_delivered):
+        order.status = "COMPLETED"
+        cust = Customer.query.get(order.customer_id)
+        if cust and order.payment_method != "CREDIT":
+            cust.accumulated_spend += order.total_amount
+            earned = int(order.total_amount // 30)
+            if earned > 0:
+                cust.points_balance += earned
+                db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
+    
+    db.session.commit()
+    flash(f"Order #{order.id} confirmed as received! Thank you!", "success")
+    return redirect(url_for('customer_dashboard'))
 
 @app.route('/portal/update-profile-pic', methods=['POST'])
 def update_profile_pic():
@@ -621,39 +764,52 @@ def claim_daily_wifi():
         voucher = "MFH-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         cust.last_wifi_claim = date.today()
         cust.wifi_voucher_code = voucher
-        cust.accumulated_wifi_mins = (cust.accumulated_wifi_mins or 0) + 10
         db.session.commit()
         flash(f"Claimed 10-Mins Free Wi-Fi! Passcode: {voucher}", "success")
     return redirect(url_for('customer_dashboard'))
 
-# ==================== UNIVERSAL STAFF AUTH ====================
+# ==================== INDEPENDENT STAFF AUTH ====================
 
 @app.route('/staff/login', methods=['GET', 'POST'])
 def staff_login():
+    target = request.args.get('target', '').lower()
     if request.method == 'POST':
         user = request.form.get('username', '').strip().lower()
         pin = request.form.get('pin', '').strip()
         staff = Staff.query.filter(db.func.lower(Staff.username) == user).first()
         
         if staff and check_password_hash(staff.pin_hash, pin):
-            session['staff_id'] = staff.id
-            session['staff_user'] = staff.username
-            session['staff_role'] = staff.role
-
-            if staff.role == 'ADMIN': return redirect(url_for('admin_dashboard'))
-            if staff.role == 'CASHIER': return redirect(url_for('cashier_terminal'))
-            if staff.role == 'KITCHEN': return redirect(url_for('kitchen_queue'))
-            if staff.role == 'RIDER': return redirect(url_for('rider_portal'))
-        flash('Invalid Username or PIN. Please try again.', 'error')
-    return render_template('staff_login.html')
+            if staff.role == 'ADMIN':
+                session['admin_id'] = staff.id
+                session['admin_user'] = staff.username
+                return redirect(url_for('admin_dashboard'))
+            elif staff.role == 'CASHIER':
+                session['cashier_id'] = staff.id
+                session['cashier_user'] = staff.username
+                return redirect(url_for('cashier_terminal'))
+            elif staff.role == 'KITCHEN':
+                session['kitchen_id'] = staff.id
+                session['kitchen_user'] = staff.username
+                return redirect(url_for('kitchen_queue'))
+            elif staff.role == 'RIDER':
+                session['rider_id'] = staff.id
+                session['rider_user'] = staff.username
+                return redirect(url_for('rider_portal'))
+        flash('Invalid Username or PIN.', 'error')
+    return render_template('staff_login.html', target=target)
 
 @app.route('/staff/logout')
 def staff_logout():
-    session.clear()
-    flash('Logged out successfully.', 'info')
+    role = request.args.get('role')
+    if role == 'admin': session.pop('admin_id', None); session.pop('admin_user', None)
+    elif role == 'cashier': session.pop('cashier_id', None); session.pop('cashier_user', None)
+    elif role == 'kitchen': session.pop('kitchen_id', None); session.pop('kitchen_user', None)
+    elif role == 'rider': session.pop('rider_id', None); session.pop('rider_user', None)
+    else: session.clear()
+    flash('Logged out.', 'info')
     return redirect(url_for('staff_login'))
 
-# ==================== SEEDER & SYNC ====================
+# ==================== INITIAL SEEDER ====================
 
 with app.app_context():
     db.create_all()
@@ -668,14 +824,8 @@ with app.app_context():
         if not st:
             db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role, plate_number=plate))
         else:
-            # Sync password guarantee
             st.pin_hash = generate_password_hash(pin)
             st.role = role
-    
-    if not Product.query.filter_by(name="Wi-Fi Voucher 30 Mins").first():
-        db.session.add(Product(name="Wi-Fi Voucher 30 Mins", category_name="Services", price=5.0, cost=0.0, stock=999, is_active=True))
-        if not Category.query.filter_by(name="Services").first():
-            db.session.add(Category(name="Services"))
 
     db.session.commit()
 

@@ -5,42 +5,46 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Macleen's Food House</title>
   <style>
-    :root {
-      --hk-pink: #ff69b4;
-      --hk-dark: #831843;
-      --hk-light: #fff0f5;
-      --hk-border: #fbcfe8;
-    }
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-light: #fff0f5; --hk-border: #fbcfe8; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: var(--hk-light); color: #1e293b; padding-bottom: 90px; }
 
-    header { background: white; border-bottom: 2px solid var(--hk-pink); padding: 10px 16px; position: sticky; top: 0; z-index: 50; display: flex; justify-content: space-between; align-items: center; }
+    header { background: white; border-bottom: 2px solid var(--hk-pink); padding: 8px 16px; position: sticky; top: 0; z-index: 50; display: flex; justify-content: space-between; align-items: center; }
     .brand { display: flex; align-items: center; gap: 8px; font-weight: 900; color: var(--hk-dark); font-size: 1.1rem; }
+    .brand-logo { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--hk-pink); }
     .nav-btn { background: var(--hk-pink); color: white; padding: 6px 12px; border-radius: 20px; text-decoration: none; font-weight: bold; font-size: 0.78rem; }
 
     .hero { background: linear-gradient(135deg, #ff69b4, #ec4899, #831843); color: white; padding: 1.5rem 1rem; text-align: center; border-bottom-left-radius: 20px; border-bottom-right-radius: 20px; }
-    .hero h1 { font-size: 1.4rem; margin-bottom: 4px; }
-
+    .hero img { width: 85px; height: 85px; border-radius: 50%; background: white; padding: 3px; margin-bottom: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+    
+    .container { max-width: 1100px; margin: 0 auto; padding: 12px; }
     .section-title { font-size: 1rem; font-weight: 900; color: var(--hk-dark); margin: 16px 0 10px; display: flex; justify-content: space-between; }
 
+    /* Horizontal Carousel for Featured & Best Sellers */
+    .carousel-track { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; }
+    .carousel-track::-webkit-scrollbar { display: none; }
+    .carousel-card { min-width: 160px; max-width: 160px; background: white; border: 2px solid var(--hk-pink); border-radius: 12px; padding: 10px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; }
+
+    /* Category Blocks */
     .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
     @media(min-width:768px){ .cat-grid { grid-template-columns: repeat(6, 1fr); gap: 12px; } }
     .cat-card { background: white; border: 2px solid var(--hk-border); border-radius: 12px; padding: 14px 6px; text-align: center; font-weight: 800; font-size: 0.8rem; cursor: pointer; color: var(--hk-dark); }
     .cat-card.active { background: var(--hk-pink); color: white; border-color: var(--hk-pink); }
 
+    /* Product Grid */
     .product-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
     @media(min-width:768px){ .product-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; } }
     
-    .product-card { background: white; border: 1px solid var(--hk-border); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .product-card { background: white; border: 1px solid var(--hk-border); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; }
     .p-img { width: 100%; height: 115px; border-radius: 8px; object-fit: cover; margin-bottom: 6px; background: #fdf2f8; }
     .p-title { font-size: 0.88rem; font-weight: 800; margin: 4px 0; line-height: 1.25; }
     .p-price { font-size: 1.1rem; font-weight: 900; color: var(--hk-pink); margin-bottom: 6px; }
 
-    /* Emphasized Like Button & Interaction Bar */
+    /* Likes & Reviews Bar */
     .interaction-bar { display: flex; gap: 6px; margin-bottom: 8px; }
-    .btn-like-big { flex: 1; background: #fdf2f8; border: 1.5px solid var(--hk-pink); color: var(--hk-dark); padding: 6px 8px; border-radius: 20px; font-weight: 900; font-size: 0.78rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; transition: 0.1s transform; }
-    .btn-like-big:active { transform: scale(0.95); background: var(--hk-pink); color: white; }
-    .btn-comment-link { background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 6px 10px; border-radius: 20px; font-size: 0.78rem; text-decoration: none; font-weight: 700; display: flex; align-items: center; gap: 3px; }
+    .btn-like { flex: 1; border-radius: 20px; padding: 6px 8px; font-weight: 900; font-size: 0.78rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; border: 1.5px solid #cbd5e1; background: #f8fafc; color: #64748b; }
+    .btn-like.liked { border-color: var(--hk-pink); background: #fdf2f8; color: var(--hk-pink); }
+    .btn-review { background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 6px 10px; border-radius: 20px; font-size: 0.78rem; text-decoration: none; font-weight: 700; }
 
     .btn-add { background: var(--hk-pink); color: white; border: none; border-radius: 8px; padding: 8px; font-weight: 900; width: 100%; cursor: pointer; font-size: 0.85rem; }
 
@@ -59,21 +63,68 @@
 <body>
 
   <header>
-    <div class="brand">🎀 MACLEEN'S FOOD HOUSE</div>
+    <div class="brand">
+      <img src="/static/logo.png" onerror="this.onerror=null; this.src='https://api.dicebear.com/7.x/identicon/svg?seed=Macleens';" class="brand-logo">
+      <span>MACLEEN'S FOOD HOUSE</span>
+    </div>
     <div style="display:flex; gap:6px;">
-      <a href="/portal/login" class="nav-btn">Rewards</a>
+      {% if cust %}
+        <a href="/portal/dashboard" class="nav-btn">👤 {{ cust.name.split(' ')[0] }}</a>
+      {% else %}
+        <a href="/portal/login" class="nav-btn">Log In / Register</a>
+      {% endif %}
       <a href="/staff/login" class="nav-btn" style="background:#f1f5f9; color:#475569;">Staff</a>
     </div>
   </header>
 
   <div class="hero">
-    <h1>Hello! Welcome to Macleen's</h1>
-    <p style="font-size:0.8rem;">Tap a category to start ordering your favorite meals!</p>
+    <img src="/static/logo.png" onerror="this.onerror=null; this.src='https://api.dicebear.com/7.x/identicon/svg?seed=Macleens';">
+    <h1>Macleen's Food House</h1>
+    <p style="font-size:0.82rem;">Fresh Delicious Meals & Doorstep Barangay Delivery</p>
   </div>
 
-  <div style="max-width:1100px; margin:0 auto; padding:12px;">
+  <div class="container">
     
-    <div class="section-title">📂 Categories</div>
+    <!-- Featured Dishes Section -->
+    {% if featured %}
+    <div class="section-title">✨ Chef's Featured Specials</div>
+    <div class="carousel-track">
+      {% for f in featured %}
+      <div class="carousel-card">
+        <div>
+          {% if f.image_url %}
+            <img src="{{ f.image_url }}" referrerpolicy="no-referrer" loading="eager" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
+          {% endif %}
+          <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ f.name }}</div>
+          <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(f.price) }}</div>
+        </div>
+        <button class="btn-add" style="padding:4px; font-size:0.75rem; margin-top:6px;" onclick="addToCart({{ f.id }}, '{{ f.name }}', {{ f.price }})">+ Add</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Best Sellers Section -->
+    {% if top_sellers %}
+    <div class="section-title">🔥 Best Sellers</div>
+    <div class="carousel-track">
+      {% for b in top_sellers %}
+      <div class="carousel-card" style="border-color:#f59e0b;">
+        <div>
+          {% if b.image_url %}
+            <img src="{{ b.image_url }}" referrerpolicy="no-referrer" loading="eager" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
+          {% endif %}
+          <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ b.name }}</div>
+          <div style="font-size:0.95rem; font-weight:900; color:#d97706;">₱{{ "{:,.2f}".format(b.price) }}</div>
+        </div>
+        <button class="btn-add" style="background:#d97706; padding:4px; font-size:0.75rem; margin-top:6px;" onclick="addToCart({{ b.id }}, '{{ b.name }}', {{ b.price }})">+ Add</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Category Filter -->
+    <div class="section-title">📂 Menu Categories</div>
     <div class="cat-grid">
       <div class="cat-card active" onclick="showCategory('ALL', this)">ALL MENU</div>
       {% for c in categories %}
@@ -81,7 +132,8 @@
       {% endfor %}
     </div>
 
-    <div class="section-title">🍽️ Menu Items</div>
+    <!-- Product Grid -->
+    <div class="section-title">🍽️ All Dishes</div>
     <div class="product-grid" id="productGrid">
       {% for p in products %}
       <div class="product-card" data-cat="{{ p.category_name }}">
@@ -97,12 +149,11 @@
         </div>
         
         <div>
-          <!-- Emphasized Like Button & Comment Page Link -->
           <div class="interaction-bar">
-            <button class="btn-like-big" onclick="toggleLike({{ p.id }})">
+            <button class="btn-like {% if p.id in liked_ids %}liked{% endif %}" id="like-btn-{{ p.id }}" onclick="toggleLike({{ p.id }})">
               ❤️ <span id="like-{{ p.id }}">{{ p.total_likes }}</span>
             </button>
-            <a href="/product/{{ p.id }}" class="btn-comment-link">
+            <a href="/product/{{ p.id }}" class="btn-review">
               💬 {{ p.comments|length }}
             </a>
           </div>
@@ -120,10 +171,10 @@
       <div style="font-size:0.7rem; color:#64748b; font-weight:bold;">TOTAL BASKET</div>
       <div style="font-size:1.15rem; font-weight:900; color:var(--hk-dark);" id="barTotal">₱0.00 (<span id="barCount">0</span>)</div>
     </div>
-    <button class="btn-checkout" onclick="openDrawer()">CHECKOUT NOW</button>
+    <button class="btn-checkout" onclick="openDrawer()">CHECKOUT</button>
   </div>
 
-  <!-- Cart Drawer -->
+  <!-- Cart & Delivery Checkout Drawer -->
   <div id="drawerWrap">
     <div class="drawer-overlay" onclick="closeDrawer()"></div>
     <div class="drawer">
@@ -135,48 +186,58 @@
       <div style="flex:1; overflow-y:auto; padding:14px;" id="cartForm">
         <div id="cartItemsList" style="margin-bottom:12px;"></div>
 
+        {% if not cust %}
+          <div style="background:#fee2e2; border:1px solid #f87171; color:#991b1b; padding:10px; border-radius:8px; font-size:0.85rem; margin-bottom:12px; text-align:center;">
+            <strong>⚠️ Registration Required</strong><br>
+            Please <a href="/portal/login" style="color:#b91c1c; font-weight:bold; text-decoration:underline;">Log In</a> or <a href="/portal/register" style="color:#b91c1c; font-weight:bold; text-decoration:underline;">Register</a> before checkout.
+          </div>
+        {% endif %}
+
         <div style="margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold;">Order Type *</label>
           <select id="orderType" class="form-control" onchange="renderCart()">
             <option value="PICKUP">In-Store Pickup / Takeout</option>
-            <option value="DELIVERY">Delivery (+₱30.00)</option>
+            <option value="DELIVERY">Doorstep Barangay Delivery</option>
           </select>
         </div>
 
-        <div style="margin-bottom:10px;">
-          <label style="font-size:0.8rem; font-weight:bold;">Target / Estimated Time *</label>
-          <input type="text" id="targetTime" class="form-control" placeholder="e.g. 12:30 PM or ASAP (20 mins)" required>
-        </div>
-
-        <div style="margin-bottom:10px;">
-          <label style="font-size:0.8rem; font-weight:bold;">Full Name *</label>
-          <input type="text" id="custName" class="form-control" required placeholder="Maria Santos">
-        </div>
-
-        <div style="margin-bottom:10px;">
-          <label style="font-size:0.8rem; font-weight:bold;">Mobile Number *</label>
-          <input type="tel" id="custContact" class="form-control" required placeholder="0917XXXXXXX">
+        <!-- Dynamic Delivery Barangay Select -->
+        <div id="deliveryZoneBox" style="display:none; margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);">Delivery Barangay / Zone *</label>
+          <select id="deliveryZone" class="form-control" onchange="renderCart()">
+            {% for z in delivery_zones %}
+              <option value="{{ z.id }}" data-rate="{{ z.rate }}">{{ z.place_name }} ({{ z.barangay }}) — ₱{{ "{:,.2f}".format(z.rate) }} [{{ z.distance }}]</option>
+            {% endfor %}
+          </select>
         </div>
 
         <div id="deliveryFields" style="display:none; margin-bottom:10px;">
-          <label style="font-size:0.8rem; font-weight:bold;">Purok & Barangay *</label>
-          <input type="text" id="deliveryAddress" class="form-control" placeholder="Purok 2, San Teodoro">
-          <label style="font-size:0.8rem; font-weight:bold; margin-top:6px; display:block;">Landmark</label>
-          <input type="text" id="landmark" class="form-control" placeholder="Near Elementary School">
+          <label style="font-size:0.8rem; font-weight:bold;">Purok / Street Address *</label>
+          <input type="text" id="deliveryAddress" class="form-control" value="{{ cust.default_address if cust else '' }}" placeholder="Purok Mahogany">
+          
+          <label style="font-size:0.8rem; font-weight:bold; margin-top:6px; display:block;">Landmark * (Strictly Required)</label>
+          <input type="text" id="landmark" class="form-control" value="{{ cust.default_landmark if cust else '' }}" required placeholder="Near Elementary School, Blue Gate">
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Specific Target Time *</label>
+          <input type="text" id="targetTime" class="form-control" placeholder="e.g. 12:30 PM or ASAP (20 mins)" required>
         </div>
 
         <div style="margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold;">Payment Method *</label>
           <select id="payMethod" class="form-control" onchange="checkPayMethod()">
-            <option value="CASH">Cash</option>
+            <option value="CASH">Cash on Counter / Cash on Delivery</option>
             <option value="GCASH">GCash</option>
-            <option value="CREDIT">A/R Credit</option>
+            {% if cust and cust.is_credit_eligible %}
+              <option value="CREDIT">A/R Credit Limit (Authorized)</option>
+            {% endif %}
           </select>
         </div>
 
         <div id="evalFields" style="display:none; margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);">Facebook / Messenger Account *</label>
-          <input type="text" id="fbMessenger" class="form-control" placeholder="fb.com/username">
+          <input type="text" id="fbMessenger" class="form-control" value="{{ cust.fb_messenger if cust else '' }}" placeholder="fb.com/username">
         </div>
 
         <div id="gcashFields" style="display:none; margin-bottom:10px;">
@@ -185,7 +246,7 @@
         </div>
 
         <div style="margin-bottom:10px;">
-          <label style="font-size:0.8rem; font-weight:bold;">Preparation Notes * (Put 'None' or 'OK')</label>
+          <label style="font-size:0.8rem; font-weight:bold;">Preparation Notes *</label>
           <input type="text" id="orderNotes" class="form-control" value="None" required>
         </div>
       </div>
@@ -238,6 +299,8 @@
       const container = document.getElementById('cartItemsList');
       const keys = Object.keys(cart);
       const isDelivery = document.getElementById('orderType').value === 'DELIVERY';
+      
+      document.getElementById('deliveryZoneBox').style.display = isDelivery ? 'block' : 'none';
       document.getElementById('deliveryFields').style.display = isDelivery ? 'block' : 'none';
 
       if (keys.length === 0) {
@@ -272,7 +335,19 @@
         `;
       });
 
-      const total = subtotal + (isDelivery ? 30.0 : 0.0);
+      let deliveryFee = 0.0;
+      if (isDelivery) {
+        const zSelect = document.getElementById('deliveryZone');
+        if (zSelect && zSelect.selectedOptions[0]) {
+          deliveryFee = parseFloat(zSelect.selectedOptions[0].dataset.rate || 40.0);
+        }
+        html += `<div style="display:flex; justify-content:space-between; padding:8px 0; color:#831843; font-weight:bold;">
+          <span>Barangay Delivery Fee</span>
+          <span>₱${deliveryFee.toFixed(2)}</span>
+        </div>`;
+      }
+
+      const total = subtotal + deliveryFee;
       container.innerHTML = html;
       document.getElementById('barTotal').innerText = `₱${total.toFixed(2)}`;
       document.getElementById('barCount').innerText = count;
@@ -283,36 +358,48 @@
       const res = await fetch(`/api/toggle-like/${id}`, { method: 'POST' });
       const data = await res.json();
       document.getElementById(`like-${id}`).innerText = data.total_likes;
+      const btn = document.getElementById(`like-btn-${id}`);
+      if (data.liked) btn.classList.add('liked');
+      else btn.classList.remove('liked');
     }
 
     async function submitOrder() {
+      {% if not cust %}
+        alert("Please log in or register before placing an order.");
+        window.location.href = "/portal/login";
+        return;
+      {% endif %}
+
       const keys = Object.keys(cart);
       if (keys.length === 0) return alert("Cart is empty.");
 
-      const name = document.getElementById('custName').value.trim();
-      const contact = document.getElementById('custContact').value.trim();
       const targetTime = document.getElementById('targetTime').value.trim();
       const notes = document.getElementById('orderNotes').value.trim();
+      const orderType = document.getElementById('orderType').value;
       const pay = document.getElementById('payMethod').value;
       const fb = document.getElementById('fbMessenger').value.trim();
       const gcash = document.getElementById('gcashRef').value.trim();
+      const landmark = document.getElementById('landmark').value.trim();
+      const deliveryAddress = document.getElementById('deliveryAddress').value.trim();
 
-      if (!name || !contact || !targetTime || !notes) return alert("Please fill in all required fields.");
-      if ((pay === 'GCASH' || pay === 'CREDIT') && !fb) return alert("Facebook profile link required for evaluation.");
+      if (!targetTime || !notes) return alert("Please fill in target time and notes.");
+      if (orderType === 'DELIVERY' && (!landmark || !deliveryAddress)) {
+        return alert("Landmark and Delivery address are strictly required for delivery.");
+      }
+      if ((pay === 'GCASH' || pay === 'CREDIT') && !fb) return alert("Facebook profile link required.");
       if (pay === 'GCASH' && gcash.length < 6) return alert("Please input the 6-digit GCash Reference Number.");
 
       const payload = {
         items: keys.map(id => ({ product_id: parseInt(id), quantity: cart[id].qty })),
-        order_type: document.getElementById('orderType').value,
-        customer_name: name,
-        contact: contact,
+        order_type: orderType,
+        delivery_zone_id: orderType === 'DELIVERY' ? document.getElementById('deliveryZone').value : null,
         target_time: targetTime,
         fb_messenger: fb,
         payment_method: pay,
         gcash_ref: gcash,
         notes: notes,
-        delivery_address: document.getElementById('deliveryAddress').value,
-        landmark: document.getElementById('landmark').value
+        delivery_address: deliveryAddress,
+        landmark: landmark
       };
 
       const res = await fetch('/api/storefront-checkout', {
@@ -326,6 +413,7 @@
         cart = {};
         renderCart();
         closeDrawer();
+        window.location.href = "/portal/dashboard";
       } else {
         alert(data.message);
       }
