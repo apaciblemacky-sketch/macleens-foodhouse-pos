@@ -3,7 +3,7 @@ import random
 import string
 from datetime import datetime, date, timedelta
 from functools import wraps
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -168,7 +168,19 @@ class SiteVisitor(db.Model):
     visit_count = db.Column(db.Integer, default=1)
     visited_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# ==================== HELPERS & CONTEXT ====================
+# ==================== PWA ROOT ROUTES ====================
+
+@app.route('/manifest.json')
+def serve_manifest():
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'manifest.json', mimetype='application/manifest+json')
+
+@app.route('/sw.js')
+def serve_sw():
+    response = send_from_directory(os.path.join(app.root_path, 'static'), 'sw.js', mimetype='application/javascript')
+    response.headers['Service-Worker-Allowed'] = '/'
+    return response
+
+# ==================== HELPERS & GUARDS ====================
 
 def get_client_ip():
     if request.headers.get('X-Forwarded-For'):
