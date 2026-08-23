@@ -27,7 +27,7 @@ class Staff(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     pin_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False)  # ADMIN, CASHIER, KITCHEN, RIDER, INVESTOR
+    role = db.Column(db.String(20), nullable=False)  # ADMIN, CASHIER, KITCHEN, RIDER
     plate_number = db.Column(db.String(30), nullable=True)
     active = db.Column(db.Boolean, default=True)
 
@@ -85,7 +85,6 @@ class Order(db.Model):
     
     subtotal = db.Column(db.Float, nullable=False)
     delivery_fee = db.Column(db.Float, default=0.0)
-    discount_amount = db.Column(db.Float, default=0.0)
     total_amount = db.Column(db.Float, nullable=False)
     payment_method = db.Column(db.String(20), nullable=False)  # CASH, GCASH, CREDIT, COD, COP
     payment_verified = db.Column(db.Boolean, default=False)
@@ -138,7 +137,7 @@ def role_required(*roles):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if 'staff_role' not in session or session['staff_role'] not in roles:
-                flash("Unauthorized access. Please login.", "error")
+                flash("Unauthorized access.", "error")
                 return redirect(url_for('staff_login'))
             return f(*args, **kwargs)
         return decorated_function
@@ -152,7 +151,7 @@ def customer_login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# ==================== STOREFRONT & CHECKOUT API ====================
+# ==================== PUBLIC STOREFRONT & CHECKOUT ====================
 
 @app.route('/')
 def store_catalog():
@@ -163,17 +162,7 @@ def store_catalog():
     
     products = Product.query.filter_by(is_active=True).all()
     categories = Category.query.all()
-    top_sellers = Product.query.filter_by(is_top_seller=True, is_active=True).all()
-    featured = Product.query.filter_by(is_featured=True, is_active=True).all()
-    
-    return render_template(
-        'store_catalog.html',
-        products=products,
-        categories=categories,
-        top_sellers=top_sellers,
-        featured=featured,
-        metric=metric
-    )
+    return render_template('store_catalog.html', products=products, categories=categories, metric=metric)
 
 @app.route('/api/storefront-checkout', methods=['POST'])
 def api_storefront_checkout():
@@ -186,14 +175,9 @@ def api_storefront_checkout():
     notes = data.get('notes', '')
 
     if not items or not customer_name or not contact:
-        return jsonify({'success': False, 'message': 'Please complete your name, mobile number, and select cart items.'}), 400
+        return jsonify({'success': False, 'message': 'Missing customer info or cart items.'}), 400
 
-    subtotal = 0.0
-    for it in items:
-        prod = Product.query.get(it['product_id'])
-        if prod:
-            subtotal += prod.price * int(it['quantity'])
-
+    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
     delivery_fee = 30.0 if order_type == 'DELIVERY' else 0.0
     total = subtotal + delivery_fee
 
@@ -220,12 +204,8 @@ def api_storefront_checkout():
         prod = Product.query.get(it['product_id'])
         if prod:
             db.session.add(OrderItem(
-                order_id=order.id,
-                product_id=prod.id,
-                product_name=prod.name,
-                unit_price=prod.price,
-                cost_price=prod.cost,
-                quantity=int(it['quantity']),
+                order_id=order.id, product_id=prod.id, product_name=prod.name,
+                unit_price=prod.price, cost_price=prod.cost, quantity=int(it['quantity']),
                 subtotal=prod.price * int(it['quantity'])
             ))
             if prod.stock >= int(it['quantity']):
@@ -234,15 +214,13 @@ def api_storefront_checkout():
     db.session.commit()
     return jsonify({'success': True, 'order_id': order.id, 'total': total})
 
-# ==================== TABLET IN-STORE KIOSK ====================
+# ==================== TABLET IN-STORE KIOSK (SAMBAPOS TOUCH GRID) ====================
 
 @app.route('/tablet')
 def tablet_kiosk():
     categories = Category.query.all()
     products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
-    store_metric = SiteMetric.query.first()
-    is_open = store_metric.store_open if store_metric else True
-    return render_template('tablet.html', categories=categories, products=products, is_open=is_open)
+    return render_template('tablet.html', categories=categories, products=products)
 
 @app.route('/api/member-lookup', methods=['POST'])
 def api_member_lookup():
@@ -272,21 +250,17 @@ def api_tablet_order():
     if not items:
         return jsonify({'success': False, 'message': 'Cart is empty.'}), 400
 
-    subtotal = 0.0
-    for it in items:
-        prod = Product.query.get(it['product_id'])
-        if prod:
-            subtotal += prod.price * int(it['quantity'])
+    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
 
     if payment_method == 'CREDIT':
         if not customer_id:
-            return jsonify({'success': False, 'message': 'Member Login required to charge Credit.'}), 400
+            return jsonify({'success': False, 'message': 'Member login required for Credit.'}), 400
         cust = Customer.query.get(customer_id)
         if not cust or not cust.is_credit_eligible:
-            return jsonify({'success': False, 'message': 'Customer not authorized for A/R Credit.'}), 400
+            return jsonify({'success': False, 'message': 'Account unauthorized for Credit.'}), 400
         remaining_credit = cust.credit_limit - (cust.outstanding_ar or 0.0)
         if subtotal > remaining_credit:
-            return jsonify({'success': False, 'message': f'Credit limit exceeded. Available: ₱{remaining_credit:,.2f}'}), 400
+            return jsonify({'success': False, 'message': f'Credit exceeded. Available: ₱{remaining_credit:,.2f}'}), 400
         cust.outstanding_ar = (cust.outstanding_ar or 0.0) + subtotal
 
     order = Order(
@@ -308,12 +282,8 @@ def api_tablet_order():
         prod = Product.query.get(it['product_id'])
         if prod:
             db.session.add(OrderItem(
-                order_id=order.id,
-                product_id=prod.id,
-                product_name=prod.name,
-                unit_price=prod.price,
-                cost_price=prod.cost,
-                quantity=int(it['quantity']),
+                order_id=order.id, product_id=prod.id, product_name=prod.name,
+                unit_price=prod.price, cost_price=prod.cost, quantity=int(it['quantity']),
                 subtotal=prod.price * int(it['quantity'])
             ))
             if prod.stock >= int(it['quantity']):
@@ -322,7 +292,7 @@ def api_tablet_order():
     db.session.commit()
     return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})
 
-# ==================== CASHIER POS & AUTHORIZATION ====================
+# ==================== CASHIER POS ====================
 
 @app.route('/pos/cashier')
 @role_required('ADMIN', 'CASHIER')
@@ -343,7 +313,7 @@ def verify_order(order_id):
         order.payment_verified = True
         order.status = "KITCHEN_QUEUE"
         db.session.commit()
-        flash(f"Order #{order.id} verified and sent to Kitchen KDS.", "success")
+        flash(f"Order #{order.id} sent to Kitchen KDS.", "success")
     else:
         for item in order.items:
             prod = Product.query.get(item.product_id)
@@ -368,11 +338,7 @@ def complete_order(order_id):
             earned_pts = int(order.total_amount // 30)
             if earned_pts > 0:
                 cust.points_balance += earned_pts
-                db.session.add(RewardLedger(
-                    customer_id=cust.id,
-                    points_change=earned_pts,
-                    reason=f"Purchase Order #{order.id}"
-                ))
+                db.session.add(RewardLedger(customer_id=cust.id, points_change=earned_pts, reason=f"Purchase Order #{order.id}"))
 
     db.session.commit()
     flash(f"Order #{order.id} completed & archived.", "success")
@@ -425,15 +391,11 @@ def complete_delivery(order_id):
             earned_pts = int(order.total_amount // 30)
             if earned_pts > 0:
                 cust.points_balance += earned_pts
-                db.session.add(RewardLedger(
-                    customer_id=cust.id,
-                    points_change=earned_pts,
-                    reason=f"Delivered Order #{order.id}"
-                ))
+                db.session.add(RewardLedger(customer_id=cust.id, points_change=earned_pts, reason=f"Delivered Order #{order.id}"))
     db.session.commit()
     return redirect(url_for('rider_portal'))
 
-# ==================== MASTER ADMIN DASHBOARD & BATCH CONTROLS ====================
+# ==================== MASTER ADMIN DASHBOARD ====================
 
 @app.route('/admin')
 @role_required('ADMIN')
@@ -444,7 +406,6 @@ def admin_dashboard():
     customers = Customer.query.order_by(Customer.id.desc()).all()
     metric = SiteMetric.query.first()
     
-    # Financial Analytics
     completed_orders = Order.query.filter_by(status='COMPLETED').all()
     total_revenue = sum(o.total_amount for o in completed_orders)
     total_cost = sum(sum(it.cost_price * it.quantity for it in o.items) for o in completed_orders)
@@ -452,16 +413,9 @@ def admin_dashboard():
     total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
     
     return render_template(
-        'admin.html',
-        products=products,
-        categories=categories,
-        staff_members=staff_members,
-        customers=customers,
-        metric=metric,
-        total_revenue=total_revenue,
-        total_cost=total_cost,
-        estimated_profit=estimated_profit,
-        total_ar=total_ar
+        'admin.html', products=products, categories=categories, staff_members=staff_members,
+        customers=customers, metric=metric, total_revenue=total_revenue, total_cost=total_cost,
+        estimated_profit=estimated_profit, total_ar=total_ar
     )
 
 @app.route('/admin/add-product', methods=['POST'])
@@ -474,9 +428,7 @@ def admin_add_product():
     stock = int(request.form.get('stock') or 100)
     is_ulam = 'is_ulam' in request.form
     
-    db.session.add(Product(
-        name=name, category_name=category_name, price=price, cost=cost, stock=stock, is_ulam=is_ulam
-    ))
+    db.session.add(Product(name=name, category_name=category_name, price=price, cost=cost, stock=stock, is_ulam=is_ulam))
     db.session.commit()
     flash(f"Product '{name}' added successfully.", "success")
     return redirect(url_for('admin_dashboard'))
@@ -507,9 +459,7 @@ def admin_add_rider():
     if Staff.query.filter_by(username=username).first():
         flash("Username already exists.", "error")
     else:
-        db.session.add(Staff(
-            username=username, pin_hash=generate_password_hash(pin), role='RIDER', plate_number=plate
-        ))
+        db.session.add(Staff(username=username, pin_hash=generate_password_hash(pin), role='RIDER', plate_number=plate))
         db.session.commit()
         flash(f"Rider account '{username}' created successfully.", "success")
     return redirect(url_for('admin_dashboard'))
@@ -655,19 +605,16 @@ with app.app_context():
             ("Printing", "Print - Semi Colored", 7.0, 3.0, True, False),
             ("Printing", "Print - Full Colored", 10.0, 5.0, True, False),
             ("Printing", "Print - Full Colored HD", 25.0, 10.0, True, False),
-
             ("Daily Specials", "Regular Burger", 35.0, 20.0, True, False),
             ("Daily Specials", "Cheese Burger", 40.0, 24.0, True, False),
             ("Daily Specials", "Cheesy Fries", 40.0, 22.0, True, False),
             ("Daily Specials", "Palabok", 50.0, 30.0, False, False),
             ("Daily Specials", "Pancit Canton", 35.0, 20.0, True, False),
-
             ("Rice Meals", "Siomai Rice", 35.0, 20.0, True, False),
             ("Rice Meals", "Longsilog", 45.0, 26.0, True, False),
             ("Rice Meals", "Hotsilog", 45.0, 25.0, True, False),
             ("Rice Meals", "Spamsilog", 45.0, 27.0, True, False),
             ("Rice Meals", "Tocilog", 45.0, 26.0, True, False),
-
             ("Street Food", "Siomai", 20.0, 10.0, True, False),
             ("Street Food", "Fishball", 20.0, 9.0, True, False),
             ("Street Food", "Cheesestick", 20.0, 10.0, True, False),
@@ -676,7 +623,6 @@ with app.app_context():
             ("Street Food", "Kikiam", 20.0, 10.0, True, False),
             ("Street Food", "Tempura", 20.0, 10.0, True, False),
             ("Street Food", "Fries", 20.0, 10.0, True, False),
-
             ("Softdrinks", "Mt. Dew 12oz", 25.0, 16.0, True, False),
             ("Softdrinks", "Coke Small", 15.0, 10.0, False, False),
             ("Softdrinks", "Coke 12oz", 25.0, 16.0, True, False),
@@ -685,7 +631,6 @@ with app.app_context():
             ("Softdrinks", "Royal 12oz", 25.0, 16.0, False, False),
             ("Softdrinks", "Sprite Small", 15.0, 10.0, True, False),
             ("Softdrinks", "Sprite 12oz", 25.0, 16.0, False, False),
-
             ("Drinks", "Lemonade - Blue 12oz", 20.0, 10.0, False, False),
             ("Drinks", "Lemonade - Blue 16oz", 30.0, 15.0, False, False),
             ("Drinks", "Lemonade - Blue 1L", 50.0, 25.0, False, False),
@@ -705,7 +650,6 @@ with app.app_context():
             ("Drinks", "Fruit Soda - Bubble Gum 16oz", 55.0, 28.0, True, False),
             ("Drinks", "Fruit Soda - Lychee 12oz", 40.0, 20.0, True, False),
             ("Drinks", "Fruit Soda - Lychee 16oz", 55.0, 28.0, True, False),
-
             ("Shake & Dessert", "Ice Scramble - Pink 12oz", 40.0, 18.0, True, False),
             ("Shake & Dessert", "Ice Scramble - Pink 16oz", 55.0, 26.0, True, False),
             ("Shake & Dessert", "Ice Scramble - Ube 12oz", 40.0, 18.0, True, False),
@@ -724,7 +668,6 @@ with app.app_context():
             ("Shake & Dessert", "Shake - Choco Hot Fudge 16oz", 55.0, 30.0, False, False),
             ("Shake & Dessert", "Shake - Choco Kisses 12oz", 40.0, 22.0, False, False),
             ("Shake & Dessert", "Shake - Choco Kisses 16oz", 55.0, 30.0, False, False),
-
             ("Coffee-Based", "Barako Blend Small", 20.0, 9.0, True, False),
             ("Coffee-Based", "Premium Blend Small", 35.0, 16.0, True, False),
             ("Coffee-Based", "Macleen's Signature Coffee 12oz", 75.0, 35.0, False, False),
@@ -736,7 +679,6 @@ with app.app_context():
             ("Coffee-Based", "Iced Spanish Latte 16oz", 75.0, 35.0, True, False),
             ("Coffee-Based", "Iced Premium Latte 16oz", 105.0, 48.0, True, False),
             ("Coffee-Based", "Macleen's Creamshake Float 16oz", 195.0, 90.0, True, False),
-
             ("Ulam", "Laswa", 25.0, 14.0, False, True),
             ("Ulam", "Utan (Monggo Sayote Manok)", 25.0, 14.0, False, True),
             ("Ulam", "Paksiw Bangus", 40.0, 24.0, False, True),
@@ -766,9 +708,7 @@ with app.app_context():
         ]
 
         for cat_name, p_name, price, cost, active, is_ulam in menu_data:
-            db.session.add(Product(
-                name=p_name, category_name=cat_name, price=price, cost=cost, stock=100, is_active=active, is_ulam=is_ulam
-            ))
+            db.session.add(Product(name=p_name, category_name=cat_name, price=price, cost=cost, stock=100, is_active=active, is_ulam=is_ulam))
 
     db.session.commit()
 

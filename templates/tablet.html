@@ -3,246 +3,250 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>MACLEEN'S FOOD HOUSE - In-Store Ordering</title>
+  <title>Macleen's Food House — Self-Order Kiosk</title>
   <style>
     :root {
-      --purple-primary: #7c3aed;
-      --purple-dark: #6d28d9;
-      --purple-light: #f5f3ff;
-      --green-btn: #16a34a;
-      --gray-bg: #f8fafc;
-      --border-col: #e2e8f0;
+      --samba-green: #84cc16;
+      --samba-dark: #1e293b;
+      --samba-tile-bg: #ffffff;
+      --samba-tile-border: #cbd5e1;
+      --samba-accent: #65a30d;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: #fdfafc; color: #1e293b; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-user-select: none; user-select: none; }
+    body { background: #0f172a; color: #1e293b; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-    /* Top Bar */
-    header { background: white; border-bottom: 2px solid #ede9fe; padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
-    .brand-title { font-size: 1.35rem; font-weight: 900; color: var(--purple-primary); letter-spacing: -0.5px; }
-    .brand-sub { font-size: 0.75rem; color: #64748b; font-weight: 500; }
-    .btn-new-order { background: var(--purple-light); color: var(--purple-primary); border: 1px solid #ddd6fe; border-radius: 8px; font-weight: 800; font-size: 0.8rem; padding: 8px 16px; cursor: pointer; }
+    /* Top Bar Header */
+    header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    .brand-title { font-size: 1.15rem; font-weight: 900; color: var(--samba-green); letter-spacing: 0.5px; }
 
-    /* Layout */
-    .kiosk-grid { display: grid; grid-template-columns: 140px 1fr 340px; flex: 1; height: calc(100vh - 60px); overflow: hidden; }
+    /* SambaPOS Grid Architecture */
+    .pos-screen { display: grid; grid-template-columns: 1fr 360px; flex: 1; height: calc(100vh - 45px); overflow: hidden; }
 
-    /* Left Categories */
-    .cat-sidebar { background: white; border-right: 1px solid var(--border-col); overflow-y: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 8px; }
-    .cat-btn { background: #f1f5f9; color: #334155; border: 1px solid var(--border-col); border-radius: 8px; padding: 14px 8px; font-size: 0.78rem; font-weight: 800; text-align: center; cursor: pointer; text-transform: uppercase; transition: all 0.15s; }
-    .cat-btn.active, .cat-btn:hover { background: var(--purple-primary); color: white; border-color: var(--purple-primary); }
+    /* Left Stage: Top Categories + Big Square Product Tiles */
+    .menu-stage { display: flex; flex-direction: column; background: #0f172a; padding: 10px; overflow: hidden; }
+    .cat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; margin-bottom: 10px; }
+    .cat-btn { background: var(--samba-green); color: black; border: none; border-radius: 4px; padding: 12px 6px; font-weight: 900; font-size: 0.78rem; text-transform: uppercase; cursor: pointer; text-align: center; }
+    .cat-btn.active { background: #ffffff; color: black; box-shadow: 0 0 8px rgba(255,255,255,0.6); }
 
-    /* Middle Dish Tiles */
-    .product-stage { padding: 16px; overflow-y: auto; background: var(--gray-bg); }
-    .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
-    .product-card { background: white; border: 1.5px solid #ede9fe; border-radius: 10px; padding: 14px 10px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; height: 110px; transition: transform 0.1s, border-color 0.15s; }
-    .product-card:active { transform: scale(0.97); }
-    .product-card:hover { border-color: var(--purple-primary); box-shadow: 0 4px 12px rgba(124,58,237,0.08); }
-    .p-name { font-size: 0.88rem; font-weight: 800; color: #0f172a; line-height: 1.25; }
-    .p-price { font-size: 0.95rem; font-weight: 900; color: var(--purple-primary); margin-top: 6px; }
+    .tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; flex: 1; overflow-y: auto; align-content: flex-start; }
+    .dish-card { background: var(--samba-tile-bg); border: 2px solid var(--samba-tile-border); border-radius: 6px; padding: 12px 8px; height: 105px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; transition: transform 0.05s; }
+    .dish-card:active { transform: scale(0.96); background: #f0fdf4; border-color: var(--samba-green); }
+    .dish-name { font-size: 0.85rem; font-weight: 900; color: #1e293b; line-height: 1.2; text-transform: uppercase; }
+    .dish-price { font-size: 0.95rem; font-weight: 900; color: var(--samba-accent); text-align: right; }
 
-    /* Right Cart Panel */
-    .cart-sidebar { background: white; border-left: 1px solid var(--border-col); display: flex; flex-direction: column; height: 100%; }
-    .rewards-box { background: var(--purple-light); border: 1px solid #ddd6fe; border-radius: 10px; margin: 12px; padding: 10px; }
-    .rewards-title { font-size: 0.75rem; font-weight: 800; color: var(--purple-dark); margin-bottom: 6px; }
-    .rewards-inputs { display: flex; gap: 4px; }
-    .rewards-inputs input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; font-size: 0.75rem; }
-    .rewards-btn { background: var(--purple-primary); color: white; border: none; border-radius: 6px; padding: 0 10px; font-size: 0.75rem; font-weight: 800; cursor: pointer; }
+    /* Right Panel: Receipt Bill & Big Function / Settlement Buttons */
+    .receipt-panel { background: #1e293b; border-left: 2px solid #334155; display: flex; flex-direction: column; justify-content: space-between; }
+    .receipt-body { flex: 1; background: #ffffff; margin: 10px; border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; }
+    .receipt-header { background: #f1f5f9; padding: 10px; border-bottom: 1px solid #cbd5e1; font-weight: 900; font-size: 0.85rem; color: #334155; display: flex; justify-content: space-between; }
+    .receipt-items { flex: 1; overflow-y: auto; padding: 10px; }
+    .receipt-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.82rem; }
 
-    .cart-items { flex: 1; overflow-y: auto; padding: 12px; }
-    .cart-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #f1f5f9; font-size: 0.85rem; }
-    .qty-ctrl { display: flex; align-items: center; gap: 6px; }
-    .qty-btn { width: 22px; height: 22px; background: #e2e8f0; border-radius: 4px; border: none; font-weight: bold; cursor: pointer; }
+    /* Loyalty Link Section */
+    .member-box { background: #334155; margin: 0 10px 10px; padding: 8px; border-radius: 6px; color: white; }
+    .member-box input { border: 1px solid #64748b; background: #0f172a; color: white; padding: 6px 8px; border-radius: 4px; font-size: 0.75rem; }
 
-    .cart-footer { padding: 14px; border-top: 1px solid var(--border-col); background: white; }
-    .total-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
-    .total-val { font-size: 1.45rem; font-weight: 900; color: #0f172a; }
+    /* Settlement Buttons */
+    .control-actions { padding: 10px; background: #1e293b; border-top: 1px solid #334155; }
+    .total-display { display: flex; justify-content: space-between; align-items: baseline; color: white; margin-bottom: 10px; }
+    .total-amount { font-size: 1.6rem; font-weight: 900; color: var(--samba-green); }
 
-    .pay-methods { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
-    .pay-opt { border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 8px 4px; text-align: center; font-size: 0.75rem; font-weight: 800; cursor: pointer; color: #475569; background: #f8fafc; }
-    .pay-opt.selected { background: var(--purple-primary); color: white; border-color: var(--purple-primary); }
+    .pay-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
+    .pay-btn { background: #334155; color: white; border: 1px solid #475569; padding: 12px 4px; border-radius: 6px; font-weight: 900; font-size: 0.78rem; text-transform: uppercase; cursor: pointer; text-align: center; }
+    .pay-btn.selected { background: var(--samba-green); color: black; border-color: var(--samba-green); }
 
-    .btn-submit { width: 100%; background: var(--green-btn); color: white; border: none; border-radius: 8px; padding: 14px; font-size: 1rem; font-weight: 900; letter-spacing: 0.5px; cursor: pointer; text-transform: uppercase; }
-    .btn-submit:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .btn-send { width: 100%; background: #16a34a; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: 900; font-size: 1rem; cursor: pointer; letter-spacing: 0.5px; }
+    .btn-send:disabled { background: #475569; cursor: not-allowed; }
   </style>
 </head>
 <body>
 
   <header>
-    <div>
-      <div class="brand-title">MACLEEN'S FOOD HOUSE</div>
-      <div class="brand-sub">Tablet In-Store Ordering • Order here, then pay/pickup at Cashier</div>
-    </div>
-    <button class="btn-new-order" onclick="resetCart()">NEW ORDER</button>
+    <div class="brand-title">🍔 MACLEEN'S TABLET TOUCH KIOSK</div>
+    <button onclick="resetOrder()" style="background:#ef4444; color:white; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; font-size:0.75rem; cursor:pointer;">CLEAR TICKET</button>
   </header>
 
-  <div class="kiosk-grid">
-    <!-- Category Selector -->
-    <div class="cat-sidebar" id="catList">
-      <button class="cat-btn active" onclick="filterCategory('ALL', this)">ALL MENU</button>
-      {% for cat in categories %}
-        <button class="cat-btn" onclick="filterCategory('{{ cat.name }}', this)">{{ cat.name }}</button>
-      {% endfor %}
-    </div>
+  <div class="pos-screen">
+    <!-- Left Stage: Top Categories + Product Grid Tiles -->
+    <div class="menu-stage">
+      <div class="cat-strip">
+        <button class="cat-btn active" onclick="filterCat('ALL', this)">ALL MENU</button>
+        {% for cat in categories %}
+          <button class="cat-btn" onclick="filterCat('{{ cat.name }}', this)">{{ cat.name }}</button>
+        {% endfor %}
+      </div>
 
-    <!-- Product Tiles -->
-    <div class="product-stage">
-      <div class="product-grid" id="productGrid">
+      <div class="tile-grid" id="tileGrid">
         {% for p in products %}
-          <div class="product-card" data-cat="{{ p.category_name }}" onclick="addToCart({{ p.id }}, '{{ p.name }}', {{ p.price }})">
-            <div class="p-name">{{ p.name }}</div>
-            <div class="p-price">₱{{ "{:,.2f}".format(p.price) }}</div>
+          <div class="dish-card" data-cat="{{ p.category_name }}" onclick="addItem({{ p.id }}, '{{ p.name }}', {{ p.price }})">
+            <div class="dish-name">{{ p.name }}</div>
+            <div class="dish-price">₱{{ "{:,.2f}".format(p.price) }}</div>
           </div>
         {% endfor %}
       </div>
     </div>
 
-    <!-- Order Cart & Settlement -->
-    <div class="cart-sidebar">
-      <div class="rewards-box">
-        <div class="rewards-title">Rewards Account (Optional)</div>
-        <div class="rewards-inputs">
-          <input type="text" id="memberCard" placeholder="Card # or Mobile" style="flex: 1;">
-          <input type="password" id="memberPin" placeholder="4-Digit PIN" style="width: 75px;">
-          <button class="rewards-btn" onclick="applyMember()">LOG IN</button>
+    <!-- Right Stage: Digital POS Bill & Pay Settlement -->
+    <div class="receipt-panel">
+      <div class="receipt-body">
+        <div class="receipt-header">
+          <span>CURRENT TICKET</span>
+          <span id="ticketCount">0 Items</span>
         </div>
-        <div id="memberBadge" style="display:none; font-size: 0.72rem; color: #16a34a; font-weight: bold; margin-top: 4px;"></div>
+        <div class="receipt-items" id="receiptItems">
+          <p style="color:#94a3b8; text-align:center; padding:30px 10px; font-size:0.85rem;">Tap dishes on the screen to add them to this order.</p>
+        </div>
       </div>
 
-      <div class="cart-items" id="cartList">
-        <div style="text-align: center; color: #94a3b8; font-size: 0.85rem; padding-top: 40px;">Tap items on the left to add them to your order.</div>
+      <!-- Member Loyalty Link -->
+      <div class="member-box">
+        <div style="font-size:0.75rem; font-weight:bold; margin-bottom:4px; color:var(--samba-green);">Rewards Card / Credit Account</div>
+        <div style="display:flex; gap:4px;">
+          <input type="text" id="memberIdent" placeholder="Mobile / Card #" style="flex:1;">
+          <input type="password" id="memberPin" placeholder="PIN" style="width:55px;">
+          <button onclick="loginMember()" style="background:var(--samba-green); color:black; font-weight:bold; border:none; padding:0 8px; border-radius:4px; font-size:0.75rem; cursor:pointer;">LINK</button>
+        </div>
+        <div id="memberStatus" style="display:none; font-size:0.72rem; color:#86efac; font-weight:bold; margin-top:4px;"></div>
       </div>
 
-      <div class="cart-footer">
-        <div class="total-row">
-          <span style="font-weight: 700; color: #64748b; font-size: 0.85rem;">TOTAL</span>
-          <span class="total-val" id="cartTotal">₱0.00</span>
+      <!-- Settlement Controls -->
+      <div class="control-actions">
+        <div class="total-display">
+          <span style="font-size:0.85rem; font-weight:bold; color:#94a3b8;">SUBTOTAL / TOTAL</span>
+          <span class="total-amount" id="grandTotal">₱0.00</span>
         </div>
 
-        <div style="font-size: 0.72rem; font-weight: 800; color: #64748b; margin-bottom: 6px;">Payment Choice</div>
-        <div class="pay-methods">
-          <div class="pay-opt selected" onclick="setPayment('CASH', this)">CASH</div>
-          <div class="pay-opt" onclick="setPayment('CREDIT', this)">CREDIT</div>
-          <div class="pay-opt" onclick="setPayment('GCASH', this)">GCASH</div>
+        <div class="pay-grid">
+          <div class="pay-btn selected" onclick="setPay('CASH', this)">CASH</div>
+          <div class="pay-btn" onclick="setPay('CREDIT', this)">CREDIT</div>
+          <div class="pay-btn" onclick="setPay('GCASH', this)">GCASH</div>
         </div>
 
-        <button class="btn-submit" id="btnSubmit" onclick="submitOrder()" disabled>REVIEW & SEND</button>
+        <button class="btn-send" id="btnSend" onclick="submitTicket()" disabled>SEND TO KITCHEN</button>
       </div>
     </div>
   </div>
 
   <script>
-    let cart = {};
-    let selectedPayment = 'CASH';
-    let loggedMemberId = null;
+    let order = {};
+    let selectedPay = 'CASH';
+    let memberId = null;
 
-    function filterCategory(catName, btn) {
+    function filterCat(catName, btn) {
       document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      const cards = document.querySelectorAll('.product-card');
-      cards.forEach(c => {
-        if (catName === 'ALL' || c.dataset.cat === catName) {
-          c.style.display = 'flex';
-        } else {
-          c.style.display = 'none';
-        }
+      document.querySelectorAll('.dish-card').forEach(d => {
+        d.style.display = (catName === 'ALL' || d.dataset.cat === catName) ? 'flex' : 'none';
       });
     }
 
-    function addToCart(id, name, price) {
-      if (cart[id]) {
-        cart[id].qty += 1;
-      } else {
-        cart[id] = { name: name, price: price, qty: 1 };
-      }
-      renderCart();
+    function addItem(id, name, price) {
+      if (order[id]) order[id].qty += 1;
+      else order[id] = { name, price, qty: 1 };
+      renderTicket();
     }
 
     function changeQty(id, delta) {
-      if (cart[id]) {
-        cart[id].qty += delta;
-        if (cart[id].qty <= 0) delete cart[id];
+      if (order[id]) {
+        order[id].qty += delta;
+        if (order[id].qty <= 0) delete order[id];
       }
-      renderCart();
+      renderTicket();
     }
 
-    function setPayment(mode, elem) {
-      selectedPayment = mode;
-      document.querySelectorAll('.pay-opt').forEach(el => el.classList.remove('selected'));
-      elem.classList.add('selected');
+    function setPay(mode, el) {
+      selectedPay = mode;
+      document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('selected'));
+      el.classList.add('selected');
     }
 
-    function renderCart() {
-      const container = document.getElementById('cartList');
-      const keys = Object.keys(cart);
+    function renderTicket() {
+      const container = document.getElementById('receiptItems');
+      const keys = Object.keys(order);
       if (keys.length === 0) {
-        container.innerHTML = '<div style="text-align: center; color: #94a3b8; font-size: 0.85rem; padding-top: 40px;">Tap items on the left to add them to your order.</div>';
-        document.getElementById('cartTotal').innerText = '₱0.00';
-        document.getElementById('btnSubmit').disabled = true;
+        container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:30px 10px; font-size:0.85rem;">Tap dishes on the screen to add them to this order.</p>';
+        document.getElementById('grandTotal').innerText = '₱0.00';
+        document.getElementById('ticketCount').innerText = '0 Items';
+        document.getElementById('btnSend').disabled = true;
         return;
       }
 
       let html = '';
-      let total = 0.0;
+      let total = 0;
+      let count = 0;
       keys.forEach(id => {
-        const item = cart[id];
-        const rowSubtotal = item.price * item.qty;
-        total += rowSubtotal;
+        const it = order[id];
+        const row = it.price * it.qty;
+        total += row;
+        count += it.qty;
         html += `
-          <div class="cart-row">
+          <div class="receipt-row">
             <div>
-              <strong>${item.name}</strong>
-              <div style="color: #64748b; font-size: 0.75rem;">₱${item.price.toFixed(2)} ea</div>
+              <strong>${it.name}</strong>
+              <div style="color:#64748b; font-size:0.75rem;">₱${it.price.toFixed(2)} ea</div>
             </div>
-            <div class="qty-ctrl">
-              <button class="qty-btn" onclick="changeQty(${id}, -1)">-</button>
-              <strong style="font-size: 0.85rem;">${item.qty}</strong>
-              <button class="qty-btn" onclick="changeQty(${id}, 1)">+</button>
-              <span style="font-weight: 800; width: 60px; text-align: right; color: var(--purple-primary);">₱${rowSubtotal.toFixed(2)}</span>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <button onclick="changeQty(${id}, -1)" style="padding:2px 7px; background:#e2e8f0; border:none; border-radius:3px;">-</button>
+              <strong>${it.qty}</strong>
+              <button onclick="changeQty(${id}, 1)" style="padding:2px 7px; background:#e2e8f0; border:none; border-radius:3px;">+</button>
+              <span style="font-weight:900; color:#1e293b; width:55px; text-align:right;">₱${row.toFixed(2)}</span>
             </div>
           </div>
         `;
       });
 
       container.innerHTML = html;
-      document.getElementById('cartTotal').innerText = '₱' + total.toFixed(2);
-      document.getElementById('btnSubmit').disabled = false;
+      document.getElementById('grandTotal').innerText = `₱${total.toFixed(2)}`;
+      document.getElementById('ticketCount').innerText = `${count} Items`;
+      document.getElementById('btnSend').disabled = false;
     }
 
-    function resetCart() {
-      cart = {};
-      renderCart();
+    function resetOrder() {
+      order = {};
+      renderTicket();
     }
 
-    async function submitOrder() {
-      const itemsList = Object.keys(cart).map(id => ({
-        product_id: parseInt(id),
-        quantity: cart[id].qty
-      }));
+    async function loginMember() {
+      const ident = document.getElementById('memberIdent').value.trim();
+      const pin = document.getElementById('memberPin').value.trim();
+      if (!ident || !pin) return alert("Please enter your Card # / Mobile and PIN.");
+
+      const res = await fetch('/api/member-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: ident, pin: pin })
+      });
+      const data = await res.json();
+      if (data.success) {
+        memberId = data.customer_id;
+        document.getElementById('memberStatus').style.display = 'block';
+        document.getElementById('memberStatus').innerText = `✓ Connected: ${data.name} (Credit Avail: ₱${data.available_credit.toFixed(2)})`;
+      } else {
+        alert(data.message || "Invalid credentials.");
+      }
+    }
+
+    async function submitTicket() {
+      const keys = Object.keys(order);
+      if (keys.length === 0) return;
+
+      const payload = {
+        items: keys.map(id => ({ product_id: parseInt(id), quantity: order[id].qty })),
+        payment_method: selectedPay,
+        customer_id: memberId
+      };
 
       const res = await fetch('/api/tablet-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: itemsList,
-          payment_method: selectedPayment,
-          customer_id: loggedMemberId,
-          notes: 'Order placed via In-Store Tablet Kiosk'
-        })
+        body: JSON.stringify(payload)
       });
+      const data = await res.json();
 
-      const json = await res.json();
-      if (json.success) {
-        alert('🎉 Order #' + json.order_id + ' submitted! Please claim your ticket at the Cashier counter.');
-        resetCart();
+      if (data.success) {
+        alert(`🎉 Ticket #${data.order_id} generated! Please proceed to the cashier counter.`);
+        resetOrder();
       } else {
-        alert('Error: ' + json.message);
-      }
-    }
-
-    function applyMember() {
-      const card = document.getElementById('memberCard').value;
-      if (card) {
-        document.getElementById('memberBadge').style.display = 'block';
-        document.getElementById('memberBadge').innerText = '✓ Loyalty Member Connected: ' + card;
+        alert(data.message || "Error submitting ticket.");
       }
     }
   </script>
