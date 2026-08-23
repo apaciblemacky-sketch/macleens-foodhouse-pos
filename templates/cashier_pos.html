@@ -26,20 +26,37 @@
     .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
 
-    /* Clean ESC/POS Thermal Print Stylesheet */
+    /* Exact 3.5in x 5in Thermal Slip Formatting */
     @media print {
       body * { visibility: hidden !important; }
       #thermalReceipt, #thermalReceipt * { visibility: visible !important; }
-      #thermalReceipt { position: absolute; left: 0; top: 0; width: 58mm; color: black !important; background: white !important; font-family: monospace !important; font-size: 11px !important; padding: 5px !important; }
+      #thermalReceipt { 
+        position: absolute; 
+        left: 0; 
+        top: 0; 
+        width: 3.5in !important; 
+        height: 5.0in !important; 
+        color: black !important; 
+        background: white !important; 
+        font-family: monospace !important; 
+        font-size: 11px !important; 
+        padding: 0.15in !important; 
+        box-sizing: border-box !important;
+      }
+      @page {
+        size: 3.5in 5.0in;
+        margin: 0;
+      }
     }
   </style>
 </head>
 <body>
 
   <header>
-    <div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <img src="{{ store_logo }}" style="width:32px; height:32px; border-radius:50%;">
       <strong style="color:var(--hk-pink);">🖥️ CASHIER TERMINAL</strong>
-      <span style="font-size:0.75rem; color:#94a3b8; margin-left:8px;">Live Dispatch & Verification Queue</span>
+      <span id="liveStatusBadge" style="background:#16a34a; color:white; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold;">LIVE (1s)</span>
     </div>
     <div style="display:flex; gap:8px;">
       <a href="/portal/accounting" style="background:#334155; color:white; padding:4px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Ledger</a>
@@ -72,7 +89,7 @@
         </div>
 
         <div style="margin-bottom:6px;">
-          <button onclick="printOrderThermal({{ o.id }}, '{{ o.customer_name }}', '{{ o.order_type }}', {{ o.total_amount }}, '{{ o.payment_method }}')" style="background:#64748b; color:white; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer; width:100%;">🖨️ Print Slip</button>
+          <button onclick="printOrderThermal({{ o.id }}, '{{ o.customer_name }}', '{{ o.order_type }}', {{ o.total_amount }}, '{{ o.payment_method }}')" style="background:#64748b; color:white; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer; width:100%;">🖨️ Print 3.5"x5" Slip</button>
         </div>
 
         <form action="/pos/verify/{{ o.id }}" method="POST">
@@ -113,7 +130,7 @@
       </div>
     </div>
 
-    <!-- Out For Delivery & Ready Pickups -->
+    <!-- Right Panels -->
     <div class="pickup-panel">
       <h3 style="font-size:0.88rem; color:#38bdf8; margin-bottom:8px;">🛵 Out For Delivery ({{ out_for_delivery|length }})</h3>
       {% for od in out_for_delivery %}
@@ -138,7 +155,7 @@
     </div>
   </div>
 
-  <!-- Print Sheet Container -->
+  <!-- Print Sheet Container (3.5in x 5in) -->
   <div id="thermalReceipt" style="display:none;"></div>
 
   <script>
@@ -154,22 +171,55 @@
       const area = document.getElementById('thermalReceipt');
       area.style.display = 'block';
       area.innerHTML = `
-        <div style="text-align:center;">
+        <div style="text-align:center; font-family:monospace; line-height:1.2;">
           <strong>MACLEEN'S FOOD HOUSE</strong><br>
           San Teodoro, Oriental Mindoro<br>
-          ================================<br>
+          --------------------------------<br>
           ORDER #${orderId} (${type})<br>
           Customer: ${name}<br>
           Payment: ${pay}<br>
-          ================================<br>
+          --------------------------------<br>
           TOTAL: PHP ${total.toFixed(2)}<br>
-          ================================<br>
+          --------------------------------<br>
           Thank you for ordering!<br>
         </div>
       `;
       window.print();
       area.style.display = 'none';
     }
+
+    // Web Audio Synthesizer Beep (2-Tone Order Chime)
+    function playOrderChime() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+      } catch(e) {}
+    }
+
+    let lastPendingCount = {{ pending_orders|length }};
+    if (lastPendingCount > 0) playOrderChime();
+
+    // Fast 1.5s live polling for new verification orders
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/queue-counts');
+        const data = await res.json();
+        if (data.pending_cashier !== lastPendingCount) {
+          playOrderChime();
+          setTimeout(() => { window.location.reload(); }, 300);
+        }
+      } catch(e) {}
+    }, 1500);
   </script>
 </body>
 </html>

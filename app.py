@@ -27,6 +27,12 @@ def make_session_permanent():
 
 # ==================== DATA MODELS ====================
 
+class StoreSetting(db.Model):
+    __tablename__ = 'store_setting'
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(50), unique=True, nullable=False)
+    value = db.Column(db.Text, nullable=False)
+
 class Staff(db.Model):
     __tablename__ = 'staff'
     id = db.Column(db.Integer, primary_key=True)
@@ -45,16 +51,13 @@ class Customer(db.Model):
     fb_messenger = db.Column(db.String(150), nullable=True)
     pin_hash = db.Column(db.String(255), nullable=False)
     profile_image = db.Column(db.Text, nullable=True)
-    
     default_address = db.Column(db.Text, nullable=True)
     default_landmark = db.Column(db.String(150), nullable=True)
-    
     points_balance = db.Column(db.Float, default=0.0)
     is_credit_eligible = db.Column(db.Boolean, default=False)
     credit_limit = db.Column(db.Float, default=0.0)
     outstanding_ar = db.Column(db.Float, default=0.0)
     accumulated_spend = db.Column(db.Float, default=0.0)
-    
     card_number = db.Column(db.String(20), unique=True, nullable=True)
     card_status = db.Column(db.String(20), default="ACTIVE")
     card_expires_at = db.Column(db.Date, nullable=True)
@@ -115,7 +118,7 @@ class Order(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     order_type = db.Column(db.String(20), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
-    customer_name = db.Column(db.String(100), default='Registered Customer')
+    customer_name = db.Column(db.String(100), default='Customer')
     contact_number = db.Column(db.String(50), default='N/A')
     fb_messenger = db.Column(db.String(150), nullable=True)
     delivery_address = db.Column(db.Text, nullable=True)
@@ -124,13 +127,11 @@ class Order(db.Model):
     target_time = db.Column(db.String(50), nullable=True)
     change_for = db.Column(db.Float, nullable=True)
     gcash_ref = db.Column(db.String(10), nullable=True)
-    
     subtotal = db.Column(db.Float, nullable=False)
     delivery_fee = db.Column(db.Float, default=0.0)
     total_amount = db.Column(db.Float, nullable=False)
     payment_method = db.Column(db.String(20), nullable=False)
     payment_verified = db.Column(db.Boolean, default=False)
-    
     status = db.Column(db.String(30), default="VERIFICATION")
     assigned_rider = db.Column(db.String(80), nullable=True)
     rider_delivered = db.Column(db.Boolean, default=False)
@@ -138,7 +139,6 @@ class Order(db.Model):
     cashier_delivered = db.Column(db.Boolean, default=False)
     notes = db.Column(db.Text, nullable=False, default="None")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
     customer = db.relationship('Customer', backref='orders', lazy=True)
     items = db.relationship('OrderItem', backref='order_rel', cascade="all, delete-orphan", lazy=True)
 
@@ -168,12 +168,17 @@ class SiteVisitor(db.Model):
     visit_count = db.Column(db.Integer, default=1)
     visited_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# ==================== HELPERS & AUTH GUARDS ====================
+# ==================== HELPERS & CONTEXT ====================
 
 def get_client_ip():
     if request.headers.get('X-Forwarded-For'):
         return request.headers.get('X-Forwarded-For').split(',')[0].strip()
     return request.remote_addr or '127.0.0.1'
+
+@app.context_processor
+def inject_store_logo():
+    setting = StoreSetting.query.filter_by(key='logo_url').first()
+    return dict(store_logo=setting.value if setting else '/static/logo.png')
 
 def require_admin(f):
     @wraps(f)
@@ -206,6 +211,17 @@ def require_rider(f):
             return redirect(url_for('staff_login', target='rider'))
         return f(*args, **kwargs)
     return decorated
+
+# ==================== REAL-TIME POLLING API ====================
+
+@app.route('/api/queue-counts')
+def api_queue_counts():
+    pending_cashier = Order.query.filter_by(status="VERIFICATION").count()
+    pending_kitchen = Order.query.filter(Order.status.in_(['KITCHEN_QUEUE', 'PREPARING'])).count()
+    return jsonify({
+        'pending_cashier': pending_cashier,
+        'pending_kitchen': pending_kitchen
+    })
 
 # ==================== STOREFRONT ====================
 
@@ -293,7 +309,7 @@ def api_add_comment(product_id):
 @app.route('/api/storefront-checkout', methods=['POST'])
 def api_storefront_checkout():
     if 'customer_id' not in session:
-        return jsonify({'success': False, 'message': 'Registration / Login is required. No walk-in guest checkout.'}), 403
+        return jsonify({'success': False, 'message': 'Registration / Login is required. No guest checkout.'}), 403
 
     cust = Customer.query.get(session['customer_id'])
     data = request.get_json() or {}
@@ -330,8 +346,6 @@ def api_storefront_checkout():
     if order_type == 'DELIVERY':
         zone = DeliveryZone.query.get(zone_id) if zone_id else None
         delivery_fee = zone.rate if zone else 40.0
-        
-        # Save default address for next time
         cust.default_address = delivery_address
         cust.default_landmark = landmark
         cust.fb_messenger = fb
@@ -405,7 +419,7 @@ def verify_order(order_id):
             order.assigned_rider = rider
         order.status = "KITCHEN_QUEUE"
         db.session.commit()
-        flash(f"Order #{order.id} verified & queued for Kitchen.", "success")
+        flash(f"Order #{order.id} verified & sent to Kitchen.", "success")
     else:
         for item in order.items:
             prod = Product.query.get(item.product_id)
@@ -423,7 +437,6 @@ def cashier_confirm_delivery(order_id):
     order = Order.query.get_or_404(order_id)
     order.cashier_delivered = True
     
-    # 2-Confirmation Rule: Rider + (Customer OR Cashier)
     if order.rider_delivered and (order.customer_delivered or order.cashier_delivered):
         order.status = "COMPLETED"
         if order.customer_id and order.payment_method != "CREDIT":
@@ -481,14 +494,12 @@ def update_kitchen_status(order_id):
 @require_rider
 def rider_portal():
     current_rider = session.get('rider_user')
-    
-    # Check pending deliveries assigned to rider that haven't been completed
     pending_active_deliveries = Order.query.filter(
         Order.assigned_rider == current_rider,
         Order.status == 'OUT_FOR_DELIVERY'
     ).count()
     
-    can_accept_more = (pending_active_deliveries == 0) # Lock until batch completed
+    can_accept_more = (pending_active_deliveries == 0)
     ready_deliveries = Order.query.filter_by(status="READY", order_type="DELIVERY").all()
     my_deliveries = Order.query.filter_by(status="OUT_FOR_DELIVERY", assigned_rider=current_rider).all()
     
@@ -518,7 +529,6 @@ def rider_mark_delivered(order_id):
     order = Order.query.get_or_404(order_id)
     order.rider_delivered = True
     
-    # Check 2-confirmation rule
     if order.rider_delivered and (order.customer_delivered or order.cashier_delivered):
         order.status = "COMPLETED"
         if order.customer_id and order.payment_method != "CREDIT":
@@ -531,7 +541,7 @@ def rider_mark_delivered(order_id):
                     db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
 
     db.session.commit()
-    flash(f"Order #{order.id} confirmed by Rider. Awaiting customer/cashier confirmation.", "info")
+    flash(f"Order #{order.id} confirmed by Rider. Awaiting customer confirmation.", "info")
     return redirect(url_for('rider_portal'))
 
 # ==================== TABLET KIOSK ====================
@@ -542,12 +552,23 @@ def tablet_kiosk():
     products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
     return render_template('tablet.html', categories=categories, products=products)
 
-# ==================== MASTER ADMIN & ACCOUNTING ====================
+# ==================== MASTER ADMIN & SETTINGS ====================
 
 @app.route('/admin')
 @require_admin
 def admin_dashboard():
-    products = Product.query.order_by(Product.total_likes.desc()).all()
+    sort_by = request.args.get('sort', 'likes_desc')
+    
+    query = Product.query
+    if sort_by == 'likes_desc': query = query.order_by(Product.total_likes.desc())
+    elif sort_by == 'price_asc': query = query.order_by(Product.price.asc())
+    elif sort_by == 'price_desc': query = query.order_by(Product.price.desc())
+    elif sort_by == 'name_asc': query = query.order_by(Product.name.asc())
+    elif sort_by == 'category': query = query.order_by(Product.category_name.asc(), Product.name.asc())
+    elif sort_by == 'featured': query = query.order_by(Product.is_featured.desc(), Product.name.asc())
+    elif sort_by == 'top_seller': query = query.order_by(Product.is_top_seller.desc(), Product.name.asc())
+    
+    products = query.all()
     categories = Category.query.all()
     staff_members = Staff.query.all()
     customers = Customer.query.order_by(Customer.id.desc()).all()
@@ -573,7 +594,22 @@ def admin_dashboard():
                            total_rev=total_rev,
                            total_cost=total_cost,
                            estimated_profit=estimated_profit,
-                           total_ar=total_ar)
+                           total_ar=total_ar,
+                           current_sort=sort_by)
+
+@app.route('/admin/update-logo', methods=['POST'])
+@require_admin
+def admin_update_logo():
+    new_logo = request.form.get('logo_url', '').strip()
+    if new_logo:
+        setting = StoreSetting.query.filter_by(key='logo_url').first()
+        if not setting:
+            db.session.add(StoreSetting(key='logo_url', value=new_logo))
+        else:
+            setting.value = new_logo
+        db.session.commit()
+        flash("Company logo updated across all portals.", "success")
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/portal/accounting')
 @require_admin
@@ -809,7 +845,7 @@ def staff_logout():
     flash('Logged out.', 'info')
     return redirect(url_for('staff_login'))
 
-# ==================== INITIAL SEEDER ====================
+# ==================== SEEDER ====================
 
 with app.app_context():
     db.create_all()
