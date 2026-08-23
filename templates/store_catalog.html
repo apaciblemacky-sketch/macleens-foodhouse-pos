@@ -3,198 +3,185 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Macleen's Food House — Online Order</title>
+  <title>Macleen's Food House</title>
   <style>
     :root {
-      --pink-primary: #ec4899;
-      --pink-dark: #831843;
-      --pink-light: #fdf2f8;
+      --hk-pink: #ff69b4;
+      --hk-dark: #831843;
+      --hk-light: #fff0f5;
+      --hk-border: #fbcfe8;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: #fdfafc; color: #1e293b; padding-bottom: 90px; }
+    body { background: var(--hk-light); color: #1e293b; padding-bottom: 90px; }
 
-    header { background: white; border-bottom: 1px solid #fbcfe8; padding: 12px 16px; position: sticky; top: 0; z-index: 50; display: flex; justify-content: space-between; align-items: center; }
-    .brand-title { font-size: 1.15rem; font-weight: 900; color: var(--pink-dark); }
-    .nav-actions { display: flex; gap: 8px; align-items: center; }
-    .btn-nav { background: var(--pink-light); color: var(--pink-dark); padding: 7px 12px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 0.8rem; border: 1px solid #fbcfe8; }
+    header { background: white; border-bottom: 2px solid var(--hk-pink); padding: 10px 16px; position: sticky; top: 0; z-index: 50; display: flex; justify-content: space-between; align-items: center; }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 900; color: var(--hk-dark); font-size: 1.1rem; }
+    .nav-btn { background: var(--hk-pink); color: white; padding: 6px 12px; border-radius: 20px; text-decoration: none; font-weight: bold; font-size: 0.78rem; }
 
-    .hero-banner { background: linear-gradient(135deg, #ec4899, #831843); color: white; padding: 1.8rem 1rem; text-align: center; }
-    .hero-banner h1 { font-size: 1.5rem; margin-bottom: 4px; }
-    .hero-banner p { font-size: 0.85rem; opacity: 0.9; }
+    .hero { background: linear-gradient(135deg, #ff69b4, #ec4899, #831843); color: white; padding: 1.5rem 1rem; text-align: center; border-bottom-left-radius: 20px; border-bottom-right-radius: 20px; }
+    .hero h1 { font-size: 1.4rem; margin-bottom: 4px; }
 
-    .container { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+    .section-title { font-size: 1rem; font-weight: 900; color: var(--hk-dark); margin: 16px 0 10px; display: flex; justify-content: space-between; }
 
-    /* Category bar */
-    .category-pills { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 1rem; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
-    .category-pills::-webkit-scrollbar { display: none; }
-    .cat-pill { padding: 8px 14px; background: white; border: 1px solid #fbcfe8; border-radius: 20px; font-size: 0.8rem; font-weight: 700; white-space: nowrap; cursor: pointer; color: #475569; }
-    .cat-pill.active { background: var(--pink-primary); color: white; border-color: var(--pink-primary); }
+    /* Category Blocks */
+    .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+    @media(min-width:768px){ .cat-grid { grid-template-columns: repeat(6, 1fr); gap: 12px; } }
+    .cat-card { background: white; border: 2px solid var(--hk-border); border-radius: 12px; padding: 14px 6px; text-align: center; font-weight: 800; font-size: 0.8rem; cursor: pointer; color: var(--hk-dark); transition: transform 0.1s; }
+    .cat-card.active { background: var(--hk-pink); color: white; border-color: var(--hk-pink); }
 
-    /* Responsive Grid: 2 columns on mobile, 4-5 columns on PC */
+    /* Dishes Carousel / Grid */
     .product-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-    @media (min-width: 768px) {
-      .product-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; }
-      .hero-banner { padding: 3rem 1.5rem; }
-      .hero-banner h1 { font-size: 2.2rem; }
-    }
+    @media(min-width:768px){ .product-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); } }
+    
+    .product-card { background: white; border: 1px solid var(--hk-border); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; }
+    .p-title { font-size: 0.88rem; font-weight: 800; margin: 4px 0; line-height: 1.2; }
+    .p-price { font-size: 1.05rem; font-weight: 900; color: var(--hk-pink); }
+    .engagement-bar { display: flex; justify-content: space-between; align-items: center; margin: 6px 0; font-size: 0.75rem; color: #64748b; }
+    
+    .btn-add { background: var(--hk-pink); color: white; border: none; border-radius: 6px; padding: 6px; font-weight: bold; width: 100%; cursor: pointer; }
 
-    .product-card { background: white; border: 1px solid #fce7f3; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 1px 3px rgba(0,0,0,0.03); }
-    .p-cat { font-size: 0.7rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; }
-    .p-title { font-size: 0.88rem; font-weight: 800; color: #0f172a; margin: 2px 0 6px; line-height: 1.25; }
-    .p-price { font-size: 1.05rem; font-weight: 900; color: var(--pink-primary); margin-bottom: 8px; }
-    .btn-add { background: var(--pink-light); color: var(--pink-dark); border: 1px solid #fbcfe8; border-radius: 8px; padding: 8px; font-weight: 800; font-size: 0.8rem; cursor: pointer; width: 100%; }
-    .btn-add:hover { background: var(--pink-primary); color: white; }
+    /* Floating Cart */
+    .floating-bar { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 2px solid var(--hk-pink); padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 60; }
+    .btn-checkout { background: var(--hk-pink); color: white; border: none; padding: 10px 18px; border-radius: 20px; font-weight: 900; font-size: 0.88rem; cursor: pointer; }
 
-    /* Bottom Floating Checkout Bar */
-    .floating-cart-bar { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 2px solid #fbcfe8; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 -4px 12px rgba(0,0,0,0.06); z-index: 60; }
-    .btn-checkout-trigger { background: var(--pink-primary); color: white; border: none; padding: 10px 18px; border-radius: 8px; font-size: 0.88rem; font-weight: 900; cursor: pointer; }
-
-    /* Shopee-style Slide-out Drawer */
+    /* Drawer */
     .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; display: none; }
-    .checkout-drawer { position: fixed; bottom: 0; right: 0; top: 0; width: 100%; max-width: 480px; background: white; z-index: 101; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.25s ease-in-out; }
+    .drawer { position: fixed; bottom: 0; right: 0; top: 0; width: 100%; max-width: 440px; background: white; z-index: 101; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.2s; }
     .drawer-open .drawer-overlay { display: block; }
-    .drawer-open .checkout-drawer { transform: translateX(0); }
-
-    .drawer-header { padding: 14px 16px; border-bottom: 1px solid #fbcfe8; display: flex; justify-content: space-between; align-items: center; }
-    .drawer-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
-    .cart-item-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #fce7f3; }
-
-    .form-group { margin-bottom: 10px; }
-    .form-group label { display: block; font-size: 0.78rem; font-weight: 700; color: #475569; margin-bottom: 3px; }
-    .form-control { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; }
+    .drawer-open .drawer { transform: translateX(0); }
+    
+    .form-control { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; margin-top: 4px; }
   </style>
 </head>
 <body>
 
   <header>
-    <div class="brand-title">MACLEEN'S FOOD HOUSE</div>
-    <div class="nav-actions">
-      <a href="/portal/login" class="btn-nav">Rewards</a>
-      <a href="/staff/login" class="btn-nav" style="background:#f1f5f9; color:#475569; border-color:#cbd5e1;">Staff</a>
+    <div class="brand">🎀 MACLEEN'S FOOD HOUSE</div>
+    <div style="display:flex; gap:6px;">
+      <a href="/portal/login" class="nav-btn">Rewards</a>
+      <a href="/staff/login" class="nav-btn" style="background:#f1f5f9; color:#475569;">Staff</a>
     </div>
   </header>
 
-  <div class="hero-banner">
-    <h1>Fresh Meals & Fast Delivery</h1>
-    <p>Select your dishes below for pickup or doorstep delivery.</p>
+  <div class="hero">
+    <h1>Hello! Welcome to Macleen's</h1>
+    <p style="font-size:0.8rem;">Tap a category to start ordering your favorite meals!</p>
   </div>
 
-  <div class="container">
-    <div class="category-pills">
-      <button class="cat-pill active" onclick="filterMenu('ALL', this)">ALL MENU</button>
-      {% for cat in categories %}
-        <button class="cat-pill" onclick="filterMenu('{{ cat.name }}', this)">{{ cat.name }}</button>
+  <div style="max-width:1100px; margin:0 auto; padding:12px;">
+    
+    <div class="section-title">📂 Explore Categories</div>
+    <div class="cat-grid">
+      <div class="cat-card active" onclick="showCategory('ALL', this)">ALL MENU</div>
+      {% for c in categories %}
+        <div class="cat-card" onclick="showCategory('{{ c.name }}', this)">{{ c.name }}</div>
       {% endfor %}
     </div>
 
-    <div class="product-grid">
+    <div class="section-title">🍽️ Menu Items</div>
+    <div class="product-grid" id="productGrid">
       {% for p in products %}
       <div class="product-card" data-cat="{{ p.category_name }}">
         <div>
-          <div class="p-cat">{{ p.category_name }}</div>
+          <span style="font-size:0.68rem; font-weight:bold; color:#ec4899;">{{ p.category_name }}</span>
           <div class="p-title">{{ p.name }}</div>
-        </div>
-        <div>
           <div class="p-price">₱{{ "{:,.2f}".format(p.price) }}</div>
-          <button class="btn-add" onclick="addToCart({{ p.id }}, '{{ p.name }}', {{ p.price }})">+ Add</button>
+        </div>
+        
+        <div>
+          <div class="engagement-bar">
+            <span onclick="toggleLike({{ p.id }})" style="cursor:pointer;">❤️ <span id="like-{{ p.id }}">{{ p.total_likes }}</span> Likes</span>
+            <span onclick="promptComment({{ p.id }})" style="cursor:pointer;">💬 Comment</span>
+          </div>
+          <button class="btn-add" onclick="addToCart({{ p.id }}, '{{ p.name }}', {{ p.price }})">+ Add to Basket</button>
         </div>
       </div>
       {% endfor %}
     </div>
+
   </div>
 
-  <!-- Mobile & PC Floating Cart Bar -->
-  <div class="floating-cart-bar">
+  <div class="floating-bar">
     <div>
-      <div style="font-size:0.72rem; color:#64748b; font-weight:700;">TOTAL BASKET</div>
-      <div style="font-size:1.15rem; font-weight:900; color:var(--pink-dark);" id="barTotal">₱0.00 (<span id="barCount">0</span> items)</div>
+      <div style="font-size:0.7rem; color:#64748b; font-weight:bold;">TOTAL BASKET</div>
+      <div style="font-size:1.15rem; font-weight:900; color:var(--hk-dark);" id="barTotal">₱0.00 (<span id="barCount">0</span>)</div>
     </div>
-    <button class="btn-checkout-trigger" onclick="toggleDrawer(true)">VIEW CART</button>
+    <button class="btn-checkout" onclick="openDrawer()">CHECKOUT NOW</button>
   </div>
 
-  <!-- Slide-out Cart Drawer -->
-  <div id="drawerWrapper">
-    <div class="drawer-overlay" onclick="toggleDrawer(false)"></div>
-    <div class="checkout-drawer">
-      <div class="drawer-header">
-        <h3 style="color:var(--pink-dark); font-size:1.1rem;">🛒 Cart & Checkout</h3>
-        <button onclick="toggleDrawer(false)" style="background:none; border:none; font-size:1.3rem; cursor:pointer;">✕</button>
+  <!-- Cart & Checkout Drawer -->
+  <div id="drawerWrap">
+    <div class="drawer-overlay" onclick="closeDrawer()"></div>
+    <div class="drawer">
+      <div style="padding:14px; border-bottom:2px solid var(--hk-pink); display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="color:var(--hk-dark); font-size:1rem;">🛒 Your Cart</h3>
+        <button onclick="closeDrawer()" style="border:none; background:none; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
 
-      <div class="drawer-body">
-        <div id="cartItemsList" style="margin-bottom:12px;">
-          <p style="color:#94a3b8; text-align:center; padding:20px;">Your cart is empty.</p>
-        </div>
+      <div style="flex:1; overflow-y:auto; padding:14px;" id="cartForm">
+        <div id="cartItemsList" style="margin-bottom:12px;"></div>
 
-        <hr style="border:none; border-top:1px solid #fbcfe8; margin:12px 0;">
-
-        <div class="form-group">
-          <label>Order Type *</label>
-          <select id="orderType" class="form-control" onchange="toggleOrderTypeFields()">
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Order Type *</label>
+          <select id="orderType" class="form-control" onchange="renderCart()">
             <option value="PICKUP">In-Store Pickup / Takeout</option>
             <option value="DELIVERY">Delivery (+₱30.00)</option>
           </select>
         </div>
 
-        <div class="form-group">
-          <label>Full Name *</label>
-          <input type="text" id="custName" class="form-control" placeholder="Your Name">
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Target / Estimated Time *</label>
+          <input type="text" id="targetTime" class="form-control" placeholder="e.g. 12:30 PM or ASAP (20 mins)" required>
         </div>
 
-        <div class="form-group">
-          <label>Mobile Number *</label>
-          <input type="tel" id="custContact" class="form-control" placeholder="0917XXXXXXX">
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Full Name *</label>
+          <input type="text" id="custName" class="form-control" required placeholder="Maria Santos">
         </div>
 
-        <!-- Pickup Time -->
-        <div id="pickupBox">
-          <div class="form-group">
-            <label>Estimated Pickup Time</label>
-            <select id="pickupTime" class="form-control">
-              <option value="ASAP (15-25 Mins)">ASAP (15-25 Mins)</option>
-              <option value="In 45 Mins">In 45 Mins</option>
-              <option value="In 1 Hour">In 1 Hour</option>
-            </select>
-          </div>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Mobile Number *</label>
+          <input type="tel" id="custContact" class="form-control" required placeholder="0917XXXXXXX">
         </div>
 
-        <!-- Delivery Address -->
-        <div id="deliveryBox" style="display:none;">
-          <div class="form-group">
-            <label>Street / Purok & Barangay *</label>
-            <input type="text" id="deliveryAddress" class="form-control" placeholder="Purok Mahogany, Brgy. San Teodoro">
-          </div>
-          <div class="form-group">
-            <label>Landmark</label>
-            <input type="text" id="landmark" class="form-control" placeholder="Near School, Red Gate">
-          </div>
+        <div id="deliveryFields" style="display:none; margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Purok & Barangay *</label>
+          <input type="text" id="deliveryAddress" class="form-control" placeholder="Purok 2, San Teodoro">
+          <label style="font-size:0.8rem; font-weight:bold; margin-top:6px; display:block;">Landmark</label>
+          <input type="text" id="landmark" class="form-control" placeholder="Near Elementary School">
         </div>
 
-        <div class="form-group">
-          <label>Payment Method *</label>
-          <select id="payMethod" class="form-control" onchange="toggleCashField()">
-            <option value="CASH">Cash on Counter / Cash on Delivery</option>
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Payment Method *</label>
+          <select id="payMethod" class="form-control" onchange="checkPayMethod()">
+            <option value="CASH">Cash</option>
             <option value="GCASH">GCash</option>
+            <option value="CREDIT">A/R Credit</option>
           </select>
         </div>
 
-        <div class="form-group" id="changeBox">
-          <label>Change For (₱)</label>
-          <input type="number" id="changeFor" class="form-control" placeholder="e.g. 500">
+        <div id="evalFields" style="display:none; margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);">Facebook / Messenger Account *</label>
+          <input type="text" id="fbMessenger" class="form-control" placeholder="fb.com/username">
         </div>
 
-        <div class="form-group">
-          <label>Special Instructions / Notes</label>
-          <input type="text" id="orderNotes" class="form-control" placeholder="Extra utensils, no spicy">
+        <div id="gcashFields" style="display:none; margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold; color:#0284c7;">Last 6 Digits of GCash Ref # *</label>
+          <input type="text" id="gcashRef" maxlength="6" class="form-control" placeholder="e.g. 849201">
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Preparation Notes * (Put 'None' or 'OK')</label>
+          <input type="text" id="orderNotes" class="form-control" value="None" required>
         </div>
       </div>
 
-      <div style="padding:14px 16px; border-top:1px solid #fbcfe8; background:#fdf2f8;">
-        <div style="display:flex; justify-content:space-between; margin-bottom:8px; font-weight:900; font-size:1.1rem; color:var(--pink-dark);">
+      <div style="padding:14px; background:var(--hk-light); border-top:2px solid var(--hk-border);">
+        <div style="display:flex; justify-content:space-between; font-weight:900; font-size:1.15rem; color:var(--hk-dark); margin-bottom:8px;">
           <span>PAYABLE TOTAL</span>
           <span id="drawerTotal">₱0.00</span>
         </div>
-        <button class="btn-checkout-trigger" style="width:100%; padding:12px;" onclick="submitStoreOrder()">PLACE ORDER NOW</button>
+        <button class="btn-checkout" style="width:100%; border-radius:8px;" onclick="submitOrder()">PLACE ORDER NOW</button>
       </div>
     </div>
   </div>
@@ -202,21 +189,21 @@
   <script>
     let cart = {};
 
-    function filterMenu(catName, btn) {
-      document.querySelectorAll('.cat-pill').forEach(b => b.classList.remove('active'));
+    function showCategory(cat, btn) {
+      document.querySelectorAll('.cat-card').forEach(c => c.classList.remove('active'));
       btn.classList.add('active');
-      document.querySelectorAll('.product-card').forEach(c => {
-        c.style.display = (catName === 'ALL' || c.dataset.cat === catName) ? 'flex' : 'none';
+      document.querySelectorAll('.product-card').forEach(p => {
+        p.style.display = (cat === 'ALL' || p.dataset.cat === cat) ? 'flex' : 'none';
       });
     }
 
     function addToCart(id, name, price) {
       if (cart[id]) cart[id].qty += 1;
-      else cart[id] = { name, price, qty: 1 };
+      else cart[id] = { name, price: parseFloat(price), qty: 1 };
       renderCart();
     }
 
-    function changeQty(id, delta) {
+    function updateQty(id, delta) {
       if (cart[id]) {
         cart[id].qty += delta;
         if (cart[id].qty <= 0) delete cart[id];
@@ -224,27 +211,23 @@
       renderCart();
     }
 
-    function toggleDrawer(open) {
-      document.getElementById('drawerWrapper').className = open ? 'drawer-open' : '';
-    }
+    function openDrawer() { document.getElementById('drawerWrap').className = 'drawer-open'; }
+    function closeDrawer() { document.getElementById('drawerWrap').className = ''; }
 
-    function toggleOrderTypeFields() {
-      const isDelivery = document.getElementById('orderType').value === 'DELIVERY';
-      document.getElementById('pickupBox').style.display = isDelivery ? 'none' : 'block';
-      document.getElementById('deliveryBox').style.display = isDelivery ? 'block' : 'none';
-      renderCart();
-    }
-
-    function toggleCashField() {
+    function checkPayMethod() {
       const p = document.getElementById('payMethod').value;
-      document.getElementById('changeBox').style.display = (p === 'CASH') ? 'block' : 'none';
+      document.getElementById('evalFields').style.display = (p === 'GCASH' || p === 'CREDIT') ? 'block' : 'none';
+      document.getElementById('gcashFields').style.display = (p === 'GCASH') ? 'block' : 'none';
     }
 
     function renderCart() {
-      const list = document.getElementById('cartItemsList');
+      const container = document.getElementById('cartItemsList');
       const keys = Object.keys(cart);
+      const isDelivery = document.getElementById('orderType').value === 'DELIVERY';
+      document.getElementById('deliveryFields').style.display = isDelivery ? 'block' : 'none';
+
       if (keys.length === 0) {
-        list.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:20px;">Your cart is empty.</p>';
+        container.innerHTML = '<p style="text-align:center; color:#94a3b8; padding:15px;">Your basket is empty.</p>';
         document.getElementById('barTotal').innerText = '₱0.00';
         document.getElementById('barCount').innerText = '0';
         document.getElementById('drawerTotal').innerText = '₱0.00';
@@ -255,56 +238,79 @@
       let subtotal = 0;
       let count = 0;
       keys.forEach(id => {
-        const it = cart[id];
-        const row = it.price * it.qty;
+        const item = cart[id];
+        const row = item.price * item.qty;
         subtotal += row;
-        count += it.qty;
+        count += item.qty;
         html += `
-          <div class="cart-item-row">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #fbcfe8;">
             <div>
-              <strong>${it.name}</strong>
-              <div style="font-size:0.75rem; color:#64748b;">₱${it.price.toFixed(2)} ea</div>
+              <strong style="font-size:0.85rem;">${item.name}</strong>
+              <div style="font-size:0.75rem; color:#64748b;">₱${item.price.toFixed(2)}</div>
             </div>
             <div style="display:flex; align-items:center; gap:6px;">
-              <button onclick="changeQty(${id}, -1)" style="padding:2px 8px; border:1px solid #cbd5e1; border-radius:3px; background:white;">-</button>
-              <strong>${it.qty}</strong>
-              <button onclick="changeQty(${id}, 1)" style="padding:2px 8px; border:1px solid #cbd5e1; border-radius:3px; background:white;">+</button>
-              <span style="font-weight:800; color:var(--pink-dark); width:60px; text-align:right;">₱${row.toFixed(2)}</span>
+              <button onclick="updateQty(${id}, -1)" style="padding:2px 8px; border:1px solid #cbd5e1; border-radius:4px; background:white;">-</button>
+              <strong>${item.qty}</strong>
+              <button onclick="updateQty(${id}, 1)" style="padding:2px 8px; border:1px solid #cbd5e1; border-radius:4px; background:white;">+</button>
+              <span style="font-weight:900; width:55px; text-align:right;">₱${row.toFixed(2)}</span>
             </div>
           </div>
         `;
       });
 
-      const isDelivery = document.getElementById('orderType').value === 'DELIVERY';
-      const fee = isDelivery ? 30.0 : 0.0;
-      const total = subtotal + fee;
-
-      list.innerHTML = html + (isDelivery ? `<div style="display:flex; justify-content:space-between; padding:8px 0; color:#475569; font-weight:700;"><span>Delivery Fee</span><span>₱30.00</span></div>` : '');
+      const total = subtotal + (isDelivery ? 30.0 : 0.0);
+      container.innerHTML = html;
       document.getElementById('barTotal').innerText = `₱${total.toFixed(2)}`;
       document.getElementById('barCount').innerText = count;
       document.getElementById('drawerTotal').innerText = `₱${total.toFixed(2)}`;
     }
 
-    async function submitStoreOrder() {
+    async function toggleLike(id) {
+      const res = await fetch(`/api/toggle-like/${id}`, { method: 'POST' });
+      const data = await res.json();
+      document.getElementById(`like-${id}`).innerText = data.total_likes;
+    }
+
+    async function promptComment(id) {
+      const text = prompt("Write your comment/review (+2 Points for members):");
+      if (!text) return;
+      const res = await fetch(`/api/add-comment/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: text })
+      });
+      const data = await res.json();
+      if (data.success) alert("Comment posted!");
+    }
+
+    async function submitOrder() {
       const keys = Object.keys(cart);
-      if (keys.length === 0) return alert("Your basket is empty.");
+      if (keys.length === 0) return alert("Cart is empty.");
 
       const name = document.getElementById('custName').value.trim();
       const contact = document.getElementById('custContact').value.trim();
-      if (!name || !contact) return alert("Please enter your name and mobile number.");
+      const targetTime = document.getElementById('targetTime').value.trim();
+      const notes = document.getElementById('orderNotes').value.trim();
+      const pay = document.getElementById('payMethod').value;
+      const fb = document.getElementById('fbMessenger').value.trim();
+      const gcash = document.getElementById('gcashRef').value.trim();
 
-      const orderType = document.getElementById('orderType').value;
+      if (!name || !contact || !targetTime || !notes) return alert("Please fill in all required fields.");
+      if ((pay === 'GCASH' || pay === 'CREDIT') && !fb) return alert("Facebook profile link required for evaluation.");
+      if (pay === 'GCASH' && gcash.length < 6) return alert("Please input the 6-digit GCash Reference Number.");
+
       const payload = {
         items: keys.map(id => ({ product_id: parseInt(id), quantity: cart[id].qty })),
-        order_type: orderType,
+        order_type: document.getElementById('orderType').value,
         customer_name: name,
         contact: contact,
-        pickup_time: document.getElementById('pickupTime').value,
+        target_time: targetTime,
+        fb_messenger: fb,
+        payment_method: pay,
+        gcash_ref: gcash,
+        notes: notes,
         delivery_address: document.getElementById('deliveryAddress').value,
-        landmark: document.getElementById('landmark').value,
-        payment_method: document.getElementById('payMethod').value,
-        change_for: document.getElementById('changeFor').value,
-        notes: document.getElementById('orderNotes').value
+        landmark: document.getElementById('landmark').value
       };
 
       const res = await fetch('/api/storefront-checkout', {
@@ -313,14 +319,13 @@
         body: JSON.stringify(payload)
       });
       const data = await res.json();
-
       if (data.success) {
-        alert(`🎉 Order #${data.order_id} placed! The cashier will verify and prepare your order.`);
+        alert(`Order #${data.order_id} placed! Total: ₱${data.total.toFixed(2)}`);
         cart = {};
         renderCart();
-        toggleDrawer(false);
+        closeDrawer();
       } else {
-        alert(data.message || "Error submitting order.");
+        alert(data.message);
       }
     }
   </script>

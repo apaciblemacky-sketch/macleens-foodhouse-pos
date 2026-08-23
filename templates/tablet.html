@@ -3,250 +3,156 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Macleen's Food House — Self-Order Kiosk</title>
+  <title>Macleen's Tablet Kiosk</title>
   <style>
-    :root {
-      --samba-green: #84cc16;
-      --samba-dark: #1e293b;
-      --samba-tile-bg: #ffffff;
-      --samba-tile-border: #cbd5e1;
-      --samba-accent: #65a30d;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-user-select: none; user-select: none; }
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: #0f172a; color: #1e293b; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-    /* Top Bar Header */
-    header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
-    .brand-title { font-size: 1.15rem; font-weight: 900; color: var(--samba-green); letter-spacing: 0.5px; }
+    header { background: #1e293b; color: white; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; }
+    .kiosk-grid { display: grid; grid-template-columns: 1fr 340px 220px; flex: 1; height: calc(100vh - 45px); }
 
-    /* SambaPOS Grid Architecture */
-    .pos-screen { display: grid; grid-template-columns: 1fr 360px; flex: 1; height: calc(100vh - 45px); overflow: hidden; }
+    /* Left Menu */
+    .menu-pane { background: #0f172a; padding: 10px; display: flex; flex-direction: column; overflow-y: auto; }
+    .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(115px, 1fr)); gap: 8px; }
+    .dish-tile { background: white; border: 2px solid #cbd5e1; border-radius: 6px; padding: 8px; height: 95px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; }
+    .dish-tile:active { background: #ffebf3; border-color: var(--hk-pink); }
 
-    /* Left Stage: Top Categories + Big Square Product Tiles */
-    .menu-stage { display: flex; flex-direction: column; background: #0f172a; padding: 10px; overflow: hidden; }
-    .cat-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 6px; margin-bottom: 10px; }
-    .cat-btn { background: var(--samba-green); color: black; border: none; border-radius: 4px; padding: 12px 6px; font-weight: 900; font-size: 0.78rem; text-transform: uppercase; cursor: pointer; text-align: center; }
-    .cat-btn.active { background: #ffffff; color: black; box-shadow: 0 0 8px rgba(255,255,255,0.6); }
+    /* Center Bill */
+    .bill-pane { background: #1e293b; border-left: 2px solid #334155; display: flex; flex-direction: column; padding: 10px; }
+    .receipt { background: white; border-radius: 6px; flex: 1; padding: 10px; overflow-y: auto; }
 
-    .tile-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; flex: 1; overflow-y: auto; align-content: flex-start; }
-    .dish-card { background: var(--samba-tile-bg); border: 2px solid var(--samba-tile-border); border-radius: 6px; padding: 12px 8px; height: 105px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; transition: transform 0.05s; }
-    .dish-card:active { transform: scale(0.96); background: #f0fdf4; border-color: var(--samba-green); }
-    .dish-name { font-size: 0.85rem; font-weight: 900; color: #1e293b; line-height: 1.2; text-transform: uppercase; }
-    .dish-price { font-size: 0.95rem; font-weight: 900; color: var(--samba-accent); text-align: right; }
-
-    /* Right Panel: Receipt Bill & Big Function / Settlement Buttons */
-    .receipt-panel { background: #1e293b; border-left: 2px solid #334155; display: flex; flex-direction: column; justify-content: space-between; }
-    .receipt-body { flex: 1; background: #ffffff; margin: 10px; border-radius: 6px; display: flex; flex-direction: column; overflow: hidden; }
-    .receipt-header { background: #f1f5f9; padding: 10px; border-bottom: 1px solid #cbd5e1; font-weight: 900; font-size: 0.85rem; color: #334155; display: flex; justify-content: space-between; }
-    .receipt-items { flex: 1; overflow-y: auto; padding: 10px; }
-    .receipt-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px dashed #e2e8f0; font-size: 0.82rem; }
-
-    /* Loyalty Link Section */
-    .member-box { background: #334155; margin: 0 10px 10px; padding: 8px; border-radius: 6px; color: white; }
-    .member-box input { border: 1px solid #64748b; background: #0f172a; color: white; padding: 6px 8px; border-radius: 4px; font-size: 0.75rem; }
-
-    /* Settlement Buttons */
-    .control-actions { padding: 10px; background: #1e293b; border-top: 1px solid #334155; }
-    .total-display { display: flex; justify-content: space-between; align-items: baseline; color: white; margin-bottom: 10px; }
-    .total-amount { font-size: 1.6rem; font-weight: 900; color: var(--samba-green); }
-
-    .pay-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 10px; }
-    .pay-btn { background: #334155; color: white; border: 1px solid #475569; padding: 12px 4px; border-radius: 6px; font-weight: 900; font-size: 0.78rem; text-transform: uppercase; cursor: pointer; text-align: center; }
-    .pay-btn.selected { background: var(--samba-green); color: black; border-color: var(--samba-green); }
-
-    .btn-send { width: 100%; background: #16a34a; color: white; border: none; padding: 14px; border-radius: 6px; font-weight: 900; font-size: 1rem; cursor: pointer; letter-spacing: 0.5px; }
-    .btn-send:disabled { background: #475569; cursor: not-allowed; }
+    /* Right On-Screen Keypad */
+    .keypad-pane { background: #1e293b; border-left: 2px solid #334155; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .pad-key { background: #334155; color: white; border: 1px solid #475569; border-radius: 6px; font-size: 1.2rem; font-weight: 900; height: 50px; display: flex; justify-content: center; align-items: center; cursor: pointer; }
+    .pad-key:active { background: var(--hk-pink); }
   </style>
 </head>
 <body>
 
   <header>
-    <div class="brand-title">🍔 MACLEEN'S TABLET TOUCH KIOSK</div>
-    <button onclick="resetOrder()" style="background:#ef4444; color:white; border:none; padding:6px 12px; border-radius:4px; font-weight:bold; font-size:0.75rem; cursor:pointer;">CLEAR TICKET</button>
+    <strong style="color:var(--hk-pink);">🎀 MACLEEN'S TABLET TOUCH KIOSK</strong>
+    <button onclick="resetTicket()" style="background:#ef4444; color:white; border:none; padding:4px 10px; border-radius:4px; font-weight:bold;">CLEAR</button>
   </header>
 
-  <div class="pos-screen">
-    <!-- Left Stage: Top Categories + Product Grid Tiles -->
-    <div class="menu-stage">
-      <div class="cat-strip">
-        <button class="cat-btn active" onclick="filterCat('ALL', this)">ALL MENU</button>
-        {% for cat in categories %}
-          <button class="cat-btn" onclick="filterCat('{{ cat.name }}', this)">{{ cat.name }}</button>
-        {% endfor %}
-      </div>
-
-      <div class="tile-grid" id="tileGrid">
+  <div class="kiosk-grid">
+    <!-- Dish Catalog -->
+    <div class="menu-pane">
+      <div class="dish-grid">
         {% for p in products %}
-          <div class="dish-card" data-cat="{{ p.category_name }}" onclick="addItem({{ p.id }}, '{{ p.name }}', {{ p.price }})">
-            <div class="dish-name">{{ p.name }}</div>
-            <div class="dish-price">₱{{ "{:,.2f}".format(p.price) }}</div>
-          </div>
+        <div class="dish-tile" onclick="addItem({{ p.id }}, '{{ p.name }}', {{ p.price }})">
+          <div style="font-size:0.8rem; font-weight:900;">{{ p.name }}</div>
+          <div style="font-size:0.9rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
+        </div>
         {% endfor %}
       </div>
     </div>
 
-    <!-- Right Stage: Digital POS Bill & Pay Settlement -->
-    <div class="receipt-panel">
-      <div class="receipt-body">
-        <div class="receipt-header">
-          <span>CURRENT TICKET</span>
-          <span id="ticketCount">0 Items</span>
-        </div>
-        <div class="receipt-items" id="receiptItems">
-          <p style="color:#94a3b8; text-align:center; padding:30px 10px; font-size:0.85rem;">Tap dishes on the screen to add them to this order.</p>
-        </div>
+    <!-- Receipt Bill -->
+    <div class="bill-pane">
+      <div class="receipt" id="receiptBox">
+        <p style="color:#94a3b8; text-align:center; padding-top:40px;">Tap items to add.</p>
       </div>
 
-      <!-- Member Loyalty Link -->
-      <div class="member-box">
-        <div style="font-size:0.75rem; font-weight:bold; margin-bottom:4px; color:var(--samba-green);">Rewards Card / Credit Account</div>
-        <div style="display:flex; gap:4px;">
-          <input type="text" id="memberIdent" placeholder="Mobile / Card #" style="flex:1;">
-          <input type="password" id="memberPin" placeholder="PIN" style="width:55px;">
-          <button onclick="loginMember()" style="background:var(--samba-green); color:black; font-weight:bold; border:none; padding:0 8px; border-radius:4px; font-size:0.75rem; cursor:pointer;">LINK</button>
+      <div style="background:#0f172a; padding:10px; border-radius:6px; margin-top:10px; color:white;">
+        <div style="display:flex; justify-content:space-between; font-weight:900; font-size:1.3rem;">
+          <span>TOTAL</span>
+          <span style="color:var(--hk-pink);" id="kioskTotal">₱0.00</span>
         </div>
-        <div id="memberStatus" style="display:none; font-size:0.72rem; color:#86efac; font-weight:bold; margin-top:4px;"></div>
+        <button onclick="submitKiosk()" style="width:100%; background:var(--hk-pink); color:white; border:none; padding:12px; border-radius:6px; font-weight:900; margin-top:8px; font-size:1rem; cursor:pointer;">SEND TO KITCHEN</button>
       </div>
+    </div>
 
-      <!-- Settlement Controls -->
-      <div class="control-actions">
-        <div class="total-display">
-          <span style="font-size:0.85rem; font-weight:bold; color:#94a3b8;">SUBTOTAL / TOTAL</span>
-          <span class="total-amount" id="grandTotal">₱0.00</span>
-        </div>
-
-        <div class="pay-grid">
-          <div class="pay-btn selected" onclick="setPay('CASH', this)">CASH</div>
-          <div class="pay-btn" onclick="setPay('CREDIT', this)">CREDIT</div>
-          <div class="pay-btn" onclick="setPay('GCASH', this)">GCASH</div>
-        </div>
-
-        <button class="btn-send" id="btnSend" onclick="submitTicket()" disabled>SEND TO KITCHEN</button>
+    <!-- Keypad -->
+    <div class="keypad-pane">
+      <input type="text" id="keypadInput" placeholder="Enter Card / PIN" style="background:#0f172a; color:white; border:1px solid #64748b; padding:10px; border-radius:6px; text-align:center; font-weight:bold; font-size:1.1rem; margin-bottom:6px;">
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;">
+        <div class="pad-key" onclick="pressKey('1')">1</div>
+        <div class="pad-key" onclick="pressKey('2')">2</div>
+        <div class="pad-key" onclick="pressKey('3')">3</div>
+        <div class="pad-key" onclick="pressKey('4')">4</div>
+        <div class="pad-key" onclick="pressKey('5')">5</div>
+        <div class="pad-key" onclick="pressKey('6')">6</div>
+        <div class="pad-key" onclick="pressKey('7')">7</div>
+        <div class="pad-key" onclick="pressKey('8')">8</div>
+        <div class="pad-key" onclick="pressKey('9')">9</div>
+        <div class="pad-key" onclick="pressKey('C')" style="color:#f87171;">C</div>
+        <div class="pad-key" onclick="pressKey('0')">0</div>
+        <div class="pad-key" onclick="pressKey('OK')" style="color:#4ade80;">OK</div>
       </div>
     </div>
   </div>
 
   <script>
-    let order = {};
-    let selectedPay = 'CASH';
-    let memberId = null;
+    let kCart = {};
 
-    function filterCat(catName, btn) {
-      document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      document.querySelectorAll('.dish-card').forEach(d => {
-        d.style.display = (catName === 'ALL' || d.dataset.cat === catName) ? 'flex' : 'none';
-      });
+    function pressKey(k) {
+      const inp = document.getElementById('keypadInput');
+      if (k === 'C') inp.value = '';
+      else if (k === 'OK') alert("Input recorded: " + inp.value);
+      else inp.value += k;
     }
 
     function addItem(id, name, price) {
-      if (order[id]) order[id].qty += 1;
-      else order[id] = { name, price, qty: 1 };
-      renderTicket();
+      if (kCart[id]) kCart[id].qty += 1;
+      else kCart[id] = { name, price: parseFloat(price), qty: 1 };
+      renderKiosk();
     }
 
-    function changeQty(id, delta) {
-      if (order[id]) {
-        order[id].qty += delta;
-        if (order[id].qty <= 0) delete order[id];
-      }
-      renderTicket();
-    }
-
-    function setPay(mode, el) {
-      selectedPay = mode;
-      document.querySelectorAll('.pay-btn').forEach(b => b.classList.remove('selected'));
-      el.classList.add('selected');
-    }
-
-    function renderTicket() {
-      const container = document.getElementById('receiptItems');
-      const keys = Object.keys(order);
+    function renderKiosk() {
+      const r = document.getElementById('receiptBox');
+      const keys = Object.keys(kCart);
       if (keys.length === 0) {
-        container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:30px 10px; font-size:0.85rem;">Tap dishes on the screen to add them to this order.</p>';
-        document.getElementById('grandTotal').innerText = '₱0.00';
-        document.getElementById('ticketCount').innerText = '0 Items';
-        document.getElementById('btnSend').disabled = true;
+        r.innerHTML = '<p style="color:#94a3b8; text-align:center; padding-top:40px;">Tap items to add.</p>';
+        document.getElementById('kioskTotal').innerText = '₱0.00';
         return;
       }
 
       let html = '';
       let total = 0;
-      let count = 0;
       keys.forEach(id => {
-        const it = order[id];
-        const row = it.price * it.qty;
+        const item = kCart[id];
+        const row = item.price * item.qty;
         total += row;
-        count += it.qty;
-        html += `
-          <div class="receipt-row">
-            <div>
-              <strong>${it.name}</strong>
-              <div style="color:#64748b; font-size:0.75rem;">₱${it.price.toFixed(2)} ea</div>
-            </div>
-            <div style="display:flex; align-items:center; gap:6px;">
-              <button onclick="changeQty(${id}, -1)" style="padding:2px 7px; background:#e2e8f0; border:none; border-radius:3px;">-</button>
-              <strong>${it.qty}</strong>
-              <button onclick="changeQty(${id}, 1)" style="padding:2px 7px; background:#e2e8f0; border:none; border-radius:3px;">+</button>
-              <span style="font-weight:900; color:#1e293b; width:55px; text-align:right;">₱${row.toFixed(2)}</span>
-            </div>
-          </div>
-        `;
+        html += `<div style="display:flex; justify-content:space-between; padding:6px 0; border-bottom:1px dashed #cbd5e1; font-size:0.85rem;">
+          <div><strong>${item.name}</strong> x${item.qty}</div>
+          <div>₱${row.toFixed(2)}</div>
+        </div>`;
       });
 
-      container.innerHTML = html;
-      document.getElementById('grandTotal').innerText = `₱${total.toFixed(2)}`;
-      document.getElementById('ticketCount').innerText = `${count} Items`;
-      document.getElementById('btnSend').disabled = false;
+      r.innerHTML = html;
+      document.getElementById('kioskTotal').innerText = `₱${total.toFixed(2)}`;
     }
 
-    function resetOrder() {
-      order = {};
-      renderTicket();
+    function resetTicket() {
+      kCart = {};
+      renderKiosk();
     }
 
-    async function loginMember() {
-      const ident = document.getElementById('memberIdent').value.trim();
-      const pin = document.getElementById('memberPin').value.trim();
-      if (!ident || !pin) return alert("Please enter your Card # / Mobile and PIN.");
-
-      const res = await fetch('/api/member-lookup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier: ident, pin: pin })
-      });
-      const data = await res.json();
-      if (data.success) {
-        memberId = data.customer_id;
-        document.getElementById('memberStatus').style.display = 'block';
-        document.getElementById('memberStatus').innerText = `✓ Connected: ${data.name} (Credit Avail: ₱${data.available_credit.toFixed(2)})`;
-      } else {
-        alert(data.message || "Invalid credentials.");
-      }
-    }
-
-    async function submitTicket() {
-      const keys = Object.keys(order);
-      if (keys.length === 0) return;
+    async function submitKiosk() {
+      const keys = Object.keys(kCart);
+      if (keys.length === 0) return alert("Ticket is empty.");
 
       const payload = {
-        items: keys.map(id => ({ product_id: parseInt(id), quantity: order[id].qty })),
-        payment_method: selectedPay,
-        customer_id: memberId
+        items: keys.map(id => ({ product_id: parseInt(id), quantity: kCart[id].qty })),
+        payment_method: 'CASH'
       };
 
-      const res = await fetch('/api/tablet-order', {
+      const res = await fetch('/api/storefront-checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          ...payload,
+          order_type: 'TABLET',
+          customer_name: 'Counter Kiosk',
+          contact: '0000',
+          notes: 'Tablet Self-Order'
+        })
       });
       const data = await res.json();
-
       if (data.success) {
-        alert(`🎉 Ticket #${data.order_id} generated! Please proceed to the cashier counter.`);
-        resetOrder();
-      } else {
-        alert(data.message || "Error submitting ticket.");
+        alert(`Order #${data.order_id} generated! Please pay at cashier.`);
+        resetTicket();
       }
     }
   </script>
