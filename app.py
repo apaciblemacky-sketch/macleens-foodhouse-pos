@@ -227,29 +227,32 @@ def api_queue_counts():
 
 @app.route('/')
 def store_catalog():
-    ip = get_client_ip()
-    v = SiteVisitor.query.filter_by(ip_address=ip).first()
-    if not v:
-        db.session.add(SiteVisitor(ip_address=ip, visit_count=1))
-    else:
-        v.visit_count = (v.visit_count or 1) + 1
-    db.session.commit()
-    
+    try:
+        ip = get_client_ip()
+        v = SiteVisitor.query.filter_by(ip_address=ip).first()
+        if not v:
+            db.session.add(SiteVisitor(ip_address=ip, visit_count=1))
+        else:
+            v.visit_count = (v.visit_count or 0) + 1
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
     unique_visitors = SiteVisitor.query.count()
-    total_accumulated_visits = db.session.query(db.func.sum(SiteVisitor.visit_count)).scalar() or unique_visitors
+    total_accumulated_visits = db.session.query(db.func.coalesce(db.func.sum(SiteVisitor.visit_count), 0)).scalar() or unique_visitors
 
     categories = Category.query.all()
     featured = Product.query.filter_by(is_featured=True, is_active=True).all()
     top_sellers = Product.query.filter_by(is_top_seller=True, is_active=True).all()
     products = Product.query.filter_by(is_active=True).order_by(Product.total_likes.desc(), Product.id.asc()).all()
-    
-    liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=ip).all()}
+
+    liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=get_client_ip()).all()}
     delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()
-    
+
     cust = None
     if 'customer_id' in session:
         cust = Customer.query.get(session['customer_id'])
-    
+
     return render_template('store_catalog.html', 
                            categories=categories, 
                            featured=featured, 
@@ -273,7 +276,7 @@ def api_toggle_like(product_id):
     ip = get_client_ip()
     cust_id = session.get('customer_id')
     prod = Product.query.get_or_404(product_id)
-    
+
     existing = ProductLike.query.filter_by(product_id=product_id, ip_address=ip).first()
     if existing:
         db.session.delete(existing)
@@ -294,13 +297,13 @@ def api_add_comment(product_id):
     text = data.get('comment', '').strip()
     if not text:
         return jsonify({'success': False, 'message': 'Comment cannot be empty.'}), 400
-    
+
     name = f"Guest ({ip})"
     if cust_id:
         cust = Customer.query.get(cust_id)
         if cust:
             name = cust.name
-            
+
     comment = ProductComment(product_id=product_id, customer_id=cust_id, author_name=name, ip_address=ip, comment_text=text)
     db.session.add(comment)
     db.session.commit()
@@ -325,7 +328,7 @@ def api_storefront_checkout():
     fb = data.get('fb_messenger', '').strip()
 
     if not items or not target_time:
-        return jsonify({'success': False, 'message': 'Please complete your target time and cart items.'}), 400
+        return jsonify({'success': False, 'message': 'Please complete your target time and select cart items.'}), 400
 
     if order_type == 'DELIVERY':
         if not landmark or not delivery_address:
@@ -335,13 +338,13 @@ def api_storefront_checkout():
         return jsonify({'success': False, 'message': 'Your account is not authorized for A/R Credit.'}), 403
 
     if pay_method in ['GCASH', 'CREDIT'] and not fb:
-        return jsonify({'success': False, 'message': 'Facebook messenger link required for evaluation.'}), 400
+        return jsonify({'success': False, 'message': 'Facebook messenger link is required for evaluation.'}), 400
 
     if pay_method == 'GCASH' and len(gcash_ref) < 6:
-        return jsonify({'success': False, 'message': 'Input the 6-digit GCash Reference Number.'}), 400
+        return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400
 
     subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
-    
+
     delivery_fee = 0.0
     if order_type == 'DELIVERY':
         zone = DeliveryZone.query.get(zone_id) if zone_id else None
@@ -436,7 +439,7 @@ def verify_order(order_id):
 def cashier_confirm_delivery(order_id):
     order = Order.query.get_or_404(order_id)
     order.cashier_delivered = True
-    
+
     if order.rider_delivered and (order.customer_delivered or order.cashier_delivered):
         order.status = "COMPLETED"
         if order.customer_id and order.payment_method != "CREDIT":
@@ -498,11 +501,11 @@ def rider_portal():
         Order.assigned_rider == current_rider,
         Order.status == 'OUT_FOR_DELIVERY'
     ).count()
-    
+
     can_accept_more = (pending_active_deliveries == 0)
     ready_deliveries = Order.query.filter_by(status="READY", order_type="DELIVERY").all()
     my_deliveries = Order.query.filter_by(status="OUT_FOR_DELIVERY", assigned_rider=current_rider).all()
-    
+
     return render_template('rider_portal.html', 
                            ready_deliveries=ready_deliveries, 
                            my_deliveries=my_deliveries,
@@ -528,7 +531,7 @@ def rider_claim_batch():
 def rider_mark_delivered(order_id):
     order = Order.query.get_or_404(order_id)
     order.rider_delivered = True
-    
+
     if order.rider_delivered and (order.customer_delivered or order.cashier_delivered):
         order.status = "COMPLETED"
         if order.customer_id and order.payment_method != "CREDIT":
@@ -558,7 +561,7 @@ def tablet_kiosk():
 @require_admin
 def admin_dashboard():
     sort_by = request.args.get('sort', 'likes_desc')
-    
+
     query = Product.query
     if sort_by == 'likes_desc': query = query.order_by(Product.total_likes.desc())
     elif sort_by == 'price_asc': query = query.order_by(Product.price.asc())
@@ -567,22 +570,22 @@ def admin_dashboard():
     elif sort_by == 'category': query = query.order_by(Product.category_name.asc(), Product.name.asc())
     elif sort_by == 'featured': query = query.order_by(Product.is_featured.desc(), Product.name.asc())
     elif sort_by == 'top_seller': query = query.order_by(Product.is_top_seller.desc(), Product.name.asc())
-    
+
     products = query.all()
     categories = Category.query.all()
     staff_members = Staff.query.all()
     customers = Customer.query.order_by(Customer.id.desc()).all()
     delivery_zones = DeliveryZone.query.all()
-    
+
     unique_visitors = SiteVisitor.query.count()
-    total_accumulated_visits = db.session.query(db.func.sum(SiteVisitor.visit_count)).scalar() or unique_visitors
-    
+    total_accumulated_visits = db.session.query(db.func.coalesce(db.func.sum(SiteVisitor.visit_count), 0)).scalar() or unique_visitors
+
     completed = Order.query.filter_by(status='COMPLETED').all()
     total_rev = sum(o.total_amount for o in completed)
     total_cost = sum(sum(it.cost_price * it.quantity for it in o.items) for o in completed)
     estimated_profit = total_rev - total_cost
     total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
-    
+
     return render_template('admin.html', 
                            products=products, 
                            categories=categories, 
@@ -617,7 +620,7 @@ def accounting_portal():
     today = date.today()
     week_ago = datetime.utcnow() - timedelta(days=7)
     month_ago = datetime.utcnow() - timedelta(days=30)
-    
+
     daily_orders = Order.query.filter(db.func.date(Order.created_at) == today, Order.status == 'COMPLETED').all()
     weekly_orders = Order.query.filter(Order.created_at >= week_ago, Order.status == 'COMPLETED').all()
     monthly_orders = Order.query.filter(Order.created_at >= month_ago, Order.status == 'COMPLETED').all()
@@ -648,7 +651,7 @@ def admin_add_product():
     image_url = request.form.get('image_url', '').strip()
     is_featured = bool(request.form.get('is_featured'))
     is_top_seller = bool(request.form.get('is_top_seller'))
-    
+
     db.session.add(Product(name=name, category_name=category_name, price=price, cost=cost, stock=stock, 
                            image_url=image_url, is_featured=is_featured, is_top_seller=is_top_seller))
     db.session.commit()
@@ -771,7 +774,7 @@ def customer_confirm_received(order_id):
             if earned > 0:
                 cust.points_balance += earned
                 db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
-    
+
     db.session.commit()
     flash(f"Order #{order.id} confirmed as received! Thank you!", "success")
     return redirect(url_for('customer_dashboard'))
@@ -793,7 +796,7 @@ def claim_daily_wifi():
     if 'customer_id' not in session:
         return redirect(url_for('customer_login'))
     cust = Customer.query.get(session['customer_id'])
-    
+
     if cust.last_wifi_claim == date.today():
         flash(f"Today's Wi-Fi already claimed: {cust.wifi_voucher_code}", "info")
     else:
@@ -813,7 +816,7 @@ def staff_login():
         user = request.form.get('username', '').strip().lower()
         pin = request.form.get('pin', '').strip()
         staff = Staff.query.filter(db.func.lower(Staff.username) == user).first()
-        
+
         if staff and check_password_hash(staff.pin_hash, pin):
             if staff.role == 'ADMIN':
                 session['admin_id'] = staff.id
@@ -845,7 +848,7 @@ def staff_logout():
     flash('Logged out.', 'info')
     return redirect(url_for('staff_login'))
 
-# ==================== SEEDER ====================
+# ==================== INITIAL SEEDER ====================
 
 with app.app_context():
     db.create_all()

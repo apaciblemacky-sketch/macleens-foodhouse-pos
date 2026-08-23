@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Macleen's Cashier POS</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#ff69b4">
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/static/sw.js');
+    }
+  </script>
   <style>
     :root { --hk-pink: #ff69b4; --hk-dark: #831843; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -26,7 +33,6 @@
     .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
 
-    /* Exact 3.5in x 5in Thermal Slip Formatting */
     @media print {
       body * { visibility: hidden !important; }
       #thermalReceipt, #thermalReceipt * { visibility: visible !important; }
@@ -155,7 +161,7 @@
     </div>
   </div>
 
-  <!-- Print Sheet Container (3.5in x 5in) -->
+  <!-- Thermal Print Slip -->
   <div id="thermalReceipt" style="display:none;"></div>
 
   <script>
@@ -188,7 +194,6 @@
       area.style.display = 'none';
     }
 
-    // Web Audio Synthesizer Beep (2-Tone Order Chime)
     function playOrderChime() {
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -209,7 +214,6 @@
     let lastPendingCount = {{ pending_orders|length }};
     if (lastPendingCount > 0) playOrderChime();
 
-    // Fast 1.5s live polling for new verification orders
     setInterval(async () => {
       try {
         const res = await fetch('/api/queue-counts');
