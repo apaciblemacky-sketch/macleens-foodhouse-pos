@@ -3,76 +3,142 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Macleen's Food House - Cashier POS</title>
+  <title>Macleen's Cashier & Verification POS</title>
   <style>
-    :root { --pink: #ec4899; --pink-dark: #be185d; --purple: #9333ea; --gold: #f59e0b; }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
-    body { background: #fff5f7; display: flex; height: 100vh; overflow: hidden; }
-    .sidebar { width: 350px; background: white; border-right: 2px solid #fbcfe8; display: flex; flex-direction: column; }
-    .main-pos { flex: 1; padding: 1.5rem; overflow-y: auto; }
-    .header { padding: 1rem; background: var(--pink); color: white; display: flex; justify-content: space-between; }
-    .card { background: white; padding: 1rem; border-radius: 8px; border: 1px solid #fbcfe8; margin-bottom: 1rem; }
-    .badge { padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 0.75rem; }
-    .btn { padding: 6px 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; }
-    .btn-accept { background: #10b981; }
-    .btn-reject { background: #ef4444; }
-    .btn-complete { background: var(--purple); width: 100%; padding: 10px; }
+    :root { --dark-bg: #1e293b; --green-accent: #84cc16; --pink-accent: #ec4899; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #0f172a; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    header { background: #1e293b; padding: 10px 20px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    .pos-layout { display: grid; grid-template-columns: 360px 1fr 340px; flex: 1; height: calc(100vh - 55px); overflow: hidden; }
+
+    /* Left: Multi-stream Verification Queue */
+    .incoming-queue { background: #1e293b; border-right: 2px solid #334155; padding: 12px; overflow-y: auto; }
+    .ticket-card { background: #334155; border-radius: 8px; padding: 12px; margin-bottom: 12px; border-left: 4px solid var(--pink-accent); }
+    .ticket-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+    .badge { padding: 3px 6px; border-radius: 4px; font-size: 0.72rem; font-weight: 800; }
+    .badge-store { background: #0284c7; color: white; }
+    .badge-tablet { background: #9333ea; color: white; }
+
+    /* Middle: SambaPOS Tile Grid */
+    .center-stage { background: #0f172a; padding: 14px; overflow-y: auto; display: flex; flex-direction: column; }
+    .cat-bar { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 10px; }
+    .cat-tile { background: #334155; border: none; color: white; border-radius: 6px; padding: 10px 14px; font-weight: 800; font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
+    .cat-tile.active { background: var(--green-accent); color: black; }
+    
+    .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; flex: 1; }
+    .dish-tile { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px 8px; display: flex; flex-direction: column; justify-content: space-between; height: 95px; cursor: pointer; }
+    .dish-tile:active { transform: scale(0.97); }
+
+    /* Right: Cash Register & Settlement */
+    .register-panel { background: #1e293b; border-left: 2px solid #334155; display: flex; flex-direction: column; padding: 14px; }
+    .btn-action { padding: 10px; border-radius: 6px; border: none; font-weight: 800; cursor: pointer; }
   </style>
 </head>
 <body>
-  <!-- Sidebar: Verification Pipeline -->
-  <div class="sidebar">
-    <div class="header">
-      <h3>Incoming & Verification</h3>
-      <span>{{ pending_verification|length }} Pending</span>
+
+  <header>
+    <div>
+      <strong style="font-size:1.15rem; color:var(--green-accent);">🖥️ MACLEEN'S POS TERMINAL</strong>
+      <span style="font-size:0.8rem; color:#94a3b8; margin-left:10px;">Verification, Direct Counter Sales & Pickup Hub</span>
     </div>
-    <div style="padding: 1rem; overflow-y: auto; flex: 1;">
-      {% for o in pending_verification %}
-        <div class="card">
-          <div style="display: flex; justify-content: space-between;">
-            <strong>Order #{{ o.id }} ({{ o.order_type }})</strong>
-            <span class="badge" style="background: #fef3c7; color: #d97706;">{{ o.payment_method }}</span>
+    <div>
+      <a href="/staff/logout" style="background:#ef4444; color:white; padding:6px 12px; border-radius:6px; text-decoration:none; font-weight:bold; font-size:0.8rem;">Sign Out</a>
+    </div>
+  </header>
+
+  <div class="pos-layout">
+    <!-- Verification Queue (Storefront, Tablet & Loyalty) -->
+    <div class="incoming-queue">
+      <h3 style="font-size:0.95rem; margin-bottom:12px; color:var(--pink-accent);">📥 Incoming Orders to Authorize ({{ pending_orders|length }})</h3>
+      
+      {% for o in pending_orders %}
+      <div class="ticket-card">
+        <div class="ticket-head">
+          <strong>Order #{{ o.id }} ({{ o.order_type }})</strong>
+          <span class="badge {% if o.order_type == 'TABLET' %}badge-tablet{% else %}badge-store{% endif %}">{{ o.order_type }}</span>
+        </div>
+        <div style="font-size:0.82rem; color:#cbd5e1; margin-bottom:6px;">
+          👤 {{ o.customer_name }} | 📞 {{ o.contact_number }}<br>
+          {% if o.order_type == 'DELIVERY' %}
+            📍 {{ o.delivery_address }} (Landmark: {{ o.landmark }})<br>
+          {% endif %}
+          💳 Payment: <strong>{{ o.payment_method }}</strong>
+          {% if o.change_for %} (Change for ₱{{ "{:,.2f}".format(o.change_for) }}){% endif %}
+        </div>
+        
+        <div style="font-size:0.8rem; background:#1e293b; padding:6px; border-radius:4px; margin-bottom:8px;">
+          {% for it in o.items %}
+            <div>• {{ it.product_name }} x{{ it.quantity }} (₱{{ "{:,.2f}".format(it.subtotal) }})</div>
+          {% endfor %}
+          <div style="font-weight:900; color:var(--green-accent); margin-top:4px;">TOTAL: ₱{{ "{:,.2f}".format(o.total_amount) }}</div>
+        </div>
+
+        <div style="display:flex; gap:6px;">
+          <form action="/pos/verify/{{ o.id }}" method="POST" style="flex:1;">
+            <input type="hidden" name="action" value="ACCEPT">
+            <button class="btn-action" style="width:100%; background:var(--green-accent); color:black;">✓ ACCEPT & QUEUE</button>
+          </form>
+          <form action="/pos/verify/{{ o.id }}" method="POST">
+            <input type="hidden" name="action" value="REJECT">
+            <button class="btn-action" style="background:#ef4444; color:white;">✕ REJECT</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+      
+      {% if not pending_orders %}
+        <p style="color:#64748b; font-size:0.85rem; text-align:center; padding:20px;">No pending orders to verify.</p>
+      {% endif %}
+    </div>
+
+    <!-- Middle Catalog Grid -->
+    <div class="center-stage">
+      <div class="cat-bar">
+        <button class="cat-tile active" onclick="filterPOS('ALL', this)">ALL</button>
+        {% for cat in categories %}
+          <button class="cat-tile" onclick="filterPOS('{{ cat.name }}', this)">{{ cat.name }}</button>
+        {% endfor %}
+      </div>
+
+      <div class="dish-grid">
+        {% for p in products %}
+        <div class="dish-tile" data-cat="{{ p.category_name }}">
+          <div style="font-size:0.82rem; font-weight:800; line-height:1.2;">{{ p.name }}</div>
+          <div style="font-size:0.95rem; font-weight:900; color:var(--green-accent);">₱{{ "{:,.2f}".format(p.price) }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Ready for Pickup Settlement -->
+    <div class="register-panel">
+      <h3 style="font-size:0.95rem; margin-bottom:12px; color:var(--green-accent);">🛍️ Ready Orders For Pickup ({{ ready_orders|length }})</h3>
+      <div style="flex:1; overflow-y:auto;">
+        {% for ro in ready_orders %}
+          <div style="background:#334155; padding:10px; border-radius:6px; margin-bottom:8px;">
+            <div style="font-weight:800;">#{{ ro.id }} — {{ ro.customer_name }}</div>
+            <div style="font-size:0.8rem; color:#94a3b8;">Total: ₱{{ "{:,.2f}".format(ro.total_amount) }} ({{ ro.payment_method }})</div>
+            <form action="/pos/complete/{{ ro.id }}" method="POST" style="margin-top:6px;">
+              <button class="btn-action" style="width:100%; background:#3b82f6; color:white; font-size:0.8rem; padding:6px;">COMPLETE & ARCHIVE</button>
+            </form>
           </div>
-          <p style="font-size: 0.85rem; color: #4b5563; margin: 4px 0;">{{ o.customer_name }} • {{ o.contact_number }}</p>
-          <ul style="font-size: 0.85rem; margin-left: 1rem; margin-bottom: 8px;">
-            {% for item in o.items %}
-              <li>{{ item.product_name }} x{{ item.quantity }}</li>
-            {% endfor %}
-          </ul>
-          <div style="font-weight: bold; color: var(--pink-dark); margin-bottom: 8px;">Total: ₱{{ "{:,.2f}".format(o.total_amount) }}</div>
-          <form action="{{ url_for('verify_order', order_id=o.id) }}" method="POST" style="display: flex; gap: 8px;">
-            <button name="action" value="ACCEPT" class="btn btn-accept" style="flex: 1;">Verify & Cook</button>
-            <button name="action" value="REJECT" class="btn btn-reject">Reject</button>
-          </form>
-        </div>
-      {% else %}
-        <p style="color: #9ca3af; text-align: center; margin-top: 2rem;">No pending verifications.</p>
-      {% endfor %}
+        {% endfor %}
+        {% if not ready_orders %}
+          <p style="color:#64748b; font-size:0.85rem; text-align:center; padding:20px;">No pickup tickets ready.</p>
+        {% endif %}
+      </div>
     </div>
   </div>
 
-  <!-- Main POS: Ready Orders and Direct Register -->
-  <div class="main-pos">
-    <div style="display: flex; justify-content: space-between; margin-bottom: 1.5rem;">
-      <h2>🎀 Macleen's POS Terminal</h2>
-      <a href="{{ url_for('staff_logout') }}" style="color: var(--pink-dark); font-weight: bold; text-decoration: none;">Log Out</a>
-    </div>
-
-    <h3>🛍️ Orders Ready for Pickup ({{ ready_orders|length }})</h3>
-    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; margin: 1rem 0 2rem 0;">
-      {% for r in ready_orders if r.order_type != 'DELIVERY' %}
-        <div class="card" style="border-top: 4px solid #10b981;">
-          <h4>Order #{{ r.id }} - {{ r.customer_name }}</h4>
-          <p style="font-size: 0.9rem; color: #6b7280;">{{ r.contact_number }}</p>
-          <div style="font-size: 1.2rem; font-weight: bold; color: var(--pink); margin: 8px 0;">₱{{ "{:,.2f}".format(r.total_amount) }}</div>
-          <form action="{{ url_for('complete_pickup', order_id=r.id) }}" method="POST">
-            <button type="submit" class="btn btn-complete">Complete & Release</button>
-          </form>
-        </div>
-      {% else %}
-        <p style="color: #9ca3af;">No pickup orders waiting.</p>
-      {% endfor %}
-    </div>
-  </div>
+  <script>
+    function filterPOS(cat, btn) {
+      document.querySelectorAll('.cat-tile').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.dish-tile').forEach(d => {
+        d.style.display = (cat === 'ALL' || d.dataset.cat === cat) ? 'flex' : 'none';
+      });
+    }
+  </script>
 </body>
 </html>

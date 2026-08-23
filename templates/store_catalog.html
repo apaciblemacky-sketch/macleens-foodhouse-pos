@@ -3,68 +3,310 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Macleen's Food House - Ordering & Menu</title>
+  <title>Macleen's Food House — Online Store</title>
   <style>
-    :root { --pink: #ec4899; --pink-dark: #be185d; --purple: #9333ea; --gold: #f59e0b; }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    body { background: #fff5f7; color: #1f2937; padding-bottom: 3rem; }
-    header { background: linear-gradient(135deg, #be185d, #ec4899); color: white; padding: 1.5rem 1rem; text-align: center; box-shadow: 0 4px 12px rgba(236,72,153,0.2); }
-    .nav-links { display: flex; justify-content: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
-    .nav-btn { background: rgba(255,255,255,0.25); color: white; text-decoration: none; padding: 6px 14px; border-radius: 20px; font-size: 0.85rem; font-weight: bold; }
-    .container { max-width: 1000px; margin: 1.5rem auto; padding: 0 1rem; }
-    .badge { padding: 4px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: bold; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1rem; margin-top: 1rem; }
-    .card { background: white; border-radius: 12px; border: 1px solid #fbcfe8; overflow: hidden; display: flex; flex-direction: column; }
-    .card img { width: 100%; height: 140px; object-fit: cover; }
-    .card-body { padding: 1rem; display: flex; flex-direction: column; flex: 1; }
-    .price { font-size: 1.2rem; font-weight: 800; color: var(--pink-dark); margin: 6px 0; }
-    .btn { background: var(--pink); color: white; border: none; padding: 8px; border-radius: 6px; font-weight: bold; cursor: pointer; text-align: center; text-decoration: none; margin-top: auto; }
+    :root { --pink-primary: #ec4899; --pink-dark: #831843; --pink-light: #fdf2f8; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #fdfafc; color: #1e293b; padding-bottom: 80px; }
+    
+    header { background: white; border-bottom: 1px solid #fbcfe8; padding: 12px 20px; position: sticky; top: 0; z-index: 50; display: flex; justify-content: space-between; align-items: center; }
+    .brand-title { font-size: 1.25rem; font-weight: 900; color: var(--pink-dark); }
+    .nav-actions { display: flex; gap: 10px; align-items: center; }
+    .btn-login { background: var(--pink-light); color: var(--pink-dark); padding: 8px 14px; border-radius: 8px; text-decoration: none; font-weight: 700; font-size: 0.85rem; border: 1px solid #fbcfe8; }
+    
+    .hero-banner { background: linear-gradient(135deg, #ec4899, #831843); color: white; padding: 2.5rem 1.5rem; text-align: center; }
+    .hero-banner h1 { font-size: 1.8rem; margin-bottom: 6px; }
+    
+    .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+    .category-pills { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 1.5rem; scrollbar-width: none; }
+    .cat-pill { padding: 8px 16px; background: white; border: 1px solid #fbcfe8; border-radius: 20px; font-size: 0.85rem; font-weight: 700; white-space: nowrap; cursor: pointer; color: #475569; }
+    .cat-pill.active { background: var(--pink-primary); color: white; border-color: var(--pink-primary); }
+    
+    .product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; }
+    .product-card { background: white; border: 1px solid #fce7f3; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .p-title { font-size: 0.95rem; font-weight: 800; color: #0f172a; margin-bottom: 4px; }
+    .p-cat { font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; }
+    .p-price { font-size: 1.15rem; font-weight: 900; color: var(--pink-primary); margin: 8px 0; }
+    .btn-add { background: var(--pink-light); color: var(--pink-dark); border: 1px solid #fbcfe8; border-radius: 8px; padding: 8px; font-weight: 800; font-size: 0.85rem; cursor: pointer; }
+    .btn-add:hover { background: var(--pink-primary); color: white; }
+    
+    /* Shopee Floating Cart Bar */
+    .floating-cart-bar { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 2px solid #fbcfe8; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 -4px 12px rgba(0,0,0,0.05); z-index: 60; }
+    .btn-checkout-trigger { background: var(--pink-primary); color: white; border: none; padding: 10px 22px; border-radius: 8px; font-size: 0.95rem; font-weight: 800; cursor: pointer; }
+    
+    /* Slide-out Checkout Drawer */
+    .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; display: none; }
+    .checkout-drawer { position: fixed; bottom: 0; right: 0; top: 0; width: 100%; max-width: 480px; background: white; z-index: 101; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.25s ease-in-out; }
+    .drawer-open .drawer-overlay { display: block; }
+    .drawer-open .checkout-drawer { transform: translateX(0); }
+    
+    .drawer-header { padding: 14px 20px; border-bottom: 1px solid #fbcfe8; display: flex; justify-content: space-between; align-items: center; }
+    .drawer-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+    .cart-item-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px dashed #fce7f3; }
+    
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 0.8rem; font-weight: 700; color: #475569; margin-bottom: 4px; }
+    .form-control { width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.88rem; }
   </style>
 </head>
 <body>
+
   <header>
-    <h1>🎀 Macleen's Food House</h1>
-    <p style="font-size: 0.9rem; opacity: 0.95; margin-top: 4px;">Freshly Cooked Ulam, Snacks, Coffee & Drinks</p>
-    <div class="nav-links">
-      <a href="/portal/login" class="nav-btn">🎁 Customer Rewards</a>
-      <a href="/staff/login" class="nav-btn">🔒 Staff Terminal</a>
+    <div class="brand-title">MACLEEN'S FOOD HOUSE</div>
+    <div class="nav-actions">
+      <a href="/portal/login" class="btn-login">Rewards / Login</a>
+      <a href="/staff/login" class="btn-login" style="background:#f1f5f9; color:#475569; border-color:#cbd5e1;">Staff Terminal</a>
     </div>
   </header>
 
-  <div class="container">
-    {% if featured %}
-      <h3 style="color: var(--purple); margin: 1.5rem 0 0.5rem 0;">✨ Today's Featured</h3>
-      <div class="grid">
-        {% for p in featured %}
-          <div class="card" style="border: 2px solid var(--purple);">
-            <img src="{{ p.image_url }}" alt="{{ p.name }}">
-            <div class="card-body">
-              <span class="badge" style="background: #f3e8ff; color: var(--purple); align-self: flex-start;">{{ p.category_name }}</span>
-              <h4 style="margin-top: 6px;">{{ p.name }}</h4>
-              <div class="price">₱{{ "{:,.2f}".format(p.price) }}</div>
-              <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 8px;">Stock: {{ p.stock }} left</p>
-              <button class="btn" style="background: var(--purple);" onclick="alert('Please proceed to cashier or tablet kiosk to order!')">Order at Cashier</button>
-            </div>
-          </div>
-        {% endfor %}
-      </div>
-    {% endif %}
+  <div class="hero-banner">
+    <h1>Fresh Meals & Quick Delivery</h1>
+    <p style="font-size:0.9rem; opacity:0.9;">Order below for Pickup or Delivery straight to your home.</p>
+  </div>
 
-    <h3 style="color: var(--pink-dark); margin: 2rem 0 0.5rem 0;">🍽️ Full Menu Catalog</h3>
-    <div class="grid">
+  <div class="container">
+    <div class="category-pills">
+      <button class="cat-pill active" onclick="filterMenu('ALL', this)">ALL MENU</button>
+      {% for cat in categories %}
+        <button class="cat-pill" onclick="filterMenu('{{ cat.name }}', this)">{{ cat.name }}</button>
+      {% endfor %}
+    </div>
+
+    <div class="product-grid">
       {% for p in products %}
-        <div class="card">
-          <img src="{{ p.image_url }}" alt="{{ p.name }}">
-          <div class="card-body">
-            <span class="badge" style="background: #fdf2f8; color: var(--pink-dark); align-self: flex-start;">{{ p.category_name }}</span>
-            <h4 style="margin-top: 6px;">{{ p.name }}</h4>
-            <div class="price">₱{{ "{:,.2f}".format(p.price) }}</div>
-            <p style="font-size: 0.8rem; color: #6b7280; margin-bottom: 8px;">Stock: {{ p.stock }}</p>
-            <button class="btn" onclick="alert('Please proceed to cashier or tablet kiosk to order!')">Order at Counter</button>
-          </div>
+      <div class="product-card" data-cat="{{ p.category_name }}">
+        <div>
+          <div class="p-cat">{{ p.category_name }}</div>
+          <div class="p-title">{{ p.name }}</div>
         </div>
+        <div>
+          <div class="p-price">₱{{ "{:,.2f}".format(p.price) }}</div>
+          <button class="btn-add" style="width:100%;" onclick="addToCart({{ p.id }}, '{{ p.name }}', {{ p.price }})">+ Add to Cart</button>
+        </div>
+      </div>
       {% endfor %}
     </div>
   </div>
+
+  <div class="floating-cart-bar">
+    <div>
+      <div style="font-size:0.75rem; color:#64748b; font-weight:700;">TOTAL BASKET</div>
+      <div style="font-size:1.25rem; font-weight:900; color:var(--pink-dark);" id="barTotal">₱0.00 (<span id="barCount">0</span> items)</div>
+    </div>
+    <button class="btn-checkout-trigger" onclick="toggleDrawer(true)">VIEW CART & CHECKOUT</button>
+  </div>
+
+  <!-- Shopee Slide-out Cart & Checkout Modal -->
+  <div id="drawerWrapper">
+    <div class="drawer-overlay" onclick="toggleDrawer(false)"></div>
+    <div class="checkout-drawer">
+      <div class="drawer-header">
+        <h3 style="color:var(--pink-dark);">🛒 Your Basket & Checkout</h3>
+        <button onclick="toggleDrawer(false)" style="background:none; border:none; font-size:1.4rem; cursor:pointer;">✕</button>
+      </div>
+      
+      <div class="drawer-body">
+        <div id="cartItemsList" style="margin-bottom:16px;">
+          <p style="color:#94a3b8; text-align:center; padding:20px;">Your cart is empty.</p>
+        </div>
+
+        <hr style="border:none; border-top:1px solid #fbcfe8; margin:16px 0;">
+
+        <div class="form-group">
+          <label>Order Type *</label>
+          <select id="orderType" class="form-control" onchange="toggleOrderTypeFields()">
+            <option value="PICKUP">In-Store Pickup / Takeout</option>
+            <option value="DELIVERY">Home Delivery (+₱30.00)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Full Name *</label>
+          <input type="text" id="custName" class="form-control" placeholder="e.g. Maria Santos">
+        </div>
+
+        <div class="form-group">
+          <label>Mobile Number *</label>
+          <input type="tel" id="custContact" class="form-control" placeholder="e.g. 09171234567">
+        </div>
+
+        <!-- Pickup Specific -->
+        <div id="pickupBox">
+          <div class="form-group">
+            <label>Pickup Time *</label>
+            <select id="pickupTime" class="form-control">
+              <option value="ASAP (15-25 Mins)">ASAP (15-25 Mins)</option>
+              <option value="In 45 Mins">In 45 Mins</option>
+              <option value="In 1 Hour">In 1 Hour</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Delivery Specific -->
+        <div id="deliveryBox" style="display:none;">
+          <div class="form-group">
+            <label>Purok / Street & Barangay *</label>
+            <input type="text" id="deliveryAddress" class="form-control" placeholder="Purok Mahogany, Brgy. San Teodoro">
+          </div>
+          <div class="form-group">
+            <label>Prominent Landmark *</label>
+            <input type="text" id="landmark" class="form-control" placeholder="Near Elementary School / Red Gate">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Payment Method *</label>
+          <select id="payMethod" class="form-control" onchange="toggleCashField()">
+            <option value="CASH">Cash on Counter / Cash on Delivery</option>
+            <option value="GCASH">GCash</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="changeBox">
+          <label>Change For (₱)</label>
+          <input type="number" id="changeFor" class="form-control" placeholder="e.g. 500 or 1000">
+        </div>
+
+        <div class="form-group">
+          <label>Special Instructions / Notes</label>
+          <input type="text" id="orderNotes" class="form-control" placeholder="No spicy sauce, extra utensils">
+        </div>
+      </div>
+
+      <div style="padding:16px 20px; border-top:1px solid #fbcfe8; background:#fdf2f8;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-weight:900; font-size:1.15rem; color:var(--pink-dark);">
+          <span>PAYABLE TOTAL</span>
+          <span id="drawerTotal">₱0.00</span>
+        </div>
+        <button class="btn-checkout-trigger" style="width:100%; padding:14px; font-size:1rem;" onclick="submitStoreOrder()">PLACE ORDER NOW</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let cart = {};
+
+    function filterMenu(catName, btn) {
+      document.querySelectorAll('.cat-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.product-card').forEach(c => {
+        c.style.display = (catName === 'ALL' || c.dataset.cat === catName) ? 'flex' : 'none';
+      });
+    }
+
+    function addToCart(id, name, price) {
+      if (cart[id]) cart[id].qty += 1;
+      else cart[id] = { name, price, qty: 1 };
+      renderCart();
+    }
+
+    function changeQty(id, delta) {
+      if (cart[id]) {
+        cart[id].qty += delta;
+        if (cart[id].qty <= 0) delete cart[id];
+      }
+      renderCart();
+    }
+
+    function toggleDrawer(open) {
+      document.getElementById('drawerWrapper').className = open ? 'drawer-open' : '';
+    }
+
+    function toggleOrderTypeFields() {
+      const type = document.getElementById('orderType').value;
+      document.getElementById('pickupBox').style.display = (type === 'PICKUP') ? 'block' : 'none';
+      document.getElementById('deliveryBox').style.display = (type === 'DELIVERY') ? 'block' : 'none';
+      renderCart();
+    }
+
+    function toggleCashField() {
+      const p = document.getElementById('payMethod').value;
+      document.getElementById('changeBox').style.display = (p === 'CASH' || p === 'COD') ? 'block' : 'none';
+    }
+
+    function renderCart() {
+      const list = document.getElementById('cartItemsList');
+      const keys = Object.keys(cart);
+      if (keys.length === 0) {
+        list.innerHTML = '<p style="color:#94a3b8; text-align:center; padding:20px;">Your cart is empty.</p>';
+        document.getElementById('barTotal').innerText = '₱0.00';
+        document.getElementById('barCount').innerText = '0';
+        document.getElementById('drawerTotal').innerText = '₱0.00';
+        return;
+      }
+
+      let html = '';
+      let subtotal = 0;
+      let count = 0;
+      keys.forEach(id => {
+        const it = cart[id];
+        const row = it.price * it.qty;
+        subtotal += row;
+        count += it.qty;
+        html += `
+          <div class="cart-item-row">
+            <div>
+              <strong>${it.name}</strong>
+              <div style="font-size:0.75rem; color:#64748b;">₱${it.price.toFixed(2)} ea</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <button onclick="changeQty(${id}, -1)" style="padding:2px 8px;">-</button>
+              <strong>${it.qty}</strong>
+              <button onclick="changeQty(${id}, 1)" style="padding:2px 8px;">+</button>
+              <span style="font-weight:800; color:var(--pink-dark); width:65px; text-align:right;">₱${row.toFixed(2)}</span>
+            </div>
+          </div>
+        `;
+      });
+
+      const isDelivery = document.getElementById('orderType').value === 'DELIVERY';
+      const fee = isDelivery ? 30.0 : 0.0;
+      const total = subtotal + fee;
+
+      list.innerHTML = html + (isDelivery ? `<div style="display:flex; justify-content:space-between; padding:8px 0; color:#475569; font-weight:700;"><span>Delivery Fee</span><span>₱30.00</span></div>` : '');
+      document.getElementById('barTotal').innerText = `₱${total.toFixed(2)}`;
+      document.getElementById('barCount').innerText = count;
+      document.getElementById('drawerTotal').innerText = `₱${total.toFixed(2)}`;
+    }
+
+    async function submitStoreOrder() {
+      const keys = Object.keys(cart);
+      if (keys.length === 0) return alert("Your basket is empty.");
+
+      const name = document.getElementById('custName').value.trim();
+      const contact = document.getElementById('custContact').value.trim();
+      if (!name || !contact) return alert("Please input your Full Name and Mobile Contact Number.");
+
+      const orderType = document.getElementById('orderType').value;
+      const payload = {
+        items: keys.map(id => ({ product_id: parseInt(id), quantity: cart[id].qty })),
+        order_type: orderType,
+        customer_name: name,
+        contact: contact,
+        pickup_time: document.getElementById('pickupTime').value,
+        delivery_address: document.getElementById('deliveryAddress').value,
+        landmark: document.getElementById('landmark').value,
+        payment_method: document.getElementById('payMethod').value,
+        change_for: document.getElementById('changeFor').value,
+        notes: document.getElementById('orderNotes').value
+      };
+
+      const res = await fetch('/api/storefront-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        alert(`🎉 Order #${data.order_id} placed successfully! Our Cashier will verify and prepare your food.`);
+        cart = {};
+        renderCart();
+        toggleDrawer(false);
+      } else {
+        alert(data.message || "Error placing order.");
+      }
+    }
+  </script>
 </body>
 </html>
