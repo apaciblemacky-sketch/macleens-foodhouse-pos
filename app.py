@@ -1,7 +1,7 @@
 import os
 import random
 import string
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, time
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
@@ -187,10 +187,55 @@ def get_client_ip():
         return request.headers.get('X-Forwarded-For').split(',')[0].strip()
     return request.remote_addr or '127.0.0.1'
 
+def get_store_settings():
+    settings = {s.key: s.value for s in StoreSetting.query.all()}
+    defaults = {
+        'store_open_time': '08:00',
+        'store_close_time': '19:00',
+        'delivery_open_time': '09:00',
+        'delivery_close_time': '17:00',
+        'is_store_open': 'true',
+        'is_delivery_enabled': 'true'
+    }
+    for k, v in defaults.items():
+        settings.setdefault(k, v)
+    return settings
+
+def check_operating_status():
+    s = get_store_settings()
+    # Server/PH local time conversion (UTC+8)
+    now_utc = datetime.utcnow()
+    now_ph = (now_utc + timedelta(hours=8)).time()
+
+    def parse_t(val, fallback):
+        try:
+            return datetime.strptime(val, '%H:%M').time()
+        except Exception:
+            return fallback
+
+    store_open = parse_t(s.get('store_open_time', '08:00'), time(8, 0))
+    store_close = parse_t(s.get('store_close_time', '19:00'), time(19, 0))
+    del_open = parse_t(s.get('delivery_open_time', '09:00'), time(9, 0))
+    del_close = parse_t(s.get('delivery_close_time', '17:00'), time(17, 0))
+
+    is_store_active = (s.get('is_store_open') == 'true') and (store_open <= now_ph <= store_close)
+    is_delivery_active = (s.get('is_delivery_enabled') == 'true') and (del_open <= now_ph <= del_close) and is_store_active
+
+    return {
+        'store_open': is_store_active,
+        'delivery_open': is_delivery_active,
+        'settings': s,
+        'current_time': now_ph.strftime('%I:%M %p')
+    }
+
 @app.context_processor
-def inject_store_logo():
+def inject_globals():
     setting = StoreSetting.query.filter_by(key='logo_url').first()
-    return dict(store_logo=setting.value if setting else '/static/logo.png')
+    status = check_operating_status()
+    return dict(
+        store_logo=setting.value if setting else '/static/logo.png',
+        status=status
+    )
 
 def require_admin(f):
     @wraps(f)
@@ -260,6 +305,7 @@ def store_catalog():
 
     liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=get_client_ip()).all()}
     delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()
+    status = check_operating_status()
 
     cust = None
     if 'customer_id' in session:
@@ -273,7 +319,8 @@ def store_catalog():
                            liked_ids=liked_ids,
                            delivery_zones=delivery_zones,
                            cust=cust,
-                           unique_visitors=unique_visitors,
+                           status=status,
+                           unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits)
 
 @app.route('/product/<int:product_id>')
@@ -326,6 +373,7 @@ def api_storefront_checkout():
     if 'customer_id' not in session:
         return jsonify({'success': False, 'message': 'Registration / Login is required. No guest checkout.'}), 403
 
+    status = check_operating_status()
     cust = Customer.query.get(session['customer_id'])
     data = request.get_json() or {}
     items = data.get('items', [])
@@ -338,6 +386,12 @@ def api_storefront_checkout():
     zone_id = data.get('delivery_zone_id')
     gcash_ref = data.get('gcash_ref', '').strip()
     fb = data.get('fb_messenger', '').strip()
+
+    if order_type == 'PICKUP' and not status['store_open']:
+        return jsonify({'success': False, 'message': 'Store ordering is currently closed.'}), 400
+
+    if order_type == 'DELIVERY' and not status['delivery_open']:
+        return jsonify({'success': False, 'message': 'Barangay delivery is currently unavailable/closed.'}), 400
 
     if not items or not target_time:
         return jsonify({'success': False, 'message': 'Please complete your target time and select cart items.'}), 400
@@ -403,6 +457,86 @@ def api_storefront_checkout():
 
     db.session.commit()
     return jsonify({'success': True, 'order_id': order.id, 'total': total})
+
+# ==================== OPERATING HOURS & AUTH ENDPOINTS ====================
+
+@app.route('/admin/settings/hours', methods=['POST'])
+def update_store_hours():
+    if not (session.get('admin_user') or session.get('cashier_user')):
+        flash("Unauthorized", "error")
+        return redirect(request.referrer or url_for('store_catalog'))
+
+    keys = ['store_open_time', 'store_close_time', 'delivery_open_time', 'delivery_close_time']
+    for k in keys:
+        if k in request.form:
+            s = StoreSetting.query.filter_by(key=k).first()
+            if not s:
+                db.session.add(StoreSetting(key=k, value=request.form[k]))
+            else:
+                s.value = request.form[k]
+
+    for toggle in ['is_store_open', 'is_delivery_enabled']:
+        val = 'true' if request.form.get(toggle) == 'on' else 'false'
+        s = StoreSetting.query.filter_by(key=toggle).first()
+        if not s:
+            db.session.add(StoreSetting(key=toggle, value=val))
+        else:
+            s.value = val
+
+    db.session.commit()
+    flash("Operating schedule updated successfully!", "success")
+    return redirect(request.referrer or url_for('store_catalog'))
+
+@app.route('/auth/change-password', methods=['POST'])
+def change_staff_password():
+    staff_user = session.get('admin_user') or session.get('cashier_user') or session.get('kitchen_user') or session.get('rider_user')
+    if not staff_user:
+        flash("Please log in first.", "error")
+        return redirect(url_for('staff_login'))
+
+    staff = Staff.query.filter_by(username=staff_user).first()
+    old_p = request.form.get('old_password', '').strip()
+    new_p = request.form.get('new_password', '').strip()
+    conf_p = request.form.get('confirm_password', '').strip()
+
+    if not staff or not check_password_hash(staff.pin_hash, old_p):
+        flash("Current password / PIN is incorrect.", "error")
+        return redirect(request.referrer or url_for('store_catalog'))
+
+    if len(new_p) < 4:
+        flash("New password must be at least 4 characters.", "error")
+        return redirect(request.referrer or url_for('store_catalog'))
+
+    if new_p != conf_p:
+        flash("New passwords do not match.", "error")
+        return redirect(request.referrer or url_for('store_catalog'))
+
+    staff.pin_hash = generate_password_hash(new_p)
+    db.session.commit()
+    flash("Staff password successfully changed!", "success")
+    return redirect(request.referrer or url_for('store_catalog'))
+
+@app.route('/portal/change-pin', methods=['POST'])
+def change_customer_pin():
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login'))
+
+    cust = Customer.query.get(session['customer_id'])
+    old_pin = request.form.get('old_pin', '').strip()
+    new_pin = request.form.get('new_pin', '').strip()
+
+    if not check_password_hash(cust.pin_hash, old_pin):
+        flash("Current PIN is incorrect.", "error")
+        return redirect(url_for('customer_dashboard'))
+
+    if len(new_pin) != 4 or not new_pin.isdigit():
+        flash("New PIN must be exactly 4 digits.", "error")
+        return redirect(url_for('customer_dashboard'))
+
+    cust.pin_hash = generate_password_hash(new_pin)
+    db.session.commit()
+    flash("Your 4-digit security PIN has been updated!", "success")
+    return redirect(url_for('customer_dashboard'))
 
 # ==================== CASHIER TERMINAL ====================
 
@@ -731,6 +865,7 @@ def admin_reset_customer_pin(cust_id):
         db.session.commit()
         flash(f"PIN for customer '{cust.name}' reset to {new_pin}.", "success")
     return redirect(url_for('admin_dashboard'))
+
 # ==================== CUSTOMER PORTAL ====================
 
 @app.route('/portal/login', methods=['GET', 'POST'])
@@ -760,7 +895,6 @@ def customer_register():
             flash("Contact number already registered.", "error")
             return redirect(url_for('customer_register'))
 
-        # Check total existing customer count
         total_registered_cust = Customer.query.count()
         starting_bonus_points = 5.0 if total_registered_cust < 11 else 0.0
 
@@ -779,7 +913,6 @@ def customer_register():
         db.session.add(new_cust)
         db.session.flush()
 
-        # Record the ledger entry for the first 11 registrants
         if starting_bonus_points > 0:
             db.session.add(RewardLedger(
                 customer_id=new_cust.id,

@@ -193,8 +193,17 @@
         <div style="margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold;">Order Type *</label>
           <select id="orderType" class="form-control" onchange="renderCart()">
-            <option value="PICKUP">In-Store Pickup / Takeout</option>
-            <option value="DELIVERY">Doorstep Barangay Delivery</option>
+            {% if status and status.store_open %}
+              <option value="PICKUP">In-Store Pickup / Takeout ({{ status.settings.store_open_time }} - {{ status.settings.store_close_time }})</option>
+            {% else %}
+              <option value="PICKUP" {% if status and not status.store_open %}disabled{% endif %}>In-Store Pickup (CLOSED NOW)</option>
+            {% endif %}
+
+            {% if status and status.delivery_open %}
+              <option value="DELIVERY">Doorstep Barangay Delivery ({{ status.settings.delivery_open_time }} - {{ status.settings.delivery_close_time }})</option>
+            {% else %}
+              <option value="DELIVERY" disabled>Doorstep Barangay Delivery (UNAVAILABLE / CLOSED)</option>
+            {% endif %}
           </select>
         </div>
 
@@ -212,7 +221,7 @@
           <input type="text" id="deliveryAddress" class="form-control" value="{{ cust.default_address if cust else '' }}" placeholder="Purok Mahogany">
           
           <label style="font-size:0.8rem; font-weight:bold; margin-top:6px; display:block;">Landmark * (Strictly Required)</label>
-          <input type="text" id="landmark" class="form-control" value="{{ cust.default_landmark if cust else '' }}" required placeholder="Near Elementary School, Blue Gate">
+          <input type="text" id="landmark" class="form-control" value="{{ cust.default_landmark if cust else '' }}" placeholder="Near Elementary School, Blue Gate">
         </div>
 
         <div style="margin-bottom:10px;">

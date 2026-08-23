@@ -12,6 +12,70 @@
     </div>
   </div>
 
+  <!-- Staff / Admin Controls Section: Operating Hours & Password Change -->
+  {% if current_user.is_authenticated %}
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 2rem;">
+    
+    <!-- 1. Store & Delivery Schedule Management -->
+    <div style="background: white; border: 2px solid #fbcfe8; border-radius: 14px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+      <h3 style="color: #831843; font-size: 1rem; font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+        ⏰ Store & Delivery Schedule
+      </h3>
+      <form action="/admin/settings/hours" method="POST">
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+          <div style="flex: 1;">
+            <label style="font-size: 0.75rem; font-weight: bold; color: #475569;">Store Hours</label>
+            <div style="display: flex; gap: 4px;">
+              <input type="time" name="store_open_time" value="{{ status.settings.store_open_time if status else '08:00' }}" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+              <input type="time" name="store_close_time" value="{{ status.settings.store_close_time if status else '19:00' }}" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+            </div>
+          </div>
+          <div style="flex: 1;">
+            <label style="font-size: 0.75rem; font-weight: bold; color: #475569;">Delivery Hours</label>
+            <div style="display: flex; gap: 4px;">
+              <input type="time" name="delivery_open_time" value="{{ status.settings.delivery_open_time if status else '09:00' }}" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+              <input type="time" name="delivery_close_time" value="{{ status.settings.delivery_close_time if status else '17:00' }}" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 14px; margin-bottom: 12px; font-size: 0.8rem; font-weight: bold; color: #334155;">
+          <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+            <input type="checkbox" name="is_store_open" {% if not status or status.settings.is_store_open == 'true' %}checked{% endif %}> Store Online
+          </label>
+          <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+            <input type="checkbox" name="is_delivery_enabled" {% if not status or status.settings.is_delivery_enabled == 'true' %}checked{% endif %}> Delivery Online
+          </label>
+        </div>
+
+        <button type="submit" style="background: #ec4899; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-weight: bold; font-size: 0.8rem; width: 100%; cursor: pointer;">
+          Save Schedule Settings
+        </button>
+      </form>
+    </div>
+
+    <!-- 2. Staff / Admin Password Update -->
+    <div style="background: white; border: 2px solid #fbcfe8; border-radius: 14px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+      <h3 style="color: #831843; font-size: 1rem; font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+        🔒 Change Staff Password
+      </h3>
+      <form action="/auth/change-password" method="POST">
+        <div style="margin-bottom: 6px;">
+          <input type="password" name="old_password" placeholder="Current Password" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+        </div>
+        <div style="display: flex; gap: 6px; margin-bottom: 12px;">
+          <input type="password" name="new_password" minlength="6" placeholder="New Password" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+          <input type="password" name="confirm_password" minlength="6" placeholder="Confirm" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+        </div>
+        <button type="submit" style="background: #334155; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-weight: bold; font-size: 0.8rem; width: 100%; cursor: pointer;">
+          Update Account Password
+        </button>
+      </form>
+    </div>
+
+  </div>
+  {% endif %}
+
   <!-- Featured Products Section -->
   {% if featured_items and not selected_category %}
     <div style="margin-bottom: 2.2rem;">
