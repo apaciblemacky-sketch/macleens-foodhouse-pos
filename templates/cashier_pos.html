@@ -135,7 +135,24 @@
         {% endfor %}
       </div>
     </div>
-
+<!-- Today's Free Wi-Fi Claim Logs -->
+      <div style="background:#1e293b; border:1px solid #3b82f6; border-radius:6px; padding:8px; margin-bottom:12px;">
+        <h3 style="font-size:0.82rem; color:#60a5fa; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+          <span>📶 Today's Free Wi-Fi Claims</span>
+          <span style="background:#2563eb; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem;">{{ today_wifi_claims|length }}</span>
+        </h3>
+        <div style="max-height:120px; overflow-y:auto;">
+          {% for w in today_wifi_claims %}
+          <div style="font-size:0.75rem; padding:4px 0; border-bottom:1px dashed #334155; color:#cbd5e1;">
+            <strong>{{ w.name }}</strong> ({{ w.contact }})<br>
+            Code: <span style="color:#fbbf24; font-family:monospace; font-weight:bold;">{{ w.wifi_voucher_code }}</span>
+          </div>
+          {% endfor %}
+          {% if not today_wifi_claims %}
+            <div style="font-size:0.72rem; color:#64748b; text-align:center; padding:6px 0;">No Wi-Fi vouchers claimed today.</div>
+          {% endif %}
+        </div>
+      </div>
     <!-- Right Panels -->
     <div class="pickup-panel">
       <h3 style="font-size:0.88rem; color:#38bdf8; margin-bottom:8px;">🛵 Out For Delivery ({{ out_for_delivery|length }})</h3>
