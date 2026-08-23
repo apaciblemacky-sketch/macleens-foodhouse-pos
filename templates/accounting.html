@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Food House — Accounting & Cash Flow</title>
+  <style>
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-border: #fbcfe8; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #fff0f5; color: #1e293b; padding: 1.5rem; }
+
+    .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 1rem 1.5rem; border-radius: 12px; border: 2px solid var(--hk-border); margin-bottom: 1.5rem; }
+    .card { background: white; padding: 1.2rem; border-radius: 12px; border: 1px solid var(--hk-border); margin-bottom: 1.5rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1.2rem; margin-bottom: 1.5rem; }
+    
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th { background: #fdf2f8; color: var(--hk-dark); padding: 8px; border: 1px solid var(--hk-border); text-align: left; }
+    td { padding: 8px; border: 1px solid #fce7f3; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h2 style="color:var(--hk-dark);">📊 Financial Ledger & Cash Flow Analysis</h2>
+      <p style="font-size:0.85rem; color:#64748b;">Daily Receipts, Weekly Performance & 30-Day Cash Breakdown</p>
+    </div>
+    <div>
+      <a href="/admin" style="background:#1e293b; color:white; padding:8px 16px; border-radius:6px; text-decoration:none; font-weight:bold; font-size:0.85rem;">← Back to Admin</a>
+    </div>
+  </div>
+
+  <div class="grid-3">
+    <div class="card">
+      <h3 style="color:var(--hk-dark); font-size:0.95rem; margin-bottom:8px;">📅 Today's Performance</h3>
+      <div style="font-size:1.4rem; font-weight:900; color:#16a34a;">₱{{ "{:,.2f}".format(d_rev) }} <span style="font-size:0.8rem; color:#64748b;">Gross</span></div>
+      <div style="font-size:0.85rem; color:#e11d48; margin-top:4px;">Cost: ₱{{ "{:,.2f}".format(d_cost) }}</div>
+      <div style="font-size:1rem; font-weight:900; color:#0284c7; margin-top:4px;">Net Profit: ₱{{ "{:,.2f}".format(d_profit) }}</div>
+    </div>
+
+    <div class="card">
+      <h3 style="color:var(--hk-dark); font-size:0.95rem; margin-bottom:8px;">📈 Past 7 Days (Weekly)</h3>
+      <div style="font-size:1.4rem; font-weight:900; color:#16a34a;">₱{{ "{:,.2f}".format(w_rev) }} <span style="font-size:0.8rem; color:#64748b;">Gross</span></div>
+      <div style="font-size:0.85rem; color:#e11d48; margin-top:4px;">Cost: ₱{{ "{:,.2f}".format(w_cost) }}</div>
+      <div style="font-size:1rem; font-weight:900; color:#0284c7; margin-top:4px;">Net Profit: ₱{{ "{:,.2f}".format(w_profit) }}</div>
+    </div>
+
+    <div class="card">
+      <h3 style="color:var(--hk-dark); font-size:0.95rem; margin-bottom:8px;">🗓️ Past 30 Days (Monthly)</h3>
+      <div style="font-size:1.4rem; font-weight:900; color:#16a34a;">₱{{ "{:,.2f}".format(m_rev) }} <span style="font-size:0.8rem; color:#64748b;">Gross</span></div>
+      <div style="font-size:0.85rem; color:#e11d48; margin-top:4px;">Cost: ₱{{ "{:,.2f}".format(m_cost) }}</div>
+      <div style="font-size:1rem; font-weight:900; color:#0284c7; margin-top:4px;">Net Profit: ₱{{ "{:,.2f}".format(m_profit) }}</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="color:var(--hk-dark); font-size:1rem; margin-bottom:10px;">🧾 Today's Completed Transactions ({{ daily_orders|length }})</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Order #</th>
+          <th>Type</th>
+          <th>Customer</th>
+          <th>Payment</th>
+          <th>Total (₱)</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in daily_orders %}
+        <tr>
+          <td><strong>#{{ o.id }}</strong></td>
+          <td>{{ o.order_type }}</td>
+          <td>{{ o.customer_name }}</td>
+          <td>{{ o.payment_method }}</td>
+          <td style="font-weight:900; color:#16a34a;">₱{{ "{:,.2f}".format(o.total_amount) }}</td>
+          <td>{{ o.created_at.strftime('%I:%M %p') }}</td>
+        </tr>
+        {% endfor %}
+        {% if not daily_orders %}
+          <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:15px;">No completed transactions today yet.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+</body>
+</html>

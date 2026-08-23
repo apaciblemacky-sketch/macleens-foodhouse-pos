@@ -3,28 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Macleen's Food House — Master Admin</title>
+  <title>Macleen's Food House — Admin Control</title>
   <style>
-    :root { --pink-dark: #831843; --pink: #ec4899; }
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-border: #fbcfe8; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: #fdfafc; color: #1e293b; padding: 1.5rem; }
+    body { background: #fff0f5; color: #1e293b; padding: 1.5rem; }
     
-    .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 1rem 1.5rem; border-radius: 12px; border: 1px solid #fbcfe8; margin-bottom: 1.5rem; }
+    .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 1rem 1.5rem; border-radius: 12px; border: 2px solid var(--hk-border); margin-bottom: 1.5rem; }
     .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-    .card { background: white; padding: 1.2rem; border-radius: 12px; border: 1px solid #fbcfe8; margin-bottom: 1.5rem; }
+    .card { background: white; padding: 1.2rem; border-radius: 12px; border: 1px solid var(--hk-border); margin-bottom: 1.5rem; }
     .kpi-title { font-size: 0.75rem; font-weight: bold; color: #64748b; text-transform: uppercase; }
-    .kpi-val { font-size: 1.5rem; font-weight: 900; color: var(--pink-dark); margin-top: 4px; }
+    .kpi-val { font-size: 1.5rem; font-weight: 900; color: var(--hk-dark); margin-top: 4px; }
     
     table { width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left; }
-    th { background: #fdf2f8; color: var(--pink-dark); padding: 8px; border: 1px solid #fbcfe8; }
+    th { background: #fdf2f8; color: var(--hk-dark); padding: 8px; border: 1px solid var(--hk-border); }
     td { padding: 8px; border: 1px solid #fce7f3; }
     
     .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
-    .form-group { flex: 1; min-width: 150px; }
-    .form-group label { display: block; font-size: 0.8rem; font-weight: 700; margin-bottom: 4px; }
+    .form-group { flex: 1; min-width: 140px; }
+    .form-group label { display: block; font-size: 0.78rem; font-weight: 700; margin-bottom: 4px; }
     .form-control { width: 100%; padding: 7px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; }
-    .btn { padding: 8px 16px; border-radius: 6px; font-weight: bold; border: none; cursor: pointer; }
-    .btn-pink { background: var(--pink); color: white; }
+    .btn { padding: 8px 16px; border-radius: 6px; font-weight: bold; border: none; cursor: pointer; text-decoration: none; display: inline-block; }
+    .btn-pink { background: var(--hk-pink); color: white; }
     .btn-dark { background: #1e293b; color: white; }
   </style>
 </head>
@@ -32,24 +32,21 @@
 
   <div class="header">
     <div>
-      <h2 style="color:var(--pink-dark);">👑 Macleen's Food House — Master Control & Accounting</h2>
-      <p style="font-size:0.85rem; color:#64748b;">Inventory, Batch Editing, Rider Dispatch & Financial Analytics</p>
+      <h2 style="color:var(--hk-dark);">🎀 Macleen's Food House — Master Control</h2>
+      <p style="font-size:0.85rem; color:#64748b;">Unique IP Visitors, Ranking, Inventory & Rider Dispatch</p>
     </div>
-    <div style="display:flex; gap:10px;">
-      <a href="/pos/cashier" class="btn btn-dark" style="text-decoration:none;">🛒 Open POS</a>
-      <a href="/staff/logout" class="btn" style="background:#fee2e2; color:#991b1b; text-decoration:none;">Sign Out</a>
+    <div style="display:flex; gap:8px;">
+      <a href="/portal/accounting" class="btn btn-dark">📊 Accounting Portal</a>
+      <a href="/pos/cashier" class="btn btn-pink">🛒 Open POS</a>
+      <a href="/staff/logout" class="btn" style="background:#fee2e2; color:#991b1b;">Sign Out</a>
     </div>
   </div>
 
-  <!-- Financial Accounting & Visitor Metrics -->
+  <!-- Financial & Visitor KPIs -->
   <div class="kpi-grid">
     <div class="card" style="margin:0;">
       <div class="kpi-title">Gross Revenue</div>
-      <div class="kpi-val" style="color:#16a34a;">₱{{ "{:,.2f}".format(total_revenue) }}</div>
-    </div>
-    <div class="card" style="margin:0;">
-      <div class="kpi-title">Total Food Cost</div>
-      <div class="kpi-val" style="color:#e11d48;">₱{{ "{:,.2f}".format(total_cost) }}</div>
+      <div class="kpi-val" style="color:#16a34a;">₱{{ "{:,.2f}".format(total_rev) }}</div>
     </div>
     <div class="card" style="margin:0;">
       <div class="kpi-title">Estimated Net Profit</div>
@@ -60,20 +57,20 @@
       <div class="kpi-val" style="color:#d97706;">₱{{ "{:,.2f}".format(total_ar) }}</div>
     </div>
     <div class="card" style="margin:0;">
-      <div class="kpi-title">Storefront Visitors</div>
-      <div class="kpi-val">{{ metric.visitor_count if metric else 0 }}</div>
+      <div class="kpi-title">Unique IP Visitors</div>
+      <div class="kpi-val">{{ unique_visitors }}</div>
     </div>
   </div>
 
-  <!-- Add Single Item & Add Rider Section -->
-  <div style="display:grid; grid-template-columns: 2fr 1fr; gap:1.5rem; margin-bottom:1.5rem;">
+  <!-- Operations: Add Product, Add Rider & Change Password -->
+  <div style="display:grid; grid-template-columns: 2fr 1fr 1fr; gap:1.2rem; margin-bottom:1.5rem;">
     <!-- Add Product -->
     <div class="card" style="margin:0;">
-      <h3 style="color:var(--pink-dark); margin-bottom:10px;">➕ Add Single Menu Dish</h3>
+      <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">➕ Add New Dish</h3>
       <form action="/admin/add-product" method="POST" class="form-row">
         <div class="form-group">
           <label>Dish Name</label>
-          <input type="text" name="name" class="form-control" required placeholder="e.g. Sizzling Sisig">
+          <input type="text" name="name" class="form-control" required placeholder="e.g. Pork Sisig">
         </div>
         <div class="form-group">
           <label>Category</label>
@@ -83,80 +80,77 @@
             {% endfor %}
           </select>
         </div>
-        <div class="form-group" style="max-width:100px;">
-          <label>Cost (₱)</label>
+        <div class="form-group" style="max-width:80px;">
+          <label>Cost</label>
           <input type="number" step="0.5" name="cost" class="form-control" placeholder="0.00">
         </div>
-        <div class="form-group" style="max-width:100px;">
-          <label>Price (₱)</label>
+        <div class="form-group" style="max-width:80px;">
+          <label>Price</label>
           <input type="number" step="0.5" name="price" class="form-control" required placeholder="0.00">
         </div>
-        <div class="form-group" style="max-width:80px;">
-          <label>Stock</label>
-          <input type="number" name="stock" class="form-control" value="100">
-        </div>
-        <div style="padding-bottom:8px;">
-          <label style="font-size:0.75rem;"><input type="checkbox" name="is_ulam"> Ulam Voting</label>
-        </div>
-        <button type="submit" class="btn btn-pink">+ Save Product</button>
+        <button type="submit" class="btn btn-pink">+ Save</button>
       </form>
     </div>
 
     <!-- Add Rider -->
     <div class="card" style="margin:0;">
-      <h3 style="color:var(--pink-dark); margin-bottom:10px;">🛵 Register Delivery Rider</h3>
+      <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">🛵 Add Delivery Rider</h3>
       <form action="/admin/add-rider" method="POST">
-        <div class="form-group" style="margin-bottom:8px;">
-          <label>Username</label>
-          <input type="text" name="username" class="form-control" required placeholder="e.g. rider2">
-        </div>
-        <div class="form-group" style="margin-bottom:8px;">
-          <label>Security PIN</label>
-          <input type="password" name="pin" class="form-control" required placeholder="4-digit PIN">
-        </div>
-        <div class="form-group" style="margin-bottom:10px;">
-          <label>Plate Number</label>
-          <input type="text" name="plate_number" class="form-control" placeholder="ABC-1234">
-        </div>
+        <input type="text" name="username" class="form-control" required placeholder="Rider username" style="margin-bottom:6px;">
+        <input type="password" name="pin" class="form-control" required placeholder="4-digit PIN" style="margin-bottom:6px;">
+        <input type="text" name="plate_number" class="form-control" placeholder="Plate #" style="margin-bottom:8px;">
         <button type="submit" class="btn btn-dark" style="width:100%;">+ Create Rider</button>
+      </form>
+    </div>
+
+    <!-- Change Password -->
+    <div class="card" style="margin:0;">
+      <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">🔒 Change Admin PIN</h3>
+      <form action="/admin/change-password" method="POST">
+        <input type="password" name="new_pin" class="form-control" required placeholder="New 4-digit PIN" style="margin-bottom:8px;">
+        <button type="submit" class="btn btn-pink" style="width:100%;">Update PIN</button>
       </form>
     </div>
   </div>
 
-  <!-- Batch Product Editor -->
+  <!-- Batch Product Editor & Ranking -->
   <div class="card">
-    <h3 style="color:var(--pink-dark); margin-bottom:10px;">📦 Batch Catalog & Inventory Editor ({{ products|length }} Items)</h3>
+    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:1rem;">📦 Product Ranking & Bulk Catalog Manager ({{ products|length }} Items)</h3>
     <form action="/admin/batch-update-products" method="POST">
-      <div style="max-height: 460px; overflow-y: auto; margin-bottom:12px;">
+      <div style="max-height: 440px; overflow-y: auto; margin-bottom:12px;">
         <table>
           <thead style="position:sticky; top:0; z-index:2;">
             <tr>
+              <th>❤️ Likes / Ranking</th>
               <th>Category</th>
               <th>Product Name</th>
-              <th style="width:100px;">Cost (₱)</th>
-              <th style="width:100px;">Selling Price (₱)</th>
-              <th style="width:90px;">Stock</th>
-              <th style="width:100px;">Ulam Voting</th>
-              <th style="width:80px;">Active</th>
+              <th style="width:90px;">Cost (₱)</th>
+              <th style="width:90px;">Price (₱)</th>
+              <th style="width:80px;">Stock</th>
+              <th style="width:80px;">Featured</th>
+              <th style="width:80px;">Best Seller</th>
+              <th style="width:70px;">Active</th>
             </tr>
           </thead>
           <tbody>
             {% for p in products %}
             <tr>
               <input type="hidden" name="product_id" value="{{ p.id }}">
-              <td><strong>{{ p.category_name }}</strong></td>
-              <td>{{ p.name }}</td>
-              <td><input type="number" step="0.5" name="cost_{{ p.id }}" value="{{ p.cost }}" class="form-control" style="padding:4px;"></td>
-              <td><input type="number" step="0.5" name="price_{{ p.id }}" value="{{ p.price }}" class="form-control" style="padding:4px;"></td>
-              <td><input type="number" name="stock_{{ p.id }}" value="{{ p.stock }}" class="form-control" style="padding:4px;"></td>
-              <td style="text-align:center;"><input type="checkbox" name="is_ulam_{{ p.id }}" {% if p.is_ulam %}checked{% endif %}></td>
+              <td><strong style="color:var(--hk-pink);">❤️ {{ p.total_likes }}</strong></td>
+              <td>{{ p.category_name }}</td>
+              <td><strong>{{ p.name }}</strong></td>
+              <td><input type="number" step="0.5" name="cost_{{ p.id }}" value="{{ p.cost }}" class="form-control" style="padding:3px;"></td>
+              <td><input type="number" step="0.5" name="price_{{ p.id }}" value="{{ p.price }}" class="form-control" style="padding:3px;"></td>
+              <td><input type="number" name="stock_{{ p.id }}" value="{{ p.stock }}" class="form-control" style="padding:3px;"></td>
+              <td style="text-align:center;"><input type="checkbox" name="is_featured_{{ p.id }}" {% if p.is_featured %}checked{% endif %}></td>
+              <td style="text-align:center;"><input type="checkbox" name="is_top_seller_{{ p.id }}" {% if p.is_top_seller %}checked{% endif %}></td>
               <td style="text-align:center;"><input type="checkbox" name="is_active_{{ p.id }}" {% if p.is_active %}checked{% endif %}></td>
             </tr>
             {% endfor %}
           </tbody>
         </table>
       </div>
-      <button type="submit" class="btn btn-pink" style="padding:12px 24px; font-size:0.95rem;">💾 SAVE ALL BULK CHANGES</button>
+      <button type="submit" class="btn btn-pink" style="padding:10px 20px;">💾 SAVE ALL BULK CHANGES</button>
     </form>
   </div>
 

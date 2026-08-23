@@ -18,42 +18,25 @@ if database_url and database_url.startswith("postgres://"):
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///foodhouse_pos.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-# Permanent sessions for POS stations
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)
+
+# Permanent Session: 10 Years (No Auto-Logout)
+app.config['SESSION_PERMANENT'] = True
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=3650)
 
 db = SQLAlchemy(app)
 
-# ==================== EMAIL NOTIFIER ====================
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
 
-def send_order_email(order_id, total, cust_name, o_type):
-    mail_user = os.environ.get('MAIL_USERNAME')
-    mail_pass = os.environ.get('MAIL_PASSWORD')
-    mail_to = os.environ.get('ORDER_ALERT_EMAIL', mail_user)
-    
-    if not (mail_user and mail_pass and mail_to):
-        return
-
-    try:
-        msg = MIMEText(f"New Order #{order_id} received!\nCustomer: {cust_name}\nType: {o_type}\nPayable Total: ₱{total:,.2f}")
-        msg['Subject'] = f"🔔 [Macleen's Alert] New Order #{order_id} (₱{total:,.2f})"
-        msg['From'] = mail_user
-        msg['To'] = mail_to
-
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=5)
-        server.login(mail_user, mail_pass)
-        server.sendmail(mail_user, [mail_to], msg.as_string())
-        server.quit()
-    except Exception as e:
-        print(f"Email alert error: {e}")
-
-# ==================== MODELS ====================
+# ==================== DATA MODELS ====================
 
 class Staff(db.Model):
     __tablename__ = 'staff'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     pin_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False) # ADMIN, CASHIER, KITCHEN, RIDER
+    role = db.Column(db.String(20), nullable=False)
     plate_number = db.Column(db.String(30), nullable=True)
     active = db.Column(db.Boolean, default=True)
 
@@ -121,7 +104,7 @@ class ProductComment(db.Model):
 class Order(db.Model):
     __tablename__ = 'order'
     id = db.Column(db.Integer, primary_key=True)
-    order_type = db.Column(db.String(20), nullable=False) # DINE_IN, PICKUP, DELIVERY, TABLET
+    order_type = db.Column(db.String(20), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
     customer_name = db.Column(db.String(100), default='Walk-in')
     contact_number = db.Column(db.String(50), default='N/A')
@@ -136,7 +119,7 @@ class Order(db.Model):
     subtotal = db.Column(db.Float, nullable=False)
     delivery_fee = db.Column(db.Float, default=0.0)
     total_amount = db.Column(db.Float, nullable=False)
-    payment_method = db.Column(db.String(20), nullable=False) # CASH, GCASH, CREDIT, COD, COP
+    payment_method = db.Column(db.String(20), nullable=False)
     payment_verified = db.Column(db.Boolean, default=False)
     
     status = db.Column(db.String(30), default="VERIFICATION")
@@ -184,7 +167,7 @@ def role_required(*roles):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             if 'staff_role' not in session or session['staff_role'] not in roles:
-                flash("Unauthorized access.", "error")
+                flash("Unauthorized access. Please log in.", "error")
                 return redirect(url_for('staff_login'))
             return f(*args, **kwargs)
         return decorated_function
@@ -247,7 +230,7 @@ def api_add_comment(product_id):
     if not text:
         return jsonify({'success': False, 'message': 'Comment cannot be empty.'}), 400
     
-    name = "Guest (" + ip + ")"
+    name = f"Guest ({ip})"
     if cust_id:
         cust = Customer.query.get(cust_id)
         if cust:
@@ -275,13 +258,13 @@ def api_storefront_checkout():
     target_time = data.get('target_time', '').strip()
 
     if not items or not name or not contact:
-        return jsonify({'success': False, 'message': 'Please complete your name, mobile, and cart items.'}), 400
+        return jsonify({'success': False, 'message': 'Please complete all customer details and select items.'}), 400
 
     if pay_method in ['GCASH', 'CREDIT'] and not fb:
-        return jsonify({'success': False, 'message': 'Facebook account is required for GCash/Credit verification.'}), 400
+        return jsonify({'success': False, 'message': 'Facebook account is required for GCash/Credit.'}), 400
 
-    if pay_method == 'GCASH' and (len(gcash_ref) < 6):
-        return jsonify({'success': False, 'message': 'Please provide the last 6 digits of your GCash Reference Number.'}), 400
+    if pay_method == 'GCASH' and len(gcash_ref) < 6:
+        return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400
 
     subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
     delivery_fee = 30.0 if order_type == 'DELIVERY' else 0.0
@@ -321,14 +304,12 @@ def api_storefront_checkout():
                 prod.stock -= int(it['quantity'])
 
     db.session.commit()
-    send_order_email(order.id, total, name, order_type)
     return jsonify({'success': True, 'order_id': order.id, 'total': total})
 
 # ==================== TABLET & CASHIER TERMINALS ====================
 
 @app.route('/tablet')
 def tablet_kiosk():
-    session.permanent = True
     categories = Category.query.all()
     products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
     return render_template('tablet.html', categories=categories, products=products)
@@ -336,7 +317,6 @@ def tablet_kiosk():
 @app.route('/pos/cashier')
 @role_required('ADMIN', 'CASHIER')
 def cashier_terminal():
-    session.permanent = True
     categories = Category.query.all()
     products = Product.query.filter_by(is_active=True).all()
     pending_orders = Order.query.filter_by(status="VERIFICATION").order_by(Order.created_at.asc()).all()
@@ -360,7 +340,7 @@ def verify_order(order_id):
             order.assigned_rider = rider
         order.status = "KITCHEN_QUEUE"
         db.session.commit()
-        flash(f"Order #{order.id} accepted & sent to Kitchen KDS.", "success")
+        flash(f"Order #{order.id} verified & queued for Kitchen.", "success")
     else:
         for item in order.items:
             prod = Product.query.get(item.product_id)
@@ -368,7 +348,7 @@ def verify_order(order_id):
                 prod.stock += item.quantity
         order.status = "CANCELLED"
         db.session.commit()
-        flash(f"Order #{order.id} rejected & stock restored.", "info")
+        flash(f"Order #{order.id} cancelled.", "info")
 
     return redirect(url_for('cashier_terminal'))
 
@@ -391,12 +371,11 @@ def complete_order(order_id):
     flash(f"Order #{order.id} completed & archived.", "success")
     return redirect(url_for('cashier_terminal'))
 
-# ==================== KITCHEN & RIDER ====================
+# ==================== KITCHEN QUEUE ====================
 
 @app.route('/portal/kitchen')
 @role_required('ADMIN', 'KITCHEN')
 def kitchen_queue():
-    session.permanent = True
     queue = Order.query.filter(Order.status.in_(['KITCHEN_QUEUE', 'PREPARING'])).order_by(Order.created_at.asc()).all()
     return render_template('kitchen_kds.html', queue=queue)
 
@@ -410,10 +389,11 @@ def update_kitchen_status(order_id):
         db.session.commit()
     return redirect(url_for('kitchen_queue'))
 
+# ==================== RIDER HUB ====================
+
 @app.route('/portal/rider')
 @role_required('ADMIN', 'RIDER')
 def rider_portal():
-    session.permanent = True
     ready_deliveries = Order.query.filter_by(status="READY", order_type="DELIVERY").all()
     my_deliveries = Order.query.filter_by(status="OUT_FOR_DELIVERY", assigned_rider=session.get('staff_user')).all()
     return render_template('rider_portal.html', ready_deliveries=ready_deliveries, my_deliveries=my_deliveries)
@@ -442,12 +422,39 @@ def complete_delivery(order_id):
     db.session.commit()
     return redirect(url_for('rider_portal'))
 
-# ==================== ACCOUNTING & ANALYTICS ====================
+# ==================== MASTER ADMIN & ACCOUNTING ====================
+
+@app.route('/admin')
+@role_required('ADMIN')
+def admin_dashboard():
+    products = Product.query.order_by(Product.total_likes.desc()).all()
+    categories = Category.query.all()
+    staff_members = Staff.query.all()
+    customers = Customer.query.order_by(Customer.id.desc()).all()
+    unique_visitors = SiteVisitor.query.count()
+    comments = ProductComment.query.order_by(ProductComment.created_at.desc()).limit(15).all()
+    
+    completed = Order.query.filter_by(status='COMPLETED').all()
+    total_rev = sum(o.total_amount for o in completed)
+    total_cost = sum(sum(it.cost_price * it.quantity for it in o.items) for o in completed)
+    estimated_profit = total_rev - total_cost
+    total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
+    
+    return render_template('admin.html', 
+                           products=products, 
+                           categories=categories, 
+                           staff_members=staff_members, 
+                           customers=customers, 
+                           unique_visitors=unique_visitors, 
+                           comments=comments,
+                           total_rev=total_rev,
+                           total_cost=total_cost,
+                           estimated_profit=estimated_profit,
+                           total_ar=total_ar)
 
 @app.route('/portal/accounting')
 @role_required('ADMIN')
 def accounting_portal():
-    session.permanent = True
     today = date.today()
     week_ago = datetime.utcnow() - timedelta(days=7)
     month_ago = datetime.utcnow() - timedelta(days=30)
@@ -471,28 +478,6 @@ def accounting_portal():
                            w_rev=w_rev, w_cost=w_cost, w_profit=w_profit,
                            m_rev=m_rev, m_cost=m_cost, m_profit=m_profit)
 
-# ==================== MASTER ADMIN ====================
-
-@app.route('/admin')
-@role_required('ADMIN')
-def admin_dashboard():
-    session.permanent = True
-    products = Product.query.order_by(Product.total_likes.desc()).all()
-    categories = Category.query.all()
-    staff_members = Staff.query.all()
-    customers = Customer.query.order_by(Customer.id.desc()).all()
-    unique_visitors = SiteVisitor.query.count()
-    comments = ProductComment.query.order_by(ProductComment.created_at.desc()).limit(15).all()
-    
-    completed = Order.query.filter_by(status='COMPLETED').all()
-    total_rev = sum(o.total_amount for o in completed)
-    total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
-    
-    return render_template('admin.html', products=products, categories=categories, 
-                           staff_members=staff_members, customers=customers, 
-                           unique_visitors=unique_visitors, comments=comments,
-                           total_rev=total_rev, total_ar=total_ar)
-
 @app.route('/admin/change-password', methods=['POST'])
 def change_password():
     new_pin = request.form.get('new_pin', '').strip()
@@ -514,6 +499,20 @@ def change_password():
             flash("Security PIN updated.", "success")
 
     return redirect(request.referrer or url_for('store_catalog'))
+
+@app.route('/admin/add-product', methods=['POST'])
+@role_required('ADMIN')
+def admin_add_product():
+    name = request.form.get('name')
+    category_name = request.form.get('category_name')
+    price = float(request.form.get('price') or 0.0)
+    cost = float(request.form.get('cost') or 0.0)
+    stock = int(request.form.get('stock') or 100)
+    
+    db.session.add(Product(name=name, category_name=category_name, price=price, cost=cost, stock=stock))
+    db.session.commit()
+    flash(f"Product '{name}' added successfully.", "success")
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/batch-update-products', methods=['POST'])
 @role_required('ADMIN')
@@ -569,7 +568,7 @@ def customer_register():
         pin = request.form.get('pin', '').strip()
 
         if Customer.query.filter_by(contact=contact).first():
-            flash("Contact number registered.", "error")
+            flash("Contact number already registered.", "error")
             return redirect(url_for('customer_register'))
 
         new_cust = Customer(
@@ -626,7 +625,6 @@ def staff_login():
         pin = request.form.get('pin')
         staff = Staff.query.filter_by(username=user).first()
         if staff and check_password_hash(staff.pin_hash, pin):
-            session.permanent = True
             session['staff_id'] = staff.id
             session['staff_user'] = staff.username
             session['staff_role'] = staff.role
@@ -658,7 +656,6 @@ with app.app_context():
         if not Staff.query.filter_by(username=user).first():
             db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role, plate_number=plate))
     
-    # Ensure Wi-Fi 5 Pesos Product Exists
     if not Product.query.filter_by(name="Wi-Fi Voucher 30 Mins").first():
         db.session.add(Product(name="Wi-Fi Voucher 30 Mins", category_name="Services", price=5.0, cost=0.0, stock=999, is_active=True))
         if not Category.query.filter_by(name="Services").first():

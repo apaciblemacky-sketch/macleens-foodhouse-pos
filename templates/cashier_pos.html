@@ -3,142 +3,136 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Macleen's Cashier & Verification POS</title>
+  <title>Macleen's Cashier POS</title>
   <style>
-    :root { --dark-bg: #1e293b; --green-accent: #84cc16; --pink-accent: #ec4899; }
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: #0f172a; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-    header { background: #1e293b; padding: 10px 20px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
-    .pos-layout { display: grid; grid-template-columns: 360px 1fr 340px; flex: 1; height: calc(100vh - 55px); overflow: hidden; }
+    header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    .pos-layout { display: grid; grid-template-columns: 360px 1fr 320px; flex: 1; height: calc(100vh - 45px); }
 
-    /* Left: Multi-stream Verification Queue */
-    .incoming-queue { background: #1e293b; border-right: 2px solid #334155; padding: 12px; overflow-y: auto; }
-    .ticket-card { background: #334155; border-radius: 8px; padding: 12px; margin-bottom: 12px; border-left: 4px solid var(--pink-accent); }
-    .ticket-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-    .badge { padding: 3px 6px; border-radius: 4px; font-size: 0.72rem; font-weight: 800; }
-    .badge-store { background: #0284c7; color: white; }
-    .badge-tablet { background: #9333ea; color: white; }
+    /* Left Queue */
+    .queue-panel { background: #1e293b; border-right: 2px solid #334155; padding: 10px; overflow-y: auto; }
+    .ticket-card { background: #334155; border-radius: 8px; padding: 10px; margin-bottom: 10px; border-left: 4px solid var(--hk-pink); font-size: 0.85rem; }
 
-    /* Middle: SambaPOS Tile Grid */
-    .center-stage { background: #0f172a; padding: 14px; overflow-y: auto; display: flex; flex-direction: column; }
-    .cat-bar { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; margin-bottom: 10px; }
-    .cat-tile { background: #334155; border: none; color: white; border-radius: 6px; padding: 10px 14px; font-weight: 800; font-size: 0.8rem; cursor: pointer; white-space: nowrap; }
-    .cat-tile.active { background: var(--green-accent); color: black; }
-    
-    .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; flex: 1; }
-    .dish-tile { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px 8px; display: flex; flex-direction: column; justify-content: space-between; height: 95px; cursor: pointer; }
-    .dish-tile:active { transform: scale(0.97); }
+    /* Middle Dish Catalog */
+    .catalog-panel { background: #0f172a; padding: 10px; display: flex; flex-direction: column; overflow-y: auto; }
+    .cat-bar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; flex-shrink: 0; }
+    .cat-btn { background: #334155; color: white; border: none; padding: 10px 14px; border-radius: 6px; font-weight: 800; font-size: 0.78rem; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+    .cat-btn.active { background: var(--hk-pink); }
 
-    /* Right: Cash Register & Settlement */
-    .register-panel { background: #1e293b; border-left: 2px solid #334155; display: flex; flex-direction: column; padding: 14px; }
-    .btn-action { padding: 10px; border-radius: 6px; border: none; font-weight: 800; cursor: pointer; }
+    .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(115px, 1fr)); gap: 8px; }
+    .dish-tile { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px; height: 85px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; }
+
+    /* Right Pickups & Claims */
+    .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
+    .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
   </style>
 </head>
 <body>
 
   <header>
     <div>
-      <strong style="font-size:1.15rem; color:var(--green-accent);">🖥️ MACLEEN'S POS TERMINAL</strong>
-      <span style="font-size:0.8rem; color:#94a3b8; margin-left:10px;">Verification, Direct Counter Sales & Pickup Hub</span>
+      <strong style="color:var(--hk-pink);">🖥️ CASHIER TERMINAL</strong>
+      <span style="font-size:0.75rem; color:#94a3b8; margin-left:8px;">Live Verification Queue</span>
     </div>
-    <div>
-      <a href="/staff/logout" style="background:#ef4444; color:white; padding:6px 12px; border-radius:6px; text-decoration:none; font-weight:bold; font-size:0.8rem;">Sign Out</a>
+    <div style="display:flex; gap:8px;">
+      <a href="/portal/accounting" style="background:#334155; color:white; padding:4px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Ledger</a>
+      <a href="/staff/logout" style="background:#ef4444; color:white; padding:4px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Sign Out</a>
     </div>
   </header>
 
   <div class="pos-layout">
-    <!-- Verification Queue (Storefront, Tablet & Loyalty) -->
-    <div class="incoming-queue">
-      <h3 style="font-size:0.95rem; margin-bottom:12px; color:var(--pink-accent);">📥 Incoming Orders to Authorize ({{ pending_orders|length }})</h3>
-      
+    <!-- Verification Queue -->
+    <div class="queue-panel">
+      <h3 style="font-size:0.9rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
       {% for o in pending_orders %}
       <div class="ticket-card">
-        <div class="ticket-head">
-          <strong>Order #{{ o.id }} ({{ o.order_type }})</strong>
-          <span class="badge {% if o.order_type == 'TABLET' %}badge-tablet{% else %}badge-store{% endif %}">{{ o.order_type }}</span>
+        <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;">
+          <span>#{{ o.id }} ({{ o.order_type }})</span>
+          <span style="color:var(--hk-pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</span>
         </div>
-        <div style="font-size:0.82rem; color:#cbd5e1; margin-bottom:6px;">
+        <div style="color:#cbd5e1; font-size:0.78rem; margin-bottom:6px;">
           👤 {{ o.customer_name }} | 📞 {{ o.contact_number }}<br>
-          {% if o.order_type == 'DELIVERY' %}
-            📍 {{ o.delivery_address }} (Landmark: {{ o.landmark }})<br>
-          {% endif %}
-          💳 Payment: <strong>{{ o.payment_method }}</strong>
-          {% if o.change_for %} (Change for ₱{{ "{:,.2f}".format(o.change_for) }}){% endif %}
-        </div>
-        
-        <div style="font-size:0.8rem; background:#1e293b; padding:6px; border-radius:4px; margin-bottom:8px;">
-          {% for it in o.items %}
-            <div>• {{ it.product_name }} x{{ it.quantity }} (₱{{ "{:,.2f}".format(it.subtotal) }})</div>
-          {% endfor %}
-          <div style="font-weight:900; color:var(--green-accent); margin-top:4px;">TOTAL: ₱{{ "{:,.2f}".format(o.total_amount) }}</div>
+          {% if o.fb_messenger %}💬 FB: {{ o.fb_messenger }}<br>{% endif %}
+          💳 {{ o.payment_method }}{% if o.gcash_ref %} (Ref: {{ o.gcash_ref }}){% endif %}
         </div>
 
-        <div style="display:flex; gap:6px;">
-          <form action="/pos/verify/{{ o.id }}" method="POST" style="flex:1;">
-            <input type="hidden" name="action" value="ACCEPT">
-            <button class="btn-action" style="width:100%; background:var(--green-accent); color:black;">✓ ACCEPT & QUEUE</button>
-          </form>
-          <form action="/pos/verify/{{ o.id }}" method="POST">
-            <input type="hidden" name="action" value="REJECT">
-            <button class="btn-action" style="background:#ef4444; color:white;">✕ REJECT</button>
-          </form>
-        </div>
+        <form action="/pos/verify/{{ o.id }}" method="POST">
+          <input type="hidden" name="action" value="ACCEPT">
+          {% if o.order_type == 'DELIVERY' %}
+            <select name="assigned_rider" style="width:100%; padding:4px; border-radius:4px; margin-bottom:6px; background:#0f172a; color:white; border:1px solid #475569; font-size:0.75rem;">
+              <option value="">-- Assign Delivery Rider --</option>
+              {% for r in riders %}
+                <option value="{{ r.username }}">{{ r.username }} ({{ r.plate_number }})</option>
+              {% endfor %}
+            </select>
+          {% endif %}
+          <div style="display:flex; gap:4px;">
+            <button type="submit" class="btn-act" style="background:#16a34a; color:white; flex:1;">✓ ACCEPT</button>
+            <button type="submit" name="action" value="REJECT" class="btn-act" style="background:#ef4444; color:white;">✕</button>
+          </div>
+        </form>
       </div>
       {% endfor %}
-      
-      {% if not pending_orders %}
-        <p style="color:#64748b; font-size:0.85rem; text-align:center; padding:20px;">No pending orders to verify.</p>
-      {% endif %}
     </div>
 
-    <!-- Middle Catalog Grid -->
-    <div class="center-stage">
+    <!-- Center Menu -->
+    <div class="catalog-panel">
       <div class="cat-bar">
-        <button class="cat-tile active" onclick="filterPOS('ALL', this)">ALL</button>
+        <button class="cat-btn active" onclick="filterCat('ALL', this)">ALL</button>
         {% for cat in categories %}
-          <button class="cat-tile" onclick="filterPOS('{{ cat.name }}', this)">{{ cat.name }}</button>
+          <button class="cat-btn" onclick="filterCat('{{ cat.name }}', this)">{{ cat.name }}</button>
         {% endfor %}
       </div>
 
       <div class="dish-grid">
         {% for p in products %}
         <div class="dish-tile" data-cat="{{ p.category_name }}">
-          <div style="font-size:0.82rem; font-weight:800; line-height:1.2;">{{ p.name }}</div>
-          <div style="font-size:0.95rem; font-weight:900; color:var(--green-accent);">₱{{ "{:,.2f}".format(p.price) }}</div>
+          <div style="font-size:0.78rem; font-weight:bold;">{{ p.name }}</div>
+          <div style="font-size:0.9rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
         </div>
         {% endfor %}
       </div>
     </div>
 
-    <!-- Ready for Pickup Settlement -->
-    <div class="register-panel">
-      <h3 style="font-size:0.95rem; margin-bottom:12px; color:var(--green-accent);">🛍️ Ready Orders For Pickup ({{ ready_orders|length }})</h3>
-      <div style="flex:1; overflow-y:auto;">
-        {% for ro in ready_orders %}
-          <div style="background:#334155; padding:10px; border-radius:6px; margin-bottom:8px;">
-            <div style="font-weight:800;">#{{ ro.id }} — {{ ro.customer_name }}</div>
-            <div style="font-size:0.8rem; color:#94a3b8;">Total: ₱{{ "{:,.2f}".format(ro.total_amount) }} ({{ ro.payment_method }})</div>
-            <form action="/pos/complete/{{ ro.id }}" method="POST" style="margin-top:6px;">
-              <button class="btn-action" style="width:100%; background:#3b82f6; color:white; font-size:0.8rem; padding:6px;">COMPLETE & ARCHIVE</button>
-            </form>
-          </div>
-        {% endfor %}
-        {% if not ready_orders %}
-          <p style="color:#64748b; font-size:0.85rem; text-align:center; padding:20px;">No pickup tickets ready.</p>
-        {% endif %}
+    <!-- Ready for Pickup & Wi-Fi Claims -->
+    <div class="pickup-panel">
+      <h3 style="font-size:0.9rem; color:#4ade80; margin-bottom:8px;">🛍️ Ready For Pickup ({{ ready_orders|length }})</h3>
+      {% for ro in ready_orders %}
+      <div style="background:#334155; padding:8px; border-radius:6px; margin-bottom:6px; font-size:0.8rem;">
+        <div><strong>#{{ ro.id }}</strong> — {{ ro.customer_name }}</div>
+        <div style="color:#94a3b8;">Total: ₱{{ "{:,.2f}".format(ro.total_amount) }}</div>
+        <form action="/pos/complete/{{ ro.id }}" method="POST" style="margin-top:4px;">
+          <button class="btn-act" style="background:#3b82f6; color:white; width:100%;">COMPLETE</button>
+        </form>
       </div>
+      {% endfor %}
+
+      <h3 style="font-size:0.9rem; color:#0284c7; margin:16px 0 8px;">📶 Today's Wi-Fi Claims ({{ today_wifi_claims|length }})</h3>
+      {% for w in today_wifi_claims %}
+      <div style="background:#334155; padding:6px; border-radius:4px; margin-bottom:4px; font-size:0.75rem;">
+        <strong>{{ w.name }}</strong> ({{ w.contact }})<br>
+        <span style="color:#38bdf8;">Code: {{ w.wifi_voucher_code }}</span>
+      </div>
+      {% endfor %}
     </div>
   </div>
 
   <script>
-    function filterPOS(cat, btn) {
-      document.querySelectorAll('.cat-tile').forEach(b => b.classList.remove('active'));
+    function filterCat(cat, btn) {
+      document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       document.querySelectorAll('.dish-tile').forEach(d => {
         d.style.display = (cat === 'ALL' || d.dataset.cat === cat) ? 'flex' : 'none';
       });
     }
+
+    // Live auto-refresh polling every 3 seconds for new orders
+    setTimeout(() => {
+      window.location.reload();
+    }, 3000);
   </script>
 </body>
 </html>
