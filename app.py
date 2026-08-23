@@ -1,8 +1,6 @@
 import os
 import random
 import string
-import smtplib
-from email.mime.text import MIMEText
 from datetime import datetime, date, timedelta
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
@@ -10,7 +8,7 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-multi-station-pos-2026')
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-hk-pos-2026-secure')
 
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
@@ -79,6 +77,7 @@ class Product(db.Model):
     is_top_seller = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
     total_likes = db.Column(db.Integer, default=0)
+    comments = db.relationship('ProductComment', backref='product_rel', cascade="all, delete-orphan", lazy=True, order_by="desc(ProductComment.created_at)")
 
 class ProductLike(db.Model):
     __tablename__ = 'product_like'
@@ -97,7 +96,6 @@ class ProductComment(db.Model):
     author_name = db.Column(db.String(100), nullable=False)
     ip_address = db.Column(db.String(50), nullable=False)
     comment_text = db.Column(db.Text, nullable=False)
-    points_awarded = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Order(db.Model):
@@ -154,44 +152,25 @@ class SiteVisitor(db.Model):
     ip_address = db.Column(db.String(50), unique=True, nullable=False)
     visited_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-# ==================== INDEPENDENT GUARDS ====================
+# ==================== HELPERS & GUARDS ====================
 
 def get_client_ip():
     if request.headers.get('X-Forwarded-For'):
         return request.headers.get('X-Forwarded-For').split(',')[0].strip()
     return request.remote_addr or '127.0.0.1'
 
-def require_admin(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not session.get('admin_user'):
-            return redirect(url_for('staff_login', target='admin'))
-        return f(*args, **kwargs)
-    return decorated
-
-def require_cashier(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not (session.get('cashier_user') or session.get('admin_user')):
-            return redirect(url_for('staff_login', target='cashier'))
-        return f(*args, **kwargs)
-    return decorated
-
-def require_kitchen(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not (session.get('kitchen_user') or session.get('admin_user')):
-            return redirect(url_for('staff_login', target='kitchen'))
-        return f(*args, **kwargs)
-    return decorated
-
-def require_rider(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not (session.get('rider_user') or session.get('admin_user')):
-            return redirect(url_for('staff_login', target='rider'))
-        return f(*args, **kwargs)
-    return decorated
+def require_staff_role(*roles):
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            # Check station session or global staff role
+            user_role = session.get('staff_role')
+            if not user_role or (roles and user_role not in roles and user_role != 'ADMIN'):
+                flash("Please log in with appropriate staff permissions.", "error")
+                return redirect(url_for('staff_login'))
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
 
 # ==================== STOREFRONT ====================
 
@@ -204,16 +183,19 @@ def store_catalog():
     
     unique_visitors = SiteVisitor.query.count()
     categories = Category.query.all()
-    featured = Product.query.filter_by(is_featured=True, is_active=True).all()
-    top_sellers = Product.query.filter_by(is_top_seller=True, is_active=True).all()
-    products = Product.query.filter_by(is_active=True).order_by(Product.total_likes.desc()).all()
+    products = Product.query.filter_by(is_active=True).order_by(Product.total_likes.desc(), Product.id.asc()).all()
     
     return render_template('store_catalog.html', 
                            categories=categories, 
-                           featured=featured, 
-                           top_sellers=top_sellers, 
                            products=products, 
                            unique_visitors=unique_visitors)
+
+@app.route('/product/<int:product_id>')
+def product_detail(product_id):
+    prod = Product.query.get_or_404(product_id)
+    ip = get_client_ip()
+    liked = bool(ProductLike.query.filter_by(product_id=product_id, ip_address=ip).first())
+    return render_template('product_detail.html', prod=prod, liked=liked)
 
 @app.route('/api/toggle-like/<int:product_id>', methods=['POST'])
 def api_toggle_like(product_id):
@@ -231,6 +213,7 @@ def api_toggle_like(product_id):
         new_like = ProductLike(product_id=product_id, ip_address=ip, customer_id=cust_id, points_awarded=bool(cust_id))
         prod.total_likes = (prod.total_likes or 0) + 1
         
+        # Award +2 points for first like if customer is logged in
         if cust_id:
             cust = Customer.query.get(cust_id)
             if cust and not RewardLedger.query.filter_by(customer_id=cust.id, reason=f"Like Product #{product_id}").first():
@@ -255,14 +238,12 @@ def api_add_comment(product_id):
         cust = Customer.query.get(cust_id)
         if cust:
             name = cust.name
-            if not RewardLedger.query.filter_by(customer_id=cust.id, reason=f"Comment Product #{product_id}").first():
-                cust.points_balance += 2
-                db.session.add(RewardLedger(customer_id=cust.id, points_change=2, reason=f"Comment Product #{product_id}"))
-    
+            
+    # No points awarded for comments
     comment = ProductComment(product_id=product_id, customer_id=cust_id, author_name=name, ip_address=ip, comment_text=text)
     db.session.add(comment)
     db.session.commit()
-    return jsonify({'success': True, 'author': name, 'comment': text})
+    return jsonify({'success': True, 'author': name, 'comment': text, 'created_at': 'Just now'})
 
 @app.route('/api/storefront-checkout', methods=['POST'])
 def api_storefront_checkout():
@@ -278,10 +259,10 @@ def api_storefront_checkout():
     target_time = data.get('target_time', '').strip()
 
     if not items or not name or not contact:
-        return jsonify({'success': False, 'message': 'Please complete all customer details and select items.'}), 400
+        return jsonify({'success': False, 'message': 'Please fill all required fields.'}), 400
 
     if pay_method in ['GCASH', 'CREDIT'] and not fb:
-        return jsonify({'success': False, 'message': 'Facebook account is required for GCash/Credit.'}), 400
+        return jsonify({'success': False, 'message': 'Facebook account is required for GCash/Credit verification.'}), 400
 
     if pay_method == 'GCASH' and len(gcash_ref) < 6:
         return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400
@@ -334,10 +315,10 @@ def tablet_kiosk():
     products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
     return render_template('tablet.html', categories=categories, products=products)
 
-# ==================== CASHIER POS ====================
+# ==================== CASHIER TERMINAL ====================
 
 @app.route('/pos/cashier')
-@require_cashier
+@require_staff_role('ADMIN', 'CASHIER')
 def cashier_terminal():
     categories = Category.query.all()
     products = Product.query.filter_by(is_active=True).all()
@@ -350,7 +331,7 @@ def cashier_terminal():
                            riders=riders, today_wifi_claims=today_wifi_claims)
 
 @app.route('/pos/verify/<int:order_id>', methods=['POST'])
-@require_cashier
+@require_staff_role('ADMIN', 'CASHIER')
 def verify_order(order_id):
     order = Order.query.get_or_404(order_id)
     action = request.form.get('action')
@@ -375,7 +356,7 @@ def verify_order(order_id):
     return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/complete/<int:order_id>', methods=['POST'])
-@require_cashier
+@require_staff_role('ADMIN', 'CASHIER')
 def complete_order(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "COMPLETED"
@@ -396,13 +377,13 @@ def complete_order(order_id):
 # ==================== KITCHEN QUEUE ====================
 
 @app.route('/portal/kitchen')
-@require_kitchen
+@require_staff_role('ADMIN', 'KITCHEN')
 def kitchen_queue():
     queue = Order.query.filter(Order.status.in_(['KITCHEN_QUEUE', 'PREPARING'])).order_by(Order.created_at.asc()).all()
     return render_template('kitchen_kds.html', queue=queue)
 
 @app.route('/portal/kitchen/status/<int:order_id>', methods=['POST'])
-@require_kitchen
+@require_staff_role('ADMIN', 'KITCHEN')
 def update_kitchen_status(order_id):
     order = Order.query.get_or_404(order_id)
     new_status = request.form.get('status')
@@ -414,24 +395,24 @@ def update_kitchen_status(order_id):
 # ==================== RIDER HUB ====================
 
 @app.route('/portal/rider')
-@require_rider
+@require_staff_role('ADMIN', 'RIDER')
 def rider_portal():
     ready_deliveries = Order.query.filter_by(status="READY", order_type="DELIVERY").all()
-    current_rider = session.get('rider_user')
+    current_rider = session.get('staff_user')
     my_deliveries = Order.query.filter_by(status="OUT_FOR_DELIVERY", assigned_rider=current_rider).all()
     return render_template('rider_portal.html', ready_deliveries=ready_deliveries, my_deliveries=my_deliveries)
 
 @app.route('/portal/rider/claim/<int:order_id>', methods=['POST'])
-@require_rider
+@require_staff_role('ADMIN', 'RIDER')
 def claim_delivery(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "OUT_FOR_DELIVERY"
-    order.assigned_rider = session.get('rider_user')
+    order.assigned_rider = session.get('staff_user')
     db.session.commit()
     return redirect(url_for('rider_portal'))
 
 @app.route('/portal/rider/complete/<int:order_id>', methods=['POST'])
-@require_rider
+@require_staff_role('ADMIN', 'RIDER')
 def complete_delivery(order_id):
     order = Order.query.get_or_404(order_id)
     order.status = "COMPLETED"
@@ -448,7 +429,7 @@ def complete_delivery(order_id):
 # ==================== MASTER ADMIN & ACCOUNTING ====================
 
 @app.route('/admin')
-@require_admin
+@require_staff_role('ADMIN')
 def admin_dashboard():
     products = Product.query.order_by(Product.total_likes.desc()).all()
     categories = Category.query.all()
@@ -476,7 +457,7 @@ def admin_dashboard():
                            total_ar=total_ar)
 
 @app.route('/portal/accounting')
-@require_admin
+@require_staff_role('ADMIN')
 def accounting_portal():
     today = date.today()
     week_ago = datetime.utcnow() - timedelta(days=7)
@@ -502,7 +483,7 @@ def accounting_portal():
                            m_rev=m_rev, m_cost=m_cost, m_profit=m_profit)
 
 @app.route('/admin/add-product', methods=['POST'])
-@require_admin
+@require_staff_role('ADMIN')
 def admin_add_product():
     name = request.form.get('name')
     category_name = request.form.get('category_name')
@@ -517,7 +498,7 @@ def admin_add_product():
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/batch-update-products', methods=['POST'])
-@require_admin
+@require_staff_role('ADMIN')
 def admin_batch_update_products():
     for pid in request.form.getlist('product_id'):
         prod = Product.query.get(pid)
@@ -534,7 +515,7 @@ def admin_batch_update_products():
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/add-rider', methods=['POST'])
-@require_admin
+@require_staff_role('ADMIN')
 def admin_add_rider():
     user = request.form.get('username', '').strip()
     pin = request.form.get('pin', '').strip()
@@ -552,17 +533,16 @@ def admin_add_rider():
 def change_password():
     new_pin = request.form.get('new_pin', '').strip()
     if not new_pin:
-        flash("Password / PIN cannot be empty.", "error")
+        flash("PIN cannot be empty.", "error")
         return redirect(request.referrer or url_for('staff_login'))
 
-    for role_key in ['admin_id', 'cashier_id', 'kitchen_id', 'rider_id']:
-        if role_key in session:
-            st = Staff.query.get(session[role_key])
-            if st:
-                st.pin_hash = generate_password_hash(new_pin)
-                db.session.commit()
-                flash("Staff PIN successfully updated.", "success")
-                return redirect(request.referrer or url_for('admin_dashboard'))
+    if 'staff_id' in session:
+        st = Staff.query.get(session['staff_id'])
+        if st:
+            st.pin_hash = generate_password_hash(new_pin)
+            db.session.commit()
+            flash("Staff PIN successfully updated.", "success")
+            return redirect(request.referrer or url_for('admin_dashboard'))
 
     if 'customer_id' in session:
         cust = Customer.query.get(session['customer_id'])
@@ -584,7 +564,7 @@ def customer_login():
         if cust and check_password_hash(cust.pin_hash, pin):
             session['customer_id'] = cust.id
             return redirect(url_for('customer_dashboard'))
-        flash("Invalid Credentials.", "error")
+        flash("Invalid Contact or PIN.", "error")
     return render_template('customer_login.html')
 
 @app.route('/portal/register', methods=['GET', 'POST'])
@@ -646,52 +626,34 @@ def claim_daily_wifi():
         flash(f"Claimed 10-Mins Free Wi-Fi! Passcode: {voucher}", "success")
     return redirect(url_for('customer_dashboard'))
 
-# ==================== INDEPENDENT STAFF LOGIN ====================
+# ==================== UNIVERSAL STAFF AUTH ====================
 
 @app.route('/staff/login', methods=['GET', 'POST'])
 def staff_login():
-    target = request.args.get('target', '').lower()
     if request.method == 'POST':
-        user = request.form.get('username', '').strip()
+        user = request.form.get('username', '').strip().lower()
         pin = request.form.get('pin', '').strip()
-        staff = Staff.query.filter_by(username=user).first()
+        staff = Staff.query.filter(db.func.lower(Staff.username) == user).first()
+        
         if staff and check_password_hash(staff.pin_hash, pin):
-            if staff.role == 'ADMIN':
-                session['admin_id'] = staff.id
-                session['admin_user'] = staff.username
-                return redirect(url_for('admin_dashboard'))
-            elif staff.role == 'CASHIER':
-                session['cashier_id'] = staff.id
-                session['cashier_user'] = staff.username
-                return redirect(url_for('cashier_terminal'))
-            elif staff.role == 'KITCHEN':
-                session['kitchen_id'] = staff.id
-                session['kitchen_user'] = staff.username
-                return redirect(url_for('kitchen_queue'))
-            elif staff.role == 'RIDER':
-                session['rider_id'] = staff.id
-                session['rider_user'] = staff.username
-                return redirect(url_for('rider_portal'))
-        flash('Invalid Username or PIN.', 'error')
-    return render_template('staff_login.html', target=target)
+            session['staff_id'] = staff.id
+            session['staff_user'] = staff.username
+            session['staff_role'] = staff.role
+
+            if staff.role == 'ADMIN': return redirect(url_for('admin_dashboard'))
+            if staff.role == 'CASHIER': return redirect(url_for('cashier_terminal'))
+            if staff.role == 'KITCHEN': return redirect(url_for('kitchen_queue'))
+            if staff.role == 'RIDER': return redirect(url_for('rider_portal'))
+        flash('Invalid Username or PIN. Please try again.', 'error')
+    return render_template('staff_login.html')
 
 @app.route('/staff/logout')
 def staff_logout():
-    role = request.args.get('role')
-    if role == 'admin':
-        session.pop('admin_id', None); session.pop('admin_user', None)
-    elif role == 'cashier':
-        session.pop('cashier_id', None); session.pop('cashier_user', None)
-    elif role == 'kitchen':
-        session.pop('kitchen_id', None); session.pop('kitchen_user', None)
-    elif role == 'rider':
-        session.pop('rider_id', None); session.pop('rider_user', None)
-    else:
-        session.clear()
-    flash('Logged out.', 'info')
+    session.clear()
+    flash('Logged out successfully.', 'info')
     return redirect(url_for('staff_login'))
 
-# ==================== INITIAL SEEDER ====================
+# ==================== SEEDER & SYNC ====================
 
 with app.app_context():
     db.create_all()
@@ -702,14 +664,18 @@ with app.app_context():
         ('rider1', '3333', 'RIDER', 'MFH-01')
     ]
     for user, pin, role, plate in default_roles:
-        if not Staff.query.filter_by(username=user).first():
+        st = Staff.query.filter_by(username=user).first()
+        if not st:
             db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role, plate_number=plate))
+        else:
+            # Sync password guarantee
+            st.pin_hash = generate_password_hash(pin)
+            st.role = role
     
     if not Product.query.filter_by(name="Wi-Fi Voucher 30 Mins").first():
         db.session.add(Product(name="Wi-Fi Voucher 30 Mins", category_name="Services", price=5.0, cost=0.0, stock=999, is_active=True))
         if not Category.query.filter_by(name="Services").first():
             db.session.add(Category(name="Services"))
-        db.session.commit()
 
     db.session.commit()
 

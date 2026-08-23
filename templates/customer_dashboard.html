@@ -9,7 +9,7 @@
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: #fff0f5; color: #1e293b; padding: 1rem; }
 
-    .card { background: white; border-radius: 12px; border: 1px solid var(--hk-border); padding: 1.2rem; margin-bottom: 1rem; max-width: 600px; margin-left: auto; margin-right: auto; }
+    .card { background: white; border-radius: 12px; border: 1px solid var(--hk-border); padding: 1.2rem; margin-bottom: 1rem; max-width: 550px; margin-left: auto; margin-right: auto; }
     .btn { background: var(--hk-pink); color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; text-decoration: none; display: inline-block; text-align: center; }
     .btn:disabled { background: #cbd5e1; cursor: not-allowed; }
   </style>
@@ -18,28 +18,28 @@
 
   <div class="card" style="text-align:center;">
     <div style="margin-bottom:10px;">
-      {% if cust.profile_image %}
-        <img src="{{ cust.profile_image }}" style="width:80px; height:80px; border-radius:50%; object-fit:cover; border:2px solid var(--hk-pink);">
+      {% if cust.profile_image and cust.profile_image.strip() %}
+        <img src="{{ cust.profile_image }}" referrerpolicy="no-referrer" loading="eager" onerror="this.onerror=null; this.src='https://api.dicebear.com/7.x/identicon/svg?seed={{ cust.name }}';" style="width:95px; height:95px; border-radius:50%; object-fit:cover; border:3px solid var(--hk-pink); box-shadow:0 3px 8px rgba(0,0,0,0.1);">
       {% else %}
-        <div style="width:80px; height:80px; border-radius:50%; background:#fce7f3; display:inline-flex; justify-content:center; align-items:center; font-size:2rem;">🎀</div>
+        <div style="width:95px; height:95px; border-radius:50%; background:#fce7f3; display:inline-flex; justify-content:center; align-items:center; font-size:2.6rem; border:3px solid var(--hk-pink); margin:0 auto;">🎀</div>
       {% endif %}
     </div>
 
     <h2 style="color:var(--hk-dark);">{{ cust.name }}</h2>
-    <div style="font-size:0.85rem; color:#64748b;">Card #: <strong>{{ cust.card_number }}</strong></div>
+    <div style="font-size:0.85rem; color:#64748b;">Member Card: <strong>{{ cust.card_number }}</strong></div>
 
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:16px 0;">
-      <div style="background:#fdf2f8; padding:10px; border-radius:8px;">
-        <div style="font-size:0.75rem; color:#64748b;">REWARD POINTS</div>
-        <div style="font-size:1.4rem; font-weight:900; color:var(--hk-pink);">{{ cust.points_balance|int }}</div>
+      <div style="background:#fdf2f8; padding:12px; border-radius:10px; border:1px solid #fce7f3;">
+        <div style="font-size:0.75rem; color:#64748b; font-weight:bold;">REWARD POINTS</div>
+        <div style="font-size:1.5rem; font-weight:900; color:var(--hk-pink);">{{ cust.points_balance|int }}</div>
       </div>
-      <div style="background:#fdf2f8; padding:10px; border-radius:8px;">
-        <div style="font-size:0.75rem; color:#64748b;">ACCUMULATED WI-FI</div>
-        <div style="font-size:1.4rem; font-weight:900; color:#0284c7;">{{ cust.accumulated_wifi_mins or 0 }} <span style="font-size:0.8rem;">Mins</span></div>
+      <div style="background:#fdf2f8; padding:12px; border-radius:10px; border:1px solid #fce7f3;">
+        <div style="font-size:0.75rem; color:#64748b; font-weight:bold;">ACCUMULATED WI-FI</div>
+        <div style="font-size:1.5rem; font-weight:900; color:#0284c7;">{{ cust.accumulated_wifi_mins or 0 }} <span style="font-size:0.85rem;">Mins</span></div>
       </div>
     </div>
 
-    <!-- Wi-Fi Daily Claim -->
+    <!-- Daily Free Wi-Fi Claim -->
     {% if cust.last_wifi_claim == today %}
       <button class="btn" disabled>✓ Today's Free Wi-Fi Claimed (Code: {{ cust.wifi_voucher_code }})</button>
     {% else %}
@@ -49,19 +49,19 @@
     {% endif %}
   </div>
 
-  <!-- Profile Image & PIN Update -->
+  <!-- Settings -->
   <div class="card">
-    <h3 style="color:var(--hk-dark); font-size:0.95rem; margin-bottom:10px;">⚙️ Profile Settings</h3>
+    <h3 style="color:var(--hk-dark); font-size:0.95rem; margin-bottom:10px;">⚙️ Profile & Photo Settings</h3>
     <form action="/portal/update-profile-pic" method="POST" style="margin-bottom:12px;">
-      <label style="font-size:0.8rem; font-weight:bold;">Profile Picture Image URL</label>
-      <input type="url" name="profile_image" placeholder="https://example.com/photo.jpg" required style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; margin:4px 0 8px;">
-      <button type="submit" class="btn" style="padding:6px;">Update Photo</button>
+      <label style="font-size:0.8rem; font-weight:bold;">Direct Image URL (PostImages / Imgur / Facebook CDN)</label>
+      <input type="url" name="profile_image" placeholder="https://..." required style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; margin:4px 0 8px;">
+      <button type="submit" class="btn" style="padding:8px;">Save Photo URL</button>
     </form>
 
     <form action="/admin/change-password" method="POST">
       <label style="font-size:0.8rem; font-weight:bold;">Update 4-Digit Security PIN</label>
       <input type="password" name="new_pin" placeholder="New PIN" required style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; margin:4px 0 8px;">
-      <button type="submit" class="btn" style="padding:6px; background:#1e293b;">Save New PIN</button>
+      <button type="submit" class="btn" style="padding:8px; background:#1e293b;">Save New PIN</button>
     </form>
   </div>
 

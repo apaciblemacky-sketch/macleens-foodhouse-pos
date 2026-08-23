@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ prod.name }} — Macleen's Food House</title>
+  <style>
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-light: #fff0f5; --hk-border: #fbcfe8; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--hk-light); color: #1e293b; padding: 1rem; }
+
+    .container { max-width: 650px; margin: 0 auto; }
+    .nav-back { display: inline-flex; align-items: center; gap: 4px; color: var(--hk-dark); text-decoration: none; font-weight: bold; margin-bottom: 12px; font-size: 0.9rem; }
+
+    .card { background: white; border-radius: 12px; border: 1px solid var(--hk-border); padding: 1.2rem; margin-bottom: 1rem; }
+    .dish-hero-img { width: 100%; height: 240px; border-radius: 10px; object-fit: cover; background: #fdf2f8; margin-bottom: 12px; }
+
+    .btn-like-lg { background: #fdf2f8; border: 2px solid var(--hk-pink); color: var(--hk-dark); padding: 10px 16px; border-radius: 25px; font-size: 1rem; font-weight: 900; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-like-lg:active { background: var(--hk-pink); color: white; }
+
+    .comment-item { border-bottom: 1px solid var(--hk-border); padding: 10px 0; font-size: 0.88rem; }
+    .btn-submit { background: var(--hk-pink); color: white; border: none; padding: 10px; border-radius: 8px; font-weight: 900; width: 100%; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <a href="/" class="nav-back">← Back to Menu</a>
+
+    <div class="card">
+      {% if prod.image_url %}
+        <img src="{{ prod.image_url }}" referrerpolicy="no-referrer" loading="eager" class="dish-hero-img" onerror="this.onerror=null; this.src='https://via.placeholder.com/600x300?text=Macleens+Dish';">
+      {% else %}
+        <div class="dish-hero-img" style="display:flex; justify-content:center; align-items:center; font-size:4rem;">🍲</div>
+      {% endif %}
+
+      <span style="font-size:0.75rem; font-weight:bold; color:var(--hk-pink); text-transform:uppercase;">{{ prod.category_name }}</span>
+      <h1 style="color:var(--hk-dark); font-size:1.4rem; margin:4px 0 8px;">{{ prod.name }}</h1>
+      <div style="font-size:1.4rem; font-weight:900; color:var(--hk-pink); margin-bottom:12px;">₱{{ "{:,.2f}".format(prod.price) }}</div>
+
+      <!-- Prominent Like Trigger -->
+      <div>
+        <button class="btn-like-lg" onclick="toggleLikeDetail({{ prod.id }})">
+          ❤️ <span id="likeCounter">{{ prod.total_likes }}</span> Likes
+        </button>
+      </div>
+    </div>
+
+    <!-- Customer Reviews & Comments -->
+    <div class="card">
+      <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:1rem;">💬 Customer Reviews & Feedback</h3>
+      
+      <div id="commentList" style="margin-bottom:16px;">
+        {% for c in prod.comments %}
+        <div class="comment-item">
+          <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+            <strong style="color:var(--hk-dark);">{{ c.author_name }}</strong>
+            <span style="font-size:0.75rem; color:#94a3b8;">{{ c.created_at.strftime('%b %d, %Y') }}</span>
+          </div>
+          <p style="color:#334155;">{{ c.comment_text }}</p>
+        </div>
+        {% endfor %}
+        {% if not prod.comments %}
+          <p style="color:#94a3b8; text-align:center; padding:15px;" id="noCommentText">No reviews yet. Be the first to comment!</p>
+        {% endif %}
+      </div>
+
+      <!-- Add Review Box (No points awarded) -->
+      <div>
+        <label style="display:block; font-size:0.8rem; font-weight:bold; margin-bottom:4px;">Leave a Comment or Feedback</label>
+        <textarea id="commentInput" placeholder="What do you think of this dish?" style="width:100%; height:75px; padding:8px; border:1px solid #cbd5e1; border-radius:6px; font-size:0.85rem; margin-bottom:8px;"></textarea>
+        <button class="btn-submit" onclick="postComment({{ prod.id }})">Post Review</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function toggleLikeDetail(id) {
+      const res = await fetch(`/api/toggle-like/${id}`, { method: 'POST' });
+      const data = await res.json();
+      document.getElementById('likeCounter').innerText = data.total_likes;
+    }
+
+    async function postComment(id) {
+      const text = document.getElementById('commentInput').value.trim();
+      if (!text) return alert("Please write a comment.");
+
+      const res = await fetch(`/api/add-comment/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comment: text })
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        const noText = document.getElementById('noCommentText');
+        if (noText) noText.style.display = 'none';
+
+        const list = document.getElementById('commentList');
+        const div = document.createElement('div');
+        div.className = 'comment-item';
+        div.innerHTML = `
+          <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
+            <strong style="color:var(--hk-dark);">${data.author}</strong>
+            <span style="font-size:0.75rem; color:#94a3b8;">${data.created_at}</span>
+          </div>
+          <p style="color:#334155;">${data.comment}</p>
+        `;
+        list.prepend(div);
+        document.getElementById('commentInput').value = '';
+      } else {
+        alert(data.message);
+      }
+    }
+  </script>
+</body>
+</html>
