@@ -17,7 +17,7 @@
     body { background: #0f172a; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
     header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
-    .pos-layout { display: grid; grid-template-columns: 370px 1fr 340px; flex: 1; height: calc(100vh - 45px); }
+    .pos-layout { display: grid; grid-template-columns: 370px 1fr 350px; flex: 1; height: calc(100vh - 45px); }
 
     .queue-panel { background: #1e293b; border-right: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .ticket-card { background: #334155; border-radius: 8px; padding: 10px; margin-bottom: 10px; border-left: 4px solid var(--hk-pink); font-size: 0.85rem; }
@@ -139,21 +139,33 @@
 
     <!-- Right Panels -->
     <div class="pickup-panel">
-      <!-- Today's Free Wi-Fi Claim Logs -->
-      <div style="background:#1e293b; border:1px solid #3b82f6; border-radius:6px; padding:8px; margin-bottom:12px;">
-        <h3 style="font-size:0.82rem; color:#60a5fa; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
-          <span>📶 Today's Free Wi-Fi Claims</span>
-          <span style="background:#2563eb; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem;">{{ today_wifi_claims|length }}</span>
+      
+      <!-- Wi-Fi Claims & Monitor Panel -->
+      <div style="background:#1e293b; border:1.5px solid #3b82f6; border-radius:8px; padding:10px; margin-bottom:12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+        <h3 style="font-size:0.84rem; color:#60a5fa; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+          <span>📶 Today's Wi-Fi Claims</span>
+          <span style="background:#2563eb; color:white; padding:2px 8px; border-radius:12px; font-size:0.72rem; font-weight:900;">Total: {{ today_wifi_claims|length }}</span>
         </h3>
-        <div style="max-height:120px; overflow-y:auto;">
+        <div style="max-height:160px; overflow-y:auto; padding-right:2px;">
           {% for w in today_wifi_claims %}
-          <div style="font-size:0.75rem; padding:4px 0; border-bottom:1px dashed #334155; color:#cbd5e1;">
-            <strong>{{ w.name }}</strong> ({{ w.contact }})<br>
-            Code: <span style="color:#fbbf24; font-family:monospace; font-weight:bold;">{{ w.wifi_voucher_code }}</span>
+          <div style="font-size:0.75rem; padding:6px 0; border-bottom:1px dashed #334155; color:#cbd5e1;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <strong>{{ w.name }}</strong>
+              <span style="color:#fbbf24; font-family:monospace; font-weight:bold;">{{ w.wifi_voucher_code }}</span>
+            </div>
+            <div style="color:#94a3b8; font-size:0.7rem;">📞 {{ w.contact }}</div>
+            
+            <!-- Quick Edit Wi-Fi Minutes Form -->
+            <form action="/pos/update-wifi-minutes/{{ w.id }}" method="POST" style="display:flex; align-items:center; gap:4px; margin-top:4px;">
+              <span style="font-size:0.7rem; color:#38bdf8;">Time left:</span>
+              <input type="number" name="wifi_minutes" value="{{ w.wifi_minutes_left if w.wifi_minutes_left is not none else 10 }}" min="0" max="180" style="width:48px; padding:2px 4px; border:1px solid #475569; background:#0f172a; color:#fff; border-radius:4px; font-size:0.75rem; text-align:center;">
+              <span style="font-size:0.7rem; color:#94a3b8;">mins</span>
+              <button type="submit" style="background:#0284c7; color:white; border:none; padding:2px 6px; border-radius:4px; font-size:0.68rem; font-weight:bold; cursor:pointer;">Set</button>
+            </form>
           </div>
           {% endfor %}
           {% if not today_wifi_claims %}
-            <div style="font-size:0.72rem; color:#64748b; text-align:center; padding:6px 0;">No Wi-Fi vouchers claimed today.</div>
+            <div style="font-size:0.72rem; color:#64748b; text-align:center; padding:10px 0;">No Wi-Fi vouchers claimed today.</div>
           {% endif %}
         </div>
       </div>

@@ -63,6 +63,7 @@ class Customer(db.Model):
     card_expires_at = db.Column(db.Date, nullable=True)
     last_wifi_claim = db.Column(db.Date, nullable=True)
     wifi_voucher_code = db.Column(db.String(20), nullable=True)
+    wifi_minutes_left = db.Column(db.Integer, default=10)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class DeliveryZone(db.Model):
@@ -203,7 +204,6 @@ def get_store_settings():
 
 def check_operating_status():
     s = get_store_settings()
-    # Server/PH local time conversion (UTC+8)
     now_utc = datetime.utcnow()
     now_ph = (now_utc + timedelta(hours=8)).time()
 
@@ -554,6 +554,20 @@ def cashier_terminal():
                            pending_orders=pending_orders, ready_orders=ready_orders, 
                            out_for_delivery=out_for_delivery, riders=riders, 
                            today_wifi_claims=today_wifi_claims)
+
+@app.route('/pos/update-wifi-minutes/<int:cust_id>', methods=['POST'])
+@require_cashier
+def cashier_update_wifi_minutes(cust_id):
+    cust = Customer.query.get_or_404(cust_id)
+    mins = request.form.get('wifi_minutes')
+    if mins is not None:
+        try:
+            cust.wifi_minutes_left = max(0, int(mins))
+            db.session.commit()
+            flash(f"Updated Wi-Fi time for {cust.name} to {cust.wifi_minutes_left} mins.", "success")
+        except ValueError:
+            flash("Invalid minutes entered.", "error")
+    return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/verify/<int:order_id>', methods=['POST'])
 @require_cashier
@@ -990,6 +1004,7 @@ def claim_daily_wifi():
         voucher = "MFH-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         cust.last_wifi_claim = date.today()
         cust.wifi_voucher_code = voucher
+        cust.wifi_minutes_left = 10
         db.session.commit()
         flash(f"Claimed 10-Mins Free Wi-Fi! Passcode: {voucher}", "success")
     return redirect(url_for('customer_dashboard'))
