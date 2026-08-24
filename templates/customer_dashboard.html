@@ -17,6 +17,7 @@
 
     .order-box { border: 1px solid var(--hk-border); border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #fffafc; }
     .status-badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 900; }
+    .wifi-notice { background: #eff6ff; border: 1.5px dashed #60a5fa; color: #1e40af; padding: 8px 10px; border-radius: 8px; font-size: 0.76rem; margin-top: 8px; line-height: 1.35; text-align: center; }
   </style>
 </head>
 <body>
@@ -46,6 +47,11 @@
         <button type="submit" class="btn">⚡ Claim Today's 10-Min Free Wi-Fi Voucher</button>
       </form>
     {% endif %}
+
+    <div class="wifi-notice">
+      📍 <strong>In-Store Verification Required:</strong><br>
+      To claim and activate your free Wi-Fi voucher, you must be present at Macleen's Food House and scan the <strong>Official Wi-Fi QR Code</strong> displayed at the cashier counter.
+    </div>
   </div>
 
   <!-- Live Order Tracking -->
@@ -94,7 +100,7 @@
     function playWifiClaimSound() {
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+        const notes = [523.25, 659.25, 783.99, 1046.50];
         notes.forEach((freq, idx) => {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
