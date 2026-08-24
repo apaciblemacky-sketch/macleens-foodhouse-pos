@@ -3,130 +3,151 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Customer Dashboard — Macleen's</title>
+  <title>Customer Dashboard — Macleen's Food House</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#ff69b4">
   <style>
-    :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-border: #fbcfe8; }
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-border: #fbcfe8; --hk-bg: #fff0f5; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: #fff0f5; color: #1e293b; padding: 1rem; }
+    body { background: var(--hk-bg); color: #1e293b; padding: 1rem; display: flex; justify-content: center; }
+    .dashboard-container { max-width: 480px; width: 100%; }
 
-    .card { background: white; border-radius: 12px; border: 1px solid var(--hk-border); padding: 1.2rem; margin-bottom: 1rem; max-width: 600px; margin-left: auto; margin-right: auto; }
-    .btn { background: var(--hk-pink); color: white; border: none; padding: 10px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%; text-decoration: none; display: inline-block; text-align: center; }
-    .btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .card { background: white; border-radius: 16px; border: 1.5px solid var(--hk-border); padding: 1.2rem; margin-bottom: 1rem; box-shadow: 0 4px 12px rgba(251, 207, 232, 0.4); }
+    .profile-header { display: flex; flex-direction: column; align-items: center; text-align: center; }
+    .profile-img { width: 90px; height: 90px; border-radius: 50%; border: 3px solid var(--hk-pink); object-fit: cover; margin-bottom: 8px; }
+    .member-name { font-size: 1.25rem; font-weight: 900; color: var(--hk-dark); }
+    .member-card-id { font-size: 0.8rem; color: #64748b; font-weight: bold; margin-bottom: 10px; }
 
-    .order-box { border: 1px solid var(--hk-border); border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #fffafc; }
-    .status-badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.72rem; font-weight: 900; }
-    .wifi-notice { background: #eff6ff; border: 1.5px dashed #60a5fa; color: #1e40af; padding: 8px 10px; border-radius: 8px; font-size: 0.76rem; margin-top: 8px; line-height: 1.35; text-align: center; }
+    .points-card { background: #fff5f7; border: 1.5px solid #fecdd3; border-radius: 12px; padding: 1rem; text-align: center; margin-top: 6px; }
+    .points-val { font-size: 2rem; font-weight: 900; color: var(--hk-pink); }
+    .points-sub { font-size: 0.75rem; color: #64748b; }
+
+    /* Promo Banner */
+    .promo-box {
+      background: linear-gradient(135deg, #fff1f2, #ffe4e6);
+      border: 2px dashed #f43f5e;
+      border-radius: 14px;
+      padding: 1.1rem;
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+    .promo-badge {
+      display: inline-block;
+      background: #e11d48;
+      color: white;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 0.7rem;
+      font-weight: 900;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+    .promo-title {
+      color: #9f1239;
+      font-size: 1.2rem;
+      font-weight: 900;
+      line-height: 1.2;
+      margin-bottom: 4px;
+    }
+    .promo-desc {
+      font-size: 0.78rem;
+      color: #475569;
+      margin-bottom: 10px;
+      line-height: 1.35;
+    }
+
+    .btn { display: block; width: 100%; padding: 10px; border-radius: 8px; font-weight: bold; border: none; cursor: pointer; text-align: center; text-decoration: none; font-size: 0.85rem; }
+    .btn-pink { background: var(--hk-pink); color: white; }
+    .btn-red { background: #e11d48; color: white; box-shadow: 0 4px 10px rgba(225, 29, 72, 0.25); }
+    .btn-outline { background: transparent; border: 1.5px solid #cbd5e1; color: #64748b; margin-top: 6px; }
+    
+    .form-control { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.82rem; margin-bottom: 8px; }
   </style>
 </head>
 <body>
 
-  <div class="card" style="text-align:center;">
-    <div style="margin-bottom:10px;">
-      {% if cust.profile_image and cust.profile_image.strip() %}
-        <img src="{{ cust.profile_image }}" referrerpolicy="no-referrer" loading="eager" onerror="this.onerror=null; this.src='https://api.dicebear.com/7.x/identicon/svg?seed={{ cust.name }}';" style="width:90px; height:90px; border-radius:50%; object-fit:cover; border:3px solid var(--hk-pink); box-shadow:0 3px 8px rgba(0,0,0,0.1);">
-      {% else %}
-        <div style="width:90px; height:90px; border-radius:50%; background:#fce7f3; display:inline-flex; justify-content:center; align-items:center; font-size:2.5rem; border:3px solid var(--hk-pink); margin:0 auto;">🎀</div>
-      {% endif %}
-    </div>
-
-    <h2 style="color:var(--hk-dark);">{{ cust.name }}</h2>
-    <div style="font-size:0.85rem; color:#64748b;">Member Card: <strong>{{ cust.card_number or 'MFH-0001' }}</strong></div>
-
-    <div style="background:#fdf2f8; padding:12px; border-radius:10px; border:1px solid #fce7f3; margin:16px 0;">
-      <div style="font-size:0.75rem; color:#64748b; font-weight:bold;">REWARD POINTS</div>
-      <div style="font-size:1.6rem; font-weight:900; color:var(--hk-pink);">{{ (cust.points_balance or 0.0)|int }}</div>
-      <div style="font-size:0.75rem; color:#94a3b8;">Earn 1 Point for every ₱30 spend on purchases</div>
-    </div>
-
-    {% if cust.last_wifi_claim == today %}
-      <button class="btn" disabled>✓ Today's Free Wi-Fi Claimed (Code: {{ cust.wifi_voucher_code }})</button>
-    {% else %}
-      <form action="/portal/claim-wifi" method="POST">
-        <button type="submit" class="btn">⚡ Claim Today's 10-Min Free Wi-Fi Voucher</button>
-      </form>
-    {% endif %}
-
-    <div class="wifi-notice">
-      📍 <strong>In-Store Verification Required:</strong><br>
-      To claim and activate your free Wi-Fi voucher, you must be present at Macleen's Food House and scan the <strong>Official Wi-Fi QR Code</strong> displayed at the cashier counter.
-    </div>
-  </div>
-
-  <!-- Live Order Tracking -->
-  <div class="card">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-      <h3 style="color:var(--hk-dark); font-size:1rem;">📦 Order Live Monitoring</h3>
-      <a href="/" style="font-size:0.8rem; color:var(--hk-pink); text-decoration:none; font-weight:bold;">+ Order More</a>
-    </div>
+  <div class="dashboard-container">
     
-    {% for o in orders %}
-    <div class="order-box">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-        <strong>Order #{{ o.id }} ({{ o.order_type }})</strong>
-        <span class="status-badge" style="background:#fce7f3; color:var(--hk-dark);">{{ o.status }}</span>
-      </div>
-      <div style="font-size:0.8rem; color:#64748b; margin-bottom:6px;">
-        Total: <strong>₱{{ "{:,.2f}".format(o.total_amount) }}</strong> | {{ o.created_at.strftime('%b %d, %I:%M %p') if o.created_at else '' }}
+    <!-- Profile & Loyalty Points Card -->
+    <div class="card profile-header">
+      {% if cust.profile_image %}
+        <img src="{{ cust.profile_image }}" class="profile-img">
+      {% else %}
+        <div class="profile-img" style="background: #ffe4e6; display: flex; justify-content: center; align-items: center; font-size: 2.2rem;">🎀</div>
+      {% endif %}
+
+      <div class="member-name">{{ cust.name }}</div>
+      <div class="member-card-id">Member Card: <strong>{{ cust.card_number or 'MFH-0000' }}</strong></div>
+
+      <div class="points-card" style="width: 100%;">
+        <div style="font-size: 0.75rem; font-weight: bold; color: var(--hk-dark); text-transform: uppercase;">REWARD POINTS</div>
+        <div class="points-val">{{ (cust.points_balance or 0.0)|int }}</div>
+        <div class="points-sub">Earn 1 Point for every ₱30 spend on purchases</div>
       </div>
 
-      {% if o.status == 'OUT_FOR_DELIVERY' and not o.customer_delivered %}
-        <form action="/portal/confirm-received/{{ o.id }}" method="POST" style="margin-top:6px;">
-          <button type="submit" class="btn" style="background:#16a34a; padding:6px; font-size:0.8rem;">✓ I Have Received My Order</button>
-        </form>
-      {% elif o.status == 'COMPLETED' %}
-        <div style="font-size:0.75rem; color:#16a34a; font-weight:bold;">✓ Order Completed & Confirmed</div>
+      <!-- Free Wi-Fi Claim Status -->
+      <div style="width: 100%; margin-top: 10px;">
+        {% if cust.last_wifi_claim == today %}
+          <div style="background: #e0f2fe; color: #0369a1; padding: 8px; border-radius: 8px; font-size: 0.78rem; font-weight: bold;">
+            ✓ Today's Free Wi-Fi Claimed (Code: {{ cust.wifi_voucher_code }})
+          </div>
+        {% else %}
+          <form action="/portal/claim-wifi" method="POST">
+            <button type="submit" class="btn btn-pink" style="background: #3b82f6;">📶 Claim Daily 10-Min Free Wi-Fi</button>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- 🔥 EXCLUSIVE MEMBER PROMO BANNER 🔥 -->
+    <div class="promo-box">
+      <span class="promo-badge">👑 Exclusive Member Perk</span>
+      <h2 class="promo-title">🍔 1 Regular Burger + 🍟 Fries for only ₱50!</h2>
+      <p class="promo-desc">
+        Show your digital card (<strong>{{ cust.card_number }}</strong>) at our cashier counter or tap below to order directly.
+      </p>
+      <a href="/" class="btn btn-red">
+        ⚡ Order & Reserve Now
+      </a>
+    </div>
+
+    <!-- Order Live Monitoring -->
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h3 style="color: var(--hk-dark); font-size: 0.95rem;">📦 Order Live Monitoring</h3>
+        <a href="/" style="font-size: 0.75rem; color: var(--hk-pink); font-weight: bold; text-decoration: none;">+ Order More</a>
+      </div>
+
+      {% if orders %}
+        <div style="max-height: 200px; overflow-y: auto;">
+          {% for o in orders %}
+          <div style="border-bottom: 1px dashed #fce7f3; padding: 6px 0; font-size: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; font-weight: bold;">
+              <span>#{{ o.id }} ({{ o.order_type }})</span>
+              <span style="color: var(--hk-pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</span>
+            </div>
+            <div style="color: #64748b;">Status: <strong>{{ o.status }}</strong></div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p style="color: #94a3b8; font-size: 0.78rem; text-align: center; padding: 15px 0;">No active or past orders found.</p>
       {% endif %}
     </div>
-    {% endfor %}
-    {% if not orders %}
-      <p style="text-align:center; color:#94a3b8; padding:15px;">No active or past orders found.</p>
-    {% endif %}
+
+    <!-- Profile & Photo Settings -->
+    <div class="card">
+      <h3 style="color: var(--hk-dark); font-size: 0.95rem; margin-bottom: 8px;">⚙️ Profile & Photo Settings</h3>
+      <form action="/portal/update-profile-pic" method="POST">
+        <label style="font-size: 0.75rem; font-weight: bold; color: #475569;">Direct Image URL</label>
+        <input type="url" name="profile_image" class="form-control" placeholder="https://..." value="{{ cust.profile_image or '' }}">
+        <button type="submit" class="btn btn-pink">Save Photo URL</button>
+      </form>
+      <a href="/staff/logout" class="btn btn-outline">Log Out Account</a>
+    </div>
+
   </div>
 
-  <!-- Settings -->
-  <div class="card">
-    <h3 style="color:var(--hk-dark); font-size:0.95rem; margin-bottom:10px;">⚙️ Profile & Photo Settings</h3>
-    <form action="/portal/update-profile-pic" method="POST" style="margin-bottom:12px;">
-      <label style="font-size:0.8rem; font-weight:bold;">Direct Image URL</label>
-      <input type="url" name="profile_image" placeholder="https://..." required style="width:100%; padding:8px; border:1px solid #cbd5e1; border-radius:6px; margin:4px 0 8px;">
-      <button type="submit" class="btn" style="padding:8px;">Save Photo URL</button>
-    </form>
-    <a href="/staff/logout" style="display:block; text-align:center; font-size:0.8rem; color:#ef4444; margin-top:8px; text-decoration:none;">Log Out Account</a>
-  </div>
-
-  <script>
-    function playWifiClaimSound() {
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const notes = [523.25, 659.25, 783.99, 1046.50];
-        notes.forEach((freq, idx) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.value = freq;
-          gain.gain.setValueAtTime(0.2, ctx.currentTime + (idx * 0.08));
-          gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + (idx * 0.08) + 0.15);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(ctx.currentTime + (idx * 0.08));
-          osc.stop(ctx.currentTime + (idx * 0.08) + 0.15);
-        });
-      } catch(e) {}
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-      {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          {% for category, message in messages %}
-            {% if 'Wi-Fi' in message or 'voucher' in message.lower() %}
-              playWifiClaimSound();
-            {% endif %}
-          {% endfor %}
-        {% endif %}
-      {% endwith %}
-    });
-  </script>
 </body>
 </html>
