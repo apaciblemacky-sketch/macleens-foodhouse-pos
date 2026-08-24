@@ -70,9 +70,9 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <div>
         <h3 style="color:#831843; font-size:1.05rem;">📊 Active Promotion Performance & Revenue Metrics</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Track landing views, claimed sales, and net revenue generated per campaign.</p>
+        <p style="font-size:0.75rem; color:#64748b;">Manage 3-day campaigns, view conversions, and bring back archived deals anytime.</p>
       </div>
-      <a href="/promo/burger-deal" target="_blank" style="background:#ec4899; color:white; padding:4px 10px; border-radius:6px; font-weight:bold; font-size:0.75rem; text-decoration:none;">🔗 Test Promo Page</a>
+      <a href="/promo/burger-deal" target="_blank" style="background:#ec4899; color:white; padding:4px 10px; border-radius:6px; font-weight:bold; font-size:0.75rem; text-decoration:none;">🔗 View Landing Page</a>
     </div>
 
     <div style="overflow-x: auto;">
@@ -80,22 +80,29 @@
         <thead>
           <tr>
             <th>Campaign / Offer</th>
+            <th>Status</th>
             <th>Offer Price</th>
-            <th style="text-align:center;">👀 Page Views</th>
-            <th style="text-align:center;">🛍️ Total Claims</th>
+            <th style="text-align:center;">👀 Views</th>
+            <th style="text-align:center;">🛍️ Reserved Claims</th>
             <th style="text-align:center;">📈 Conversion Rate</th>
-            <th>💵 Actual Revenue Made</th>
-            <th>💰 Estimated Gross Profit</th>
+            <th>💵 Revenue Made</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
           {% for pr in promotions %}
           {% set conv = ((pr.claims_count / pr.page_views * 100) if pr.page_views > 0 else 0)|round(1) %}
-          {% set profit = ((pr.promo_price - pr.promo_cost) * pr.claims_count) %}
           <tr>
             <td>
               <strong>{{ pr.title }}</strong><br>
               <span style="font-size:0.7rem; color:#64748b; font-family:monospace;">CODE: {{ pr.promo_code }}</span>
+            </td>
+            <td>
+              {% if pr.is_active %}
+                <span class="badge" style="background:#dcfce7; color:#15803d;">ACTIVE (3-Day Deal)</span>
+              {% else %}
+                <span class="badge" style="background:#fee2e2; color:#991b1b;">ARCHIVED</span>
+              {% endif %}
             </td>
             <td style="font-weight:bold; color:#be123c;">₱{{ "{:,.2f}".format(pr.promo_price) }}</td>
             <td style="text-align:center; font-weight:bold; color:#0284c7;">{{ pr.page_views }}</td>
@@ -108,8 +115,14 @@
             <td style="font-weight:900; color:#16a34a; font-size:0.95rem;">
               ₱{{ "{:,.2f}".format(pr.total_revenue) }}
             </td>
-            <td style="font-weight:bold; color:#0284c7;">
-              ₱{{ "{:,.2f}".format(profit) }}
+            <td>
+              <form action="/admin/toggle-promo/{{ pr.id }}" method="POST">
+                {% if pr.is_active %}
+                  <button type="submit" class="btn" style="background:#f59e0b; color:white; padding:3px 8px; font-size:0.7rem;">📦 Archive</button>
+                {% else %}
+                  <button type="submit" class="btn" style="background:#16a34a; color:white; padding:3px 8px; font-size:0.7rem;">🚀 Bring Back (3 Days)</button>
+                {% endif %}
+              </form>
             </td>
           </tr>
           {% endfor %}

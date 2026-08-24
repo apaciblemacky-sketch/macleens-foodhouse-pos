@@ -100,17 +100,21 @@
       </div>
     </div>
 
-    <!-- 🔥 EXCLUSIVE MEMBER PROMO BANNER 🔥 -->
+    <!-- 🔥 3-DAY EXCLUSIVE MEMBER PROMO BANNER 🔥 -->
+    {% if promo and promo.is_active %}
     <div class="promo-box">
-      <span class="promo-badge">👑 Exclusive Member Perk</span>
+      <span class="promo-badge">👑 3-Day Limited Member Perk</span>
       <h2 class="promo-title">🍔 1 Regular Burger + 🍟 Fries for only ₱50!</h2>
       <p class="promo-desc">
-        Show your digital card (<strong>{{ cust.card_number }}</strong>) at our cashier counter or tap below to order directly.
+        Temporary 3-day deal. Tap below to reserve instantly and pay <strong>₱50.00</strong> at the counter upon claiming!
       </p>
-      <a href="/" class="btn btn-red">
-        ⚡ Order & Reserve Now
-      </a>
+      <form action="/portal/reserve-promo" method="POST" onsubmit="return confirm('Reserve 1 Regular Burger + Fries for ₱50.00?\n\nYour order slip will be queued at the cashier counter for pickup!');">
+        <button type="submit" class="btn btn-red" style="font-size:0.95rem; letter-spacing:0.5px;">
+          ⚡ Reserve Deal Now (Pay at Counter)
+        </button>
+      </form>
     </div>
+    {% endif %}
 
     <!-- Order Live Monitoring -->
     <div class="card">

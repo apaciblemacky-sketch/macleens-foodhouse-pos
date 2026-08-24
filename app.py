@@ -1195,6 +1195,17 @@ def admin_reset_customer_pin(cust_id):
         flash(f"PIN for customer '{cust.name}' reset to {new_pin}.", "success")
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/toggle-promo/<int:promo_id>', methods=['POST'])
+@require_admin
+def admin_toggle_promo(promo_id):
+    promo = PromotionTracker.query.get_or_404(promo_id)
+    promo.is_active = not promo.is_active
+    if promo.is_active:
+        promo.created_at = datetime.utcnow()
+    db.session.commit()
+    flash(f"Campaign '{promo.title}' status updated to {'ACTIVE (3-Day Clock Reset)' if promo.is_active else 'ARCHIVED'}.", "success")
+    return redirect(url_for('admin_dashboard'))
+
 # ==================== CUSTOMER PORTAL ====================
 
 @app.route('/portal/login', methods=['GET', 'POST'])
@@ -1270,7 +1281,61 @@ def customer_dashboard():
         return redirect(url_for('customer_login'))
     
     my_orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).all()
-    return render_template('customer_dashboard.html', cust=cust, orders=my_orders, today=date.today())
+    promo = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
+    return render_template('customer_dashboard.html', cust=cust, orders=my_orders, promo=promo, today=date.today())
+
+@app.route('/portal/reserve-promo', methods=['POST'])
+def customer_reserve_promo():
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login'))
+    
+    ensure_default_promos()
+    cust = Customer.query.get_or_404(session['customer_id'])
+    promo = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
+
+    if promo:
+        days_active = (datetime.utcnow() - promo.created_at).days
+        if days_active > 3 or not promo.is_active:
+            promo.is_active = False
+            db.session.commit()
+            flash("This 3-day promotion campaign has ended and is now archived.", "info")
+            return redirect(url_for('customer_dashboard'))
+
+    order = Order(
+        order_type='PICKUP',
+        customer_id=cust.id,
+        customer_name=f"{cust.name} (Member Promo)",
+        contact_number=cust.contact,
+        pickup_time='Today / In-Store Claim',
+        target_time='In-Store Counter Claim',
+        subtotal=50.0,
+        delivery_fee=0.0,
+        total_amount=50.0,
+        payment_method='CASH',
+        payment_verified=False,
+        status='VERIFICATION',
+        notes='[3-DAY PROMO CLAIM] 1 Regular Burger + Crispy Fries (₱50 Deal)'
+    )
+    db.session.add(order)
+    db.session.flush()
+
+    db.session.add(OrderItem(
+        order_id=order.id,
+        product_id=None,
+        product_name='[PROMO 3-DAY] 1 Regular Burger + Fries',
+        unit_price=50.0,
+        cost_price=28.0,
+        quantity=1,
+        subtotal=50.0
+    ))
+
+    if promo:
+        promo.claims_count = (promo.claims_count or 0) + 1
+        promo.total_revenue = (promo.total_revenue or 0.0) + 50.0
+
+    db.session.commit()
+    flash(f"🎉 Deal reserved! Order #{order.id} sent to Cashier. Pay ₱50.00 at the counter upon claiming!", "success")
+    return redirect(url_for('customer_dashboard'))
 
 @app.route('/portal/update-profile-pic', methods=['POST'])
 def update_profile_pic():
