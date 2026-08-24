@@ -478,6 +478,65 @@ def api_storefront_checkout():
     db.session.commit()
     return jsonify({'success': True, 'order_id': order.id, 'total': total})
 
+# ==================== TABLET KIOSK ENDPOINTS ====================
+
+@app.route('/tablet')
+def tablet_kiosk():
+    categories = Category.query.all()
+    products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
+    return render_template('tablet.html', categories=categories, products=products)
+
+@app.route('/api/tablet-checkout', methods=['POST'])
+def api_tablet_checkout():
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    table_number = data.get('table_number', 'Table Kiosk').strip() or 'Table Kiosk'
+    customer_name = data.get('customer_name', 'Tablet Guest').strip() or 'Tablet Guest'
+    pay_method = data.get('payment_method', 'CASH').upper()
+    notes = data.get('notes', '').strip() or 'Tablet Self-Order'
+
+    if not items:
+        return jsonify({'success': False, 'message': 'Cart is empty.'}), 400
+
+    subtotal = 0.0
+    for it in items:
+        p = Product.query.get(it['product_id'])
+        if p:
+            subtotal += p.price * int(it['quantity'])
+
+    order = Order(
+        order_type='DINE-IN/TABLET',
+        customer_name=f"{customer_name} ({table_number})",
+        contact_number='Kiosk',
+        subtotal=subtotal,
+        delivery_fee=0.0,
+        total_amount=subtotal,
+        payment_method=pay_method,
+        payment_verified=False,
+        status='VERIFICATION',
+        notes=notes
+    )
+    db.session.add(order)
+    db.session.flush()
+
+    for it in items:
+        prod = Product.query.get(it['product_id'])
+        if prod:
+            db.session.add(OrderItem(
+                order_id=order.id,
+                product_id=prod.id,
+                product_name=prod.name,
+                unit_price=prod.price,
+                cost_price=prod.cost,
+                quantity=int(it['quantity']),
+                subtotal=prod.price * int(it['quantity'])
+            ))
+            if prod.stock >= int(it['quantity']):
+                prod.stock -= int(it['quantity'])
+
+    db.session.commit()
+    return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})
+
 # ==================== OPERATING HOURS & AUTH ENDPOINTS ====================
 
 @app.route('/admin/settings/hours', methods=['POST'])
@@ -621,6 +680,59 @@ def cashier_terminal():
                            today_expenses=today_expenses,
                            today_drops=today_drops,
                            next_drop_num=next_drop_num)
+
+@app.route('/pos/direct-sale', methods=['POST'])
+@require_cashier
+def cashier_direct_sale():
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    pay_method = data.get('payment_method', 'CASH').upper()
+    cust_name = data.get('customer_name', 'Counter Walk-in').strip() or 'Counter Walk-in'
+    notes = data.get('notes', 'Direct Register Sale').strip() or 'Direct Register Sale'
+    change_for = float(data.get('change_for') or 0.0)
+
+    if not items:
+        return jsonify({'success': False, 'message': 'No items selected.'}), 400
+
+    subtotal = 0.0
+    for it in items:
+        p = Product.query.get(it['product_id'])
+        if p:
+            subtotal += p.price * int(it['quantity'])
+
+    order = Order(
+        order_type='DINE-IN/WALKIN',
+        customer_name=cust_name,
+        contact_number='N/A',
+        subtotal=subtotal,
+        delivery_fee=0.0,
+        total_amount=subtotal,
+        payment_method=pay_method,
+        payment_verified=True,
+        change_for=change_for if change_for > 0 else None,
+        status='COMPLETED',
+        notes=notes
+    )
+    db.session.add(order)
+    db.session.flush()
+
+    for it in items:
+        prod = Product.query.get(it['product_id'])
+        if prod:
+            db.session.add(OrderItem(
+                order_id=order.id,
+                product_id=prod.id,
+                product_name=prod.name,
+                unit_price=prod.price,
+                cost_price=prod.cost,
+                quantity=int(it['quantity']),
+                subtotal=prod.price * int(it['quantity'])
+            ))
+            if prod.stock >= int(it['quantity']):
+                prod.stock -= int(it['quantity'])
+
+    db.session.commit()
+    return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})
 
 @app.route('/pos/create-collection', methods=['POST'])
 @require_cashier
@@ -934,14 +1046,6 @@ def rider_mark_delivered(order_id):
     db.session.commit()
     flash(f"Order #{order.id} confirmed by Rider. Awaiting customer confirmation.", "info")
     return redirect(url_for('rider_portal'))
-
-# ==================== TABLET KIOSK ====================
-
-@app.route('/tablet')
-def tablet_kiosk():
-    categories = Category.query.all()
-    products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
-    return render_template('tablet.html', categories=categories, products=products)
 
 # ==================== MASTER ADMIN & SETTINGS ====================
 

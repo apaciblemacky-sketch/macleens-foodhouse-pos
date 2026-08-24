@@ -28,7 +28,8 @@
     .cat-btn.active { background: var(--hk-pink); }
 
     .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(115px, 1fr)); gap: 8px; }
-    .dish-tile { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px; height: 85px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; }
+    .dish-tile { background: #1e293b; border: 1.5px solid #334155; border-radius: 8px; padding: 8px; height: 90px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; transition: all 0.1s; }
+    .dish-tile:hover { border-color: var(--hk-pink); background: #334155; transform: scale(1.02); }
 
     .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
@@ -58,7 +59,7 @@
   </header>
 
   <div class="pos-layout">
-    <!-- Verification Queue -->
+    <!-- Verification Queue (Includes Online & Tablet Orders) -->
     <div class="queue-panel">
       <h3 style="font-size:0.9rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
       {% for o in pending_orders %}
@@ -112,7 +113,7 @@
       {% endfor %}
     </div>
 
-    <!-- Center Menu -->
+    <!-- Center Menu: Direct On-Screen POS Tap-To-Order -->
     <div class="catalog-panel">
       <div class="cat-bar">
         <button class="cat-btn active" onclick="filterCat('ALL', this)">ALL</button>
@@ -123,8 +124,8 @@
 
       <div class="dish-grid">
         {% for p in products %}
-        <div class="dish-tile" data-cat="{{ p.category_name }}">
-          <div style="font-size:0.78rem; font-weight:bold;">{{ p.name }}</div>
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick="openDirectRegisterSale({{ p.id }}, '{{ p.name }}', {{ p.price }})">
+          <div style="font-size:0.78rem; font-weight:bold; line-height:1.2;">{{ p.name }}</div>
           <div style="font-size:0.9rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
         </div>
         {% endfor %}
@@ -140,7 +141,7 @@
           <span>📋 Unpaid / For Collection</span>
           <span style="background:#e11d48; color:white; padding:2px 8px; border-radius:12px; font-size:0.72rem; font-weight:900;">{{ unpaid_collections|length }}</span>
         </h3>
-        <div style="max-height:160px; overflow-y:auto;">
+        <div style="max-height:140px; overflow-y:auto;">
           {% for uc in unpaid_collections %}
           <div style="font-size:0.75rem; padding:6px 0; border-bottom:1px dashed #475569; color:#cbd5e1;">
             <div style="display:flex; justify-content:space-between; font-weight:bold;">
@@ -210,6 +211,38 @@
         </form>
       </div>
       {% endfor %}
+    </div>
+  </div>
+
+  <!-- DIRECT REGISTER SALE MODAL -->
+  <div id="directSaleModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#ec4899;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#f472b6; font-size:1rem;" id="directSaleTitle">⚡ Counter Register Sale</h3>
+        <button onclick="closeModal('directSaleModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <div>
+        <input type="hidden" id="directProdId">
+        <input type="hidden" id="directProdPrice">
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Quantity</label>
+        <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">
+          <input type="number" id="directQty" value="1" min="1" class="form-input" style="width:80px; text-align:center; margin-bottom:0;" oninput="updateDirectTotal()">
+          <span style="font-size:1.1rem; font-weight:900; color:var(--hk-pink);" id="directTotalDisplay">₱0.00</span>
+        </div>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Payment Method</label>
+        <select id="directPayMethod" class="form-input">
+          <option value="CASH">Cash</option>
+          <option value="GCASH">GCash</option>
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Cash Bill (For Change Calculation)</label>
+        <input type="number" id="directCashBill" class="form-input" placeholder="e.g. 100, 500" oninput="updateDirectTotal()">
+        <div id="directChangeDue" style="font-size:0.75rem; color:#34d399; font-weight:bold; margin-bottom:10px;"></div>
+
+        <button type="button" onclick="submitDirectSale()" style="background:#ec4899; color:white; border:none; padding:10px; border-radius:6px; width:100%; font-weight:bold; font-size:0.85rem; cursor:pointer;">COMPLETE & RECORD SALE</button>
+      </div>
     </div>
   </div>
 
@@ -424,6 +457,65 @@
       document.querySelectorAll('.dish-tile').forEach(d => {
         d.style.display = (cat === 'ALL' || d.dataset.cat === cat) ? 'flex' : 'none';
       });
+    }
+
+    /* Direct Counter POS Register Sale Handlers */
+    function openDirectRegisterSale(id, name, price) {
+      document.getElementById('directProdId').value = id;
+      document.getElementById('directProdPrice').value = price;
+      document.getElementById('directSaleTitle').innerText = `⚡ ${name}`;
+      document.getElementById('directQty').value = 1;
+      document.getElementById('directCashBill').value = '';
+      updateDirectTotal();
+      openModal('directSaleModal');
+    }
+
+    function updateDirectTotal() {
+      const price = parseFloat(document.getElementById('directProdPrice').value) || 0;
+      const qty = parseInt(document.getElementById('directQty').value) || 1;
+      const total = price * qty;
+      document.getElementById('directTotalDisplay').innerText = `₱${total.toFixed(2)}`;
+
+      const bill = parseFloat(document.getElementById('directCashBill').value) || 0;
+      const changeEl = document.getElementById('directChangeDue');
+      if (bill > total) {
+        changeEl.innerText = `💵 Change: ₱${(bill - total).toFixed(2)}`;
+      } else {
+        changeEl.innerText = '';
+      }
+    }
+
+    async function submitDirectSale() {
+      const prodId = parseInt(document.getElementById('directProdId').value);
+      const qty = parseInt(document.getElementById('directQty').value) || 1;
+      const pay = document.getElementById('directPayMethod').value;
+      const bill = parseFloat(document.getElementById('directCashBill').value) || 0;
+
+      const payload = {
+        items: [{ product_id: prodId, quantity: qty }],
+        payment_method: pay,
+        change_for: bill,
+        customer_name: 'Counter Walk-in',
+        notes: 'Direct Cashier Screen Sale'
+      };
+
+      try {
+        const res = await fetch('/pos/direct-sale', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          alert(`🎉 Sale #${data.order_id} recorded! (₱${data.total.toFixed(2)})`);
+          closeModal('directSaleModal');
+          window.location.reload();
+        } else {
+          alert(data.message || "Failed to record sale.");
+        }
+      } catch(e) {
+        alert("Server error processing register sale.");
+      }
     }
 
     let lastPendingCount = {{ pending_orders|length }};
