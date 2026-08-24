@@ -27,7 +27,6 @@
     .container { max-width: 1100px; margin: 0 auto; padding: 12px; }
     .section-title { font-size: 1rem; font-weight: 900; color: var(--hk-dark); margin: 16px 0 10px; display: flex; justify-content: space-between; align-items: center; }
 
-    /* Scroll Lever Controls Header */
     .carousel-header-controls { display: flex; align-items: center; gap: 6px; }
     .scroll-btn { 
       background: white; 
@@ -47,7 +46,6 @@
     }
     .scroll-btn:hover { background: var(--hk-pink); color: white; transform: scale(1.05); }
 
-    /* Single-Row Horizontal Carousel with Visible Styled Scroll Lever */
     .carousel-track { 
       display: flex; 
       gap: 10px; 
@@ -56,7 +54,6 @@
       scroll-behavior: smooth;
       -webkit-overflow-scrolling: touch; 
     }
-    /* Visible Pink Scrollbar on PC */
     .carousel-track::-webkit-scrollbar { height: 8px; }
     .carousel-track::-webkit-scrollbar-track { background: #fce7f3; border-radius: 10px; }
     .carousel-track::-webkit-scrollbar-thumb { background: #ec4899; border-radius: 10px; }
@@ -119,7 +116,7 @@
 
   <div class="container">
     
-    <!-- TOP CAROUSEL: Featured Specials with Scroll Lever Buttons -->
+    <!-- TOP CAROUSEL: Featured Specials -->
     {% if featured %}
     <div class="section-title">
       <span>✨ Chef's Featured Specials</span>
@@ -144,7 +141,7 @@
     </div>
     {% endif %}
 
-    <!-- TOP CAROUSEL: Best Sellers with Scroll Lever Buttons -->
+    <!-- TOP CAROUSEL: Best Sellers -->
     {% if top_sellers %}
     <div class="section-title">
       <span>🔥 Best Sellers</span>
@@ -258,19 +255,27 @@
 
         <div id="deliveryZoneBox" style="display:none; margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);">Delivery Barangay / Zone *</label>
-          <select id="deliveryZone" class="form-control" onchange="renderCart()">
+          <select id="deliveryZone" class="form-control" onchange="onZoneChanged()">
             {% for z in delivery_zones %}
-              <option value="{{ z.id }}" data-rate="{{ z.rate }}">{{ z.place_name }} ({{ z.barangay }}) — ₱{{ "{:,.2f}".format(z.rate) }} [{{ z.distance }}]</option>
+              <option value="{{ z.id }}" data-rate="{{ z.rate }}" data-brgy="{{ z.barangay }}" data-place="{{ z.place_name }}">{{ z.place_name }} ({{ z.barangay }}) — ₱{{ "{:,.2f}".format(z.rate) }} [{{ z.distance }}]</option>
             {% endfor %}
           </select>
+
+          <!-- Toggle Option to Hide Detailed Street Address/Landmark when Zone is chosen -->
+          <div style="margin-top:6px; display:flex; align-items:center; gap:6px;">
+            <input type="checkbox" id="hideDetailAddress" onchange="toggleDetailedAddress()" style="cursor:pointer;">
+            <label for="hideDetailAddress" style="font-size:0.75rem; color:#64748b; font-weight:bold; cursor:pointer;">Hide detailed Purok & Landmark (Use chosen Barangay Zone)</label>
+          </div>
         </div>
 
         <div id="deliveryFields" style="display:none; margin-bottom:10px;">
-          <label style="font-size:0.8rem; font-weight:bold;">Purok / Street Address *</label>
-          <input type="text" id="deliveryAddress" class="form-control" value="{{ cust.default_address if cust else '' }}" placeholder="Purok Mahogany">
-          
-          <label style="font-size:0.8rem; font-weight:bold; margin-top:6px; display:block;">Landmark * (Strictly Required)</label>
-          <input type="text" id="landmark" class="form-control" value="{{ cust.default_landmark if cust else '' }}" placeholder="Near Elementary School, Blue Gate">
+          <div id="detailedAddressInputs">
+            <label style="font-size:0.8rem; font-weight:bold;">Purok / Street Address</label>
+            <input type="text" id="deliveryAddress" class="form-control" value="{{ cust.default_address if cust else '' }}" placeholder="Purok Mahogany">
+            
+            <label style="font-size:0.8rem; font-weight:bold; margin-top:6px; display:block;">Landmark</label>
+            <input type="text" id="landmark" class="form-control" value="{{ cust.default_landmark if cust else '' }}" placeholder="Near Elementary School, Blue Gate">
+          </div>
         </div>
 
         <div style="margin-bottom:10px;">
@@ -322,7 +327,6 @@
       localStorage.setItem('mfh_cart', JSON.stringify(cart));
     }
 
-    /* Horizontal Carousel Slide Helper */
     function slideCarousel(trackId, offset) {
       const track = document.getElementById(trackId);
       if (track) {
@@ -369,6 +373,18 @@
       const p = document.getElementById('payMethod').value;
       document.getElementById('evalFields').style.display = (p === 'GCASH' || p === 'CREDIT') ? 'block' : 'none';
       document.getElementById('gcashFields').style.display = (p === 'GCASH') ? 'block' : 'none';
+    }
+
+    function toggleDetailedAddress() {
+      const hideCheck = document.getElementById('hideDetailAddress');
+      const details = document.getElementById('detailedAddressInputs');
+      if (details) {
+        details.style.display = (hideCheck && hideCheck.checked) ? 'none' : 'block';
+      }
+    }
+
+    function onZoneChanged() {
+      renderCart();
     }
 
     function renderCart() {
@@ -465,13 +481,25 @@
       const pay = document.getElementById('payMethod').value;
       const fb = document.getElementById('fbMessenger').value.trim();
       const gcash = document.getElementById('gcashRef').value.trim();
-      const landmark = document.getElementById('landmark').value.trim();
-      const deliveryAddress = document.getElementById('deliveryAddress').value.trim();
+      const hideCheck = document.getElementById('hideDetailAddress');
+      
+      let landmark = document.getElementById('landmark').value.trim();
+      let deliveryAddress = document.getElementById('deliveryAddress').value.trim();
+
+      if (orderType === 'DELIVERY') {
+        const zSelect = document.getElementById('deliveryZone');
+        const selectedZoneText = (zSelect && zSelect.selectedOptions[0]) ? zSelect.selectedOptions[0].text : 'Barangay Zone';
+        
+        if (hideCheck && hideCheck.checked) {
+          deliveryAddress = deliveryAddress || selectedZoneText;
+          landmark = landmark || 'Refer to Barangay Zone';
+        } else {
+          if (!deliveryAddress) deliveryAddress = selectedZoneText;
+          if (!landmark) landmark = 'Barangay Zone Drop';
+        }
+      }
 
       if (!targetTime || !notes) return alert("Please fill in target time and notes.");
-      if (orderType === 'DELIVERY' && (!landmark || !deliveryAddress)) {
-        return alert("Landmark and Delivery address are strictly required for delivery.");
-      }
       if ((pay === 'GCASH' || pay === 'CREDIT') && !fb) return alert("Facebook profile link required for evaluation.");
       if (pay === 'GCASH' && gcash.length < 6) return alert("Please input the 6-digit GCash Reference Number.");
 
