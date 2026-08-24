@@ -65,6 +65,59 @@
     </div>
   </div>
 
+  <!-- PROMOTION METRICS & REVENUE TRACKER -->
+  <div class="card" style="border: 2px solid #ec4899;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <div>
+        <h3 style="color:#831843; font-size:1.05rem;">📊 Active Promotion Performance & Revenue Metrics</h3>
+        <p style="font-size:0.75rem; color:#64748b;">Track landing views, claimed sales, and net revenue generated per campaign.</p>
+      </div>
+      <a href="/promo/burger-deal" target="_blank" style="background:#ec4899; color:white; padding:4px 10px; border-radius:6px; font-weight:bold; font-size:0.75rem; text-decoration:none;">🔗 Test Promo Page</a>
+    </div>
+
+    <div style="overflow-x: auto;">
+      <table>
+        <thead>
+          <tr>
+            <th>Campaign / Offer</th>
+            <th>Offer Price</th>
+            <th style="text-align:center;">👀 Page Views</th>
+            <th style="text-align:center;">🛍️ Total Claims</th>
+            <th style="text-align:center;">📈 Conversion Rate</th>
+            <th>💵 Actual Revenue Made</th>
+            <th>💰 Estimated Gross Profit</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for pr in promotions %}
+          {% set conv = ((pr.claims_count / pr.page_views * 100) if pr.page_views > 0 else 0)|round(1) %}
+          {% set profit = ((pr.promo_price - pr.promo_cost) * pr.claims_count) %}
+          <tr>
+            <td>
+              <strong>{{ pr.title }}</strong><br>
+              <span style="font-size:0.7rem; color:#64748b; font-family:monospace;">CODE: {{ pr.promo_code }}</span>
+            </td>
+            <td style="font-weight:bold; color:#be123c;">₱{{ "{:,.2f}".format(pr.promo_price) }}</td>
+            <td style="text-align:center; font-weight:bold; color:#0284c7;">{{ pr.page_views }}</td>
+            <td style="text-align:center; font-weight:900; color:#16a34a; font-size:0.95rem;">{{ pr.claims_count }}</td>
+            <td style="text-align:center;">
+              <span style="background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:10px; font-weight:bold; font-size:0.72rem;">
+                {{ conv }}%
+              </span>
+            </td>
+            <td style="font-weight:900; color:#16a34a; font-size:0.95rem;">
+              ₱{{ "{:,.2f}".format(pr.total_revenue) }}
+            </td>
+            <td style="font-weight:bold; color:#0284c7;">
+              ₱{{ "{:,.2f}".format(profit) }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- MASTER TRANSACTION AUDIT & REVERSAL CONTROL -->
   <div class="card" style="border: 2px solid #f43f5e;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -189,18 +242,15 @@
               </form>
             </td>
             <td style="display: flex; gap: 4px; flex-wrap: wrap;">
-              <!-- Reset PIN -->
               <form action="/admin/reset-customer-pin/{{ c.id }}" method="POST" style="display: flex; gap: 3px;">
                 <input type="text" name="new_pin" placeholder="PIN" minlength="4" style="width: 48px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.72rem;">
                 <button type="submit" class="btn btn-dark" style="padding: 3px 6px; font-size: 0.7rem;">Reset</button>
               </form>
 
-              <!-- Purge Dummy Test Orders -->
               <form action="/admin/purge-dummy-orders/{{ c.id }}" method="POST" onsubmit="return confirm('Clear test orders & reset points for {{ c.name }}?');">
                 <button type="submit" class="btn" style="background: #f59e0b; color: white; padding: 3px 6px; font-size: 0.7rem;" title="Purge Test Orders">🧹 Clear</button>
               </form>
 
-              <!-- Delete Account -->
               <form action="/admin/delete-customer/{{ c.id }}" method="POST" onsubmit="return confirm('Permanently remove {{ c.name }} and all associated data?');">
                 <button type="submit" class="btn" style="background: #ef4444; color: white; padding: 3px 6px; font-size: 0.7rem;" title="Delete Account">🗑️ Delete</button>
               </form>

@@ -59,6 +59,7 @@
     </div>
     
     <div style="display:flex; gap:6px; align-items:center;">
+      <button onclick="openModal('promoClaimModal')" style="background:#e11d48; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🍔 + Promo Deal (₱50)</button>
       <button onclick="openModal('collectionModal')" style="background:#f43f5e; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📋 + For Collection</button>
       <button onclick="openModal('miscModal')" style="background:#8b5cf6; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🖨️ Misc / Printing</button>
       <button onclick="openModal('expenseModal')" style="background:#f59e0b; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💸 Expense</button>
@@ -253,7 +254,36 @@
     </div>
   </div>
 
-  <!-- 1. MISCELLANEOUS SERVICE MODAL -->
+  <!-- 1. PROMO DEAL CLAIM MODAL -->
+  <div id="promoClaimModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#e11d48;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#f43f5e; font-size:1rem;">🍔 Claim ₱50 Burger + Fries Promo Deal</h3>
+        <button onclick="closeModal('promoClaimModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/claim-promo" method="POST">
+        <input type="hidden" name="promo_code" value="BURGER_FRIES_50">
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Select Member (To credit loyalty points)</label>
+        <select name="registered_customer_id" class="form-input" required>
+          <option value="">-- Choose Registered Member --</option>
+          {% for c in customers_list %}
+            <option value="{{ c.id }}">{{ c.name }} ({{ c.contact }}) - Card: {{ c.card_number }}</option>
+          {% endfor %}
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Payment Method</label>
+        <select name="payment_method" class="form-input">
+          <option value="CASH">Cash (₱50.00)</option>
+          <option value="GCASH">GCash (₱50.00)</option>
+        </select>
+
+        <button type="submit" style="background:#e11d48; color:white; border:none; padding:9px; border-radius:6px; width:100%; font-weight:900; cursor:pointer; margin-top:6px;">RECORD PROMO SALE (₱50.00)</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. MISCELLANEOUS SERVICE MODAL -->
   <div id="miscModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#8b5cf6;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -298,7 +328,7 @@
     </div>
   </div>
 
-  <!-- 2. FOR COLLECTION MODAL -->
+  <!-- 3. FOR COLLECTION MODAL -->
   <div id="collectionModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f43f5e;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -342,7 +372,7 @@
     </div>
   </div>
 
-  <!-- 3. EXPENSES MODAL -->
+  <!-- 4. EXPENSES MODAL -->
   <div id="expenseModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f59e0b;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -374,7 +404,7 @@
     </div>
   </div>
 
-  <!-- 4. SAFE VAULT DROPS MODAL -->
+  <!-- 5. SAFE VAULT DROPS MODAL -->
   <div id="vaultModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#10b981;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -402,7 +432,7 @@
     </div>
   </div>
 
-  <!-- 5. SETTINGS & STAFF PASSWORD MODAL -->
+  <!-- 6. SETTINGS & STAFF PASSWORD MODAL -->
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -556,9 +586,8 @@
       const payMethod = document.getElementById('posPayMethod').value;
       const bill = parseFloat(document.getElementById('posCashBill').value) || 0;
 
-      if (custType === 'REGISTERED' && !regCustId) {
+      if (custType === 'REGISTERED' and not regCustId):
         return alert("Please choose a registered member to credit points.");
-      }
 
       const payload = {
         items: keys.map(id => ({ product_id: parseInt(id), quantity: posCart[id].qty })),

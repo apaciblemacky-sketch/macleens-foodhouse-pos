@@ -184,6 +184,19 @@ class SiteVisitor(db.Model):
     visit_count = db.Column(db.Integer, default=1)
     visited_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+class PromotionTracker(db.Model):
+    __tablename__ = 'promotion_tracker'
+    id = db.Column(db.Integer, primary_key=True)
+    promo_code = db.Column(db.String(50), unique=True, nullable=False)
+    title = db.Column(db.String(120), nullable=False)
+    promo_price = db.Column(db.Float, nullable=False)
+    promo_cost = db.Column(db.Float, default=0.0)
+    page_views = db.Column(db.Integer, default=0)
+    claims_count = db.Column(db.Integer, default=0)
+    total_revenue = db.Column(db.Float, default=0.0)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 # ==================== PWA ROOT ROUTES ====================
 
 @app.route('/manifest.json')
@@ -242,6 +255,20 @@ def check_operating_status():
         'settings': s,
         'current_time': now_ph.strftime('%I:%M %p')
     }
+
+def ensure_default_promos():
+    deal = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
+    if not deal:
+        db.session.add(PromotionTracker(
+            promo_code='BURGER_FRIES_50',
+            title='1 Regular Burger + Crispy Fries',
+            promo_price=50.0,
+            promo_cost=28.0,
+            page_views=0,
+            claims_count=0,
+            total_revenue=0.0
+        ))
+        db.session.commit()
 
 @app.context_processor
 def inject_globals():
@@ -322,6 +349,11 @@ def store_catalog():
 
 @app.route('/promo/burger-deal')
 def promo_burger_deal():
+    ensure_default_promos()
+    promo = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
+    if promo:
+        promo.page_views = (promo.page_views or 0) + 1
+        db.session.commit()
     return render_template('promo_burger_deal.html')
 
 @app.route('/product/<int:product_id>')
@@ -633,6 +665,73 @@ def cashier_direct_sale():
         'points_earned': points_earned
     })
 
+@app.route('/pos/claim-promo', methods=['POST'])
+@require_cashier
+def cashier_claim_promo():
+    ensure_default_promos()
+    promo_code = request.form.get('promo_code', 'BURGER_FRIES_50')
+    reg_id = request.form.get('registered_customer_id')
+    pay_method = request.form.get('payment_method', 'CASH').upper()
+    
+    promo = PromotionTracker.query.filter_by(promo_code=promo_code).first()
+    if not promo:
+        flash("Promotion deal not found.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    cust_id = None
+    cust_name = 'Walk-in Member'
+    contact = 'N/A'
+    points_earned = 0
+
+    if reg_id:
+        cust = Customer.query.get(reg_id)
+        if cust:
+            cust_id = cust.id
+            cust_name = cust.name
+            contact = cust.contact
+            cust.accumulated_spend = (cust.accumulated_spend or 0.0) + promo.promo_price
+            points_earned = int(promo.promo_price // 30)
+            if points_earned > 0:
+                cust.points_balance = (cust.points_balance or 0.0) + points_earned
+                db.session.add(RewardLedger(
+                    customer_id=cust.id,
+                    points_change=points_earned,
+                    reason=f"Promo Deal: {promo.title} (₱{promo.promo_price:,.2f})"
+                ))
+
+    order = Order(
+        order_type='PROMO_DEAL',
+        customer_id=cust_id,
+        customer_name=cust_name,
+        contact_number=contact,
+        subtotal=promo.promo_price,
+        delivery_fee=0.0,
+        total_amount=promo.promo_price,
+        payment_method=pay_method,
+        payment_verified=True,
+        status='COMPLETED',
+        notes=f"[PROMO:{promo.promo_code}] {promo.title}"
+    )
+    db.session.add(order)
+    db.session.flush()
+
+    db.session.add(OrderItem(
+        order_id=order.id,
+        product_id=None,
+        product_name=f"[PROMO] {promo.title}",
+        unit_price=promo.promo_price,
+        cost_price=promo.promo_cost,
+        quantity=1,
+        subtotal=promo.promo_price
+    ))
+
+    promo.claims_count = (promo.claims_count or 0) + 1
+    promo.total_revenue = (promo.total_revenue or 0.0) + promo.promo_price
+
+    db.session.commit()
+    flash(f"🎉 Promo Deal '{promo.title}' recorded for {cust_name} (₱{promo.promo_price:,.2f})!", "success")
+    return redirect(url_for('cashier_terminal'))
+
 @app.route('/pos/misc-sale', methods=['POST'])
 @require_cashier
 def cashier_misc_sale():
@@ -867,6 +966,7 @@ def verify_order(order_id):
 @app.route('/admin')
 @require_admin
 def admin_dashboard():
+    ensure_default_promos()
     sort_by = request.args.get('sort', 'likes_desc')
 
     query = Product.query
@@ -884,6 +984,7 @@ def admin_dashboard():
     customers = Customer.query.order_by(Customer.id.desc()).all()
     delivery_zones = DeliveryZone.query.all()
     all_orders = Order.query.order_by(Order.created_at.desc()).limit(100).all()
+    promotions = PromotionTracker.query.order_by(PromotionTracker.created_at.desc()).all()
 
     unique_visitors = SiteVisitor.query.count()
     total_accumulated_visits = db.session.query(db.func.coalesce(db.func.sum(SiteVisitor.visit_count), 0)).scalar() or unique_visitors
@@ -901,6 +1002,7 @@ def admin_dashboard():
                            customers=customers, 
                            delivery_zones=delivery_zones,
                            all_orders=all_orders,
+                           promotions=promotions,
                            unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits,
                            total_rev=total_rev,
