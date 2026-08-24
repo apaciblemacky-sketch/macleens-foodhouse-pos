@@ -138,6 +138,8 @@ class Order(db.Model):
     rider_delivered = db.Column(db.Boolean, default=False)
     customer_delivered = db.Column(db.Boolean, default=False)
     cashier_delivered = db.Column(db.Boolean, default=False)
+    is_unpaid = db.Column(db.Boolean, default=False)
+    collection_notes = db.Column(db.String(255), nullable=True)
     notes = db.Column(db.Text, nullable=False, default="None")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     customer = db.relationship('Customer', backref='orders', lazy=True)
@@ -584,7 +586,7 @@ def change_customer_pin():
     flash("Your 4-digit security PIN has been updated!", "success")
     return redirect(url_for('customer_dashboard'))
 
-# ==================== CASHIER TERMINAL ====================
+# ==================== CASHIER TERMINAL & COLLECTION MANAGEMENT ====================
 
 @app.route('/pos/cashier')
 @require_cashier
@@ -594,9 +596,11 @@ def cashier_terminal():
     pending_orders = Order.query.filter_by(status="VERIFICATION").order_by(Order.created_at.asc()).all()
     ready_orders = Order.query.filter_by(status="READY").order_by(Order.created_at.asc()).all()
     out_for_delivery = Order.query.filter_by(status="OUT_FOR_DELIVERY").order_by(Order.created_at.asc()).all()
+    unpaid_collections = Order.query.filter_by(is_unpaid=True).order_by(Order.created_at.desc()).all()
     riders = Staff.query.filter_by(role='RIDER', active=True).all()
     today_wifi_claims = Customer.query.filter_by(last_wifi_claim=date.today()).all()
     staff_list = Staff.query.all()
+    customers_list = Customer.query.order_by(Customer.name.asc()).all()
 
     today = date.today()
     today_expenses = Expense.query.filter(db.func.date(Expense.created_at) == today).order_by(Expense.created_at.desc()).all()
@@ -608,13 +612,101 @@ def cashier_terminal():
                            products=products, 
                            pending_orders=pending_orders, 
                            ready_orders=ready_orders, 
-                           out_for_delivery=out_for_delivery, 
+                           out_for_delivery=out_for_delivery,
+                           unpaid_collections=unpaid_collections,
                            riders=riders, 
                            today_wifi_claims=today_wifi_claims,
                            staff_list=staff_list,
+                           customers_list=customers_list,
                            today_expenses=today_expenses,
                            today_drops=today_drops,
                            next_drop_num=next_drop_num)
+
+@app.route('/pos/create-collection', methods=['POST'])
+@require_cashier
+def cashier_create_collection():
+    cust_type = request.form.get('customer_type', 'REGISTERED')
+    amount = float(request.form.get('amount') or 0.0)
+    service_title = request.form.get('title', '').strip() or 'Unpaid / Receivable Sale'
+    notes = request.form.get('notes', '').strip()
+    
+    if amount <= 0:
+        flash("Amount must be greater than zero.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    cust_id = None
+    cust_name = 'Walk-in Customer'
+    contact = 'N/A'
+
+    if cust_type == 'REGISTERED':
+        reg_id = request.form.get('registered_customer_id')
+        if reg_id:
+            cust = Customer.query.get(reg_id)
+            if cust:
+                cust_id = cust.id
+                cust_name = cust.name
+                contact = cust.contact
+                cust.outstanding_ar = (cust.outstanding_ar or 0.0) + amount
+    else:
+        cust_name = request.form.get('custom_customer_name', '').strip() or 'Custom Account'
+        contact = request.form.get('custom_contact', '').strip() or 'N/A'
+
+    order = Order(
+        order_type='COLLECTION',
+        customer_id=cust_id,
+        customer_name=cust_name,
+        contact_number=contact,
+        subtotal=amount,
+        delivery_fee=0.0,
+        total_amount=amount,
+        payment_method='UNPAID',
+        payment_verified=False,
+        status='UNPAID_COLLECTION',
+        is_unpaid=True,
+        collection_notes=notes,
+        notes=service_title
+    )
+    db.session.add(order)
+    db.session.flush()
+
+    db.session.add(OrderItem(
+        order_id=order.id,
+        product_id=0,
+        product_name=f"[Receivable] {service_title}",
+        unit_price=amount,
+        cost_price=0.0,
+        quantity=1,
+        subtotal=amount
+    ))
+
+    db.session.commit()
+    flash(f"Unpaid collection order recorded for {cust_name} (₱{amount:,.2f})", "info")
+    return redirect(url_for('cashier_terminal'))
+
+@app.route('/pos/settle-collection/<int:order_id>', methods=['POST'])
+@require_cashier
+def cashier_settle_collection(order_id):
+    order = Order.query.get_or_404(order_id)
+    pay_method = request.form.get('payment_method', 'CASH')
+    
+    order.is_unpaid = False
+    order.status = 'COMPLETED'
+    order.payment_method = pay_method
+    order.payment_verified = True
+
+    if order.customer_id:
+        cust = Customer.query.get(order.customer_id)
+        if cust:
+            cust.outstanding_ar = max(0.0, (cust.outstanding_ar or 0.0) - order.total_amount)
+            cust.accumulated_spend += order.total_amount
+            earned = int(order.total_amount // 30)
+            if earned > 0:
+                cust.points_balance += earned
+                db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Settled Collection #{order.id}"))
+
+    db.session.commit()
+    flash(f"Collection #{order.id} for {order.customer_name} fully settled via {pay_method}!", "success")
+    return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/misc-sale', methods=['POST'])
 @require_cashier
