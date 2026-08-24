@@ -167,51 +167,87 @@
   </div>
 
   <!-- Delivery Rates & Zone Manager -->
-  <div class="card">
-    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:1rem;">🛵 Delivery Rates & Barangay Zones</h3>
-    <form action="/admin/delivery-zones" method="POST" class="form-row" style="margin-bottom:12px;">
-      <input type="hidden" name="action" value="ADD">
-      <div class="form-group"><input type="text" name="place_name" placeholder="Place Name" required class="form-control"></div>
-      <div class="form-group"><input type="text" name="barangay" placeholder="Barangay" required class="form-control"></div>
-      <div class="form-group" style="max-width:80px;"><input type="number" step="0.5" name="rate" placeholder="Rate (₱)" required class="form-control"></div>
-      <div class="form-group" style="max-width:90px;"><input type="text" name="distance" placeholder="Distance" class="form-control"></div>
-      <div class="form-group"><input type="text" name="note" placeholder="Note" class="form-control"></div>
-      <button type="submit" class="btn btn-pink">+ Add Zone</button>
-    </form>
+  <!-- Registered Customer Management & PIN Reset -->
+<div style="background: white; border: 1.5px solid #fbcfe8; border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
+  <h3 style="color: #831843; font-size: 1rem; margin-bottom: 12px;">👥 Registered Customer Management & PIN Reset</h3>
+  
+  <div style="overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
+      <thead>
+        <tr style="background: #fdf2f8; color: #831843; border-bottom: 2px solid #fbcfe8;">
+          <th style="padding: 10px 8px;">Name</th>
+          <th style="padding: 10px 8px;">Contact / Email</th>
+          <th style="padding: 10px 8px;">Address & Landmark</th>
+          <th style="padding: 10px 8px; text-align: center;">⭐ Reward Points</th>
+          <th style="padding: 10px 8px;">Credit Active?</th>
+          <th style="padding: 10px 8px;">Credit Limit</th>
+          <th style="padding: 10px 8px;">Toggle Credit</th>
+          <th style="padding: 10px 8px;">Reset PIN</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in customers %}
+        <tr style="border-bottom: 1px solid #f1f5f9;">
+          <!-- Name & Card Number -->
+          <td style="padding: 10px 8px;">
+            <strong>{{ c.name }}</strong><br>
+            <span style="font-size: 0.72rem; color: #64748b;">Card: {{ c.card_number or 'MFH-0000' }}</span>
+          </td>
 
-    <div style="max-height: 200px; overflow-y: auto;">
-      <table>
-        <thead>
-          <tr>
-            <th>Place</th>
-            <th>Barangay</th>
-            <th>Delivery Fee (₱)</th>
-            <th>Distance</th>
-            <th>Note</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for z in delivery_zones %}
-          <tr>
-            <td><strong>{{ z.place_name }}</strong></td>
-            <td>{{ z.barangay }}</td>
-            <td style="font-weight:bold; color:var(--hk-pink);">₱{{ "{:,.2f}".format(z.rate) }}</td>
-            <td>{{ z.distance }}</td>
-            <td>{{ z.note }}</td>
-            <td>
-              <form action="/admin/delivery-zones" method="POST">
-                <input type="hidden" name="action" value="DELETE">
-                <input type="hidden" name="zone_id" value="{{ z.id }}">
-                <button type="submit" style="background:#fee2e2; color:#ef4444; border:none; padding:2px 6px; border-radius:4px; font-weight:bold; cursor:pointer;">Delete</button>
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+          <!-- Contact / Email -->
+          <td style="padding: 10px 8px; color: #475569;">
+            {{ c.contact }}<br>
+            <span style="font-size: 0.72rem; color: #94a3b8;">{{ c.email or 'No email' }}</span>
+          </td>
+
+          <!-- Address & Landmark -->
+          <td style="padding: 10px 8px; color: #475569; font-size: 0.78rem;">
+            {{ c.default_address or '—' }}<br>
+            <span style="color: #db2777;">🚩 {{ c.default_landmark or '—' }}</span>
+          </td>
+
+          <!-- ⭐ Reward Points Column -->
+          <td style="padding: 10px 8px; text-align: center;">
+            <span style="background: #fef3c7; color: #92400e; padding: 3px 8px; border-radius: 12px; font-weight: 900; font-size: 0.8rem; display: inline-block;">
+              ⭐ {{ (c.points_balance or 0.0) | int }} pts
+            </span>
+          </td>
+
+          <!-- Credit Active -->
+          <td style="padding: 10px 8px;">
+            {% if c.is_credit_eligible %}
+              <span style="color: #16a34a; font-weight: bold;">✓ Yes</span>
+            {% else %}
+              <span style="color: #94a3b8;">✕ No</span>
+            {% endif %}
+          </td>
+
+          <!-- Credit Limit -->
+          <td style="padding: 10px 8px; font-weight: bold;">
+            ₱{{ "{:,.2f}".format(c.credit_limit or 0.0) }}
+          </td>
+
+          <!-- Toggle Credit Form -->
+          <td style="padding: 10px 8px;">
+            <form action="/admin/toggle-credit/{{ c.id }}" method="POST" style="display: flex; gap: 4px;">
+              <input type="number" step="100" name="credit_limit" value="{{ c.credit_limit or 1000 }}" style="width: 70px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.75rem;">
+              <button type="submit" style="background: #ec4899; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: bold; cursor: pointer;">Set</button>
+            </form>
+          </td>
+
+          <!-- Reset PIN Form -->
+          <td style="padding: 10px 8px;">
+            <form action="/admin/reset-customer-pin/{{ c.id }}" method="POST" style="display: flex; gap: 4px;">
+              <input type="text" name="new_pin" placeholder="New PIN" minlength="4" style="width: 70px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.75rem;">
+              <button type="submit" style="background: #334155; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: bold; cursor: pointer;">Reset</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
+</div>
 
   <!-- Bulk Catalog with Multi-Filter Sorting -->
   <div class="card">
