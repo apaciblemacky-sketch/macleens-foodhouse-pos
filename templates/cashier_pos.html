@@ -33,7 +33,7 @@
 
     /* Counter Live Cart Panel */
     .pos-cart-panel { background: #182234; border-left: 2px solid #334155; display: flex; flex-direction: column; padding: 10px; }
-    .cart-items-box { background: #0f172a; border-radius: 6px; border: 1px solid #334155; flex: 1; padding: 8px; overflow-y: auto; }
+    .cart-items-box { background: #0f172a; border-radius: 6px; border: 1px solid #334155; flex: 1; padding: 8px; overflow-y: auto; min-height: 120px; }
 
     .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
@@ -130,34 +130,54 @@
       </div>
     </div>
 
-    <!-- 3. Counter Cart Tray (Items queue here before settlement) -->
+    <!-- 3. Counter Cart Tray with Customer Selection -->
     <div class="pos-cart-panel">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
         <h3 style="font-size:0.85rem; color:#f472b6;">🛒 Counter Tray</h3>
         <button onclick="clearPosCart()" style="background:#ef4444; color:white; border:none; padding:2px 6px; border-radius:4px; font-size:0.7rem; cursor:pointer;">Clear</button>
       </div>
 
-      <div class="cart-items-box" id="posCartList">
-        <p style="color:#64748b; font-size:0.75rem; text-align:center; padding-top:40px;">Tap items from menu to add to cart.</p>
+      <!-- Customer Input / Link -->
+      <div style="background:#0f172a; padding:6px; border-radius:6px; border:1px solid #334155; margin-bottom:6px;">
+        <label style="font-size:0.68rem; color:#94a3b8; font-weight:bold; display:block; margin-bottom:2px;">Customer Account Type:</label>
+        <select id="posCustType" class="form-input" style="margin-bottom:4px; padding:3px; font-size:0.75rem;" onchange="togglePosCustSelect()">
+          <option value="WALKIN">Anonymous Walk-in</option>
+          <option value="REGISTERED">Registered Member (Earn Points)</option>
+        </select>
+
+        <div id="posRegCustWrap" style="display:none; margin-bottom:4px;">
+          <select id="posRegCustSelect" class="form-input" style="margin-bottom:0; padding:3px; color:#38bdf8; font-size:0.75rem;">
+            <option value="">-- Select Registered Member --</option>
+            {% for c in customers_list %}
+              <option value="{{ c.id }}">{{ c.name }} ({{ c.contact }}) - {{ (c.points_balance or 0)|int }} pts</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <input type="text" id="posCustomName" placeholder="Customer Name / Remarks" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;">
       </div>
 
-      <div style="margin-top:8px; border-top:1px solid #334155; padding-top:6px;">
+      <div class="cart-items-box" id="posCartList">
+        <p style="color:#64748b; font-size:0.75rem; text-align:center; padding-top:30px;">Tap items from menu to add to cart.</p>
+      </div>
+
+      <div style="margin-top:6px; border-top:1px solid #334155; padding-top:6px;">
         <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.05rem; color:var(--hk-pink); margin-bottom:6px;">
           <span>TOTAL:</span>
           <span id="posCartTotal">₱0.00</span>
         </div>
 
-        <div style="display:flex; gap:4px; margin-bottom:6px;">
-          <select id="posPayMethod" class="form-input" style="margin-bottom:0; flex:1;">
+        <div style="display:flex; gap:4px; margin-bottom:4px;">
+          <select id="posPayMethod" class="form-input" style="margin-bottom:0; flex:1; font-size:0.75rem;">
             <option value="CASH">Cash</option>
             <option value="GCASH">GCash</option>
           </select>
-          <input type="number" id="posCashBill" placeholder="Bill (₱)" class="form-input" style="margin-bottom:0; width:95px;" oninput="updatePosChangePreview()">
+          <input type="number" id="posCashBill" placeholder="Bill (₱)" class="form-input" style="margin-bottom:0; width:90px; font-size:0.75rem;" oninput="updatePosChangePreview()">
         </div>
 
-        <div id="posChangePreview" style="font-size:0.75rem; color:#34d399; font-weight:bold; margin-bottom:6px; min-height:16px;"></div>
+        <div id="posChangePreview" style="font-size:0.72rem; color:#34d399; font-weight:bold; margin-bottom:4px; min-height:14px;"></div>
 
-        <button onclick="submitPosCartSale()" style="width:100%; background:#16a34a; color:white; border:none; padding:10px; border-radius:6px; font-weight:900; font-size:0.85rem; cursor:pointer;">RECORD SALE (PAID)</button>
+        <button onclick="submitPosCartSale()" style="width:100%; background:#16a34a; color:white; border:none; padding:9px; border-radius:6px; font-weight:900; font-size:0.85rem; cursor:pointer;">RECORD SALE (PAID)</button>
       </div>
     </div>
 
@@ -447,6 +467,11 @@
       document.getElementById('customCustBox').style.display = (type === 'CUSTOM') ? 'block' : 'none';
     }
 
+    function togglePosCustSelect() {
+      const type = document.getElementById('posCustType').value;
+      document.getElementById('posRegCustWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+    }
+
     function filterCat(cat, btn) {
       document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
@@ -486,7 +511,7 @@
       const keys = Object.keys(posCart);
 
       if (keys.length === 0) {
-        box.innerHTML = '<p style="color:#64748b; font-size:0.75rem; text-align:center; padding-top:40px;">Tap items from menu to add to cart.</p>';
+        box.innerHTML = '<p style="color:#64748b; font-size:0.75rem; text-align:center; padding-top:30px;">Tap items from menu to add to cart.</p>';
         totalEl.innerText = '₱0.00';
         updatePosChangePreview();
         return;
@@ -540,15 +565,24 @@
       const keys = Object.keys(posCart);
       if (keys.length === 0) return alert("Cart is empty. Tap items to add first.");
 
+      const custType = document.getElementById('posCustType').value;
+      const regCustId = document.getElementById('posRegCustSelect').value;
+      const customName = document.getElementById('posCustomName').value.trim();
       const payMethod = document.getElementById('posPayMethod').value;
       const bill = parseFloat(document.getElementById('posCashBill').value) || 0;
 
+      if (custType === 'REGISTERED' && !regCustId) {
+        return alert("Please choose a registered member to credit points.");
+      }
+
       const payload = {
         items: keys.map(id => ({ product_id: parseInt(id), quantity: posCart[id].qty })),
+        customer_type: custType,
+        registered_customer_id: regCustId ? parseInt(regCustId) : null,
+        customer_name: customName || (custType === 'REGISTERED' ? 'Registered Member' : 'Counter Walk-in'),
         payment_method: payMethod,
         change_for: bill,
-        customer_name: 'Counter Walk-in',
-        notes: 'Cashier On-Screen Counter Sale'
+        notes: 'Cashier Counter POS Sale'
       };
 
       try {
@@ -559,7 +593,7 @@
         });
         const data = await res.json();
         if (data.success) {
-          alert(`🎉 Sale #${data.order_id} recorded! Total: ₱${data.total.toFixed(2)}`);
+          alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\nPoints Earned: ${data.points_earned || 0} pts`);
           clearPosCart();
           document.getElementById('posCashBill').value = '';
           window.location.reload();
@@ -571,7 +605,7 @@
       }
     }
 
-    /* Cashier Order Incoming Chime */
+    /* Cashier Order Incoming Alert Sound */
     function playCashierBeep() {
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
