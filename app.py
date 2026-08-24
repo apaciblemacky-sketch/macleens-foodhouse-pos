@@ -154,6 +154,24 @@ class OrderItem(db.Model):
     quantity = db.Column(db.Integer, nullable=False)
     subtotal = db.Column(db.Float, nullable=False)
 
+class Expense(db.Model):
+    __tablename__ = 'expense'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(150), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    category = db.Column(db.String(50), default='General')
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class VaultDrop(db.Model):
+    __tablename__ = 'vault_drop'
+    id = db.Column(db.Integer, primary_key=True)
+    drop_number = db.Column(db.Integer, nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    notes = db.Column(db.String(255), nullable=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 class RewardLedger(db.Model):
     __tablename__ = 'reward_ledger'
     id = db.Column(db.Integer, primary_key=True)
@@ -516,6 +534,34 @@ def change_staff_password():
     flash("Staff password successfully changed!", "success")
     return redirect(request.referrer or url_for('store_catalog'))
 
+@app.route('/auth/change-staff-password', methods=['POST'])
+@require_cashier
+def change_specific_staff_password():
+    target_username = request.form.get('target_username', '').strip()
+    admin_pin = request.form.get('admin_pin', '').strip()
+    new_pin = request.form.get('new_pin', '').strip()
+
+    staff = Staff.query.filter_by(username=target_username).first()
+    if not staff:
+        flash("Staff user not found.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    current_user = session.get('admin_user') or session.get('cashier_user')
+    auth_staff = Staff.query.filter_by(username=current_user).first()
+
+    if not auth_staff or not check_password_hash(auth_staff.pin_hash, admin_pin):
+        flash("Authorization failed: Your current password/PIN is incorrect.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    if len(new_pin) < 4:
+        flash("New PIN/Password must be at least 4 characters.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    staff.pin_hash = generate_password_hash(new_pin)
+    db.session.commit()
+    flash(f"Successfully updated PIN for [{staff.username.upper()}] ({staff.role})!", "success")
+    return redirect(url_for('cashier_terminal'))
+
 @app.route('/portal/change-pin', methods=['POST'])
 def change_customer_pin():
     if 'customer_id' not in session:
@@ -550,10 +596,100 @@ def cashier_terminal():
     out_for_delivery = Order.query.filter_by(status="OUT_FOR_DELIVERY").order_by(Order.created_at.asc()).all()
     riders = Staff.query.filter_by(role='RIDER', active=True).all()
     today_wifi_claims = Customer.query.filter_by(last_wifi_claim=date.today()).all()
-    return render_template('cashier_pos.html', categories=categories, products=products, 
-                           pending_orders=pending_orders, ready_orders=ready_orders, 
-                           out_for_delivery=out_for_delivery, riders=riders, 
-                           today_wifi_claims=today_wifi_claims)
+    staff_list = Staff.query.all()
+
+    today = date.today()
+    today_expenses = Expense.query.filter(db.func.date(Expense.created_at) == today).order_by(Expense.created_at.desc()).all()
+    today_drops = VaultDrop.query.filter(db.func.date(VaultDrop.created_at) == today).order_by(VaultDrop.drop_number.asc()).all()
+    next_drop_num = len(today_drops) + 1
+
+    return render_template('cashier_pos.html', 
+                           categories=categories, 
+                           products=products, 
+                           pending_orders=pending_orders, 
+                           ready_orders=ready_orders, 
+                           out_for_delivery=out_for_delivery, 
+                           riders=riders, 
+                           today_wifi_claims=today_wifi_claims,
+                           staff_list=staff_list,
+                           today_expenses=today_expenses,
+                           today_drops=today_drops,
+                           next_drop_num=next_drop_num)
+
+@app.route('/pos/misc-sale', methods=['POST'])
+@require_cashier
+def cashier_misc_sale():
+    service_name = request.form.get('service_name', '').strip() or 'Printing / Custom Service'
+    amount = float(request.form.get('amount') or 0.0)
+    pay_method = request.form.get('payment_method', 'CASH')
+    notes = request.form.get('notes', '').strip() or 'Over-the-counter Misc Service'
+
+    if amount <= 0:
+        flash("Amount must be greater than zero.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    order = Order(
+        order_type='DINE-IN/WALKIN',
+        customer_name='Walk-in Customer',
+        contact_number='N/A',
+        subtotal=amount,
+        delivery_fee=0.0,
+        total_amount=amount,
+        payment_method=pay_method,
+        payment_verified=True,
+        status='COMPLETED',
+        notes=notes
+    )
+    db.session.add(order)
+    db.session.flush()
+
+    db.session.add(OrderItem(
+        order_id=order.id,
+        product_id=0,
+        product_name=f"[Service] {service_name}",
+        unit_price=amount,
+        cost_price=0.0,
+        quantity=1,
+        subtotal=amount
+    ))
+
+    db.session.commit()
+    flash(f"Misc Sale recorded: {service_name} (₱{amount:,.2f})", "success")
+    return redirect(url_for('cashier_terminal'))
+
+@app.route('/pos/record-expense', methods=['POST'])
+@require_cashier
+def cashier_record_expense():
+    title = request.form.get('title', '').strip()
+    amount = float(request.form.get('amount') or 0.0)
+    category = request.form.get('category', 'Supplies')
+    staff_user = session.get('cashier_user') or session.get('admin_user') or 'Cashier'
+
+    if not title or amount <= 0:
+        flash("Please provide a valid title and amount.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    db.session.add(Expense(title=title, amount=amount, category=category, created_by=staff_user))
+    db.session.commit()
+    flash(f"Expense recorded: {title} (₱{amount:,.2f})", "success")
+    return redirect(url_for('cashier_terminal'))
+
+@app.route('/pos/record-vault-drop', methods=['POST'])
+@require_cashier
+def cashier_record_vault_drop():
+    drop_num = int(request.form.get('drop_number') or 1)
+    amount = float(request.form.get('amount') or 0.0)
+    notes = request.form.get('notes', '').strip()
+    staff_user = session.get('cashier_user') or session.get('admin_user') or 'Cashier'
+
+    if amount <= 0:
+        flash("Drop amount must be greater than zero.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    db.session.add(VaultDrop(drop_number=drop_num, amount=amount, notes=notes, created_by=staff_user))
+    db.session.commit()
+    flash(f"Vault Cash Drop #{drop_num} recorded: ₱{amount:,.2f}", "success")
+    return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/update-wifi-minutes/<int:cust_id>', methods=['POST'])
 @require_cashier

@@ -17,7 +17,7 @@
     body { background: #0f172a; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
     header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
-    .pos-layout { display: grid; grid-template-columns: 370px 1fr 350px; flex: 1; height: calc(100vh - 45px); }
+    .pos-layout { display: grid; grid-template-columns: 360px 1fr 350px; flex: 1; height: calc(100vh - 45px); }
 
     .queue-panel { background: #1e293b; border-right: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .ticket-card { background: #334155; border-radius: 8px; padding: 10px; margin-bottom: 10px; border-left: 4px solid var(--hk-pink); font-size: 0.85rem; }
@@ -32,28 +32,9 @@
 
     .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
-
-    @media print {
-      body * { visibility: hidden !important; }
-      #thermalReceipt, #thermalReceipt * { visibility: visible !important; }
-      #thermalReceipt { 
-        position: absolute; 
-        left: 0; 
-        top: 0; 
-        width: 3.5in !important; 
-        height: 5.0in !important; 
-        color: black !important; 
-        background: white !important; 
-        font-family: monospace !important; 
-        font-size: 11px !important; 
-        padding: 0.15in !important; 
-        box-sizing: border-box !important;
-      }
-      @page {
-        size: 3.5in 5.0in;
-        margin: 0;
-      }
-    }
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center; }
+    .modal-box { background: #1e293b; color: white; border: 2px solid #ec4899; border-radius: 12px; width: 90%; max-width: 480px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    .form-input { width: 100%; background: #0f172a; border: 1px solid #475569; color: white; padding: 6px 8px; border-radius: 4px; font-size: 0.8rem; margin-bottom: 8px; }
   </style>
 </head>
 <body>
@@ -64,10 +45,14 @@
       <strong style="color:var(--hk-pink);">🖥️ CASHIER TERMINAL</strong>
       <span id="liveStatusBadge" style="background:#16a34a; color:white; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold;">LIVE (1s)</span>
     </div>
-    <div style="display:flex; gap:8px; align-items:center;">
-      <button onclick="openSettingsModal()" style="background:#ec4899; color:white; border:none; padding:5px 12px; border-radius:4px; font-size:0.8rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
-      <a href="/portal/accounting" style="background:#334155; color:white; padding:5px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Ledger</a>
-      <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 10px; border-radius:4px; text-decoration:none; font-size:0.8rem;">Logout Cashier</a>
+    
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button onclick="openModal('miscModal')" style="background:#8b5cf6; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🖨️ Misc / Printing</button>
+      <button onclick="openModal('expenseModal')" style="background:#f59e0b; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💸 Expense</button>
+      <button onclick="openModal('vaultModal')" style="background:#10b981; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🏦 Vault Drop (#{{ next_drop_num }})</button>
+      <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings & Password</button>
+      <a href="/portal/accounting" style="background:#334155; color:white; padding:5px 10px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Ledger</a>
+      <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 10px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Logout</a>
     </div>
   </header>
 
@@ -93,10 +78,6 @@
           {% for it in o.items %}
             <div>• {{ it.product_name }} x{{ it.quantity }}</div>
           {% endfor %}
-        </div>
-
-        <div style="margin-bottom:6px;">
-          <button onclick="printOrderThermal({{ o.id }}, '{{ o.customer_name }}', '{{ o.order_type }}', {{ o.total_amount }}, '{{ o.payment_method }}')" style="background:#64748b; color:white; border:none; padding:4px 8px; border-radius:4px; font-size:0.75rem; cursor:pointer; width:100%;">🖨️ Print 3.5"x5" Slip</button>
         </div>
 
         <form action="/pos/verify/{{ o.id }}" method="POST">
@@ -141,31 +122,28 @@
     <div class="pickup-panel">
       
       <!-- Wi-Fi Claims & Monitor Panel -->
-      <div style="background:#1e293b; border:1.5px solid #3b82f6; border-radius:8px; padding:10px; margin-bottom:12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+      <div style="background:#1e293b; border:1.5px solid #3b82f6; border-radius:8px; padding:10px; margin-bottom:12px;">
         <h3 style="font-size:0.84rem; color:#60a5fa; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
           <span>📶 Today's Wi-Fi Claims</span>
           <span style="background:#2563eb; color:white; padding:2px 8px; border-radius:12px; font-size:0.72rem; font-weight:900;">Total: {{ today_wifi_claims|length }}</span>
         </h3>
-        <div style="max-height:160px; overflow-y:auto; padding-right:2px;">
+        <div style="max-height:130px; overflow-y:auto;">
           {% for w in today_wifi_claims %}
-          <div style="font-size:0.75rem; padding:6px 0; border-bottom:1px dashed #334155; color:#cbd5e1;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="font-size:0.75rem; padding:4px 0; border-bottom:1px dashed #334155; color:#cbd5e1;">
+            <div style="display:flex; justify-content:space-between;">
               <strong>{{ w.name }}</strong>
               <span style="color:#fbbf24; font-family:monospace; font-weight:bold;">{{ w.wifi_voucher_code }}</span>
             </div>
-            <div style="color:#94a3b8; font-size:0.7rem;">📞 {{ w.contact }}</div>
-            
-            <!-- Quick Edit Wi-Fi Minutes Form -->
-            <form action="/pos/update-wifi-minutes/{{ w.id }}" method="POST" style="display:flex; align-items:center; gap:4px; margin-top:4px;">
+            <form action="/pos/update-wifi-minutes/{{ w.id }}" method="POST" style="display:flex; align-items:center; gap:4px; margin-top:2px;">
               <span style="font-size:0.7rem; color:#38bdf8;">Time left:</span>
-              <input type="number" name="wifi_minutes" value="{{ w.wifi_minutes_left if w.wifi_minutes_left is not none else 10 }}" min="0" max="180" style="width:48px; padding:2px 4px; border:1px solid #475569; background:#0f172a; color:#fff; border-radius:4px; font-size:0.75rem; text-align:center;">
+              <input type="number" name="wifi_minutes" value="{{ w.wifi_minutes_left if w.wifi_minutes_left is not none else 10 }}" min="0" max="180" style="width:45px; padding:2px 4px; border:1px solid #475569; background:#0f172a; color:#fff; border-radius:4px; font-size:0.75rem; text-align:center;">
               <span style="font-size:0.7rem; color:#94a3b8;">mins</span>
               <button type="submit" style="background:#0284c7; color:white; border:none; padding:2px 6px; border-radius:4px; font-size:0.68rem; font-weight:bold; cursor:pointer;">Set</button>
             </form>
           </div>
           {% endfor %}
           {% if not today_wifi_claims %}
-            <div style="font-size:0.72rem; color:#64748b; text-align:center; padding:10px 0;">No Wi-Fi vouchers claimed today.</div>
+            <div style="font-size:0.72rem; color:#64748b; text-align:center; padding:6px 0;">No Wi-Fi vouchers claimed today.</div>
           {% endif %}
         </div>
       </div>
@@ -176,7 +154,7 @@
         <div><strong>#{{ od.id }}</strong> — {{ od.customer_name }}</div>
         <div style="color:#94a3b8;">Rider: {{ od.assigned_rider }}</div>
         <form action="/pos/confirm-delivery/{{ od.id }}" method="POST" style="margin-top:4px;">
-          <button class="btn-act" style="background:#16a34a; color:white; width:100%; font-size:0.72rem;">✓ Confirm Delivery (Cashier Override)</button>
+          <button class="btn-act" style="background:#16a34a; color:white; width:100%; font-size:0.72rem;">✓ Confirm Delivery</button>
         </form>
       </div>
       {% endfor %}
@@ -193,63 +171,159 @@
     </div>
   </div>
 
-  <!-- Settings & Password Modal Popup -->
-  <div id="settingsModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:9999; justify-content:center; align-items:center;">
-    <div style="background:#1e293b; color:white; border:2px solid #ec4899; border-radius:12px; width:90%; max-width:480px; padding:20px; box-shadow:0 10px 25px rgba(0,0,0,0.5);">
-      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #334155; padding-bottom:10px; margin-bottom:15px;">
-        <h3 style="color:#f472b6; margin:0; font-size:1.1rem;">⚙️ Store Settings & Password</h3>
-        <button onclick="closeSettingsModal()" style="background:none; border:none; color:#94a3b8; font-size:1.4rem; cursor:pointer;">✕</button>
+  <!-- 1. MISC SERVICE / PRINTING MODAL -->
+  <div id="miscModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#8b5cf6;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#c084fc; font-size:1rem;">🖨️ Add Miscellaneous Sale / Custom Service</h3>
+        <button onclick="closeModal('miscModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
+      <form action="/pos/misc-sale" method="POST">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Service Name</label>
+        <input type="text" name="service_name" class="form-input" list="serviceSuggestions" placeholder="e.g., Document Printing, Scanning, Custom Print" required>
+        <datalist id="serviceSuggestions">
+          <option value="Document Printing">
+          <option value="Photo Printing">
+          <option value="Scanning / Laminating">
+          <option value="Rush Service Fee">
+        </datalist>
 
-      <!-- Store & Delivery Schedule Form -->
-      <form action="/admin/settings/hours" method="POST" style="margin-bottom:20px;">
-        <h4 style="color:#fbcfe8; font-size:0.9rem; margin-bottom:8px;">⏰ Operating Hours</h4>
-        <div style="display:flex; gap:10px; margin-bottom:8px;">
-          <div style="flex:1;">
-            <label style="font-size:0.75rem; color:#94a3b8;">Store Open / Close</label>
-            <div style="display:flex; gap:4px;">
-              <input type="time" name="store_open_time" value="{{ status.settings.store_open_time if status else '08:00' }}" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:4px 6px; border-radius:4px; font-size:0.8rem;" required>
-              <input type="time" name="store_close_time" value="{{ status.settings.store_close_time if status else '19:00' }}" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:4px 6px; border-radius:4px; font-size:0.8rem;" required>
-            </div>
-          </div>
-          <div style="flex:1;">
-            <label style="font-size:0.75rem; color:#94a3b8;">Delivery Open / Close</label>
-            <div style="display:flex; gap:4px;">
-              <input type="time" name="delivery_open_time" value="{{ status.settings.delivery_open_time if status else '09:00' }}" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:4px 6px; border-radius:4px; font-size:0.8rem;" required>
-              <input type="time" name="delivery_close_time" value="{{ status.settings.delivery_close_time if status else '17:00' }}" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:4px 6px; border-radius:4px; font-size:0.8rem;" required>
-            </div>
-          </div>
-        </div>
-        <div style="display:flex; gap:15px; margin-bottom:10px; font-size:0.8rem;">
-          <label><input type="checkbox" name="is_store_open" {% if not status or status.settings.is_store_open == 'true' %}checked{% endif %}> Store Online</label>
-          <label><input type="checkbox" name="is_delivery_enabled" {% if not status or status.settings.is_delivery_enabled == 'true' %}checked{% endif %}> Delivery Online</label>
-        </div>
-        <button type="submit" style="background:#ec4899; color:white; border:none; padding:7px 12px; border-radius:6px; font-weight:bold; font-size:0.8rem; cursor:pointer; width:100%;">Save Schedule</button>
-      </form>
+        <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱)</label>
+        <input type="number" step="0.25" name="amount" class="form-input" placeholder="0.00" required>
 
-      <!-- Change Staff / Admin Password Form -->
-      <form action="/auth/change-password" method="POST">
-        <h4 style="color:#fbcfe8; font-size:0.9rem; margin-bottom:8px;">🔒 Change Account Password</h4>
-        <input type="password" name="old_password" placeholder="Current PIN / Password" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:6px; border-radius:4px; font-size:0.8rem; margin-bottom:6px;" required>
-        <div style="display:flex; gap:6px; margin-bottom:10px;">
-          <input type="password" name="new_password" minlength="4" placeholder="New Password" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:6px; border-radius:4px; font-size:0.8rem;" required>
-          <input type="password" name="confirm_password" minlength="4" placeholder="Confirm" style="width:100%; background:#0f172a; border:1px solid #475569; color:white; padding:6px; border-radius:4px; font-size:0.8rem;" required>
-        </div>
-        <button type="submit" style="background:#334155; color:white; border:1px solid #64748b; padding:7px 12px; border-radius:6px; font-weight:bold; font-size:0.8rem; cursor:pointer; width:100%;">Update Password</button>
+        <label style="font-size:0.75rem; color:#cbd5e1;">Payment Method</label>
+        <select name="payment_method" class="form-input">
+          <option value="CASH">Cash</option>
+          <option value="GCASH">GCash</option>
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Notes / Quantity</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g., 5 pages colored prints">
+
+        <button type="submit" style="background:#8b5cf6; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Service Sale</button>
       </form>
     </div>
   </div>
 
-  <!-- Thermal Print Slip -->
-  <div id="thermalReceipt" style="display:none;"></div>
+  <!-- 2. DAILY EXPENSES MODAL -->
+  <div id="expenseModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#f59e0b;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#fbbf24; font-size:1rem;">💸 Record Expense</h3>
+        <button onclick="closeModal('expenseModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/record-expense" method="POST">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Expense Name / Description</label>
+        <input type="text" name="title" class="form-input" placeholder="e.g., Ice purchase, Mineral Water, Paper cup refill" required>
+
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱)</label>
+            <input type="number" step="0.25" name="amount" class="form-input" placeholder="0.00" required>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Category</label>
+            <select name="category" class="form-input">
+              <option value="Ingredients">Ingredients</option>
+              <option value="Supplies">Supplies</option>
+              <option value="Utilities">Utilities</option>
+              <option value="Miscellaneous">Miscellaneous</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" style="background:#f59e0b; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Save Expense</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 3. SAFE VAULT CASH DROPS MODAL -->
+  <div id="vaultModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#10b981;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#34d399; font-size:1rem;">🏦 Safe Vault Cash Drop</h3>
+        <button onclick="closeModal('vaultModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/record-vault-drop" method="POST">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Drop Sequence</label>
+        <select name="drop_number" class="form-input">
+          <option value="1" {% if next_drop_num == 1 %}selected{% endif %}>1st Drop</option>
+          <option value="2" {% if next_drop_num == 2 %}selected{% endif %}>2nd Drop</option>
+          <option value="3" {% if next_drop_num == 3 %}selected{% endif %}>3rd Drop</option>
+          <option value="4" {% if next_drop_num == 4 %}selected{% endif %}>4th Drop</option>
+          <option value="5" {% if next_drop_num >= 5 %}selected{% endif %}>5th Drop</option>
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Dropped Amount (₱)</label>
+        <input type="number" step="0.25" name="amount" class="form-input" placeholder="e.g. 5000.00" required>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Witness / Shift Notes</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g., Midday excess cash safe transfer">
+
+        <button type="submit" style="background:#10b981; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Confirm Vault Drop</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 4. OPERATING HOURS & INDIVIDUAL STAFF PASSWORD MODAL -->
+  <div id="settingsModal" class="modal-backdrop">
+    <div class="modal-box">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#f472b6; font-size:1.05rem;">⚙️ Store Settings & Staff Passwords</h3>
+        <button onclick="closeModal('settingsModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+
+      <!-- Operating Hours Form -->
+      <form action="/admin/settings/hours" method="POST" style="margin-bottom:16px;">
+        <h4 style="color:#fbcfe8; font-size:0.85rem; margin-bottom:6px;">⏰ Operating Hours</h4>
+        <div style="display:flex; gap:8px; margin-bottom:6px;">
+          <div style="flex:1;">
+            <label style="font-size:0.7rem; color:#94a3b8;">Store Open/Close</label>
+            <div style="display:flex; gap:3px;">
+              <input type="time" name="store_open_time" value="{{ status.settings.store_open_time if status else '08:00' }}" class="form-input" style="padding:3px;" required>
+              <input type="time" name="store_close_time" value="{{ status.settings.store_close_time if status else '19:00' }}" class="form-input" style="padding:3px;" required>
+            </div>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.7rem; color:#94a3b8;">Delivery Open/Close</label>
+            <div style="display:flex; gap:3px;">
+              <input type="time" name="delivery_open_time" value="{{ status.settings.delivery_open_time if status else '09:00' }}" class="form-input" style="padding:3px;" required>
+              <input type="time" name="delivery_close_time" value="{{ status.settings.delivery_close_time if status else '17:00' }}" class="form-input" style="padding:3px;" required>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; gap:12px; margin-bottom:8px; font-size:0.75rem;">
+          <label><input type="checkbox" name="is_store_open" {% if not status or status.settings.is_store_open == 'true' %}checked{% endif %}> Store Online</label>
+          <label><input type="checkbox" name="is_delivery_enabled" {% if not status or status.settings.is_delivery_enabled == 'true' %}checked{% endif %}> Delivery Online</label>
+        </div>
+        <button type="submit" style="background:#ec4899; color:white; border:none; padding:6px; border-radius:4px; width:100%; font-weight:bold; font-size:0.75rem; cursor:pointer;">Save Operating Schedule</button>
+      </form>
+
+      <!-- Explicit Staff Password Selector Form -->
+      <form action="/auth/change-staff-password" method="POST">
+        <h4 style="color:#fbcfe8; font-size:0.85rem; margin-bottom:6px;">🔒 Change Specific Staff Account Password</h4>
+        
+        <label style="font-size:0.7rem; color:#94a3b8;">Select Account to Change</label>
+        <select name="target_username" class="form-input" required>
+          {% for s in staff_list %}
+            <option value="{{ s.username }}">Account: {{ s.username.upper() }} (Role: {{ s.role }})</option>
+          {% endfor %}
+        </select>
+
+        <label style="font-size:0.7rem; color:#94a3b8;">New PIN / Password (Min 4 chars)</label>
+        <input type="password" name="new_pin" minlength="4" class="form-input" placeholder="••••" required>
+
+        <label style="font-size:0.7rem; color:#94a3b8;">Current Logged-in Staff PIN (For Authorization)</label>
+        <input type="password" name="admin_pin" class="form-input" placeholder="Your current PIN" required>
+
+        <button type="submit" style="background:#334155; color:white; border:1px solid #64748b; padding:6px; border-radius:4px; width:100%; font-weight:bold; font-size:0.75rem; cursor:pointer;">Update Staff Password</button>
+      </form>
+    </div>
+  </div>
 
   <script>
-    function openSettingsModal() {
-      document.getElementById('settingsModal').style.display = 'flex';
-    }
-    function closeSettingsModal() {
-      document.getElementById('settingsModal').style.display = 'none';
-    }
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
     function filterCat(cat, btn) {
       document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
@@ -259,53 +333,12 @@
       });
     }
 
-    function printOrderThermal(orderId, name, type, total, pay) {
-      const area = document.getElementById('thermalReceipt');
-      area.style.display = 'block';
-      area.innerHTML = `
-        <div style="text-align:center; font-family:monospace; line-height:1.2;">
-          <strong>MACLEEN'S FOOD HOUSE</strong><br>
-          San Teodoro, Oriental Mindoro<br>
-          --------------------------------<br>
-          ORDER #${orderId} (${type})<br>
-          Customer: ${name}<br>
-          Payment: ${pay}<br>
-          --------------------------------<br>
-          TOTAL: PHP ${total.toFixed(2)}<br>
-          --------------------------------<br>
-          Thank you for ordering!<br>
-        </div>
-      `;
-      window.print();
-      area.style.display = 'none';
-    }
-
-    function playOrderChime() {
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
-        osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.15);
-        gain.gain.setValueAtTime(0.3, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.35);
-      } catch(e) {}
-    }
-
     let lastPendingCount = {{ pending_orders|length }};
-    if (lastPendingCount > 0) playOrderChime();
-
     setInterval(async () => {
       try {
         const res = await fetch('/api/queue-counts');
         const data = await res.json();
         if (data.pending_cashier !== lastPendingCount) {
-          playOrderChime();
           setTimeout(() => { window.location.reload(); }, 300);
         }
       } catch(e) {}
