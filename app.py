@@ -497,14 +497,20 @@ def api_tablet_checkout():
     if not items:
         return jsonify({'success': False, 'message': 'Ticket is empty.'}), 400
 
-    subtotal = 0.0
-    for it in items:
-        p = Product.query.get(it['product_id'])
-        if p:
-            subtotal += p.price * int(it['quantity'])
+    # Auto-match registered customer if PIN / Card # or Contact is provided
+    cust_id = None
+    if 'PIN:' in customer_name:
+        pin_code = customer_name.split('PIN:')[1].replace(')', '').strip()
+        matched = Customer.query.filter((Customer.contact == pin_code) | (Customer.card_number == pin_code)).first()
+        if matched:
+            cust_id = matched.id
+            customer_name = f"{matched.name} (Tablet Kiosk)"
+
+    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
 
     order = Order(
         order_type='TABLET',
+        customer_id=cust_id,
         customer_name=customer_name,
         contact_number='Kiosk',
         subtotal=subtotal,
@@ -585,11 +591,7 @@ def cashier_direct_sale():
     if not items:
         return jsonify({'success': False, 'message': 'No items in cart.'}), 400
 
-    subtotal = 0.0
-    for it in items:
-        p = Product.query.get(it['product_id'])
-        if p:
-            subtotal += p.price * int(it['quantity'])
+    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
 
     order = Order(
         order_type='DINE-IN/WALKIN',
@@ -650,6 +652,10 @@ def cashier_misc_sale():
             customer_name = cust.name
             contact = cust.contact
             cust.accumulated_spend += amount
+            earned = int(amount // 30)
+            if earned > 0:
+                cust.points_balance += earned
+                db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Service Purchase: {service_name}"))
     elif custom_name:
         customer_name = custom_name
 
@@ -828,9 +834,24 @@ def verify_order(order_id):
         rider = request.form.get('assigned_rider')
         if rider:
             order.assigned_rider = rider
-        order.status = "KITCHEN_QUEUE"
+
+        # Check if the order contains dishes that need kitchen prep, or ready-to-serve Ulam
+        needs_kitchen = False
+        for item in order.items:
+            if item.product_id:
+                p = Product.query.get(item.product_id)
+                if p and p.category_name and 'ulam' not in p.category_name.lower():
+                    needs_kitchen = True
+                    break
+
+        if needs_kitchen:
+            order.status = "KITCHEN_QUEUE"
+            flash(f"Order #{order.id} verified & sent to Kitchen.", "success")
+        else:
+            order.status = "READY"
+            flash(f"Order #{order.id} contains ready-made Ulam — Bypassed Kitchen and set to READY!", "success")
+
         db.session.commit()
-        flash(f"Order #{order.id} verified & sent to Kitchen.", "success")
     else:
         for item in order.items:
             if item.product_id:
