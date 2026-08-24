@@ -149,7 +149,7 @@ class OrderItem(db.Model):
     __tablename__ = 'order_item'
     id = db.Column(db.Integer, primary_key=True)
     order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
-    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
     product_name = db.Column(db.String(120), nullable=False)
     unit_price = db.Column(db.Float, nullable=False)
     cost_price = db.Column(db.Float, default=0.0)
@@ -671,7 +671,7 @@ def cashier_create_collection():
 
     db.session.add(OrderItem(
         order_id=order.id,
-        product_id=0,
+        product_id=None,
         product_name=f"[Receivable] {service_title}",
         unit_price=amount,
         cost_price=0.0,
@@ -737,7 +737,7 @@ def cashier_misc_sale():
 
     db.session.add(OrderItem(
         order_id=order.id,
-        product_id=0,
+        product_id=None,
         product_name=f"[Service] {service_name}",
         unit_price=amount,
         cost_price=0.0,
