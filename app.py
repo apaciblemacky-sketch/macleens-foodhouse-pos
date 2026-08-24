@@ -490,13 +490,12 @@ def tablet_kiosk():
 def api_tablet_checkout():
     data = request.get_json() or {}
     items = data.get('items', [])
-    table_number = data.get('table_number', 'Table Kiosk').strip() or 'Table Kiosk'
-    customer_name = data.get('customer_name', 'Tablet Guest').strip() or 'Tablet Guest'
+    customer_name = data.get('customer_name', 'Tablet Kiosk Guest').strip() or 'Tablet Kiosk Guest'
     pay_method = data.get('payment_method', 'CASH').upper()
-    notes = data.get('notes', '').strip() or 'Tablet Self-Order'
+    notes = data.get('notes', 'Tablet Self-Order').strip() or 'Tablet Self-Order'
 
     if not items:
-        return jsonify({'success': False, 'message': 'Cart is empty.'}), 400
+        return jsonify({'success': False, 'message': 'Ticket is empty.'}), 400
 
     subtotal = 0.0
     for it in items:
@@ -505,8 +504,8 @@ def api_tablet_checkout():
             subtotal += p.price * int(it['quantity'])
 
     order = Order(
-        order_type='DINE-IN/TABLET',
-        customer_name=f"{customer_name} ({table_number})",
+        order_type='TABLET',
+        customer_name=customer_name,
         contact_number='Kiosk',
         subtotal=subtotal,
         delivery_fee=0.0,
@@ -537,115 +536,7 @@ def api_tablet_checkout():
     db.session.commit()
     return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})
 
-# ==================== OPERATING HOURS & AUTH ENDPOINTS ====================
-
-@app.route('/admin/settings/hours', methods=['POST'])
-def update_store_hours():
-    if not (session.get('admin_user') or session.get('cashier_user')):
-        flash("Unauthorized", "error")
-        return redirect(request.referrer or url_for('store_catalog'))
-
-    keys = ['store_open_time', 'store_close_time', 'delivery_open_time', 'delivery_close_time']
-    for k in keys:
-        if k in request.form:
-            s = StoreSetting.query.filter_by(key=k).first()
-            if not s:
-                db.session.add(StoreSetting(key=k, value=request.form[k]))
-            else:
-                s.value = request.form[k]
-
-    for toggle in ['is_store_open', 'is_delivery_enabled']:
-        val = 'true' if request.form.get(toggle) == 'on' else 'false'
-        s = StoreSetting.query.filter_by(key=toggle).first()
-        if not s:
-            db.session.add(StoreSetting(key=toggle, value=val))
-        else:
-            s.value = val
-
-    db.session.commit()
-    flash("Operating schedule updated successfully!", "success")
-    return redirect(request.referrer or url_for('store_catalog'))
-
-@app.route('/auth/change-password', methods=['POST'])
-def change_staff_password():
-    staff_user = session.get('admin_user') or session.get('cashier_user') or session.get('kitchen_user') or session.get('rider_user')
-    if not staff_user:
-        flash("Please log in first.", "error")
-        return redirect(url_for('staff_login'))
-
-    staff = Staff.query.filter_by(username=staff_user).first()
-    old_p = request.form.get('old_password', '').strip()
-    new_p = request.form.get('new_password', '').strip()
-    conf_p = request.form.get('confirm_password', '').strip()
-
-    if not staff or not check_password_hash(staff.pin_hash, old_p):
-        flash("Current password / PIN is incorrect.", "error")
-        return redirect(request.referrer or url_for('store_catalog'))
-
-    if len(new_p) < 4:
-        flash("New password must be at least 4 characters.", "error")
-        return redirect(request.referrer or url_for('store_catalog'))
-
-    if new_p != conf_p:
-        flash("New passwords do not match.", "error")
-        return redirect(request.referrer or url_for('store_catalog'))
-
-    staff.pin_hash = generate_password_hash(new_p)
-    db.session.commit()
-    flash("Staff password successfully changed!", "success")
-    return redirect(request.referrer or url_for('store_catalog'))
-
-@app.route('/auth/change-staff-password', methods=['POST'])
-@require_cashier
-def change_specific_staff_password():
-    target_username = request.form.get('target_username', '').strip()
-    admin_pin = request.form.get('admin_pin', '').strip()
-    new_pin = request.form.get('new_pin', '').strip()
-
-    staff = Staff.query.filter_by(username=target_username).first()
-    if not staff:
-        flash("Staff user not found.", "error")
-        return redirect(url_for('cashier_terminal'))
-
-    current_user = session.get('admin_user') or session.get('cashier_user')
-    auth_staff = Staff.query.filter_by(username=current_user).first()
-
-    if not auth_staff or not check_password_hash(auth_staff.pin_hash, admin_pin):
-        flash("Authorization failed: Your current password/PIN is incorrect.", "error")
-        return redirect(url_for('cashier_terminal'))
-
-    if len(new_pin) < 4:
-        flash("New PIN/Password must be at least 4 characters.", "error")
-        return redirect(url_for('cashier_terminal'))
-
-    staff.pin_hash = generate_password_hash(new_pin)
-    db.session.commit()
-    flash(f"Successfully updated PIN for [{staff.username.upper()}] ({staff.role})!", "success")
-    return redirect(url_for('cashier_terminal'))
-
-@app.route('/portal/change-pin', methods=['POST'])
-def change_customer_pin():
-    if 'customer_id' not in session:
-        return redirect(url_for('customer_login'))
-
-    cust = Customer.query.get(session['customer_id'])
-    old_pin = request.form.get('old_pin', '').strip()
-    new_pin = request.form.get('new_pin', '').strip()
-
-    if not check_password_hash(cust.pin_hash, old_pin):
-        flash("Current PIN is incorrect.", "error")
-        return redirect(url_for('customer_dashboard'))
-
-    if len(new_pin) != 4 or not new_pin.isdigit():
-        flash("New PIN must be exactly 4 digits.", "error")
-        return redirect(url_for('customer_dashboard'))
-
-    cust.pin_hash = generate_password_hash(new_pin)
-    db.session.commit()
-    flash("Your 4-digit security PIN has been updated!", "success")
-    return redirect(url_for('customer_dashboard'))
-
-# ==================== CASHIER TERMINAL & COLLECTION MANAGEMENT ====================
+# ==================== CASHIER TERMINAL, DIRECT SALE & MISC SALE ====================
 
 @app.route('/pos/cashier')
 @require_cashier
@@ -692,7 +583,7 @@ def cashier_direct_sale():
     change_for = float(data.get('change_for') or 0.0)
 
     if not items:
-        return jsonify({'success': False, 'message': 'No items selected.'}), 400
+        return jsonify({'success': False, 'message': 'No items in cart.'}), 400
 
     subtotal = 0.0
     for it in items:
@@ -733,6 +624,64 @@ def cashier_direct_sale():
 
     db.session.commit()
     return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})
+
+@app.route('/pos/misc-sale', methods=['POST'])
+@require_cashier
+def cashier_misc_sale():
+    service_name = request.form.get('service_name', '').strip() or 'Printing / Custom Service'
+    amount = float(request.form.get('amount') or 0.0)
+    pay_method = request.form.get('payment_method', 'CASH')
+    notes = request.form.get('notes', '').strip() or 'Over-the-counter Misc Service'
+    reg_cust_id = request.form.get('registered_customer_id')
+    custom_name = request.form.get('custom_customer_name', '').strip()
+
+    if amount <= 0:
+        flash("Amount must be greater than zero.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    cust_id = None
+    customer_name = 'Walk-in Customer'
+    contact = 'N/A'
+
+    if reg_cust_id:
+        cust = Customer.query.get(reg_cust_id)
+        if cust:
+            cust_id = cust.id
+            customer_name = cust.name
+            contact = cust.contact
+            cust.accumulated_spend += amount
+    elif custom_name:
+        customer_name = custom_name
+
+    order = Order(
+        order_type='SERVICE/MISC',
+        customer_id=cust_id,
+        customer_name=customer_name,
+        contact_number=contact,
+        subtotal=amount,
+        delivery_fee=0.0,
+        total_amount=amount,
+        payment_method=pay_method,
+        payment_verified=True,
+        status='COMPLETED',
+        notes=notes
+    )
+    db.session.add(order)
+    db.session.flush()
+
+    db.session.add(OrderItem(
+        order_id=order.id,
+        product_id=None,
+        product_name=f"[Service] {service_name}",
+        unit_price=amount,
+        cost_price=0.0,
+        quantity=1,
+        subtotal=amount
+    ))
+
+    db.session.commit()
+    flash(f"Misc Sale recorded: {service_name} for {customer_name} (₱{amount:,.2f})", "success")
+    return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/create-collection', methods=['POST'])
 @require_cashier
@@ -820,47 +769,6 @@ def cashier_settle_collection(order_id):
     flash(f"Collection #{order.id} for {order.customer_name} fully settled via {pay_method}!", "success")
     return redirect(url_for('cashier_terminal'))
 
-@app.route('/pos/misc-sale', methods=['POST'])
-@require_cashier
-def cashier_misc_sale():
-    service_name = request.form.get('service_name', '').strip() or 'Printing / Custom Service'
-    amount = float(request.form.get('amount') or 0.0)
-    pay_method = request.form.get('payment_method', 'CASH')
-    notes = request.form.get('notes', '').strip() or 'Over-the-counter Misc Service'
-
-    if amount <= 0:
-        flash("Amount must be greater than zero.", "error")
-        return redirect(url_for('cashier_terminal'))
-
-    order = Order(
-        order_type='DINE-IN/WALKIN',
-        customer_name='Walk-in Customer',
-        contact_number='N/A',
-        subtotal=amount,
-        delivery_fee=0.0,
-        total_amount=amount,
-        payment_method=pay_method,
-        payment_verified=True,
-        status='COMPLETED',
-        notes=notes
-    )
-    db.session.add(order)
-    db.session.flush()
-
-    db.session.add(OrderItem(
-        order_id=order.id,
-        product_id=None,
-        product_name=f"[Service] {service_name}",
-        unit_price=amount,
-        cost_price=0.0,
-        quantity=1,
-        subtotal=amount
-    ))
-
-    db.session.commit()
-    flash(f"Misc Sale recorded: {service_name} (₱{amount:,.2f})", "success")
-    return redirect(url_for('cashier_terminal'))
-
 @app.route('/pos/record-expense', methods=['POST'])
 @require_cashier
 def cashier_record_expense():
@@ -925,9 +833,10 @@ def verify_order(order_id):
         flash(f"Order #{order.id} verified & sent to Kitchen.", "success")
     else:
         for item in order.items:
-            prod = Product.query.get(item.product_id)
-            if prod:
-                prod.stock += item.quantity
+            if item.product_id:
+                prod = Product.query.get(item.product_id)
+                if prod:
+                    prod.stock += item.quantity
         order.status = "CANCELLED"
         db.session.commit()
         flash(f"Order #{order.id} cancelled.", "info")

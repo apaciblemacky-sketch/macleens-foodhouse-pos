@@ -3,193 +3,187 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Macleen's Self-Order Kiosk</title>
+  <title>Macleen's Tablet Kiosk</title>
   <link rel="manifest" href="/static/manifest.json">
   <meta name="theme-color" content="#ff69b4">
   <style>
-    :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-bg: #fdf2f8; }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: var(--hk-bg); color: #1e293b; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-user-select: none; user-select: none; }
+    body { background: #0f172a; color: #1e293b; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-    header { background: white; border-bottom: 3px solid var(--hk-pink); padding: 10px 20px; display: flex; justify-content: space-between; align-items: center; }
-    .brand { display: flex; align-items: center; gap: 10px; font-weight: 900; color: var(--hk-dark); font-size: 1.2rem; }
-    .brand img { width: 44px; height: 44px; border-radius: 50%; border: 2px solid var(--hk-pink); }
+    header { background: #1e293b; color: white; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #334155; }
+    .kiosk-grid { display: grid; grid-template-columns: 1fr 340px 220px; flex: 1; height: calc(100vh - 45px); }
 
-    .kiosk-body { display: grid; grid-template-columns: 1fr 380px; flex: 1; height: calc(100vh - 65px); }
+    /* Left Menu & Categories */
+    .menu-pane { background: #0f172a; padding: 10px; display: flex; flex-direction: column; overflow-y: auto; }
+    .cat-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; flex-shrink: 0; }
+    .cat-btn { background: #334155; color: white; border: none; padding: 10px 14px; border-radius: 6px; font-weight: 800; font-size: 0.78rem; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+    .cat-btn.active { background: var(--hk-pink); }
 
-    /* Left Menu */
-    .menu-panel { padding: 14px; display: flex; flex-direction: column; overflow-y: auto; }
-    .cat-bar { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 12px; }
-    .cat-btn { background: white; border: 2px solid #fbcfe8; color: var(--hk-dark); padding: 8px 16px; border-radius: 20px; font-weight: 800; font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
-    .cat-btn.active { background: var(--hk-pink); color: white; border-color: var(--hk-pink); }
+    .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; flex: 1; }
+    .dish-tile { background: white; border: 2px solid #cbd5e1; border-radius: 6px; padding: 8px; height: 95px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; }
+    .dish-tile:active { background: #ffebf3; border-color: var(--hk-pink); }
 
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
-    .item-card { background: white; border: 1.5px solid #fbcfe8; border-radius: 12px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; transition: transform 0.1s; }
-    .item-card:active { transform: scale(0.97); }
-    .item-img { width: 100%; height: 95px; border-radius: 8px; object-fit: cover; margin-bottom: 6px; background: #fff0f5; }
-    .item-name { font-size: 0.85rem; font-weight: 800; margin-bottom: 4px; line-height: 1.2; }
-    .item-price { font-size: 1rem; font-weight: 900; color: var(--hk-pink); }
+    /* Center Bill */
+    .bill-pane { background: #1e293b; border-left: 2px solid #334155; display: flex; flex-direction: column; padding: 10px; }
+    .receipt { background: white; border-radius: 6px; flex: 1; padding: 10px; overflow-y: auto; }
 
-    /* Right Tray */
-    .tray-panel { background: white; border-left: 2px solid #fbcfe8; padding: 16px; display: flex; flex-direction: column; justify-content: space-between; }
-    .tray-list { flex: 1; overflow-y: auto; margin: 12px 0; border-top: 1px dashed #fbcfe8; border-bottom: 1px dashed #fbcfe8; padding: 8px 0; }
-    .tray-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #fdf2f8; font-size: 0.85rem; }
-    .btn-qty { width: 26px; height: 26px; border: 1px solid #cbd5e1; background: white; border-radius: 4px; font-weight: bold; cursor: pointer; }
-    .btn-submit { background: var(--hk-pink); color: white; border: none; padding: 14px; border-radius: 12px; font-size: 1.05rem; font-weight: 900; width: 100%; cursor: pointer; }
-    .form-control { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; margin-top: 4px; }
+    /* Right Keypad */
+    .keypad-pane { background: #1e293b; border-left: 2px solid #334155; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .pad-key { background: #334155; color: white; border: 1px solid #475569; border-radius: 6px; font-size: 1.2rem; font-weight: 900; height: 50px; display: flex; justify-content: center; align-items: center; cursor: pointer; }
+    .pad-key:active { background: var(--hk-pink); }
   </style>
 </head>
 <body>
 
   <header>
-    <div class="brand">
-      <img src="{{ store_logo }}" onerror="this.onerror=null; this.src='/static/logo.png';">
-      <span>MACLEEN'S TABLET KIOSK</span>
-    </div>
-    <span style="font-weight:bold; font-size:0.85rem; color:#831843;">✨ Tap dish to add to tray</span>
+    <strong style="color:var(--hk-pink); font-size:1.1rem;">🎀 MACLEEN'S TABLET TOUCH KIOSK</strong>
+    <button onclick="resetTicket()" style="background:#ef4444; color:white; border:none; padding:4px 10px; border-radius:4px; font-weight:bold; cursor:pointer;">CLEAR ALL</button>
   </header>
 
-  <div class="kiosk-body">
-    <!-- Menu Grid -->
-    <div class="menu-panel">
-      <div class="cat-bar">
+  <div class="kiosk-grid">
+    <!-- Categories + Dishes -->
+    <div class="menu-pane">
+      <div class="cat-strip">
         <button class="cat-btn active" onclick="filterCat('ALL', this)">ALL MENU</button>
-        {% for c in categories %}
-          <button class="cat-btn" onclick="filterCat('{{ c.name }}', this)">{{ c.name }}</button>
+        {% for cat in categories %}
+          <button class="cat-btn" onclick="filterCat('{{ cat.name }}', this)">{{ cat.name }}</button>
         {% endfor %}
       </div>
 
-      <div class="grid">
+      <div class="dish-grid">
         {% for p in products %}
-        <div class="item-card" data-cat="{{ p.category_name }}" onclick="addToTray({{ p.id }}, '{{ p.name }}', {{ p.price }})">
-          <div>
-            {% if p.image_url %}
-              <img src="{{ p.image_url }}" referrerpolicy="no-referrer" class="item-img" onerror="this.onerror=null; this.src='https://via.placeholder.com/150x95?text=Food';">
-            {% else %}
-              <div class="item-img" style="display:flex; align-items:center; justify-content:center; font-size:2rem;">🍲</div>
-            {% endif %}
-            <div class="item-name">{{ p.name }}</div>
-          </div>
-          <div class="item-price">₱{{ "{:,.2f}".format(p.price) }}</div>
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick="addItem({{ p.id }}, '{{ p.name }}', {{ p.price }})">
+          <div style="font-size:0.8rem; font-weight:900; line-height:1.2;">{{ p.name }}</div>
+          <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
         </div>
         {% endfor %}
       </div>
     </div>
 
-    <!-- Order Tray -->
-    <div class="tray-panel">
-      <div>
-        <h3 style="color:var(--hk-dark); font-size:1.1rem; margin-bottom:8px;">🛒 Your Table Tray</h3>
-        <div style="display:flex; gap:8px;">
-          <input type="text" id="tableNum" class="form-control" placeholder="Table # (e.g. Table 3)" value="Table 1" required>
-          <input type="text" id="custName" class="form-control" placeholder="Your Name" value="Guest">
-        </div>
+    <!-- Receipt Bill -->
+    <div class="bill-pane">
+      <div class="receipt" id="receiptBox">
+        <p style="color:#94a3b8; text-align:center; padding-top:40px;">Tap items to add.</p>
       </div>
 
-      <div class="tray-list" id="trayContainer">
-        <p style="color:#94a3b8; text-align:center; padding-top:40px;">Tray is empty. Tap any dish on the left to order.</p>
-      </div>
-
-      <div>
-        <div style="margin-bottom:8px;">
-          <label style="font-size:0.75rem; font-weight:bold;">Payment Method</label>
-          <select id="payMethod" class="form-control">
-            <option value="CASH">Pay at Cashier Counter (Cash)</option>
-            <option value="GCASH">GCash to Counter</option>
-          </select>
-        </div>
-
-        <div style="display:flex; justify-content:space-between; font-weight:900; font-size:1.2rem; color:var(--hk-dark); margin:10px 0;">
+      <div style="background:#0f172a; padding:10px; border-radius:6px; margin-top:10px; color:white;">
+        <div style="display:flex; justify-content:space-between; font-weight:900; font-size:1.3rem;">
           <span>TOTAL</span>
-          <span id="trayTotal">₱0.00</span>
+          <span style="color:var(--hk-pink);" id="kioskTotal">₱0.00</span>
         </div>
+        <button onclick="submitKiosk()" style="width:100%; background:var(--hk-pink); color:white; border:none; padding:12px; border-radius:6px; font-weight:900; margin-top:8px; font-size:1rem; cursor:pointer;">SEND TO CASHIER</button>
+      </div>
+    </div>
 
-        <button class="btn-submit" onclick="submitTabletOrder()">SEND ORDER TO CASHIER</button>
+    <!-- Keypad -->
+    <div class="keypad-pane">
+      <input type="text" id="keypadInput" placeholder="Card / PIN #" style="background:#0f172a; color:white; border:1px solid #64748b; padding:10px; border-radius:6px; text-align:center; font-weight:bold; font-size:1.1rem; margin-bottom:6px;">
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;">
+        <div class="pad-key" onclick="pressKey('1')">1</div>
+        <div class="pad-key" onclick="pressKey('2')">2</div>
+        <div class="pad-key" onclick="pressKey('3')">3</div>
+        <div class="pad-key" onclick="pressKey('4')">4</div>
+        <div class="pad-key" onclick="pressKey('5')">5</div>
+        <div class="pad-key" onclick="pressKey('6')">6</div>
+        <div class="pad-key" onclick="pressKey('7')">7</div>
+        <div class="pad-key" onclick="pressKey('8')">8</div>
+        <div class="pad-key" onclick="pressKey('9')">9</div>
+        <div class="pad-key" onclick="pressKey('C')" style="color:#f87171;">C</div>
+        <div class="pad-key" onclick="pressKey('0')">0</div>
+        <div class="pad-key" onclick="pressKey('OK')" style="color:#4ade80;">OK</div>
       </div>
     </div>
   </div>
 
   <script>
-    let tray = {};
+    let kCart = {};
 
     function filterCat(cat, btn) {
       document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      document.querySelectorAll('.item-card').forEach(card => {
-        card.style.display = (cat === 'ALL' || card.dataset.cat === cat) ? 'flex' : 'none';
+      document.querySelectorAll('.dish-tile').forEach(d => {
+        d.style.display = (cat === 'ALL' || d.dataset.cat === cat) ? 'flex' : 'none';
       });
     }
 
-    function addToTray(id, name, price) {
-      id = String(id);
-      if (tray[id]) {
-        tray[id].qty += 1;
-      } else {
-        tray[id] = { name: name, price: parseFloat(price), qty: 1 };
-      }
-      renderTray();
+    function pressKey(k) {
+      const inp = document.getElementById('keypadInput');
+      if (k === 'C') inp.value = '';
+      else if (k === 'OK') alert("Card/PIN input saved: " + (inp.value || "None"));
+      else inp.value += k;
     }
 
-    function updateTrayQty(id, delta) {
-      id = String(id);
-      if (tray[id]) {
-        tray[id].qty += delta;
-        if (tray[id].qty <= 0) delete tray[id];
-      }
-      renderTray();
+    function addItem(id, name, price) {
+      if (kCart[id]) kCart[id].qty += 1;
+      else kCart[id] = { name, price: parseFloat(price), qty: 1 };
+      renderKiosk();
     }
 
-    function renderTray() {
-      const container = document.getElementById('trayContainer');
-      const totalEl = document.getElementById('trayTotal');
-      const keys = Object.keys(tray);
+    function changeItemQty(id, delta) {
+      if (kCart[id]) {
+        kCart[id].qty += delta;
+        if (kCart[id].qty <= 0) delete kCart[id];
+      }
+      renderKiosk();
+    }
 
+    function removeItem(id) {
+      delete kCart[id];
+      renderKiosk();
+    }
+
+    function renderKiosk() {
+      const r = document.getElementById('receiptBox');
+      const keys = Object.keys(kCart);
       if (keys.length === 0) {
-        container.innerHTML = '<p style="color:#94a3b8; text-align:center; padding-top:40px;">Tray is empty. Tap any dish on the left to order.</p>';
-        totalEl.innerText = '₱0.00';
+        r.innerHTML = '<p style="color:#94a3b8; text-align:center; padding-top:40px;">Tap items to add.</p>';
+        document.getElementById('kioskTotal').innerText = '₱0.00';
         return;
       }
 
       let html = '';
-      let subtotal = 0;
+      let total = 0;
       keys.forEach(id => {
-        const item = tray[id];
-        const rowTotal = item.price * item.qty;
-        subtotal += rowTotal;
+        const item = kCart[id];
+        const row = item.price * item.qty;
+        total += row;
         html += `
-          <div class="tray-item">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #cbd5e1; font-size:0.82rem;">
             <div>
-              <strong>${item.name}</strong><br>
-              <span style="color:#64748b; font-size:0.75rem;">₱${item.price.toFixed(2)} ea</span>
+              <strong>${item.name}</strong>
+              <div style="font-size:0.75rem; color:#64748b;">₱${item.price.toFixed(2)}</div>
             </div>
-            <div style="display:flex; align-items:center; gap:6px;">
-              <button class="btn-qty" onclick="updateTrayQty('${id}', -1)">-</button>
+            <div style="display:flex; align-items:center; gap:4px;">
+              <button onclick="changeItemQty('${id}', -1)" style="padding:2px 6px; border:1px solid #cbd5e1; border-radius:3px; background:white; font-weight:bold;">-</button>
               <strong>${item.qty}</strong>
-              <button class="btn-qty" onclick="updateTrayQty('${id}', 1)">+</button>
-              <span style="font-weight:900; width:55px; text-align:right;">₱${rowTotal.toFixed(2)}</span>
+              <button onclick="changeItemQty('${id}', 1)" style="padding:2px 6px; border:1px solid #cbd5e1; border-radius:3px; background:white; font-weight:bold;">+</button>
+              <button onclick="removeItem('${id}')" style="background:#fee2e2; color:#ef4444; border:none; padding:2px 5px; border-radius:3px; font-weight:bold; cursor:pointer;">✕</button>
             </div>
-          </div>
-        `;
+          </div>`;
       });
 
-      container.innerHTML = html;
-      totalEl.innerText = `₱${subtotal.toFixed(2)}`;
+      r.innerHTML = html;
+      document.getElementById('kioskTotal').innerText = `₱${total.toFixed(2)}`;
     }
 
-    async function submitTabletOrder() {
-      const keys = Object.keys(tray);
-      if (keys.length === 0) return alert("Please select at least 1 item.");
+    function resetTicket() {
+      kCart = {};
+      renderKiosk();
+    }
 
-      const tableNum = document.getElementById('tableNum').value.trim() || 'Table Kiosk';
-      const custName = document.getElementById('custName').value.trim() || 'Tablet Guest';
-      const payMethod = document.getElementById('payMethod').value;
+    async function submitKiosk() {
+      const keys = Object.keys(kCart);
+      if (keys.length === 0) return alert("Ticket is empty.");
+
+      const cardPin = document.getElementById('keypadInput').value.trim();
 
       const payload = {
-        items: keys.map(id => ({ product_id: parseInt(id), quantity: tray[id].qty })),
-        table_number: tableNum,
-        customer_name: custName,
-        payment_method: payMethod,
-        notes: `Table Order from ${tableNum}`
+        items: keys.map(id => ({ product_id: parseInt(id), quantity: kCart[id].qty })),
+        payment_method: 'CASH',
+        customer_name: cardPin ? `Tablet Kiosk (PIN: ${cardPin})` : 'Tablet Kiosk Guest',
+        table_number: 'Table Counter',
+        notes: 'Tablet Self-Order'
       };
 
       try {
@@ -200,14 +194,13 @@
         });
         const data = await res.json();
         if (data.success) {
-          alert(`🎉 Order #${data.order_id} sent to Cashier!\nPlease proceed to pay or wait for your food.`);
-          tray = {};
-          renderTray();
+          alert(`🎉 Order #${data.order_id} sent to Cashier!\nTotal: ₱${data.total.toFixed(2)}\nPlease proceed to pay at the cashier.`);
+          resetTicket();
         } else {
-          alert(data.message || "Failed to submit order.");
+          alert(data.message || "Failed to send order.");
         }
       } catch(e) {
-        alert("Server error. Please call the cashier.");
+        alert("Server error connecting to cashier queue.");
       }
     }
   </script>

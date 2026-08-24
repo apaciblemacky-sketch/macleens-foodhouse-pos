@@ -17,19 +17,23 @@
     body { background: #0f172a; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
     header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
-    .pos-layout { display: grid; grid-template-columns: 360px 1fr 350px; flex: 1; height: calc(100vh - 45px); }
+    .pos-layout { display: grid; grid-template-columns: 320px 1fr 340px 310px; flex: 1; height: calc(100vh - 45px); }
 
     .queue-panel { background: #1e293b; border-right: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .ticket-card { background: #334155; border-radius: 8px; padding: 10px; margin-bottom: 10px; border-left: 4px solid var(--hk-pink); font-size: 0.85rem; }
 
     .catalog-panel { background: #0f172a; padding: 10px; display: flex; flex-direction: column; overflow-y: auto; }
     .cat-bar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; flex-shrink: 0; }
-    .cat-btn { background: #334155; color: white; border: none; padding: 10px 14px; border-radius: 6px; font-weight: 800; font-size: 0.78rem; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+    .cat-btn { background: #334155; color: white; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 800; font-size: 0.75rem; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
     .cat-btn.active { background: var(--hk-pink); }
 
-    .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(115px, 1fr)); gap: 8px; }
-    .dish-tile { background: #1e293b; border: 1.5px solid #334155; border-radius: 8px; padding: 8px; height: 90px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; transition: all 0.1s; }
+    .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: 8px; }
+    .dish-tile { background: #1e293b; border: 1.5px solid #334155; border-radius: 8px; padding: 8px; height: 85px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; transition: all 0.1s; }
     .dish-tile:hover { border-color: var(--hk-pink); background: #334155; transform: scale(1.02); }
+
+    /* Counter Live Cart Panel */
+    .pos-cart-panel { background: #182234; border-left: 2px solid #334155; display: flex; flex-direction: column; padding: 10px; }
+    .cart-items-box { background: #0f172a; border-radius: 6px; border: 1px solid #334155; flex: 1; padding: 8px; overflow-y: auto; }
 
     .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
@@ -59,36 +63,30 @@
   </header>
 
   <div class="pos-layout">
-    <!-- Verification Queue (Includes Online & Tablet Orders) -->
+    <!-- 1. Verification Queue (Online, Delivery, & Tablet Orders) -->
     <div class="queue-panel">
-      <h3 style="font-size:0.9rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
+      <h3 style="font-size:0.85rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
       {% for o in pending_orders %}
       <div class="ticket-card">
         <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;">
           <span>#{{ o.id }} ({{ o.order_type }})</span>
           <span style="color:var(--hk-pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</span>
         </div>
-        <div style="color:#cbd5e1; font-size:0.78rem; margin-bottom:6px;">
+        <div style="color:#cbd5e1; font-size:0.75rem; margin-bottom:6px;">
           👤 {{ o.customer_name }} | 📞 {{ o.contact_number }}<br>
-          {% if o.fb_messenger %}💬 FB: {{ o.fb_messenger }}<br>{% endif %}
           💳 {{ o.payment_method }}{% if o.gcash_ref %} (Ref: {{ o.gcash_ref }}){% endif %}
           
           {% if o.change_for and o.change_for > o.total_amount %}
-            <span style="display:inline-block; background:#065f46; color:#34d399; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.72rem; margin-left:4px;">
+            <span style="display:inline-block; background:#065f46; color:#34d399; padding:1px 5px; border-radius:4px; font-weight:bold; font-size:0.7rem;">
               💵 Bill: ₱{{ "{:,.2f}".format(o.change_for) }} | Change: ₱{{ "{:,.2f}".format(o.change_for - o.total_amount) }}
-            </span>
-          {% elif o.change_for and o.change_for == o.total_amount %}
-            <span style="display:inline-block; background:#1e3a8a; color:#93c5fd; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.72rem; margin-left:4px;">
-              💵 Exact Amount
             </span>
           {% endif %}
           <br>
-
           {% if o.landmark %}🚩 Landmark: <strong>{{ o.landmark }}</strong><br>{% endif %}
           📝 Notes: <strong>{{ o.notes }}</strong>
         </div>
 
-        <div style="background:#1e293b; padding:6px; border-radius:4px; margin-bottom:6px; font-size:0.75rem;">
+        <div style="background:#1e293b; padding:5px; border-radius:4px; margin-bottom:6px; font-size:0.72rem;">
           {% for it in o.items %}
             <div>• {{ it.product_name }} x{{ it.quantity }}</div>
           {% endfor %}
@@ -113,7 +111,7 @@
       {% endfor %}
     </div>
 
-    <!-- Center Menu: Direct On-Screen POS Tap-To-Order -->
+    <!-- 2. Center Catalog (Tap to add to Live Register Cart) -->
     <div class="catalog-panel">
       <div class="cat-bar">
         <button class="cat-btn active" onclick="filterCat('ALL', this)">ALL</button>
@@ -124,129 +122,166 @@
 
       <div class="dish-grid">
         {% for p in products %}
-        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick="openDirectRegisterSale({{ p.id }}, '{{ p.name }}', {{ p.price }})">
-          <div style="font-size:0.78rem; font-weight:bold; line-height:1.2;">{{ p.name }}</div>
-          <div style="font-size:0.9rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick="addPosCartItem({{ p.id }}, '{{ p.name }}', {{ p.price }})">
+          <div style="font-size:0.75rem; font-weight:bold; line-height:1.2;">{{ p.name }}</div>
+          <div style="font-size:0.85rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
         </div>
         {% endfor %}
       </div>
     </div>
 
-    <!-- Right Panels: Wi-Fi, Collections, Deliveries, Pickups -->
+    <!-- 3. Counter Cart Tray (Items queue here before settlement) -->
+    <div class="pos-cart-panel">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <h3 style="font-size:0.85rem; color:#f472b6;">🛒 Counter Tray</h3>
+        <button onclick="clearPosCart()" style="background:#ef4444; color:white; border:none; padding:2px 6px; border-radius:4px; font-size:0.7rem; cursor:pointer;">Clear</button>
+      </div>
+
+      <div class="cart-items-box" id="posCartList">
+        <p style="color:#64748b; font-size:0.75rem; text-align:center; padding-top:40px;">Tap items from menu to add to cart.</p>
+      </div>
+
+      <div style="margin-top:8px; border-top:1px solid #334155; padding-top:6px;">
+        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.05rem; color:var(--hk-pink); margin-bottom:6px;">
+          <span>TOTAL:</span>
+          <span id="posCartTotal">₱0.00</span>
+        </div>
+
+        <div style="display:flex; gap:4px; margin-bottom:6px;">
+          <select id="posPayMethod" class="form-input" style="margin-bottom:0; flex:1;">
+            <option value="CASH">Cash</option>
+            <option value="GCASH">GCash</option>
+          </select>
+          <input type="number" id="posCashBill" placeholder="Bill (₱)" class="form-input" style="margin-bottom:0; width:95px;" oninput="updatePosChangePreview()">
+        </div>
+
+        <div id="posChangePreview" style="font-size:0.75rem; color:#34d399; font-weight:bold; margin-bottom:6px; min-height:16px;"></div>
+
+        <button onclick="submitPosCartSale()" style="width:100%; background:#16a34a; color:white; border:none; padding:10px; border-radius:6px; font-weight:900; font-size:0.85rem; cursor:pointer;">RECORD SALE (PAID)</button>
+      </div>
+    </div>
+
+    <!-- 4. Right Status Panels: Collections, Deliveries, Pickups -->
     <div class="pickup-panel">
-      
       <!-- Unpaid / For Collection Panel -->
-      <div style="background:#1e293b; border:1.5px solid #f43f5e; border-radius:8px; padding:10px; margin-bottom:12px;">
-        <h3 style="font-size:0.84rem; color:#fb7185; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
-          <span>📋 Unpaid / For Collection</span>
-          <span style="background:#e11d48; color:white; padding:2px 8px; border-radius:12px; font-size:0.72rem; font-weight:900;">{{ unpaid_collections|length }}</span>
+      <div style="background:#1e293b; border:1.5px solid #f43f5e; border-radius:8px; padding:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.8rem; color:#fb7185; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+          <span>📋 For Collection</span>
+          <span style="background:#e11d48; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ unpaid_collections|length }}</span>
         </h3>
-        <div style="max-height:140px; overflow-y:auto;">
+        <div style="max-height:120px; overflow-y:auto;">
           {% for uc in unpaid_collections %}
-          <div style="font-size:0.75rem; padding:6px 0; border-bottom:1px dashed #475569; color:#cbd5e1;">
+          <div style="font-size:0.72rem; padding:4px 0; border-bottom:1px dashed #475569; color:#cbd5e1;">
             <div style="display:flex; justify-content:space-between; font-weight:bold;">
               <span>{{ uc.customer_name }}</span>
               <span style="color:#f43f5e;">₱{{ "{:,.2f}".format(uc.total_amount) }}</span>
             </div>
-            <div style="color:#94a3b8; font-size:0.7rem;">{{ uc.notes }} {% if uc.collection_notes %}({{ uc.collection_notes }}){% endif %}</div>
-            <form action="/pos/settle-collection/{{ uc.id }}" method="POST" style="display:flex; gap:4px; margin-top:4px;">
-              <select name="payment_method" style="flex:1; background:#0f172a; border:1px solid #475569; color:white; font-size:0.7rem; border-radius:4px; padding:2px;">
-                <option value="CASH">Paid: Cash</option>
-                <option value="GCASH">Paid: GCash</option>
+            <form action="/pos/settle-collection/{{ uc.id }}" method="POST" style="display:flex; gap:3px; margin-top:2px;">
+              <select name="payment_method" style="flex:1; background:#0f172a; border:1px solid #475569; color:white; font-size:0.68rem; border-radius:3px; padding:1px;">
+                <option value="CASH">Cash</option>
+                <option value="GCASH">GCash</option>
               </select>
-              <button type="submit" style="background:#10b981; color:white; border:none; padding:2px 8px; border-radius:4px; font-size:0.7rem; font-weight:bold; cursor:pointer;">Settle</button>
+              <button type="submit" style="background:#10b981; color:white; border:none; padding:1px 6px; border-radius:3px; font-size:0.68rem; font-weight:bold; cursor:pointer;">Settle</button>
             </form>
           </div>
           {% endfor %}
           {% if not unpaid_collections %}
-            <div style="font-size:0.72rem; color:#64748b; text-align:center; padding:6px 0;">No active unpaid collections.</div>
+            <div style="font-size:0.7rem; color:#64748b; text-align:center;">No unpaid collections.</div>
           {% endif %}
         </div>
       </div>
 
-      <!-- Wi-Fi Claims & Monitor Panel -->
-      <div style="background:#1e293b; border:1.5px solid #3b82f6; border-radius:8px; padding:10px; margin-bottom:12px;">
-        <h3 style="font-size:0.84rem; color:#60a5fa; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
-          <span>📶 Today's Wi-Fi Claims</span>
-          <span style="background:#2563eb; color:white; padding:2px 8px; border-radius:12px; font-size:0.72rem; font-weight:900;">Total: {{ today_wifi_claims|length }}</span>
+      <!-- Wi-Fi Claims Panel -->
+      <div style="background:#1e293b; border:1.5px solid #3b82f6; border-radius:8px; padding:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.8rem; color:#60a5fa; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+          <span>📶 Wi-Fi Claims Today</span>
+          <span style="background:#2563eb; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ today_wifi_claims|length }}</span>
         </h3>
-        <div style="max-height:120px; overflow-y:auto;">
+        <div style="max-height:100px; overflow-y:auto;">
           {% for w in today_wifi_claims %}
-          <div style="font-size:0.75rem; padding:4px 0; border-bottom:1px dashed #334155; color:#cbd5e1;">
+          <div style="font-size:0.7rem; padding:3px 0; border-bottom:1px dashed #334155; color:#cbd5e1;">
             <div style="display:flex; justify-content:space-between;">
               <strong>{{ w.name }}</strong>
-              <span style="color:#fbbf24; font-family:monospace; font-weight:bold;">{{ w.wifi_voucher_code }}</span>
+              <span style="color:#fbbf24; font-family:monospace;">{{ w.wifi_voucher_code }}</span>
             </div>
-            <form action="/pos/update-wifi-minutes/{{ w.id }}" method="POST" style="display:flex; align-items:center; gap:4px; margin-top:2px;">
-              <span style="font-size:0.7rem; color:#38bdf8;">Time left:</span>
-              <input type="number" name="wifi_minutes" value="{{ w.wifi_minutes_left if w.wifi_minutes_left is not none else 10 }}" min="0" max="180" style="width:45px; padding:2px 4px; border:1px solid #475569; background:#0f172a; color:#fff; border-radius:4px; font-size:0.75rem; text-align:center;">
-              <span style="font-size:0.7rem; color:#94a3b8;">mins</span>
-              <button type="submit" style="background:#0284c7; color:white; border:none; padding:2px 6px; border-radius:4px; font-size:0.68rem; font-weight:bold; cursor:pointer;">Set</button>
+            <form action="/pos/update-wifi-minutes/{{ w.id }}" method="POST" style="display:flex; align-items:center; gap:3px; margin-top:2px;">
+              <span style="color:#38bdf8;">Left:</span>
+              <input type="number" name="wifi_minutes" value="{{ w.wifi_minutes_left if w.wifi_minutes_left is not none else 10 }}" min="0" max="180" style="width:38px; padding:1px 2px; border:1px solid #475569; background:#0f172a; color:#fff; border-radius:3px; font-size:0.7rem; text-align:center;">
+              <button type="submit" style="background:#0284c7; color:white; border:none; padding:1px 4px; border-radius:3px; font-size:0.65rem; font-weight:bold; cursor:pointer;">Set</button>
             </form>
           </div>
           {% endfor %}
-          {% if not today_wifi_claims %}
-            <div style="font-size:0.72rem; color:#64748b; text-align:center; padding:6px 0;">No Wi-Fi vouchers claimed today.</div>
-          {% endif %}
         </div>
       </div>
 
-      <h3 style="font-size:0.88rem; color:#38bdf8; margin-bottom:8px;">🛵 Out For Delivery ({{ out_for_delivery|length }})</h3>
+      <h3 style="font-size:0.8rem; color:#38bdf8; margin-bottom:6px;">🛵 Out For Delivery ({{ out_for_delivery|length }})</h3>
       {% for od in out_for_delivery %}
-      <div style="background:#334155; padding:8px; border-radius:6px; margin-bottom:6px; font-size:0.78rem;">
+      <div style="background:#334155; padding:6px; border-radius:6px; margin-bottom:4px; font-size:0.75rem;">
         <div><strong>#{{ od.id }}</strong> — {{ od.customer_name }}</div>
-        <div style="color:#94a3b8;">Rider: {{ od.assigned_rider }}</div>
-        <form action="/pos/confirm-delivery/{{ od.id }}" method="POST" style="margin-top:4px;">
-          <button class="btn-act" style="background:#16a34a; color:white; width:100%; font-size:0.72rem;">✓ Confirm Delivery</button>
+        <form action="/pos/confirm-delivery/{{ od.id }}" method="POST" style="margin-top:2px;">
+          <button class="btn-act" style="background:#16a34a; color:white; width:100%; font-size:0.7rem; padding:3px;">✓ Confirm Delivery</button>
         </form>
       </div>
       {% endfor %}
 
-      <h3 style="font-size:0.88rem; color:#4ade80; margin:14px 0 6px;">🛍️ Ready For Pickup ({{ ready_orders|length }})</h3>
+      <h3 style="font-size:0.8rem; color:#4ade80; margin:10px 0 6px;">🛍️ Ready For Pickup ({{ ready_orders|length }})</h3>
       {% for ro in ready_orders %}
-      <div style="background:#334155; padding:8px; border-radius:6px; margin-bottom:6px; font-size:0.78rem;">
+      <div style="background:#334155; padding:6px; border-radius:6px; margin-bottom:4px; font-size:0.75rem;">
         <div><strong>#{{ ro.id }}</strong> — {{ ro.customer_name }}</div>
-        <form action="/pos/complete/{{ ro.id }}" method="POST" style="margin-top:4px;">
-          <button class="btn-act" style="background:#3b82f6; color:white; width:100%;">COMPLETE</button>
+        <form action="/pos/complete/{{ ro.id }}" method="POST" style="margin-top:2px;">
+          <button class="btn-act" style="background:#3b82f6; color:white; width:100%; font-size:0.7rem; padding:3px;">COMPLETE</button>
         </form>
       </div>
       {% endfor %}
     </div>
   </div>
 
-  <!-- DIRECT REGISTER SALE MODAL -->
-  <div id="directSaleModal" class="modal-backdrop">
-    <div class="modal-box" style="border-color:#ec4899;">
+  <!-- 1. MISCELLANEOUS SERVICE MODAL (With Registered Customer Link) -->
+  <div id="miscModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#8b5cf6;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#f472b6; font-size:1rem;" id="directSaleTitle">⚡ Counter Register Sale</h3>
-        <button onclick="closeModal('directSaleModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+        <h3 style="color:#c084fc; font-size:1rem;">🖨️ Record Miscellaneous / Printing Service</h3>
+        <button onclick="closeModal('miscModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
-      <div>
-        <input type="hidden" id="directProdId">
-        <input type="hidden" id="directProdPrice">
+      <form action="/pos/misc-sale" method="POST">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Link to Registered Customer (Optional)</label>
+        <select name="registered_customer_id" class="form-input">
+          <option value="">-- Anonymous / General Walk-in --</option>
+          {% for c in customers_list %}
+            <option value="{{ c.id }}">{{ c.name }} ({{ c.contact }})</option>
+          {% endfor %}
+        </select>
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Quantity</label>
-        <div style="display:flex; gap:8px; margin-bottom:8px; align-items:center;">
-          <input type="number" id="directQty" value="1" min="1" class="form-input" style="width:80px; text-align:center; margin-bottom:0;" oninput="updateDirectTotal()">
-          <span style="font-size:1.1rem; font-weight:900; color:var(--hk-pink);" id="directTotalDisplay">₱0.00</span>
-        </div>
+        <label style="font-size:0.75rem; color:#cbd5e1;">Custom Customer Name (If not registered)</label>
+        <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Kagawad Cruz">
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Service Name *</label>
+        <input type="text" name="service_name" class="form-input" list="serviceSuggestions" placeholder="e.g., Document Printing, Scanning, Rush Service" required>
+        <datalist id="serviceSuggestions">
+          <option value="Document Printing">
+          <option value="Photo Printing">
+          <option value="Scanning / Laminating">
+          <option value="Rush Service Fee">
+        </datalist>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱) *</label>
+        <input type="number" step="0.25" name="amount" class="form-input" placeholder="0.00" required>
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Payment Method</label>
-        <select id="directPayMethod" class="form-input">
+        <select name="payment_method" class="form-input">
           <option value="CASH">Cash</option>
           <option value="GCASH">GCash</option>
         </select>
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Cash Bill (For Change Calculation)</label>
-        <input type="number" id="directCashBill" class="form-input" placeholder="e.g. 100, 500" oninput="updateDirectTotal()">
-        <div id="directChangeDue" style="font-size:0.75rem; color:#34d399; font-weight:bold; margin-bottom:10px;"></div>
+        <label style="font-size:0.75rem; color:#cbd5e1;">Notes / Specifics</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g., 10 pages black and white">
 
-        <button type="button" onclick="submitDirectSale()" style="background:#ec4899; color:white; border:none; padding:10px; border-radius:6px; width:100%; font-weight:bold; font-size:0.85rem; cursor:pointer;">COMPLETE & RECORD SALE</button>
-      </div>
+        <button type="submit" style="background:#8b5cf6; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Service Sale</button>
+      </form>
     </div>
   </div>
 
-  <!-- 1. UNPAID / FOR COLLECTION MODAL -->
+  <!-- 2. FOR COLLECTION MODAL -->
   <div id="collectionModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f43f5e;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -271,61 +306,26 @@
 
         <div id="customCustBox" style="display:none;">
           <label style="font-size:0.75rem; color:#cbd5e1;">Customer Specific Name *</label>
-          <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Kagawad Santos / Teacher Elena">
-
+          <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Teacher Elena">
           <label style="font-size:0.75rem; color:#cbd5e1;">Contact / Address</label>
-          <input type="text" name="custom_contact" class="form-input" placeholder="0917xxxxxxx / Brgy. Poblacion">
+          <input type="text" name="custom_contact" class="form-input" placeholder="0917xxxxxxx / Poblacion">
         </div>
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Item / Service Description *</label>
-        <input type="text" name="title" class="form-input" placeholder="e.g. 5x Silog meals for Lunch meeting" required>
+        <input type="text" name="title" class="form-input" placeholder="e.g. 5x Meals for meeting" required>
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Payable Amount (₱) *</label>
         <input type="number" step="0.25" name="amount" class="form-input" placeholder="0.00" required>
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Collection Notes / Due Date</label>
-        <input type="text" name="notes" class="form-input" placeholder="e.g. To be paid on Friday payroll">
+        <input type="text" name="notes" class="form-input" placeholder="e.g. To be paid on payroll">
 
         <button type="submit" style="background:#f43f5e; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Unpaid Collection</button>
       </form>
     </div>
   </div>
 
-  <!-- 2. MISC SERVICE / PRINTING MODAL -->
-  <div id="miscModal" class="modal-backdrop">
-    <div class="modal-box" style="border-color:#8b5cf6;">
-      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#c084fc; font-size:1rem;">🖨️ Add Miscellaneous Sale / Custom Service</h3>
-        <button onclick="closeModal('miscModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
-      </div>
-      <form action="/pos/misc-sale" method="POST">
-        <label style="font-size:0.75rem; color:#cbd5e1;">Service Name</label>
-        <input type="text" name="service_name" class="form-input" list="serviceSuggestions" placeholder="e.g., Document Printing, Scanning, Custom Print" required>
-        <datalist id="serviceSuggestions">
-          <option value="Document Printing">
-          <option value="Photo Printing">
-          <option value="Scanning / Laminating">
-          <option value="Rush Service Fee">
-        </datalist>
-
-        <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱)</label>
-        <input type="number" step="0.25" name="amount" class="form-input" placeholder="0.00" required>
-
-        <label style="font-size:0.75rem; color:#cbd5e1;">Payment Method</label>
-        <select name="payment_method" class="form-input">
-          <option value="CASH">Cash</option>
-          <option value="GCASH">GCash</option>
-        </select>
-
-        <label style="font-size:0.75rem; color:#cbd5e1;">Notes / Quantity</label>
-        <input type="text" name="notes" class="form-input" placeholder="e.g., 5 pages colored prints">
-
-        <button type="submit" style="background:#8b5cf6; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Service Sale</button>
-      </form>
-    </div>
-  </div>
-
-  <!-- 3. DAILY EXPENSES MODAL -->
+  <!-- 3. EXPENSES MODAL -->
   <div id="expenseModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f59e0b;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -333,8 +333,8 @@
         <button onclick="closeModal('expenseModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
       <form action="/pos/record-expense" method="POST">
-        <label style="font-size:0.75rem; color:#cbd5e1;">Expense Name / Description</label>
-        <input type="text" name="title" class="form-input" placeholder="e.g., Ice purchase, Mineral Water, Paper cup refill" required>
+        <label style="font-size:0.75rem; color:#cbd5e1;">Expense Description</label>
+        <input type="text" name="title" class="form-input" placeholder="e.g., Ice purchase, Cup supplies" required>
 
         <div style="display:flex; gap:8px;">
           <div style="flex:1;">
@@ -357,7 +357,7 @@
     </div>
   </div>
 
-  <!-- 4. SAFE VAULT CASH DROPS MODAL -->
+  <!-- 4. SAFE VAULT DROPS MODAL -->
   <div id="vaultModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#10b981;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -378,14 +378,14 @@
         <input type="number" step="0.25" name="amount" class="form-input" placeholder="e.g. 5000.00" required>
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Witness / Shift Notes</label>
-        <input type="text" name="notes" class="form-input" placeholder="e.g., Midday excess cash safe transfer">
+        <input type="text" name="notes" class="form-input" placeholder="e.g., Excess register transfer">
 
         <button type="submit" style="background:#10b981; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Confirm Vault Drop</button>
       </form>
     </div>
   </div>
 
-  <!-- 5. OPERATING HOURS & INDIVIDUAL STAFF PASSWORD MODAL -->
+  <!-- 5. SETTINGS & STAFF PASSWORD MODAL -->
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -393,7 +393,6 @@
         <button onclick="closeModal('settingsModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
 
-      <!-- Operating Hours Form -->
       <form action="/admin/settings/hours" method="POST" style="margin-bottom:16px;">
         <h4 style="color:#fbcfe8; font-size:0.85rem; margin-bottom:6px;">⏰ Operating Hours</h4>
         <div style="display:flex; gap:8px; margin-bottom:6px;">
@@ -419,29 +418,26 @@
         <button type="submit" style="background:#ec4899; color:white; border:none; padding:6px; border-radius:4px; width:100%; font-weight:bold; font-size:0.75rem; cursor:pointer;">Save Operating Schedule</button>
       </form>
 
-      <!-- Explicit Staff Password Selector Form -->
       <form action="/auth/change-staff-password" method="POST">
         <h4 style="color:#fbcfe8; font-size:0.85rem; margin-bottom:6px;">🔒 Change Specific Staff Account Password</h4>
-        
-        <label style="font-size:0.7rem; color:#94a3b8;">Select Account to Change</label>
+        <label style="font-size:0.7rem; color:#94a3b8;">Select Account</label>
         <select name="target_username" class="form-input" required>
           {% for s in staff_list %}
             <option value="{{ s.username }}">Account: {{ s.username.upper() }} (Role: {{ s.role }})</option>
           {% endfor %}
         </select>
-
-        <label style="font-size:0.7rem; color:#94a3b8;">New PIN / Password (Min 4 chars)</label>
+        <label style="font-size:0.7rem; color:#94a3b8;">New PIN / Password</label>
         <input type="password" name="new_pin" minlength="4" class="form-input" placeholder="••••" required>
-
-        <label style="font-size:0.7rem; color:#94a3b8;">Current Logged-in Staff PIN (For Authorization)</label>
-        <input type="password" name="admin_pin" class="form-input" placeholder="Your current PIN" required>
-
+        <label style="font-size:0.7rem; color:#94a3b8;">Your Logged-in Staff PIN (For Verification)</label>
+        <input type="password" name="admin_pin" class="form-input" placeholder="Current PIN" required>
         <button type="submit" style="background:#334155; color:white; border:1px solid #64748b; padding:6px; border-radius:4px; width:100%; font-weight:bold; font-size:0.75rem; cursor:pointer;">Update Staff Password</button>
       </form>
     </div>
   </div>
 
   <script>
+    let posCart = {};
+
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
@@ -459,44 +455,100 @@
       });
     }
 
-    /* Direct Counter POS Register Sale Handlers */
-    function openDirectRegisterSale(id, name, price) {
-      document.getElementById('directProdId').value = id;
-      document.getElementById('directProdPrice').value = price;
-      document.getElementById('directSaleTitle').innerText = `⚡ ${name}`;
-      document.getElementById('directQty').value = 1;
-      document.getElementById('directCashBill').value = '';
-      updateDirectTotal();
-      openModal('directSaleModal');
+    /* Counter Cart Functions */
+    function addPosCartItem(id, name, price) {
+      id = String(id);
+      if (posCart[id]) {
+        posCart[id].qty += 1;
+      } else {
+        posCart[id] = { name: name, price: parseFloat(price), qty: 1 };
+      }
+      renderPosCart();
     }
 
-    function updateDirectTotal() {
-      const price = parseFloat(document.getElementById('directProdPrice').value) || 0;
-      const qty = parseInt(document.getElementById('directQty').value) || 1;
-      const total = price * qty;
-      document.getElementById('directTotalDisplay').innerText = `₱${total.toFixed(2)}`;
+    function updatePosQty(id, delta) {
+      id = String(id);
+      if (posCart[id]) {
+        posCart[id].qty += delta;
+        if (posCart[id].qty <= 0) delete posCart[id];
+      }
+      renderPosCart();
+    }
 
-      const bill = parseFloat(document.getElementById('directCashBill').value) || 0;
-      const changeEl = document.getElementById('directChangeDue');
-      if (bill > total) {
-        changeEl.innerText = `💵 Change: ₱${(bill - total).toFixed(2)}`;
+    function clearPosCart() {
+      posCart = {};
+      renderPosCart();
+    }
+
+    function renderPosCart() {
+      const box = document.getElementById('posCartList');
+      const totalEl = document.getElementById('posCartTotal');
+      const keys = Object.keys(posCart);
+
+      if (keys.length === 0) {
+        box.innerHTML = '<p style="color:#64748b; font-size:0.75rem; text-align:center; padding-top:40px;">Tap items from menu to add to cart.</p>';
+        totalEl.innerText = '₱0.00';
+        updatePosChangePreview();
+        return;
+      }
+
+      let html = '';
+      let subtotal = 0;
+      keys.forEach(id => {
+        const item = posCart[id];
+        const row = item.price * item.qty;
+        subtotal += row;
+        html += `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px dashed #334155; font-size:0.75rem;">
+            <div>
+              <div style="font-weight:bold;">${item.name}</div>
+              <div style="color:#94a3b8; font-size:0.68rem;">₱${item.price.toFixed(2)}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:3px;">
+              <button onclick="updatePosQty('${id}', -1)" style="padding:1px 5px; background:#334155; color:white; border:none; border-radius:3px; font-weight:bold; cursor:pointer;">-</button>
+              <strong style="min-width:14px; text-align:center;">${item.qty}</strong>
+              <button onclick="updatePosQty('${id}', 1)" style="padding:1px 5px; background:#334155; color:white; border:none; border-radius:3px; font-weight:bold; cursor:pointer;">+</button>
+              <span style="font-weight:bold; width:50px; text-align:right; color:var(--hk-pink);">₱${row.toFixed(2)}</span>
+            </div>
+          </div>
+        `;
+      });
+
+      box.innerHTML = html;
+      totalEl.innerText = `₱${subtotal.toFixed(2)}`;
+      updatePosChangePreview();
+    }
+
+    function updatePosChangePreview() {
+      const keys = Object.keys(posCart);
+      const preview = document.getElementById('posChangePreview');
+      const bill = parseFloat(document.getElementById('posCashBill').value) || 0;
+
+      let subtotal = 0;
+      keys.forEach(id => { subtotal += posCart[id].price * posCart[id].qty; });
+
+      if (bill > subtotal && subtotal > 0) {
+        preview.innerText = `💵 Change: ₱${(bill - subtotal).toFixed(2)}`;
+      } else if (bill === subtotal && subtotal > 0) {
+        preview.innerText = `💵 Exact cash given`;
       } else {
-        changeEl.innerText = '';
+        preview.innerText = '';
       }
     }
 
-    async function submitDirectSale() {
-      const prodId = parseInt(document.getElementById('directProdId').value);
-      const qty = parseInt(document.getElementById('directQty').value) || 1;
-      const pay = document.getElementById('directPayMethod').value;
-      const bill = parseFloat(document.getElementById('directCashBill').value) || 0;
+    async function submitPosCartSale() {
+      const keys = Object.keys(posCart);
+      if (keys.length === 0) return alert("Cart is empty. Tap items to add first.");
+
+      const payMethod = document.getElementById('posPayMethod').value;
+      const bill = parseFloat(document.getElementById('posCashBill').value) || 0;
 
       const payload = {
-        items: [{ product_id: prodId, quantity: qty }],
-        payment_method: pay,
+        items: keys.map(id => ({ product_id: parseInt(id), quantity: posCart[id].qty })),
+        payment_method: payMethod,
         change_for: bill,
         customer_name: 'Counter Walk-in',
-        notes: 'Direct Cashier Screen Sale'
+        notes: 'Cashier On-Screen Counter Sale'
       };
 
       try {
@@ -507,14 +559,15 @@
         });
         const data = await res.json();
         if (data.success) {
-          alert(`🎉 Sale #${data.order_id} recorded! (₱${data.total.toFixed(2)})`);
-          closeModal('directSaleModal');
+          alert(`🎉 Sale #${data.order_id} recorded! Total: ₱${data.total.toFixed(2)}`);
+          clearPosCart();
+          document.getElementById('posCashBill').value = '';
           window.location.reload();
         } else {
           alert(data.message || "Failed to record sale.");
         }
       } catch(e) {
-        alert("Server error processing register sale.");
+        alert("Server error recording sale.");
       }
     }
 
