@@ -320,6 +320,10 @@ def store_catalog():
                            unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits)
 
+@app.route('/promo/burger-deal')
+def promo_burger_deal():
+    return render_template('promo_burger_deal.html')
+
 @app.route('/product/<int:product_id>')
 def product_detail(product_id):
     prod = Product.query.get_or_404(product_id)
