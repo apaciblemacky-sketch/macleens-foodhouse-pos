@@ -17,7 +17,7 @@
     body { background: #0f172a; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
     header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
-    .pos-layout { display: grid; grid-template-columns: 320px 1fr 340px 310px; flex: 1; height: calc(100vh - 45px); }
+    .pos-layout { display: grid; grid-template-columns: 340px 1fr 340px 310px; flex: 1; height: calc(100vh - 45px); }
 
     .queue-panel { background: #1e293b; border-right: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .ticket-card { background: #334155; border-radius: 8px; padding: 10px; margin-bottom: 10px; border-left: 4px solid var(--hk-pink); font-size: 0.85rem; }
@@ -40,6 +40,13 @@
     .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center; }
     .modal-box { background: #1e293b; color: white; border: 2px solid #ec4899; border-radius: 12px; width: 90%; max-width: 480px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
     .form-input { width: 100%; background: #0f172a; border: 1px solid #475569; color: white; padding: 6px 8px; border-radius: 4px; font-size: 0.8rem; margin-bottom: 8px; }
+
+    /* Print Template Overlay */
+    @media print {
+      body * { visibility: hidden; }
+      #printableReceipt, #printableReceipt * { visibility: visible; }
+      #printableReceipt { position: absolute; left: 0; top: 0; width: 100%; }
+    }
   </style>
 </head>
 <body>
@@ -63,7 +70,7 @@
   </header>
 
   <div class="pos-layout">
-    <!-- 1. Verification Queue (Online, Delivery, & Tablet Orders) -->
+    <!-- 1. Verification Queue -->
     <div class="queue-panel">
       <h3 style="font-size:0.85rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
       {% for o in pending_orders %}
@@ -77,7 +84,7 @@
           💳 {{ o.payment_method }}{% if o.gcash_ref %} (Ref: {{ o.gcash_ref }}){% endif %}
           
           {% if o.change_for and o.change_for > o.total_amount %}
-            <span style="display:inline-block; background:#065f46; color:#34d399; padding:1px 5px; border-radius:4px; font-weight:bold; font-size:0.7rem;">
+            <span style="display:inline-block; background:#065f46; color:#34d399; padding:1px 5px; border-radius:4px; font-weight:bold; font-size:0.7rem; margin-top:2px;">
               💵 Bill: ₱{{ "{:,.2f}".format(o.change_for) }} | Change: ₱{{ "{:,.2f}".format(o.change_for - o.total_amount) }}
             </span>
           {% endif %}
@@ -92,26 +99,22 @@
           {% endfor %}
         </div>
 
-        <form action="/pos/verify/{{ o.id }}" method="POST">
-          <input type="hidden" name="action" value="ACCEPT">
-          {% if o.order_type == 'DELIVERY' %}
-            <select name="assigned_rider" style="width:100%; padding:4px; border-radius:4px; margin-bottom:6px; background:#0f172a; color:white; border:1px solid #475569; font-size:0.75rem;">
-              <option value="">-- Assign Delivery Rider --</option>
-              {% for r in riders %}
-                <option value="{{ r.username }}">{{ r.username }} ({{ r.plate_number }})</option>
-              {% endfor %}
-            </select>
-          {% endif %}
-          <div style="display:flex; gap:4px;">
-            <button type="submit" class="btn-act" style="background:#16a34a; color:white; flex:1;">✓ ACCEPT</button>
-            <button type="submit" name="action" value="REJECT" class="btn-act" style="background:#ef4444; color:white;">✕</button>
-          </div>
-        </form>
+        <div style="display:flex; gap:4px;">
+          <form action="/pos/verify/{{ o.id }}" method="POST" style="flex:1;">
+            <input type="hidden" name="action" value="ACCEPT">
+            <button type="submit" class="btn-act" style="background:#16a34a; color:white; width:100%;">✓ ACCEPT & COMPLETE</button>
+          </form>
+          <button onclick="printOrderSlip({{ o.id }}, '{{ o.customer_name }}', '{{ o.order_type }}', {{ o.total_amount }})" class="btn-act" style="background:#0284c7; color:white;">🖨️</button>
+          <form action="/pos/verify/{{ o.id }}" method="POST">
+            <input type="hidden" name="action" value="REJECT">
+            <button type="submit" class="btn-act" style="background:#ef4444; color:white;">✕</button>
+          </form>
+        </div>
       </div>
       {% endfor %}
     </div>
 
-    <!-- 2. Center Catalog (Tap to add to Live Register Cart) -->
+    <!-- 2. Center Catalog -->
     <div class="catalog-panel">
       <div class="cat-bar">
         <button class="cat-btn active" onclick="filterCat('ALL', this)">ALL</button>
@@ -130,14 +133,14 @@
       </div>
     </div>
 
-    <!-- 3. Counter Cart Tray with Customer Selection -->
+    <!-- 3. Counter Cart Tray -->
     <div class="pos-cart-panel">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
         <h3 style="font-size:0.85rem; color:#f472b6;">🛒 Counter Tray</h3>
         <button onclick="clearPosCart()" style="background:#ef4444; color:white; border:none; padding:2px 6px; border-radius:4px; font-size:0.7rem; cursor:pointer;">Clear</button>
       </div>
 
-      <!-- Customer Input / Link -->
+      <!-- Customer Account Link -->
       <div style="background:#0f172a; padding:6px; border-radius:6px; border:1px solid #334155; margin-bottom:6px;">
         <label style="font-size:0.68rem; color:#94a3b8; font-weight:bold; display:block; margin-bottom:2px;">Customer Account Type:</label>
         <select id="posCustType" class="form-input" style="margin-bottom:4px; padding:3px; font-size:0.75rem;" onchange="togglePosCustSelect()">
@@ -181,7 +184,7 @@
       </div>
     </div>
 
-    <!-- 4. Right Status Panels: Collections, Deliveries, Pickups -->
+    <!-- 4. Right Status Panels: Collections & Live Wi-Fi -->
     <div class="pickup-panel">
       <!-- Unpaid / For Collection Panel -->
       <div style="background:#1e293b; border:1.5px solid #f43f5e; border-radius:8px; padding:8px; margin-bottom:10px;">
@@ -234,25 +237,19 @@
         </div>
       </div>
 
-      <h3 style="font-size:0.8rem; color:#38bdf8; margin-bottom:6px;">🛵 Out For Delivery ({{ out_for_delivery|length }})</h3>
-      {% for od in out_for_delivery %}
-      <div style="background:#334155; padding:6px; border-radius:6px; margin-bottom:4px; font-size:0.75rem;">
-        <div><strong>#{{ od.id }}</strong> — {{ od.customer_name }}</div>
-        <form action="/pos/confirm-delivery/{{ od.id }}" method="POST" style="margin-top:2px;">
-          <button class="btn-act" style="background:#16a34a; color:white; width:100%; font-size:0.7rem; padding:3px;">✓ Confirm Delivery</button>
-        </form>
+      <!-- Recent Completed Sales for Quick Printing -->
+      <h3 style="font-size:0.8rem; color:#38bdf8; margin-bottom:6px;">🧾 Recent Completed Sales</h3>
+      <div style="max-height:180px; overflow-y:auto;">
+        {% for ro in completed_orders %}
+        <div style="background:#334155; padding:6px; border-radius:6px; margin-bottom:4px; font-size:0.72rem; display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong>#{{ ro.id }}</strong> — {{ ro.customer_name }}<br>
+            <span style="color:var(--hk-pink); font-weight:bold;">₱{{ "{:,.2f}".format(ro.total_amount) }}</span>
+          </div>
+          <button onclick="printOrderSlip({{ ro.id }}, '{{ ro.customer_name }}', '{{ ro.order_type }}', {{ ro.total_amount }})" class="btn-act" style="background:#0284c7; color:white; padding:3px 6px; font-size:0.68rem;">🖨️ Print</button>
+        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
-
-      <h3 style="font-size:0.8rem; color:#4ade80; margin:10px 0 6px;">🛍️ Ready For Pickup ({{ ready_orders|length }})</h3>
-      {% for ro in ready_orders %}
-      <div style="background:#334155; padding:6px; border-radius:6px; margin-bottom:4px; font-size:0.75rem;">
-        <div><strong>#{{ ro.id }}</strong> — {{ ro.customer_name }}</div>
-        <form action="/pos/complete/{{ ro.id }}" method="POST" style="margin-top:2px;">
-          <button class="btn-act" style="background:#3b82f6; color:white; width:100%; font-size:0.7rem; padding:3px;">COMPLETE</button>
-        </form>
-      </div>
-      {% endfor %}
     </div>
   </div>
 
@@ -409,7 +406,7 @@
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#f472b6; font-size:1.05rem;">⚙️ Store Settings & Staff Passwords</h3>
+        <h3 style="color:#f472b6; font-size:1.05rem;">⚙️ Store Settings & Passwords</h3>
         <button onclick="closeModal('settingsModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
 
@@ -437,23 +434,11 @@
         </div>
         <button type="submit" style="background:#ec4899; color:white; border:none; padding:6px; border-radius:4px; width:100%; font-weight:bold; font-size:0.75rem; cursor:pointer;">Save Operating Schedule</button>
       </form>
-
-      <form action="/auth/change-staff-password" method="POST">
-        <h4 style="color:#fbcfe8; font-size:0.85rem; margin-bottom:6px;">🔒 Change Specific Staff Account Password</h4>
-        <label style="font-size:0.7rem; color:#94a3b8;">Select Account</label>
-        <select name="target_username" class="form-input" required>
-          {% for s in staff_list %}
-            <option value="{{ s.username }}">Account: {{ s.username.upper() }} (Role: {{ s.role }})</option>
-          {% endfor %}
-        </select>
-        <label style="font-size:0.7rem; color:#94a3b8;">New PIN / Password</label>
-        <input type="password" name="new_pin" minlength="4" class="form-input" placeholder="••••" required>
-        <label style="font-size:0.7rem; color:#94a3b8;">Your Logged-in Staff PIN (For Verification)</label>
-        <input type="password" name="admin_pin" class="form-input" placeholder="Current PIN" required>
-        <button type="submit" style="background:#334155; color:white; border:1px solid #64748b; padding:6px; border-radius:4px; width:100%; font-weight:bold; font-size:0.75rem; cursor:pointer;">Update Staff Password</button>
-      </form>
     </div>
   </div>
+
+  <!-- Thermal Print Modal Container -->
+  <div id="printableReceipt" style="display:none; color:black; font-family:monospace; padding:10px;"></div>
 
   <script>
     let posCart = {};
@@ -605,7 +590,26 @@
       }
     }
 
-    /* Cashier Order Incoming Alert Sound */
+    function printOrderSlip(orderId, custName, orderType, total) {
+      const p = document.getElementById('printableReceipt');
+      p.innerHTML = `
+        <div style="text-align:center; font-size:12px; font-weight:bold;">
+          MACLEEN'S FOOD HOUSE<br>
+          -----------------------------<br>
+          ORDER SLIP #${orderId}<br>
+          TYPE: ${orderType}<br>
+          CUSTOMER: ${custName}<br>
+          DATE: ${new Date().toLocaleString()}<br>
+          -----------------------------<br>
+          TOTAL: ₱${parseFloat(total).toFixed(2)}<br>
+          -----------------------------<br>
+          * PASS TO KITCHEN / PACKING *
+        </div>
+      `;
+      window.print();
+    }
+
+    /* Cashier Order Incoming Sound */
     function playCashierBeep() {
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();

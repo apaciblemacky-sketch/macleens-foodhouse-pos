@@ -38,8 +38,7 @@ class Staff(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     pin_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False)
-    plate_number = db.Column(db.String(30), nullable=True)
+    role = db.Column(db.String(20), nullable=False) # ADMIN or CASHIER
     active = db.Column(db.Boolean, default=True)
 
 class Customer(db.Model):
@@ -134,10 +133,6 @@ class Order(db.Model):
     payment_method = db.Column(db.String(20), nullable=False)
     payment_verified = db.Column(db.Boolean, default=False)
     status = db.Column(db.String(30), default="VERIFICATION")
-    assigned_rider = db.Column(db.String(80), nullable=True)
-    rider_delivered = db.Column(db.Boolean, default=False)
-    customer_delivered = db.Column(db.Boolean, default=False)
-    cashier_delivered = db.Column(db.Boolean, default=False)
     is_unpaid = db.Column(db.Boolean, default=False)
     collection_notes = db.Column(db.String(255), nullable=True)
     notes = db.Column(db.Text, nullable=False, default="None")
@@ -273,31 +268,13 @@ def require_cashier(f):
         return f(*args, **kwargs)
     return decorated
 
-def require_kitchen(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not (session.get('kitchen_user') or session.get('admin_user')):
-            return redirect(url_for('staff_login', target='kitchen'))
-        return f(*args, **kwargs)
-    return decorated
-
-def require_rider(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not (session.get('rider_user') or session.get('admin_user')):
-            return redirect(url_for('staff_login', target='rider'))
-        return f(*args, **kwargs)
-    return decorated
-
 # ==================== REAL-TIME POLLING API ====================
 
 @app.route('/api/queue-counts')
 def api_queue_counts():
     pending_cashier = Order.query.filter_by(status="VERIFICATION").count()
-    pending_kitchen = Order.query.filter(Order.status.in_(['KITCHEN_QUEUE', 'PREPARING'])).count()
     return jsonify({
-        'pending_cashier': pending_cashier,
-        'pending_kitchen': pending_kitchen
+        'pending_cashier': pending_cashier
     })
 
 # ==================== STOREFRONT ====================
@@ -497,7 +474,6 @@ def api_tablet_checkout():
     if not items:
         return jsonify({'success': False, 'message': 'Ticket is empty.'}), 400
 
-    # Auto-match registered customer if PIN / Card # or Contact is provided
     cust_id = None
     contact_num = 'Kiosk'
     if 'PIN:' in customer_name:
@@ -552,10 +528,8 @@ def cashier_terminal():
     categories = Category.query.all()
     products = Product.query.filter_by(is_active=True).all()
     pending_orders = Order.query.filter_by(status="VERIFICATION").order_by(Order.created_at.asc()).all()
-    ready_orders = Order.query.filter_by(status="READY").order_by(Order.created_at.asc()).all()
-    out_for_delivery = Order.query.filter_by(status="OUT_FOR_DELIVERY").order_by(Order.created_at.asc()).all()
+    completed_orders = Order.query.filter_by(status="COMPLETED").order_by(Order.created_at.desc()).limit(15).all()
     unpaid_collections = Order.query.filter_by(is_unpaid=True).order_by(Order.created_at.desc()).all()
-    riders = Staff.query.filter_by(role='RIDER', active=True).all()
     today_wifi_claims = Customer.query.filter_by(last_wifi_claim=date.today()).all()
     staff_list = Staff.query.all()
     customers_list = Customer.query.order_by(Customer.name.asc()).all()
@@ -569,10 +543,8 @@ def cashier_terminal():
                            categories=categories, 
                            products=products, 
                            pending_orders=pending_orders, 
-                           ready_orders=ready_orders, 
-                           out_for_delivery=out_for_delivery,
+                           completed_orders=completed_orders,
                            unpaid_collections=unpaid_collections,
-                           riders=riders, 
                            today_wifi_claims=today_wifi_claims,
                            staff_list=staff_list,
                            customers_list=customers_list,
@@ -861,26 +833,19 @@ def verify_order(order_id):
 
     if action == 'ACCEPT':
         order.payment_verified = True
-        rider = request.form.get('assigned_rider')
-        if rider:
-            order.assigned_rider = rider
+        order.status = "COMPLETED"
 
-        needs_kitchen = False
-        for item in order.items:
-            if item.product_id:
-                p = Product.query.get(item.product_id)
-                if p and p.category_name and 'ulam' not in p.category_name.lower():
-                    needs_kitchen = True
-                    break
-
-        if needs_kitchen:
-            order.status = "KITCHEN_QUEUE"
-            flash(f"Order #{order.id} verified & sent to Kitchen.", "success")
-        else:
-            order.status = "READY"
-            flash(f"Order #{order.id} contains ready-made Ulam — Bypassed Kitchen and set to READY!", "success")
+        if order.customer_id and order.payment_method != "CREDIT":
+            cust = Customer.query.get(order.customer_id)
+            if cust:
+                cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
+                earned = int(order.total_amount // 30)
+                if earned > 0:
+                    cust.points_balance = (cust.points_balance or 0.0) + earned
+                    db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
 
         db.session.commit()
+        flash(f"Order #{order.id} accepted and completed. Details ready to print!", "success")
     else:
         for item in order.items:
             if item.product_id:
@@ -893,120 +858,7 @@ def verify_order(order_id):
 
     return redirect(url_for('cashier_terminal'))
 
-@app.route('/pos/confirm-delivery/<int:order_id>', methods=['POST'])
-@require_cashier
-def cashier_confirm_delivery(order_id):
-    order = Order.query.get_or_404(order_id)
-    order.cashier_delivered = True
-
-    if order.rider_delivered and (order.customer_delivered or order.cashier_delivered):
-        order.status = "COMPLETED"
-        if order.customer_id and order.payment_method != "CREDIT":
-            cust = Customer.query.get(order.customer_id)
-            if cust:
-                cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
-                earned = int(order.total_amount // 30)
-                if earned > 0:
-                    cust.points_balance = (cust.points_balance or 0.0) + earned
-                    db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
-    db.session.commit()
-    flash(f"Order #{order.id} delivery verified by Cashier.", "success")
-    return redirect(url_for('cashier_terminal'))
-
-@app.route('/pos/complete/<int:order_id>', methods=['POST'])
-@require_cashier
-def complete_order(order_id):
-    order = Order.query.get_or_404(order_id)
-    order.status = "COMPLETED"
-
-    if order.customer_id and order.payment_method != "CREDIT":
-        cust = Customer.query.get(order.customer_id)
-        if cust:
-            cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
-            earned = int(order.total_amount // 30)
-            if earned > 0:
-                cust.points_balance = (cust.points_balance or 0.0) + earned
-                db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
-
-    db.session.commit()
-    flash(f"Order #{order.id} completed & archived.", "success")
-    return redirect(url_for('cashier_terminal'))
-
-# ==================== KITCHEN QUEUE ====================
-
-@app.route('/portal/kitchen')
-@require_kitchen
-def kitchen_queue():
-    queue = Order.query.filter(Order.status.in_(['KITCHEN_QUEUE', 'PREPARING'])).order_by(Order.created_at.asc()).all()
-    return render_template('kitchen_kds.html', queue=queue)
-
-@app.route('/portal/kitchen/status/<int:order_id>', methods=['POST'])
-@require_kitchen
-def update_kitchen_status(order_id):
-    order = Order.query.get_or_404(order_id)
-    new_status = request.form.get('status')
-    if new_status in ['PREPARING', 'READY']:
-        order.status = new_status
-        db.session.commit()
-    return redirect(url_for('kitchen_queue'))
-
-# ==================== RIDER HUB ====================
-
-@app.route('/portal/rider')
-@require_rider
-def rider_portal():
-    current_rider = session.get('rider_user')
-    pending_active_deliveries = Order.query.filter(
-        Order.assigned_rider == current_rider,
-        Order.status == 'OUT_FOR_DELIVERY'
-    ).count()
-
-    can_accept_more = (pending_active_deliveries == 0)
-    ready_deliveries = Order.query.filter_by(status="READY", order_type="DELIVERY").all()
-    my_deliveries = Order.query.filter_by(status="OUT_FOR_DELIVERY", assigned_rider=current_rider).all()
-
-    return render_template('rider_portal.html', 
-                           ready_deliveries=ready_deliveries, 
-                           my_deliveries=my_deliveries,
-                           can_accept_more=can_accept_more,
-                           pending_active_deliveries=pending_active_deliveries)
-
-@app.route('/portal/rider/claim-batch', methods=['POST'])
-@require_rider
-def rider_claim_batch():
-    current_rider = session.get('rider_user')
-    order_ids = request.form.getlist('order_ids')
-    for oid in order_ids:
-        order = Order.query.get(oid)
-        if order and order.status == 'READY':
-            order.status = "OUT_FOR_DELIVERY"
-            order.assigned_rider = current_rider
-    db.session.commit()
-    flash(f"Claimed {len(order_ids)} orders for dispatch!", "success")
-    return redirect(url_for('rider_portal'))
-
-@app.route('/portal/rider/mark-delivered/<int:order_id>', methods=['POST'])
-@require_rider
-def rider_mark_delivered(order_id):
-    order = Order.query.get_or_404(order_id)
-    order.rider_delivered = True
-
-    if order.rider_delivered and (order.customer_delivered or order.cashier_delivered):
-        order.status = "COMPLETED"
-        if order.customer_id and order.payment_method != "CREDIT":
-            cust = Customer.query.get(order.customer_id)
-            if cust:
-                cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
-                earned = int(order.total_amount // 30)
-                if earned > 0:
-                    cust.points_balance = (cust.points_balance or 0.0) + earned
-                    db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
-
-    db.session.commit()
-    flash(f"Order #{order.id} confirmed by Rider. Awaiting customer confirmation.", "info")
-    return redirect(url_for('rider_portal'))
-
-# ==================== MASTER ADMIN & SETTINGS ====================
+# ==================== MASTER ADMIN, CONTROLS & SETTINGS ====================
 
 @app.route('/admin')
 @require_admin
@@ -1027,6 +879,7 @@ def admin_dashboard():
     staff_members = Staff.query.all()
     customers = Customer.query.order_by(Customer.id.desc()).all()
     delivery_zones = DeliveryZone.query.all()
+    all_orders = Order.query.order_by(Order.created_at.desc()).limit(100).all()
 
     unique_visitors = SiteVisitor.query.count()
     total_accumulated_visits = db.session.query(db.func.coalesce(db.func.sum(SiteVisitor.visit_count), 0)).scalar() or unique_visitors
@@ -1043,6 +896,7 @@ def admin_dashboard():
                            staff_members=staff_members, 
                            customers=customers, 
                            delivery_zones=delivery_zones,
+                           all_orders=all_orders,
                            unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits,
                            total_rev=total_rev,
@@ -1050,6 +904,42 @@ def admin_dashboard():
                            estimated_profit=estimated_profit,
                            total_ar=total_ar,
                            current_sort=sort_by)
+
+@app.route('/admin/revert-order/<int:order_id>', methods=['POST'])
+@require_admin
+def admin_revert_order(order_id):
+    order = Order.query.get_or_404(order_id)
+    
+    # 1. Restock items
+    for item in order.items:
+        if item.product_id:
+            p = Product.query.get(item.product_id)
+            if p:
+                p.stock += item.quantity
+
+    # 2. Reverse customer points / spend if completed
+    if order.customer_id and order.status == 'COMPLETED':
+        cust = Customer.query.get(order.customer_id)
+        if cust:
+            earned = int(order.total_amount // 30)
+            cust.points_balance = max(0.0, (cust.points_balance or 0.0) - earned)
+            cust.accumulated_spend = max(0.0, (cust.accumulated_spend or 0.0) - order.total_amount)
+            db.session.add(RewardLedger(
+                customer_id=cust.id,
+                points_change=-earned,
+                reason=f"Admin Reverted Sale #{order.id}"
+            ))
+
+    # 3. If it was an unpaid collection, reverse the AR balance
+    if order.is_unpaid and order.customer_id:
+        cust = Customer.query.get(order.customer_id)
+        if cust:
+            cust.outstanding_ar = max(0.0, (cust.outstanding_ar or 0.0) - order.total_amount)
+
+    db.session.delete(order)
+    db.session.commit()
+    flash(f"Order #{order_id} has been completely deleted & reverted (inventory and points restored).", "info")
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/purge-dummy-orders/<int:cust_id>', methods=['POST'])
 @require_admin
@@ -1276,29 +1166,6 @@ def customer_dashboard():
     my_orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).all()
     return render_template('customer_dashboard.html', cust=cust, orders=my_orders, today=date.today())
 
-@app.route('/portal/confirm-received/<int:order_id>', methods=['POST'])
-def customer_confirm_received(order_id):
-    if 'customer_id' not in session:
-        return redirect(url_for('customer_login'))
-    order = Order.query.get_or_404(order_id)
-    if order.customer_id != session['customer_id']:
-        return "Unauthorized", 403
-
-    order.customer_delivered = True
-    if order.rider_delivered and (order.customer_delivered or order.cashier_delivered):
-        order.status = "COMPLETED"
-        cust = Customer.query.get(order.customer_id)
-        if cust and order.payment_method != "CREDIT":
-            cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
-            earned = int(order.total_amount // 30)
-            if earned > 0:
-                cust.points_balance = (cust.points_balance or 0.0) + earned
-                db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
-
-    db.session.commit()
-    flash(f"Order #{order.id} confirmed as received! Thank you!", "success")
-    return redirect(url_for('customer_dashboard'))
-
 @app.route('/portal/update-profile-pic', methods=['POST'])
 def update_profile_pic():
     if 'customer_id' not in session:
@@ -1347,14 +1214,6 @@ def staff_login():
                 session['cashier_id'] = staff.id
                 session['cashier_user'] = staff.username
                 return redirect(url_for('cashier_terminal'))
-            elif staff.role == 'KITCHEN':
-                session['kitchen_id'] = staff.id
-                session['kitchen_user'] = staff.username
-                return redirect(url_for('kitchen_queue'))
-            elif staff.role == 'RIDER':
-                session['rider_id'] = staff.id
-                session['rider_user'] = staff.username
-                return redirect(url_for('rider_portal'))
         flash('Invalid Username or PIN.', 'error')
     return render_template('staff_login.html', target=target)
 
@@ -1363,8 +1222,6 @@ def staff_logout():
     role = request.args.get('role')
     if role == 'admin': session.pop('admin_id', None); session.pop('admin_user', None)
     elif role == 'cashier': session.pop('cashier_id', None); session.pop('cashier_user', None)
-    elif role == 'kitchen': session.pop('kitchen_id', None); session.pop('kitchen_user', None)
-    elif role == 'rider': session.pop('rider_id', None); session.pop('rider_user', None)
     else: session.clear()
     flash('Logged out.', 'info')
     return redirect(url_for('staff_login'))
@@ -1374,15 +1231,13 @@ def staff_logout():
 with app.app_context():
     db.create_all()
     default_roles = [
-        ('admin', '1234', 'ADMIN', None),
-        ('cashier1', '1111', 'CASHIER', None),
-        ('kitchen1', '2222', 'KITCHEN', None),
-        ('rider1', '3333', 'RIDER', 'MFH-01')
+        ('admin', '1234', 'ADMIN'),
+        ('cashier1', '1111', 'CASHIER')
     ]
-    for user, pin, role, plate in default_roles:
+    for user, pin, role in default_roles:
         st = Staff.query.filter_by(username=user).first()
         if not st:
-            db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role, plate_number=plate))
+            db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))
         else:
             st.pin_hash = generate_password_hash(pin)
             st.role = role
