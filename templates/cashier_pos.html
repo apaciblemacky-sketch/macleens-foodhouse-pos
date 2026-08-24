@@ -40,13 +40,6 @@
     .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center; }
     .modal-box { background: #1e293b; color: white; border: 2px solid #ec4899; border-radius: 12px; width: 90%; max-width: 480px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
     .form-input { width: 100%; background: #0f172a; border: 1px solid #475569; color: white; padding: 6px 8px; border-radius: 4px; font-size: 0.8rem; margin-bottom: 8px; }
-
-    /* Print Template Overlay */
-    @media print {
-      body * { visibility: hidden; }
-      #printableReceipt, #printableReceipt * { visibility: visible; }
-      #printableReceipt { position: absolute; left: 0; top: 0; width: 100%; }
-    }
   </style>
 </head>
 <body>
@@ -75,13 +68,13 @@
     <div class="queue-panel">
       <h3 style="font-size:0.85rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
       {% for o in pending_orders %}
-      <div class="ticket-card">
+      <div class="ticket-card" id="ticket-{{ o.id }}">
         <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;">
           <span>#{{ o.id }} ({{ o.order_type }})</span>
           <span style="color:var(--hk-pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</span>
         </div>
         <div style="color:#cbd5e1; font-size:0.75rem; margin-bottom:6px;">
-          👤 {{ o.customer_name }} | 📞 {{ o.contact_number }}<br>
+          👤 <span class="order-cust-name">{{ o.customer_name }}</span> | 📞 {{ o.contact_number }}<br>
           💳 {{ o.payment_method }}{% if o.gcash_ref %} (Ref: {{ o.gcash_ref }}){% endif %}
           
           {% if o.change_for and o.change_for > o.total_amount %}
@@ -94,9 +87,9 @@
           📝 Notes: <strong>{{ o.notes }}</strong>
         </div>
 
-        <div style="background:#1e293b; padding:5px; border-radius:4px; margin-bottom:6px; font-size:0.72rem;">
+        <div class="order-items-box" style="background:#1e293b; padding:5px; border-radius:4px; margin-bottom:6px; font-size:0.72rem;">
           {% for it in o.items %}
-            <div>• {{ it.product_name }} x{{ it.quantity }}</div>
+            <div class="order-item-line">• {{ it.product_name }} x{{ it.quantity }}</div>
           {% endfor %}
         </div>
 
@@ -105,7 +98,7 @@
             <input type="hidden" name="action" value="ACCEPT">
             <button type="submit" class="btn-act" style="background:#16a34a; color:white; width:100%;">✓ ACCEPT & COMPLETE</button>
           </form>
-          <button onclick="printOrderSlip({{ o.id }}, '{{ o.customer_name }}', '{{ o.order_type }}', {{ o.total_amount }})" class="btn-act" style="background:#0284c7; color:white;">🖨️</button>
+          <button type="button" onclick="printQueueSlip({{ o.id }}, '{{ o.order_type }}', {{ o.total_amount }})" class="btn-act" style="background:#0284c7; color:white;" title="Print Slip">🖨️</button>
           <form action="/pos/verify/{{ o.id }}" method="POST">
             <input type="hidden" name="action" value="REJECT">
             <button type="submit" class="btn-act" style="background:#ef4444; color:white;">✕</button>
@@ -141,7 +134,6 @@
         <button onclick="clearPosCart()" style="background:#ef4444; color:white; border:none; padding:2px 6px; border-radius:4px; font-size:0.7rem; cursor:pointer;">Clear</button>
       </div>
 
-      <!-- Customer Account Link -->
       <div style="background:#0f172a; padding:6px; border-radius:6px; border:1px solid #334155; margin-bottom:6px;">
         <label style="font-size:0.68rem; color:#94a3b8; font-weight:bold; display:block; margin-bottom:2px;">Customer Account Type:</label>
         <select id="posCustType" class="form-input" style="margin-bottom:4px; padding:3px; font-size:0.75rem;" onchange="togglePosCustSelect()">
@@ -247,7 +239,7 @@
             <strong>#{{ ro.id }}</strong> — {{ ro.customer_name }}<br>
             <span style="color:var(--hk-pink); font-weight:bold;">₱{{ "{:,.2f}".format(ro.total_amount) }}</span>
           </div>
-          <button onclick="printOrderSlip({{ ro.id }}, '{{ ro.customer_name }}', '{{ ro.order_type }}', {{ ro.total_amount }})" class="btn-act" style="background:#0284c7; color:white; padding:3px 6px; font-size:0.68rem;">🖨️ Print</button>
+          <button type="button" onclick="printSimpleSlip('{{ ro.id }}', '{{ ro.customer_name|replace('\'', '') }}', '{{ ro.order_type }}', '{{ '{:,.2f}'.format(ro.total_amount) }}')" class="btn-act" style="background:#0284c7; color:white; padding:3px 6px; font-size:0.68rem;">🖨️ Print</button>
         </div>
         {% endfor %}
       </div>
@@ -467,9 +459,6 @@
     </div>
   </div>
 
-  <!-- Thermal Print Modal Container -->
-  <div id="printableReceipt" style="display:none; color:black; font-family:monospace; padding:10px;"></div>
-
   <script>
     let posCart = {};
 
@@ -586,8 +575,9 @@
       const payMethod = document.getElementById('posPayMethod').value;
       const bill = parseFloat(document.getElementById('posCashBill').value) || 0;
 
-      if (custType === 'REGISTERED' and not regCustId):
+      if (custType === 'REGISTERED' && !regCustId) {
         return alert("Please choose a registered member to credit points.");
+      }
 
       const payload = {
         items: keys.map(id => ({ product_id: parseInt(id), quantity: posCart[id].qty })),
@@ -619,23 +609,94 @@
       }
     }
 
-    function printOrderSlip(orderId, custName, orderType, total) {
-      const p = document.getElementById('printableReceipt');
-      p.innerHTML = `
-        <div style="text-align:center; font-size:12px; font-weight:bold;">
-          MACLEEN'S FOOD HOUSE<br>
-          -----------------------------<br>
-          ORDER SLIP #${orderId}<br>
-          TYPE: ${orderType}<br>
-          CUSTOMER: ${custName}<br>
-          DATE: ${new Date().toLocaleString()}<br>
-          -----------------------------<br>
-          TOTAL: ₱${parseFloat(total).toFixed(2)}<br>
-          -----------------------------<br>
-          * PASS TO KITCHEN / PACKING *
+    /* Print Helper Engines */
+    function triggerThermalPrint(contentHtml) {
+      const printWindow = window.open('', '_blank', 'width=380,height=560');
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Order Slip</title>
+          <style>
+            @page { margin: 0; size: 58mm auto; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { font-family: monospace; font-size: 11px; color: #000; padding: 8px; width: 100%; max-width: 58mm; margin: 0 auto; }
+            .center { text-align: center; }
+            .bold { font-weight: bold; }
+            .divider { border-top: 1px dashed #000; margin: 5px 0; }
+            .row { display: flex; justify-content: space-between; margin: 2px 0; }
+            .footer { margin-top: 8px; font-size: 10px; text-align: center; }
+          </style>
+        </head>
+        <body>
+          ${contentHtml}
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    }
+
+    function printQueueSlip(orderId, orderType, total) {
+      const ticket = document.getElementById('ticket-' + orderId);
+      let custName = 'Customer';
+      let itemsHtml = '';
+
+      if (ticket) {
+        const nameEl = ticket.querySelector('.order-cust-name');
+        if (nameEl) custName = nameEl.innerText.trim();
+
+        const itemLines = ticket.querySelectorAll('.order-item-line');
+        itemLines.forEach(line => {
+          itemsHtml += `<div>${line.innerText.trim()}</div>`;
+        });
+      }
+
+      const receipt = `
+        <div class="center bold" style="font-size: 13px;">MACLEEN'S FOOD HOUSE</div>
+        <div class="center" style="font-size: 9px;">Poblacion Snack House & POS</div>
+        <div class="divider"></div>
+        <div class="row"><span>ORDER TICKET:</span><span class="bold">#${orderId}</span></div>
+        <div class="row"><span>TYPE:</span><span>${orderType}</span></div>
+        <div class="row"><span>CUSTOMER:</span><span class="bold">${custName}</span></div>
+        <div class="row"><span>DATE:</span><span>${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
+        <div class="divider"></div>
+        <div class="bold" style="margin-bottom: 3px;">ITEMS:</div>
+        ${itemsHtml || '<div>• 1 Regular Burger + Fries x1</div>'}
+        <div class="divider"></div>
+        <div class="row bold" style="font-size: 13px;">
+          <span>TOTAL DUE:</span>
+          <span>₱${parseFloat(total).toFixed(2)}</span>
         </div>
+        <div class="divider"></div>
+        <div class="footer bold">* PASS TO KITCHEN / SERVING *</div>
       `;
-      window.print();
+
+      triggerThermalPrint(receipt);
+    }
+
+    function printSimpleSlip(orderId, custName, orderType, totalFormatted) {
+      const receipt = `
+        <div class="center bold" style="font-size: 13px;">MACLEEN'S FOOD HOUSE</div>
+        <div class="divider"></div>
+        <div class="row"><span>ORDER #:</span><span class="bold">${orderId}</span></div>
+        <div class="row"><span>CUSTOMER:</span><span>${custName}</span></div>
+        <div class="row"><span>TYPE:</span><span>${orderType}</span></div>
+        <div class="row"><span>DATE:</span><span>${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
+        <div class="divider"></div>
+        <div class="row bold" style="font-size: 13px;">
+          <span>PAID TOTAL:</span>
+          <span>₱${totalFormatted}</span>
+        </div>
+        <div class="divider"></div>
+        <div class="footer center">Thank you for dining with us! 🎀</div>
+      `;
+      triggerThermalPrint(receipt);
     }
 
     /* Cashier Order Incoming Sound */
