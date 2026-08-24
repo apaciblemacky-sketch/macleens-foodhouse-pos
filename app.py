@@ -499,12 +499,14 @@ def api_tablet_checkout():
 
     # Auto-match registered customer if PIN / Card # or Contact is provided
     cust_id = None
+    contact_num = 'Kiosk'
     if 'PIN:' in customer_name:
         pin_code = customer_name.split('PIN:')[1].replace(')', '').strip()
         matched = Customer.query.filter((Customer.contact == pin_code) | (Customer.card_number == pin_code)).first()
         if matched:
             cust_id = matched.id
-            customer_name = f"{matched.name} (Tablet Kiosk)"
+            customer_name = matched.name
+            contact_num = matched.contact
 
     subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
 
@@ -512,7 +514,7 @@ def api_tablet_checkout():
         order_type='TABLET',
         customer_id=cust_id,
         customer_name=customer_name,
-        contact_number='Kiosk',
+        contact_number=contact_num,
         subtotal=subtotal,
         delivery_fee=0.0,
         total_amount=subtotal,
@@ -583,9 +585,11 @@ def cashier_terminal():
 def cashier_direct_sale():
     data = request.get_json() or {}
     items = data.get('items', [])
+    cust_type = data.get('customer_type', 'WALKIN')
+    reg_id = data.get('registered_customer_id')
     pay_method = data.get('payment_method', 'CASH').upper()
     cust_name = data.get('customer_name', 'Counter Walk-in').strip() or 'Counter Walk-in'
-    notes = data.get('notes', 'Direct Register Sale').strip() or 'Direct Register Sale'
+    notes = data.get('notes', 'Cashier Counter POS Sale').strip() or 'Cashier Counter POS Sale'
     change_for = float(data.get('change_for') or 0.0)
 
     if not items:
@@ -593,10 +597,31 @@ def cashier_direct_sale():
 
     subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
 
+    cust_id = None
+    contact = 'N/A'
+    points_earned = 0
+
+    if cust_type == 'REGISTERED' and reg_id:
+        cust = Customer.query.get(reg_id)
+        if cust:
+            cust_id = cust.id
+            cust_name = cust.name
+            contact = cust.contact
+            cust.accumulated_spend = (cust.accumulated_spend or 0.0) + subtotal
+            points_earned = int(subtotal // 30)
+            if points_earned > 0:
+                cust.points_balance = (cust.points_balance or 0.0) + points_earned
+                db.session.add(RewardLedger(
+                    customer_id=cust.id,
+                    points_change=points_earned,
+                    reason=f"Counter POS Sale (₱{subtotal:,.2f})"
+                ))
+
     order = Order(
         order_type='DINE-IN/WALKIN',
+        customer_id=cust_id,
         customer_name=cust_name,
-        contact_number='N/A',
+        contact_number=contact,
         subtotal=subtotal,
         delivery_fee=0.0,
         total_amount=subtotal,
@@ -625,7 +650,12 @@ def cashier_direct_sale():
                 prod.stock -= int(it['quantity'])
 
     db.session.commit()
-    return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})
+    return jsonify({
+        'success': True,
+        'order_id': order.id,
+        'total': subtotal,
+        'points_earned': points_earned
+    })
 
 @app.route('/pos/misc-sale', methods=['POST'])
 @require_cashier
@@ -651,10 +681,10 @@ def cashier_misc_sale():
             cust_id = cust.id
             customer_name = cust.name
             contact = cust.contact
-            cust.accumulated_spend += amount
+            cust.accumulated_spend = (cust.accumulated_spend or 0.0) + amount
             earned = int(amount // 30)
             if earned > 0:
-                cust.points_balance += earned
+                cust.points_balance = (cust.points_balance or 0.0) + earned
                 db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Service Purchase: {service_name}"))
     elif custom_name:
         customer_name = custom_name
@@ -765,10 +795,10 @@ def cashier_settle_collection(order_id):
         cust = Customer.query.get(order.customer_id)
         if cust:
             cust.outstanding_ar = max(0.0, (cust.outstanding_ar or 0.0) - order.total_amount)
-            cust.accumulated_spend += order.total_amount
+            cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
             earned = int(order.total_amount // 30)
             if earned > 0:
-                cust.points_balance += earned
+                cust.points_balance = (cust.points_balance or 0.0) + earned
                 db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Settled Collection #{order.id}"))
 
     db.session.commit()
@@ -835,7 +865,6 @@ def verify_order(order_id):
         if rider:
             order.assigned_rider = rider
 
-        # Check if the order contains dishes that need kitchen prep, or ready-to-serve Ulam
         needs_kitchen = False
         for item in order.items:
             if item.product_id:
@@ -875,10 +904,10 @@ def cashier_confirm_delivery(order_id):
         if order.customer_id and order.payment_method != "CREDIT":
             cust = Customer.query.get(order.customer_id)
             if cust:
-                cust.accumulated_spend += order.total_amount
+                cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
                 earned = int(order.total_amount // 30)
                 if earned > 0:
-                    cust.points_balance += earned
+                    cust.points_balance = (cust.points_balance or 0.0) + earned
                     db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
     db.session.commit()
     flash(f"Order #{order.id} delivery verified by Cashier.", "success")
@@ -893,10 +922,10 @@ def complete_order(order_id):
     if order.customer_id and order.payment_method != "CREDIT":
         cust = Customer.query.get(order.customer_id)
         if cust:
-            cust.accumulated_spend += order.total_amount
+            cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
             earned = int(order.total_amount // 30)
             if earned > 0:
-                cust.points_balance += earned
+                cust.points_balance = (cust.points_balance or 0.0) + earned
                 db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
 
     db.session.commit()
@@ -967,10 +996,10 @@ def rider_mark_delivered(order_id):
         if order.customer_id and order.payment_method != "CREDIT":
             cust = Customer.query.get(order.customer_id)
             if cust:
-                cust.accumulated_spend += order.total_amount
+                cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
                 earned = int(order.total_amount // 30)
                 if earned > 0:
-                    cust.points_balance += earned
+                    cust.points_balance = (cust.points_balance or 0.0) + earned
                     db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
 
     db.session.commit()
@@ -1260,10 +1289,10 @@ def customer_confirm_received(order_id):
         order.status = "COMPLETED"
         cust = Customer.query.get(order.customer_id)
         if cust and order.payment_method != "CREDIT":
-            cust.accumulated_spend += order.total_amount
+            cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
             earned = int(order.total_amount // 30)
             if earned > 0:
-                cust.points_balance += earned
+                cust.points_balance = (cust.points_balance or 0.0) + earned
                 db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
 
     db.session.commit()
