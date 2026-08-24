@@ -27,10 +27,42 @@
     .container { max-width: 1100px; margin: 0 auto; padding: 12px; }
     .section-title { font-size: 1rem; font-weight: 900; color: var(--hk-dark); margin: 16px 0 10px; display: flex; justify-content: space-between; align-items: center; }
 
-    /* Single-Row Horizontal Carousel at the Top */
-    .carousel-track { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
-    .carousel-track::-webkit-scrollbar { display: none; }
-    .carousel-card { min-width: 155px; max-width: 155px; background: white; border: 2px solid var(--hk-pink); border-radius: 12px; padding: 10px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 6px rgba(255,105,180,0.1); }
+    /* Scroll Lever Controls Header */
+    .carousel-header-controls { display: flex; align-items: center; gap: 6px; }
+    .scroll-btn { 
+      background: white; 
+      border: 1.5px solid var(--hk-pink); 
+      color: var(--hk-dark); 
+      width: 28px; 
+      height: 28px; 
+      border-radius: 50%; 
+      font-weight: 900; 
+      font-size: 0.85rem; 
+      display: inline-flex; 
+      align-items: center; 
+      justify-content: center; 
+      cursor: pointer; 
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05); 
+      transition: all 0.2s;
+    }
+    .scroll-btn:hover { background: var(--hk-pink); color: white; transform: scale(1.05); }
+
+    /* Single-Row Horizontal Carousel with Visible Styled Scroll Lever */
+    .carousel-track { 
+      display: flex; 
+      gap: 10px; 
+      overflow-x: auto; 
+      padding-bottom: 12px; 
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch; 
+    }
+    /* Visible Pink Scrollbar on PC */
+    .carousel-track::-webkit-scrollbar { height: 8px; }
+    .carousel-track::-webkit-scrollbar-track { background: #fce7f3; border-radius: 10px; }
+    .carousel-track::-webkit-scrollbar-thumb { background: #ec4899; border-radius: 10px; }
+    .carousel-track::-webkit-scrollbar-thumb:hover { background: var(--hk-dark); }
+
+    .carousel-card { min-width: 160px; max-width: 160px; background: white; border: 2px solid var(--hk-pink); border-radius: 12px; padding: 10px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 6px rgba(255,105,180,0.1); }
 
     .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
     @media(min-width:768px){ .cat-grid { grid-template-columns: repeat(6, 1fr); gap: 12px; } }
@@ -87,10 +119,16 @@
 
   <div class="container">
     
-    <!-- TOP CAROUSEL: Featured Specials -->
+    <!-- TOP CAROUSEL: Featured Specials with Scroll Lever Buttons -->
     {% if featured %}
-    <div class="section-title">✨ Chef's Featured Specials</div>
-    <div class="carousel-track">
+    <div class="section-title">
+      <span>✨ Chef's Featured Specials</span>
+      <div class="carousel-header-controls">
+        <button class="scroll-btn" onclick="slideCarousel('featuredTrack', -300)" title="Scroll Left">‹</button>
+        <button class="scroll-btn" onclick="slideCarousel('featuredTrack', 300)" title="Scroll Right">›</button>
+      </div>
+    </div>
+    <div class="carousel-track" id="featuredTrack">
       {% for f in featured %}
       <div class="carousel-card">
         <div>
@@ -106,10 +144,16 @@
     </div>
     {% endif %}
 
-    <!-- TOP CAROUSEL: Best Sellers -->
+    <!-- TOP CAROUSEL: Best Sellers with Scroll Lever Buttons -->
     {% if top_sellers %}
-    <div class="section-title">🔥 Best Sellers</div>
-    <div class="carousel-track">
+    <div class="section-title">
+      <span>🔥 Best Sellers</span>
+      <div class="carousel-header-controls">
+        <button class="scroll-btn" style="border-color:#f59e0b;" onclick="slideCarousel('bestSellerTrack', -300)" title="Scroll Left">‹</button>
+        <button class="scroll-btn" style="border-color:#f59e0b;" onclick="slideCarousel('bestSellerTrack', 300)" title="Scroll Right">›</button>
+      </div>
+    </div>
+    <div class="carousel-track" id="bestSellerTrack">
       {% for b in top_sellers %}
       <div class="carousel-card" style="border-color:#f59e0b;">
         <div>
@@ -276,6 +320,14 @@
 
     function saveCart() {
       localStorage.setItem('mfh_cart', JSON.stringify(cart));
+    }
+
+    /* Horizontal Carousel Slide Helper */
+    function slideCarousel(trackId, offset) {
+      const track = document.getElementById(trackId);
+      if (track) {
+        track.scrollBy({ left: offset, behavior: 'smooth' });
+      }
     }
 
     function showCategory(cat, btn) {
