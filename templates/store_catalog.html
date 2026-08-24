@@ -294,6 +294,13 @@
           </select>
         </div>
 
+        <!-- Cash Bill Amount & Change Calculator for COD / Cash -->
+        <div id="cashChangeFields" style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);">Cash Bill / Amount to Pay (₱)</label>
+          <input type="number" step="1" id="changeFor" class="form-control" placeholder="e.g. 500, 1000, or Exact Amount" oninput="calculateChangePreview()">
+          <div id="changePreview" style="font-size:0.75rem; color:#059669; font-weight:bold; margin-top:4px; display:none;"></div>
+        </div>
+
         <div id="evalFields" style="display:none; margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);">Facebook / Messenger Account *</label>
           <input type="text" id="fbMessenger" class="form-control" value="{{ cust.fb_messenger if cust else '' }}" placeholder="fb.com/username">
@@ -373,6 +380,38 @@
       const p = document.getElementById('payMethod').value;
       document.getElementById('evalFields').style.display = (p === 'GCASH' || p === 'CREDIT') ? 'block' : 'none';
       document.getElementById('gcashFields').style.display = (p === 'GCASH') ? 'block' : 'none';
+      
+      const cashBox = document.getElementById('cashChangeFields');
+      if (cashBox) {
+        cashBox.style.display = (p === 'CASH') ? 'block' : 'none';
+      }
+      calculateChangePreview();
+    }
+
+    function calculateChangePreview() {
+      const p = document.getElementById('payMethod').value;
+      const changeInput = document.getElementById('changeFor');
+      const preview = document.getElementById('changePreview');
+      const drawerTotalEl = document.getElementById('drawerTotal');
+      
+      if (!changeInput || !preview || p !== 'CASH') {
+        if (preview) preview.style.display = 'none';
+        return;
+      }
+
+      const bill = parseFloat(changeInput.value) || 0;
+      const currentTotal = parseFloat(drawerTotalEl.innerText.replace(/[₱,]/g, '')) || 0;
+
+      if (bill > currentTotal && currentTotal > 0) {
+        const diff = bill - currentTotal;
+        preview.style.display = 'block';
+        preview.innerText = `💵 Change to prepare: ₱${diff.toFixed(2)}`;
+      } else if (bill === currentTotal && currentTotal > 0) {
+        preview.style.display = 'block';
+        preview.innerText = `💵 Exact amount provided (No change needed)`;
+      } else {
+        preview.style.display = 'none';
+      }
     }
 
     function toggleDetailedAddress() {
@@ -454,6 +493,8 @@
       if (barTotalEl) barTotalEl.innerText = `₱${total.toFixed(2)}`;
       if (barCountEl) barCountEl.innerText = count;
       if (drawerTotalEl) drawerTotalEl.innerText = `₱${total.toFixed(2)}`;
+      
+      calculateChangePreview();
     }
 
     async function toggleLike(id) {
@@ -482,6 +523,8 @@
       const fb = document.getElementById('fbMessenger').value.trim();
       const gcash = document.getElementById('gcashRef').value.trim();
       const hideCheck = document.getElementById('hideDetailAddress');
+      const changeForInput = document.getElementById('changeFor');
+      const changeForVal = (changeForInput && changeForInput.value) ? parseFloat(changeForInput.value) : null;
       
       let landmark = document.getElementById('landmark').value.trim();
       let deliveryAddress = document.getElementById('deliveryAddress').value.trim();
@@ -511,6 +554,7 @@
         fb_messenger: fb,
         payment_method: pay,
         gcash_ref: gcash,
+        change_for: changeForVal,
         notes: notes,
         delivery_address: deliveryAddress,
         landmark: landmark
@@ -536,6 +580,7 @@
 
     document.addEventListener("DOMContentLoaded", () => {
       renderCart();
+      checkPayMethod();
     });
   </script>
 </body>

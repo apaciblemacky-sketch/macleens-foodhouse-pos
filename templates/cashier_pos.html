@@ -70,7 +70,19 @@
         <div style="color:#cbd5e1; font-size:0.78rem; margin-bottom:6px;">
           👤 {{ o.customer_name }} | 📞 {{ o.contact_number }}<br>
           {% if o.fb_messenger %}💬 FB: {{ o.fb_messenger }}<br>{% endif %}
-          💳 {{ o.payment_method }}{% if o.gcash_ref %} (Ref: {{ o.gcash_ref }}){% endif %}<br>
+          💳 {{ o.payment_method }}{% if o.gcash_ref %} (Ref: {{ o.gcash_ref }}){% endif %}
+          
+          {% if o.change_for and o.change_for > o.total_amount %}
+            <span style="display:inline-block; background:#065f46; color:#34d399; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.72rem; margin-left:4px;">
+              💵 Bill: ₱{{ "{:,.2f}".format(o.change_for) }} | Change: ₱{{ "{:,.2f}".format(o.change_for - o.total_amount) }}
+            </span>
+          {% elif o.change_for and o.change_for == o.total_amount %}
+            <span style="display:inline-block; background:#1e3a8a; color:#93c5fd; padding:2px 6px; border-radius:4px; font-weight:bold; font-size:0.72rem; margin-left:4px;">
+              💵 Exact Amount
+            </span>
+          {% endif %}
+          <br>
+
           {% if o.landmark %}🚩 Landmark: <strong>{{ o.landmark }}</strong><br>{% endif %}
           📝 Notes: <strong>{{ o.notes }}</strong>
         </div>
