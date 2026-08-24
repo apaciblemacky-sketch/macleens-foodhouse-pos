@@ -30,7 +30,7 @@
 </head>
 <body>
 
-  <div class="header">
+  <header class="header">
     <div style="display:flex; align-items:center; gap:10px;">
       <img src="{{ store_logo }}" style="width:50px; height:50px; border-radius:50%; border:2px solid var(--hk-pink); object-fit:cover;">
       <div>
@@ -43,7 +43,7 @@
       <a href="/pos/cashier" class="btn btn-pink">🛒 POS</a>
       <a href="/staff/logout?role=admin" class="btn" style="background:#fee2e2; color:#991b1b;">Admin Logout</a>
     </div>
-  </div>
+  </header>
 
   <div class="kpi-grid">
     <div class="card" style="margin:0;">
@@ -76,7 +76,7 @@
     </form>
   </div>
 
-  <!-- Add Product with Photo, Featured & Best Seller Controls -->
+  <!-- Add Product Form -->
   <div class="card">
     <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">➕ Add Dish with Photo & Ranking Badges</h3>
     <form action="/admin/add-product" method="POST" class="form-row">
@@ -116,29 +116,43 @@
     </form>
   </div>
 
-  <!-- Customer A/R Credit Eligibility Manager -->
-  <!-- Customer A/R Credit & PIN Reset Manager -->
+  <!-- Registered Customer Management & Testing Account Controls -->
   <div class="card">
-    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:1rem;">👥 Registered Customer Management & PIN Reset</h3>
-    <div style="max-height: 320px; overflow-y: auto;">
+    <h3 style="color:var(--hk-dark); margin-bottom:12px; font-size:1rem;">👥 Registered Customer Management & PIN Reset</h3>
+    <div style="overflow-x: auto;">
       <table>
         <thead>
           <tr>
             <th>Name</th>
             <th>Contact / Email</th>
             <th>Address & Landmark</th>
+            <th style="text-align: center;">⭐ Reward Points</th>
             <th>Credit Active?</th>
             <th>Credit Limit</th>
             <th>Toggle Credit</th>
-            <th>Reset PIN</th>
+            <th>Account Actions</th>
           </tr>
         </thead>
         <tbody>
           {% for c in customers %}
           <tr>
-            <td><strong>{{ c.name }}</strong><br><span style="font-size:0.7rem; color:#64748b;">Card: {{ c.card_number }}</span></td>
-            <td>{{ c.contact }}<br><span style="font-size:0.75rem; color:#64748b;">{{ c.email or 'No email' }}</span></td>
-            <td>{{ c.default_address or '—' }}<br><span style="font-size:0.7rem; color:#94a3b8;">🚩 {{ c.default_landmark or '—' }}</span></td>
+            <td>
+              <strong>{{ c.name }}</strong><br>
+              <span style="font-size:0.72rem; color:#64748b;">Card: {{ c.card_number or 'MFH-0000' }}</span>
+            </td>
+            <td>
+              {{ c.contact }}<br>
+              <span style="font-size:0.72rem; color:#94a3b8;">{{ c.email or 'No email' }}</span>
+            </td>
+            <td style="font-size:0.75rem;">
+              {{ c.default_address or '—' }}<br>
+              <span style="color:#db2777;">🚩 {{ c.default_landmark or '—' }}</span>
+            </td>
+            <td style="text-align: center;">
+              <span style="background: #fef3c7; color: #92400e; padding: 3px 8px; border-radius: 12px; font-weight: 900; font-size: 0.8rem; display: inline-block;">
+                ⭐ {{ (c.points_balance or 0.0)|int }} pts
+              </span>
+            </td>
             <td>
               {% if c.is_credit_eligible %}
                 <span style="color:#16a34a; font-weight:bold;">✓ Yes</span>
@@ -146,17 +160,30 @@
                 <span style="color:#94a3b8;">✕ No</span>
               {% endif %}
             </td>
-            <td>₱{{ "{:,.2f}".format(c.credit_limit or 0.0) }}</td>
-            <td>
-              <form action="/admin/toggle-credit/{{ c.id }}" method="POST" style="display:flex; gap:4px;">
-                <input type="number" name="credit_limit" value="{{ c.credit_limit or 1000 }}" placeholder="Limit" style="width:65px; padding:2px; font-size:0.75rem;">
-                <button type="submit" class="btn btn-pink" style="padding:2px 6px; font-size:0.75rem;">Set</button>
-              </form>
+            <td style="font-weight: bold;">
+              ₱{{ "{:,.2f}".format(c.credit_limit or 0.0) }}
             </td>
             <td>
-              <form action="/admin/reset-customer-pin/{{ c.id }}" method="POST" style="display:flex; gap:4px;">
-                <input type="password" name="new_pin" placeholder="New PIN" required style="width:70px; padding:2px; font-size:0.75rem;">
-                <button type="submit" class="btn btn-dark" style="padding:2px 6px; font-size:0.75rem; background:#334155;">Reset</button>
+              <form action="/admin/toggle-credit/{{ c.id }}" method="POST" style="display: flex; gap: 4px;">
+                <input type="number" step="100" name="credit_limit" value="{{ c.credit_limit or 1000 }}" style="width: 65px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.75rem;">
+                <button type="submit" class="btn btn-pink" style="padding: 3px 6px; font-size: 0.72rem;">Set</button>
+              </form>
+            </td>
+            <td style="display: flex; gap: 4px; flex-wrap: wrap;">
+              <!-- Reset PIN -->
+              <form action="/admin/reset-customer-pin/{{ c.id }}" method="POST" style="display: flex; gap: 3px;">
+                <input type="text" name="new_pin" placeholder="PIN" minlength="4" style="width: 48px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.72rem;">
+                <button type="submit" class="btn btn-dark" style="padding: 3px 6px; font-size: 0.7rem;">Reset</button>
+              </form>
+
+              <!-- Purge Dummy Test Orders -->
+              <form action="/admin/purge-dummy-orders/{{ c.id }}" method="POST" onsubmit="return confirm('Clear all test orders and reset points for {{ c.name }}?');">
+                <button type="submit" class="btn" style="background: #f59e0b; color: white; padding: 3px 6px; font-size: 0.7rem;" title="Purge Test Orders">🧹 Clear</button>
+              </form>
+
+              <!-- Delete Account -->
+              <form action="/admin/delete-customer/{{ c.id }}" method="POST" onsubmit="return confirm('Permanently remove {{ c.name }} and all associated data?');">
+                <button type="submit" class="btn" style="background: #ef4444; color: white; padding: 3px 6px; font-size: 0.7rem;" title="Delete Account">🗑️ Delete</button>
               </form>
             </td>
           </tr>
@@ -166,90 +193,7 @@
     </div>
   </div>
 
-  <!-- Delivery Rates & Zone Manager -->
-  <!-- Registered Customer Management & PIN Reset -->
-<div style="background: white; border: 1.5px solid #fbcfe8; border-radius: 12px; padding: 1.2rem; margin-bottom: 1.5rem; box-shadow: 0 2px 6px rgba(0,0,0,0.02);">
-  <h3 style="color: #831843; font-size: 1rem; margin-bottom: 12px;">👥 Registered Customer Management & PIN Reset</h3>
-  
-  <div style="overflow-x: auto;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem; text-align: left;">
-      <thead>
-        <tr style="background: #fdf2f8; color: #831843; border-bottom: 2px solid #fbcfe8;">
-          <th style="padding: 10px 8px;">Name</th>
-          <th style="padding: 10px 8px;">Contact / Email</th>
-          <th style="padding: 10px 8px;">Address & Landmark</th>
-          <th style="padding: 10px 8px; text-align: center;">⭐ Reward Points</th>
-          <th style="padding: 10px 8px;">Credit Active?</th>
-          <th style="padding: 10px 8px;">Credit Limit</th>
-          <th style="padding: 10px 8px;">Toggle Credit</th>
-          <th style="padding: 10px 8px;">Reset PIN</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for c in customers %}
-        <tr style="border-bottom: 1px solid #f1f5f9;">
-          <!-- Name & Card Number -->
-          <td style="padding: 10px 8px;">
-            <strong>{{ c.name }}</strong><br>
-            <span style="font-size: 0.72rem; color: #64748b;">Card: {{ c.card_number or 'MFH-0000' }}</span>
-          </td>
-
-          <!-- Contact / Email -->
-          <td style="padding: 10px 8px; color: #475569;">
-            {{ c.contact }}<br>
-            <span style="font-size: 0.72rem; color: #94a3b8;">{{ c.email or 'No email' }}</span>
-          </td>
-
-          <!-- Address & Landmark -->
-          <td style="padding: 10px 8px; color: #475569; font-size: 0.78rem;">
-            {{ c.default_address or '—' }}<br>
-            <span style="color: #db2777;">🚩 {{ c.default_landmark or '—' }}</span>
-          </td>
-
-          <!-- ⭐ Reward Points Column -->
-          <td style="padding: 10px 8px; text-align: center;">
-            <span style="background: #fef3c7; color: #92400e; padding: 3px 8px; border-radius: 12px; font-weight: 900; font-size: 0.8rem; display: inline-block;">
-              ⭐ {{ (c.points_balance or 0.0) | int }} pts
-            </span>
-          </td>
-
-          <!-- Credit Active -->
-          <td style="padding: 10px 8px;">
-            {% if c.is_credit_eligible %}
-              <span style="color: #16a34a; font-weight: bold;">✓ Yes</span>
-            {% else %}
-              <span style="color: #94a3b8;">✕ No</span>
-            {% endif %}
-          </td>
-
-          <!-- Credit Limit -->
-          <td style="padding: 10px 8px; font-weight: bold;">
-            ₱{{ "{:,.2f}".format(c.credit_limit or 0.0) }}
-          </td>
-
-          <!-- Toggle Credit Form -->
-          <td style="padding: 10px 8px;">
-            <form action="/admin/toggle-credit/{{ c.id }}" method="POST" style="display: flex; gap: 4px;">
-              <input type="number" step="100" name="credit_limit" value="{{ c.credit_limit or 1000 }}" style="width: 70px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.75rem;">
-              <button type="submit" style="background: #ec4899; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: bold; cursor: pointer;">Set</button>
-            </form>
-          </td>
-
-          <!-- Reset PIN Form -->
-          <td style="padding: 10px 8px;">
-            <form action="/admin/reset-customer-pin/{{ c.id }}" method="POST" style="display: flex; gap: 4px;">
-              <input type="text" name="new_pin" placeholder="New PIN" minlength="4" style="width: 70px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.75rem;">
-              <button type="submit" style="background: #334155; color: white; border: none; padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: bold; cursor: pointer;">Reset</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
-
-  <!-- Bulk Catalog with Multi-Filter Sorting -->
+  <!-- Bulk Catalog Editor -->
   <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <h3 style="color:var(--hk-dark); font-size:1rem;">📦 Bulk Catalog Editor ({{ products|length }} Items)</h3>

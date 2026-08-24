@@ -1022,6 +1022,34 @@ def admin_dashboard():
                            total_ar=total_ar,
                            current_sort=sort_by)
 
+@app.route('/admin/purge-dummy-orders/<int:cust_id>', methods=['POST'])
+@require_admin
+def admin_purge_dummy_orders(cust_id):
+    cust = Customer.query.get_or_404(cust_id)
+    dummy_orders = Order.query.filter_by(customer_id=cust.id).all()
+    for o in dummy_orders:
+        db.session.delete(o)
+    cust.points_balance = 0.0
+    cust.accumulated_spend = 0.0
+    cust.outstanding_ar = 0.0
+    RewardLedger.query.filter_by(customer_id=cust.id).delete()
+    db.session.commit()
+    flash(f"Purged test orders & reset points for dummy account '{cust.name}'.", "info")
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/delete-customer/<int:cust_id>', methods=['POST'])
+@require_admin
+def admin_delete_customer(cust_id):
+    cust = Customer.query.get_or_404(cust_id)
+    Order.query.filter_by(customer_id=cust.id).delete()
+    RewardLedger.query.filter_by(customer_id=cust.id).delete()
+    ProductLike.query.filter_by(customer_id=cust.id).delete()
+    ProductComment.query.filter_by(customer_id=cust.id).delete()
+    db.session.delete(cust)
+    db.session.commit()
+    flash(f"Account '{cust.name}' and all associated test data permanently removed.", "success")
+    return redirect(url_for('admin_dashboard'))
+
 @app.route('/admin/update-logo', methods=['POST'])
 @require_admin
 def admin_update_logo():
