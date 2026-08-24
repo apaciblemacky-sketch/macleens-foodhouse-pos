@@ -107,6 +107,52 @@
         }
       } catch(e) {}
     }, 1500);
+    <script>
+  function playKitchenBeep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // Tone 1
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'triangle';
+      osc1.frequency.setValueAtTime(659.25, ctx.currentTime); // E5
+      gain1.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start();
+      osc1.stop(ctx.currentTime + 0.2);
+
+      // Tone 2
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'triangle';
+      osc2.frequency.setValueAtTime(880.00, ctx.currentTime + 0.2); // A5
+      gain2.gain.setValueAtTime(0.3, ctx.currentTime + 0.2);
+      gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.45);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(ctx.currentTime + 0.2);
+      osc2.stop(ctx.currentTime + 0.45);
+    } catch(e) {}
+  }
+
+  let lastKitchenCount = {{ queue|length }};
+
+  // Poll kitchen orders every 1.5 seconds
+  setInterval(async () => {
+    try {
+      const res = await fetch('/api/queue-counts');
+      const data = await res.json();
+      if (data.pending_kitchen > lastKitchenCount) {
+        playKitchenBeep();
+        setTimeout(() => { window.location.reload(); }, 600);
+      } else if (data.pending_kitchen !== lastKitchenCount) {
+        window.location.reload();
+      }
+    } catch(e) {}
+  }, 1500);
   </script>
 </body>
 </html>

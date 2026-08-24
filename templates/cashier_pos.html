@@ -236,7 +236,7 @@
     </div>
   </div>
 
-  <!-- 1. MISCELLANEOUS SERVICE MODAL (With Registered Customer Link) -->
+  <!-- 1. MISCELLANEOUS SERVICE MODAL -->
   <div id="miscModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#8b5cf6;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -571,13 +571,34 @@
       }
     }
 
+    /* Cashier Order Incoming Chime */
+    function playCashierBeep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.35, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+      } catch(e) {}
+    }
+
     let lastPendingCount = {{ pending_orders|length }};
     setInterval(async () => {
       try {
         const res = await fetch('/api/queue-counts');
         const data = await res.json();
-        if (data.pending_cashier !== lastPendingCount) {
-          setTimeout(() => { window.location.reload(); }, 300);
+        if (data.pending_cashier > lastPendingCount) {
+          playCashierBeep();
+          setTimeout(() => { window.location.reload(); }, 600);
+        } else if (data.pending_cashier !== lastPendingCount) {
+          window.location.reload();
         }
       } catch(e) {}
     }, 1500);
