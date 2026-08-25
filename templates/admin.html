@@ -50,7 +50,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
         <h3 style="color:var(--hk-dark); font-size:1.1rem;">📊 Sales, Cost, Expenses & Profit Breakdown</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Real-time comparison across Daily, Weekly, Monthly, and All-Time totals.</p>
+        <p style="font-size:0.75rem; color:#64748b;">Includes POS orders + Safe Vault Drops as direct Ulam Sales.</p>
       </div>
       <div style="font-size:0.78rem; background:#fdf2f8; padding:6px 12px; border-radius:8px; border:1px solid var(--hk-border);">
         <strong>Traffic:</strong> {{ unique_visitors }} Unique Visitors | {{ total_accumulated_visits }} Total Visits
@@ -62,16 +62,18 @@
         <thead>
           <tr>
             <th>Timeframe</th>
-            <th>Gross Sales (Revenue)</th>
+            <th>Vault Drop (Ulam Sales)</th>
+            <th>Total Gross Revenue</th>
             <th>Product Cost (COGS)</th>
-            <th>Gross Profit (Sales - Cost)</th>
+            <th>Gross Profit</th>
             <th>Logged Expenses</th>
-            <th>Net Profit (Actual Earnings)</th>
+            <th>Net Profit (Earnings)</th>
           </tr>
         </thead>
         <tbody>
           <tr>
             <td><strong>📅 Today (Daily)</strong></td>
+            <td style="color:#059669; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.vault_sales) }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.rev) }}</td>
             <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_daily.cost) }}</td>
             <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.gross_p) }}</td>
@@ -80,6 +82,7 @@
           </tr>
           <tr>
             <td><strong>📆 Past 7 Days (Weekly)</strong></td>
+            <td style="color:#059669; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.vault_sales) }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.rev) }}</td>
             <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_weekly.cost) }}</td>
             <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.gross_p) }}</td>
@@ -88,14 +91,16 @@
           </tr>
           <tr>
             <td><strong>🗓️ Past 30 Days (Monthly)</strong></td>
+            <td style="color:#059669; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.vault_sales) }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.rev) }}</td>
             <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_monthly.cost) }}</td>
             <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.gross_p) }}</td>
-            <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_monthly.exp) }}</td>
+            <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_daily.exp) }}</td>
             <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_monthly.net_p) }}</td>
           </tr>
           <tr style="background:#fff1f2; font-weight:bold;">
             <td><strong>🏆 All-Time Total</strong></td>
+            <td style="color:#059669;">₱{{ "{:,.2f}".format(fin_all.vault_sales) }}</td>
             <td style="color:#16a34a;">₱{{ "{:,.2f}".format(fin_all.rev) }}</td>
             <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_all.cost) }}</td>
             <td style="color:#0284c7;">₱{{ "{:,.2f}".format(fin_all.gross_p) }}</td>

@@ -1108,17 +1108,32 @@ def admin_dashboard():
     monthly_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(Expense.created_at >= month_ago).scalar() or 0.0
     total_exp_all = sum(e.amount for e in all_expenses)
 
-    def calc_period(orders, exp):
-        rev = sum(o.total_amount for o in orders)
-        cost = sum(sum((it.cost_price or 0.0) * it.quantity for it in o.items) for o in orders)
-        gross_p = rev - cost
-        net_p = gross_p - exp
-        return {'rev': rev, 'cost': cost, 'gross_p': gross_p, 'exp': exp, 'net_p': net_p}
+    # Safe Vault Drops (Direct Ulam Cash Sales)
+    daily_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(db.func.date(VaultDrop.created_at) == today).scalar() or 0.0
+    weekly_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(VaultDrop.created_at >= week_ago).scalar() or 0.0
+    monthly_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(VaultDrop.created_at >= month_ago).scalar() or 0.0
+    all_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).scalar() or 0.0
 
-    fin_daily = calc_period(daily_orders, daily_exp)
-    fin_weekly = calc_period(weekly_orders, weekly_exp)
-    fin_monthly = calc_period(monthly_orders, monthly_exp)
-    fin_all = calc_period(all_completed, total_exp_all)
+    def calc_period(orders, exp, vault_drop_sales):
+        order_rev = sum(o.total_amount for o in orders)
+        total_rev = order_rev + vault_drop_sales  # Vault drops integrated into gross sales
+        cost = sum(sum((it.cost_price or 0.0) * it.quantity for it in o.items) for o in orders)
+        gross_p = total_rev - cost
+        net_p = gross_p - exp
+        return {
+            'order_rev': order_rev,
+            'vault_sales': vault_drop_sales,
+            'rev': total_rev,
+            'cost': cost,
+            'gross_p': gross_p,
+            'exp': exp,
+            'net_p': net_p
+        }
+
+    fin_daily = calc_period(daily_orders, daily_exp, daily_vault)
+    fin_weekly = calc_period(weekly_orders, weekly_exp, weekly_vault)
+    fin_monthly = calc_period(monthly_orders, monthly_exp, monthly_vault)
+    fin_all = calc_period(all_completed, total_exp_all, all_vault)
 
     total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
 
