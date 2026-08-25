@@ -5,6 +5,7 @@ from datetime import datetime, date, timedelta, time
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import text
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -24,15 +25,15 @@ db = SQLAlchemy(app)
 @app.before_request
 def make_session_permanent():
     session.permanent = True
-    # Heartbeat to track active/online customers
+    # Heartbeat to track active/online customers safely
     if 'customer_id' in session:
-        cust = Customer.query.get(session['customer_id'])
-        if cust:
-            cust.last_active_at = datetime.utcnow()
-            try:
+        try:
+            cust = Customer.query.get(session['customer_id'])
+            if cust and hasattr(cust, 'last_active_at'):
+                cust.last_active_at = datetime.utcnow()
                 db.session.commit()
-            except Exception:
-                db.session.rollback()
+        except Exception:
+            db.session.rollback()
 
 # ==================== DATA MODELS ====================
 
@@ -102,8 +103,8 @@ class Product(db.Model):
     is_featured = db.Column(db.Boolean, default=False)
     is_top_seller = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
-    available_start_time = db.Column(db.String(10), nullable=True) # e.g. "07:00"
-    available_end_time = db.Column(db.String(10), nullable=True)   # e.g. "14:00"
+    available_start_time = db.Column(db.String(10), nullable=True)
+    available_end_time = db.Column(db.String(10), nullable=True)
     total_likes = db.Column(db.Integer, default=0)
     comments = db.relationship('ProductComment', backref='product_rel', cascade="all, delete-orphan", lazy=True, order_by="desc(ProductComment.created_at)")
 
@@ -280,7 +281,7 @@ def check_operating_status():
 def is_product_available_now(prod):
     if not prod.is_active:
         return False
-    if not prod.available_start_time or not prod.available_end_time:
+    if not getattr(prod, 'available_start_time', None) or not getattr(prod, 'available_end_time', None):
         return True
     try:
         now_ph = (datetime.utcnow() + timedelta(hours=8)).time()
@@ -293,18 +294,21 @@ def is_product_available_now(prod):
         return True
 
 def ensure_default_promos():
-    deal = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
-    if not deal:
-        db.session.add(PromotionTracker(
-            promo_code='BURGER_FRIES_50',
-            title='1 Regular Burger + Crispy Fries',
-            promo_price=50.0,
-            promo_cost=28.0,
-            page_views=0,
-            claims_count=0,
-            total_revenue=0.0
-        ))
-        db.session.commit()
+    try:
+        deal = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
+        if not deal:
+            db.session.add(PromotionTracker(
+                promo_code='BURGER_FRIES_50',
+                title='1 Regular Burger + Crispy Fries',
+                promo_price=50.0,
+                promo_cost=28.0,
+                page_views=0,
+                claims_count=0,
+                total_revenue=0.0
+            ))
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
 
 @app.context_processor
 def inject_globals():
@@ -611,9 +615,12 @@ def cashier_terminal():
     staff_list = Staff.query.all()
     customers_list = Customer.query.order_by(Customer.name.asc()).all()
 
-    # Online active customers in the last 15 minutes
+    # Online active customers in the last 15 minutes (safely queried)
     fifteen_mins_ago = datetime.utcnow() - timedelta(minutes=15)
-    online_customers = Customer.query.filter(Customer.last_active_at >= fifteen_mins_ago).order_by(Customer.last_active_at.desc()).all()
+    try:
+        online_customers = Customer.query.filter(Customer.last_active_at >= fifteen_mins_ago).order_by(Customer.last_active_at.desc()).all()
+    except Exception:
+        online_customers = []
 
     # Registered customers with outstanding credit balance
     credit_customers = Customer.query.filter(Customer.outstanding_ar > 0).order_by(Customer.outstanding_ar.desc()).all()
@@ -621,7 +628,10 @@ def cashier_terminal():
     today = date.today()
     today_expenses = Expense.query.filter(db.func.date(Expense.created_at) == today).order_by(Expense.created_at.desc()).all()
     today_drops = VaultDrop.query.filter(db.func.date(VaultDrop.created_at) == today).order_by(VaultDrop.drop_number.asc()).all()
-    today_change_funds = ChangeFund.query.filter(db.func.date(ChangeFund.created_at) == today).order_by(ChangeFund.created_at.desc()).all()
+    try:
+        today_change_funds = ChangeFund.query.filter(db.func.date(ChangeFund.created_at) == today).order_by(ChangeFund.created_at.desc()).all()
+    except Exception:
+        today_change_funds = []
     next_drop_num = len(today_drops) + 1
 
     return render_template('cashier_pos.html', 
@@ -935,7 +945,6 @@ def cashier_settle_collection(order_id):
     order.payment_method = pay_method
     order.payment_verified = True
 
-    # Same-day payment points eligibility check
     is_same_day = (order.created_at.date() == datetime.utcnow().date())
     earned = 0
 
@@ -1241,6 +1250,11 @@ def admin_update_logo():
         flash("Company logo updated across all portals.", "success")
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/portal/accounting')
+@require_admin
+def accounting_portal():
+    return redirect(url_for('admin_dashboard'))
+
 @app.route('/admin/add-product', methods=['POST'])
 @require_admin
 def admin_add_product():
@@ -1347,7 +1361,8 @@ def customer_login():
         cust = Customer.query.filter_by(contact=contact).first()
         if cust and check_password_hash(cust.pin_hash, pin):
             session['customer_id'] = cust.id
-            cust.last_active_at = datetime.utcnow()
+            if hasattr(cust, 'last_active_at'):
+                cust.last_active_at = datetime.utcnow()
             db.session.commit()
             return redirect(url_for('customer_dashboard'))
         flash("Invalid Contact or PIN.", "error")
@@ -1381,8 +1396,7 @@ def customer_register():
             points_balance=starting_bonus_points,
             pin_hash=generate_password_hash(pin),
             card_number=f"MFH-{random.randint(1, 100):04d}",
-            card_expires_at=date.today() + timedelta(days=365),
-            last_active_at=datetime.utcnow()
+            card_expires_at=date.today() + timedelta(days=365)
         )
         db.session.add(new_cust)
         db.session.flush()
@@ -1531,10 +1545,24 @@ def staff_logout():
     flash('Logged out.', 'info')
     return redirect(url_for('staff_login'))
 
-# ==================== INITIAL SEEDER ====================
+# ==================== INITIAL SEEDER & SAFE AUTO-MIGRATION ====================
 
 with app.app_context():
     db.create_all()
+
+    # Safe column auto-migration to prevent 500 error on existing databases
+    with db.engine.connect() as conn:
+        for stmt in [
+            "ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            "ALTER TABLE product ADD COLUMN available_start_time VARCHAR(10)",
+            "ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10)"
+        ]:
+            try:
+                conn.execute(text(stmt))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
+
     default_roles = [
         ('admin', '1234', 'ADMIN'),
         ('cashier1', '1111', 'CASHIER')
