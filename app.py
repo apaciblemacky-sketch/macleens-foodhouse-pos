@@ -820,6 +820,73 @@ def cashier_claim_promo():
     flash(f"🎉 Promo Deal '{promo.title}' recorded for {cust_name} (₱{promo.promo_price:,.2f})!", "success")
     return redirect(url_for('cashier_terminal'))
 
+@app.route('/pos/create-reservation', methods=['POST'])
+@require_cashier
+def cashier_create_reservation():
+    cust_type = request.form.get('customer_type', 'REGISTERED')
+    reg_id = request.form.get('registered_customer_id')
+    product_id = request.form.get('product_id')
+    qty = int(request.form.get('quantity') or 1)
+    target_time = request.form.get('target_time', '').strip() or 'Today'
+    pay_method = request.form.get('payment_method', 'CASH').upper()
+    notes = request.form.get('notes', '').strip() or 'In-Store Reservation'
+
+    if not product_id or qty <= 0:
+        flash("Please select a valid product and quantity.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    prod = Product.query.get_or_404(int(product_id))
+    subtotal = prod.price * qty
+
+    cust_id = None
+    cust_name = 'Walk-in Guest'
+    contact = 'N/A'
+
+    if cust_type == 'REGISTERED' and reg_id:
+        cust = Customer.query.get(int(reg_id))
+        if cust:
+            cust_id = cust.id
+            cust_name = cust.name
+            contact = cust.contact
+    else:
+        cust_name = request.form.get('custom_customer_name', '').strip() or 'Walk-in Reservation'
+        contact = request.form.get('custom_contact', '').strip() or 'N/A'
+
+    order = Order(
+        order_type='RESERVATION',
+        customer_id=cust_id,
+        customer_name=f"{cust_name} (Reserved: {target_time})",
+        contact_number=contact,
+        pickup_time=target_time,
+        target_time=target_time,
+        subtotal=subtotal,
+        delivery_fee=0.0,
+        total_amount=subtotal,
+        payment_method=pay_method,
+        payment_verified=False,
+        status='VERIFICATION',
+        notes=f"[RESERVED for {target_time}] {notes}"
+    )
+    db.session.add(order)
+    db.session.flush()
+
+    db.session.add(OrderItem(
+        order_id=order.id,
+        product_id=prod.id,
+        product_name=prod.name,
+        unit_price=prod.price,
+        cost_price=prod.cost,
+        quantity=qty,
+        subtotal=subtotal
+    ))
+
+    if prod.stock >= qty:
+        prod.stock -= qty
+
+    db.session.commit()
+    flash(f"📌 Reserved {prod.name} x{qty} for {cust_name} (Pickup: {target_time}) — ₱{subtotal:,.2f}", "success")
+    return redirect(url_for('cashier_terminal'))
+
 @app.route('/pos/misc-sale', methods=['POST'])
 @require_cashier
 def cashier_misc_sale():
@@ -1741,7 +1808,6 @@ def staff_logout():
 with app.app_context():
     db.create_all()
 
-    # Self-healing Schema Inspector that prevents aborted PostgreSQL transactions
     inspector = inspect(db.engine)
     
     cust_cols = [c['name'] for c in inspector.get_columns('customer')]

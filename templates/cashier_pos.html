@@ -38,7 +38,7 @@
     .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
     .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center; }
-    .modal-box { background: #1e293b; color: white; border: 2px solid #ec4899; border-radius: 12px; width: 90%; max-width: 500px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    .modal-box { background: #1e293b; color: white; border: 2px solid #ec4899; border-radius: 12px; width: 90%; max-width: 520px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
     .form-input { width: 100%; background: #0f172a; border: 1px solid #475569; color: white; padding: 6px 8px; border-radius: 4px; font-size: 0.8rem; margin-bottom: 8px; }
   </style>
 </head>
@@ -54,6 +54,7 @@
     <div style="display:flex; gap:6px; align-items:center;">
       <button onclick="openPromoModal('BURGER_FRIES_50', '🍔 Claim ₱50 Burger + Fries Deal', 50)" style="background:#e11d48; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🍔 + Burger (₱50)</button>
       <button onclick="openPromoModal('BEEFY_NACHOS_75', '🧀 Claim ₱75 Beefy Nachos Deal', 75)" style="background:#d97706; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🧀 + Nachos (₱75)</button>
+      <button onclick="openModal('reservationModal')" style="background:#0284c7; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📌 + Reserve Item</button>
       <button onclick="openModal('changeFundModal')" style="background:#065f46; color:#34d399; border:1px solid #059669; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💵 Change Fund</button>
       <button onclick="openModal('collectionModal')" style="background:#f43f5e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📋 + For Collection</button>
       <button onclick="openModal('miscModal')" style="background:#8b5cf6; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🖨️ Misc / Printing</button>
@@ -333,7 +334,83 @@
     </div>
   </div>
 
-  <!-- 3. MISCELLANEOUS SERVICE MODAL -->
+  <!-- 3. IN-STORE ITEM RESERVATION MODAL -->
+  <div id="reservationModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#0284c7;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#38bdf8; font-size:1rem;">📌 Reserve Dish for Customer</h3>
+        <button onclick="closeModal('reservationModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/create-reservation" method="POST">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Customer Type</label>
+        <select name="customer_type" id="resCustType" class="form-input" onchange="toggleResCustType()">
+          <option value="REGISTERED">Registered Member Account (Earns Points)</option>
+          <option value="CUSTOM">Walk-in / Custom Name</option>
+        </select>
+
+        <div id="resRegCustBox">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Select Registered Member *</label>
+          <select name="registered_customer_id" class="form-input">
+            <option value="">-- Choose Member --</option>
+            {% for c in customers_list %}
+              <option value="{{ c.id }}">{{ c.name }} ({{ c.contact }}) - Card: {{ c.card_number or 'MFH-0000' }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div id="resCustomCustBox" style="display:none;">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Customer Name *</label>
+          <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Kagawad Santos">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Contact Number</label>
+          <input type="text" name="custom_contact" class="form-input" placeholder="09xxxxxxxxx">
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <div style="flex:2;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Dish to Reserve *</label>
+            <select name="product_id" id="resProductSelect" class="form-input" onchange="updateResAmount()" required>
+              <option value="">-- Choose Dish --</option>
+              {% for p in products %}
+                <option value="{{ p.id }}" data-price="{{ p.price }}">{{ p.name }} (₱{{ "{:,.2f}".format(p.price) }}) [Stock: {{ p.stock }}]</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Quantity *</label>
+            <input type="number" name="quantity" id="resQty" value="1" min="1" class="form-input" oninput="updateResAmount()" required>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#38bdf8; font-weight:bold;">Time to Get / Pick-up *</label>
+            <input type="text" name="target_time" class="form-input" placeholder="e.g. 5:30 PM / After Shift" required>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Payment Plan</label>
+            <select name="payment_method" class="form-input">
+              <option value="CASH">Pay at Counter (Cash)</option>
+              <option value="GCASH">GCash</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="background:#0f172a; padding:6px; border-radius:6px; border:1px solid #334155; margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:bold;">
+            <span>RESERVATION TOTAL:</span>
+            <span id="resCalculatedTotal" style="color:#38bdf8;">₱0.00</span>
+          </div>
+        </div>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Special Instructions / Packaging</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g. Extra sauce, pack separately in box">
+
+        <button type="submit" style="background:#0284c7; color:white; border:none; padding:9px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">CONFIRM & QUEUE RESERVATION</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 4. MISCELLANEOUS SERVICE MODAL -->
   <div id="miscModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#8b5cf6;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -378,7 +455,7 @@
     </div>
   </div>
 
-  <!-- 4. FOR COLLECTION MODAL (Attributable to a specific product) -->
+  <!-- 5. FOR COLLECTION MODAL (Attributable to a specific product) -->
   <div id="collectionModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f43f5e;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -450,7 +527,7 @@
     </div>
   </div>
 
-  <!-- 5. EXPENSES MODAL -->
+  <!-- 6. EXPENSES MODAL -->
   <div id="expenseModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f59e0b;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -482,7 +559,7 @@
     </div>
   </div>
 
-  <!-- 6. SAFE VAULT DROPS MODAL WITH CASH COUNT BREAKDOWN CALCULATOR -->
+  <!-- 7. SAFE VAULT DROPS MODAL WITH CASH COUNT BREAKDOWN CALCULATOR -->
   <div id="vaultModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#10b981; max-width:540px;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -551,7 +628,7 @@
     </div>
   </div>
 
-  <!-- 7. SETTINGS & STAFF PASSWORD MODAL -->
+  <!-- 8. SETTINGS & STAFF PASSWORD MODAL -->
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -603,6 +680,22 @@
       const type = document.getElementById('collectionCustType').value;
       document.getElementById('regCustBox').style.display = (type === 'REGISTERED') ? 'block' : 'none';
       document.getElementById('customCustBox').style.display = (type === 'CUSTOM') ? 'block' : 'none';
+    }
+
+    function toggleResCustType() {
+      const type = document.getElementById('resCustType').value;
+      document.getElementById('resRegCustBox').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      document.getElementById('resCustomCustBox').style.display = (type === 'CUSTOM') ? 'block' : 'none';
+    }
+
+    function updateResAmount() {
+      const select = document.getElementById('resProductSelect');
+      const qty = parseInt(document.getElementById('resQty').value) || 1;
+      let total = 0.0;
+      if (select.selectedOptions[0] && select.selectedOptions[0].dataset.price) {
+        total = parseFloat(select.selectedOptions[0].dataset.price) * qty;
+      }
+      document.getElementById('resCalculatedTotal').innerText = `₱${total.toFixed(2)}`;
     }
 
     function toggleColItemType() {
