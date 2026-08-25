@@ -36,7 +36,7 @@
       <img src="{{ store_logo }}" style="width:50px; height:50px; border-radius:50%; border:2px solid var(--hk-pink); object-fit:cover;">
       <div>
         <h2 style="color:var(--hk-dark);">🎀 Macleen's Food House — Master Control</h2>
-        <p style="font-size:0.85rem; color:#64748b;">Financial Audit, Transaction Reassignment & Filtered Product Management</p>
+        <p style="font-size:0.85rem; color:#64748b;">Financial Audit, Vault Allocation & Multi-Dimensional Sales Breakdown</p>
       </div>
     </div>
     <div style="display:flex; gap:8px;">
@@ -50,7 +50,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
         <h3 style="color:var(--hk-dark); font-size:1.1rem;">📊 Sales, Cost, Expenses & Profit Breakdown</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Includes POS orders + Safe Vault Drops as direct Ulam Sales.</p>
+        <p style="font-size:0.75rem; color:#64748b;">Includes POS orders + Safe Vault Drops as direct Ulam Sales[cite: 8].</p>
       </div>
       <div style="font-size:0.78rem; background:#fdf2f8; padding:6px 12px; border-radius:8px; border:1px solid var(--hk-border);">
         <strong>Traffic:</strong> {{ unique_visitors }} Unique Visitors | {{ total_accumulated_visits }} Total Visits
@@ -112,151 +112,140 @@
     </div>
   </div>
 
-  <!-- 💸 EDITABLE EXPENSE AUDIT & MANAGEMENT TABLE -->
-  <div class="card" style="border: 1.5px solid #f59e0b;">
+  <!-- 🏦 SAFE VAULT DROPS & PRODUCT ALLOCATION CONTROL -->
+  <div class="card" style="border: 2px solid #10b981;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <div>
-        <h3 style="color:#b45309; font-size:1.05rem;">💸 Operational Expenses Audit (Editable)</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Modify entries, fix amounts, or remove erroneous cashier expense logs.</p>
+        <h3 style="color:#065f46; font-size:1.05rem;">🏦 Safe Vault Drops & Product/Customer Allocation</h3>
+        <p style="font-size:0.75rem; color:#64748b;">Allocate specific amounts of physical vault drops to products & credit customer accounts[cite: 8].</p>
       </div>
-      <span style="background:#fef3c7; color:#b45309; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">Total Logged: {{ all_expenses|length }}</span>
+      <span style="background:#dcfce7; color:#166534; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">Total Drops: {{ vault_drops|length }}</span>
     </div>
 
     <div style="max-height: 280px; overflow-y: auto;">
       <table>
-        <thead style="position:sticky; top:0; z-index:2;">
+        <thead>
           <tr>
-            <th>Date & Time</th>
-            <th>Title / Description</th>
-            <th>Category</th>
-            <th>Amount (₱)</th>
-            <th>Logged By</th>
-            <th style="text-align:center;">Action</th>
+            <th>Drop #</th>
+            <th>Unallocated Balance</th>
+            <th>Cash Breakdown</th>
+            <th>Date Logged</th>
+            <th>Allocate to Product & Member</th>
           </tr>
         </thead>
         <tbody>
-          {% for exp in all_expenses %}
+          {% for vd in vault_drops %}
           <tr>
-            <form action="/admin/update-expense/{{ exp.id }}" method="POST">
-              <td style="font-size:0.72rem; color:#64748b;">{{ exp.created_at.strftime('%b %d, %Y - %I:%M %p') }}</td>
-              <td><input type="text" name="title" value="{{ exp.title }}" class="form-control" style="padding:2px; font-size:0.75rem;"></td>
-              <td>
-                <select name="category" class="form-control" style="padding:2px; font-size:0.75rem;">
-                  <option value="Ingredients" {% if exp.category == 'Ingredients' %}selected{% endif %}>Ingredients</option>
-                  <option value="Supplies" {% if exp.category == 'Supplies' %}selected{% endif %}>Supplies</option>
-                  <option value="Utilities" {% if exp.category == 'Utilities' %}selected{% endif %}>Utilities</option>
-                  <option value="General" {% if exp.category == 'General' %}selected{% endif %}>General</option>
-                  <option value="Miscellaneous" {% if exp.category == 'Miscellaneous' %}selected{% endif %}>Miscellaneous</option>
+            <td><strong>Drop #{{ vd.drop_number }}</strong></td>
+            <td style="font-weight:900; color:#059669; font-size:0.95rem;">₱{{ "{:,.2f}".format(vd.amount) }}</td>
+            <td style="font-size:0.7rem; color:#64748b;">{{ vd.cash_breakdown or 'Direct Cash' }}</td>
+            <td style="font-size:0.72rem; color:#64748b;">{{ vd.created_at.strftime('%b %d, %Y - %I:%M %p') }}</td>
+            <td>
+              {% if vd.amount > 0 %}
+              <form action="/admin/allocate-vault-drop/{{ vd.id }}" method="POST" style="display:flex; gap:3px; flex-wrap:wrap; align-items:center;">
+                <input type="number" step="0.25" name="amount" placeholder="Amount (₱)" max="{{ vd.amount }}" style="width:75px; padding:2px; font-size:0.72rem;" required>
+                <select name="product_id" class="form-control" style="padding:2px; font-size:0.72rem; max-width:110px;">
+                  <option value="">-- Menu Dish --</option>
+                  {% for p in products %}
+                    <option value="{{ p.id }}">{{ p.name }}</option>
+                  {% endfor %}
                 </select>
-              </td>
-              <td><input type="number" step="0.25" name="amount" value="{{ exp.amount }}" class="form-control" style="padding:2px; width:80px; font-weight:bold; color:#b45309; font-size:0.75rem;"></td>
-              <td style="font-size:0.72rem; color:#64748b;">{{ exp.created_by or 'Cashier' }}</td>
-              <td style="display:flex; gap:4px; justify-content:center;">
-                <button type="submit" class="btn btn-pink" style="padding:2px 6px; font-size:0.7rem;">💾</button>
-                <button type="submit" form="delExp-{{ exp.id }}" class="btn" style="background:#ef4444; color:white; padding:2px 6px; font-size:0.7rem;">🗑️</button>
-              </td>
-            </form>
+                <select name="customer_id" class="form-control" style="padding:2px; font-size:0.72rem; max-width:110px;">
+                  <option value="">-- Assign Member --</option>
+                  {% for c in customers %}
+                    <option value="{{ c.id }}">{{ c.name }}</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-pink" style="padding:2px 6px; font-size:0.7rem;">Allocate</button>
+              </form>
+              {% else %}
+                <span class="badge" style="background:#e2e8f0; color:#64748b;">Fully Allocated</span>
+              {% endif %}
+            </td>
           </tr>
           {% endfor %}
-          {% if not all_expenses %}
-            <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:20px;">No expense records logged yet.</td></tr>
+          {% if not vault_drops %}
+            <tr><td colspan="5" style="text-align:center; color:#94a3b8; padding:20px;">No vault drops recorded.</td></tr>
           {% endif %}
         </tbody>
       </table>
     </div>
   </div>
 
-  {% for exp in all_expenses %}
-    <form id="delExp-{{ exp.id }}" action="/admin/delete-expense/{{ exp.id }}" method="POST" onsubmit="return confirm('Delete expense entry \'{{ exp.title }}\'?');" style="display:none;"></form>
-  {% endfor %}
-
-  <!-- PROMOTION METRICS & REVENUE TRACKER -->
-  <div class="card" style="border: 2px solid #ec4899;">
+  <!-- 📈 MULTI-DIMENSIONAL SALES BREAKDOWN VIEWS -->
+  <div class="card" style="border: 2px solid #3b82f6;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <div>
-        <h3 style="color:#831843; font-size:1.05rem;">📊 Active Promotion Performance & Revenue Metrics</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Live campaigns, claim tracking, and landing page URLs.</p>
+        <h3 style="color:#1e40af; font-size:1.05rem;">📈 Advanced Sales Breakdown Reports</h3>
+        <p style="font-size:0.75rem; color:#64748b;">Filter metrics per product, per customer spend, or full transaction receipts[cite: 8].</p>
       </div>
-      <div style="display:flex; gap:6px;">
-        <a href="/promo/burger-deal" target="_blank" style="background:#ec4899; color:white; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.72rem; text-decoration:none;">🔗 Burger Deal (₱50)</a>
-        <a href="/promo/beefy-nachos" target="_blank" style="background:#d97706; color:white; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.72rem; text-decoration:none;">🔗 Nachos Deal (₱75)</a>
+      <div style="display:flex; gap:4px;">
+        <button onclick="switchReportTab('tabProducts')" id="btnTabProducts" class="btn btn-pink" style="padding:4px 8px; font-size:0.75rem;">📦 Per Product</button>
+        <button onclick="switchReportTab('tabCustomers')" id="btnTabCustomers" class="btn" style="background:#e0f2fe; color:#0369a1; padding:4px 8px; font-size:0.75rem;">👥 Per Customer</button>
+        <button onclick="switchReportTab('tabTransactions')" id="btnTabTransactions" class="btn" style="background:#e0f2fe; color:#0369a1; padding:4px 8px; font-size:0.75rem;">🧾 Full Transactions</button>
       </div>
     </div>
 
-    <div style="overflow-x: auto;">
+    <!-- 1. Per Product Breakdown -->
+    <div id="tabProducts" style="max-height: 320px; overflow-y: auto;">
       <table>
         <thead>
           <tr>
-            <th>Campaign / Offer</th>
-            <th>Status</th>
-            <th>Offer Price</th>
-            <th style="text-align:center;">👀 Views</th>
-            <th style="text-align:center;">🛍️ Reserved Claims</th>
-            <th style="text-align:center;">📈 Conversion Rate</th>
-            <th>💵 Revenue Made</th>
-            <th>Action</th>
+            <th>Product / Dish Name</th>
+            <th style="text-align:center;">Qty Sold</th>
+            <th>Total Sales Revenue</th>
+            <th>Estimated Cost</th>
+            <th>Gross Margin</th>
           </tr>
         </thead>
         <tbody>
-          {% for pr in promotions %}
-          {% set conv = ((pr.claims_count / pr.page_views * 100) if pr.page_views > 0 else 0)|round(1) %}
+          {% for pname, pdata in product_sales_stats.items() %}
           <tr>
-            <td>
-              <strong>{{ pr.title }}</strong><br>
-              <span style="font-size:0.7rem; color:#64748b; font-family:monospace;">CODE: {{ pr.promo_code }}</span>
-            </td>
-            <td>
-              {% if pr.is_active %}
-                <span class="badge" style="background:#dcfce7; color:#15803d;">ACTIVE</span>
-              {% else %}
-                <span class="badge" style="background:#fee2e2; color:#991b1b;">ARCHIVED</span>
-              {% endif %}
-            </td>
-            <td style="font-weight:bold; color:#be123c;">₱{{ "{:,.2f}".format(pr.promo_price) }}</td>
-            <td style="text-align:center; font-weight:bold; color:#0284c7;">{{ pr.page_views }}</td>
-            <td style="text-align:center; font-weight:900; color:#16a34a; font-size:0.95rem;">{{ pr.claims_count }}</td>
-            <td style="text-align:center;">
-              <span style="background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:10px; font-weight:bold; font-size:0.72rem;">
-                {{ conv }}%
-              </span>
-            </td>
-            <td style="font-weight:900; color:#16a34a; font-size:0.95rem;">
-              ₱{{ "{:,.2f}".format(pr.total_revenue) }}
-            </td>
-            <td>
-              <form action="/admin/toggle-promo/{{ pr.id }}" method="POST">
-                {% if pr.is_active %}
-                  <button type="submit" class="btn" style="background:#f59e0b; color:white; padding:3px 8px; font-size:0.7rem;">📦 Archive</button>
-                {% else %}
-                  <button type="submit" class="btn" style="background:#16a34a; color:white; padding:3px 8px; font-size:0.7rem;">🚀 Bring Back</button>
-                {% endif %}
-              </form>
-            </td>
+            <td><strong>{{ pname }}</strong></td>
+            <td style="text-align:center; font-weight:bold;">{{ pdata.qty }}</td>
+            <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(pdata.revenue) }}</td>
+            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(pdata.cost) }}</td>
+            <td style="color:#0284c7; font-weight:900;">₱{{ "{:,.2f}".format(pdata.revenue - pdata.cost) }}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-  </div>
 
-  <!-- MASTER TRANSACTION AUDIT & CUSTOMER REASSIGNMENT -->
-  <div class="card" style="border: 2px solid #f43f5e;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-      <div>
-        <h3 style="color:#e11d48; font-size:1.05rem;">⚡ Master Transaction Log & Customer Reassignment</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Reassign walk-in orders to specific member accounts, transfer points, or revert mistakes.</p>
-      </div>
-      <span style="background:#ffe4e6; color:#be123c; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">Last {{ all_orders|length }} Transactions</span>
+    <!-- 2. Per Customer Breakdown -->
+    <div id="tabCustomers" style="max-height: 320px; overflow-y: auto; display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>Customer Name</th>
+            <th>Contact</th>
+            <th>Total Accumulated Spend</th>
+            <th>Outstanding A/R</th>
+            <th>Loyalty Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in customers %}
+          <tr>
+            <td><strong>{{ c.name }}</strong> (Card: {{ c.card_number or 'MFH-0000' }})</td>
+            <td>{{ c.contact }}</td>
+            <td style="font-weight:900; color:#16a34a;">₱{{ "{:,.2f}".format(c.accumulated_spend or 0.0) }}</td>
+            <td style="color:#f43f5e; font-weight:bold;">₱{{ "{:,.2f}".format(c.outstanding_ar or 0.0) }}</td>
+            <td>⭐ {{ (c.points_balance or 0.0)|int }} pts</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
 
-    <div style="max-height: 400px; overflow-y: auto;">
+    <!-- 3. Full Transaction Audit & Reassignment -->
+    <div id="tabTransactions" style="max-height: 320px; overflow-y: auto; display:none;">
       <table>
         <thead style="position:sticky; top:0; z-index:2;">
           <tr>
             <th>Order #</th>
             <th>Type</th>
             <th>Assigned Customer</th>
-            <th>Items</th>
             <th>Total Amount</th>
             <th>Payment</th>
             <th>Status</th>
@@ -269,18 +258,8 @@
           <tr>
             <td><strong>#{{ o.id }}</strong></td>
             <td><span class="badge" style="background:#e0f2fe; color:#0369a1;">{{ o.order_type }}</span></td>
-            <td>
-              <strong>{{ o.customer_name }}</strong><br>
-              <span style="font-size:0.7rem; color:#64748b;">{{ o.contact_number }}</span>
-            </td>
-            <td style="font-size:0.72rem;">
-              {% for it in o.items %}
-                <div>• {{ it.product_name }} x{{ it.quantity }}</div>
-              {% endfor %}
-            </td>
-            <td style="font-weight:900; color:#16a34a; font-size:0.9rem;">
-              ₱{{ "{:,.2f}".format(o.total_amount) }}
-            </td>
+            <td><strong>{{ o.customer_name }}</strong></td>
+            <td style="font-weight:900; color:#16a34a;">₱{{ "{:,.2f}".format(o.total_amount) }}</td>
             <td>{{ o.payment_method }}</td>
             <td>
               {% if o.status == 'COMPLETED' %}
@@ -291,95 +270,18 @@
             </td>
             <td>
               <form action="/admin/reassign-order/{{ o.id }}" method="POST" style="display:flex; gap:3px;">
-                <select name="customer_id" class="form-control" style="padding:2px; font-size:0.72rem; max-width:140px;" required>
+                <select name="customer_id" class="form-control" style="padding:2px; font-size:0.72rem; max-width:130px;" required>
                   <option value="">-- Choose Member --</option>
                   {% for c in customers %}
-                    <option value="{{ c.id }}" {% if o.customer_id == c.id %}selected{% endif %}>{{ c.name }} ({{ c.contact }})</option>
+                    <option value="{{ c.id }}" {% if o.customer_id == c.id %}selected{% endif %}>{{ c.name }}</option>
                   {% endfor %}
                 </select>
                 <button type="submit" class="btn btn-pink" style="padding:2px 6px; font-size:0.7rem;">Assign</button>
               </form>
             </td>
             <td>
-              <form action="/admin/revert-order/{{ o.id }}" method="POST" onsubmit="return confirm('⚠️ REVERT SALE #{{ o.id }}?\n\nThis will delete the sale, restock items, and reverse points.');">
-                <button type="submit" class="btn" style="background:#ef4444; color:white; padding:4px 6px; font-size:0.7rem;" title="Delete & Revert Sale">🗑️</button>
-              </form>
-            </td>
-          </tr>
-          {% endfor %}
-          {% if not all_orders %}
-            <tr><td colspan="9" style="text-align:center; color:#94a3b8; padding:20px;">No transaction records found.</td></tr>
-          {% endif %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-  <!-- Registered Customer Management & PIN Reset -->
-  <div class="card">
-    <h3 style="color:var(--hk-dark); margin-bottom:12px; font-size:1rem;">👥 Registered Customer Management & PIN Reset</h3>
-    <div style="max-height: 320px; overflow-y: auto;">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Contact / Email</th>
-            <th>Address & Landmark</th>
-            <th style="text-align: center;">⭐ Reward Points</th>
-            <th>Credit Active?</th>
-            <th>Credit Limit</th>
-            <th>Toggle Credit</th>
-            <th>Account Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for c in customers %}
-          <tr>
-            <td>
-              <strong>{{ c.name }}</strong><br>
-              <span style="font-size:0.72rem; color:#64748b;">Card: {{ c.card_number or 'MFH-0000' }}</span>
-            </td>
-            <td>
-              {{ c.contact }}<br>
-              <span style="font-size:0.72rem; color:#94a3b8;">{{ c.email or 'No email' }}</span>
-            </td>
-            <td style="font-size:0.75rem;">
-              {{ c.default_address or '—' }}<br>
-              <span style="color:#db2777;">🚩 {{ c.default_landmark or '—' }}</span>
-            </td>
-            <td style="text-align: center;">
-              <span style="background: #fef3c7; color: #92400e; padding: 3px 8px; border-radius: 12px; font-weight: 900; font-size: 0.8rem; display: inline-block;">
-                ⭐ {{ (c.points_balance or 0.0)|int }} pts
-              </span>
-            </td>
-            <td>
-              {% if c.is_credit_eligible %}
-                <span style="color:#16a34a; font-weight:bold;">✓ Yes</span>
-              {% else %}
-                <span style="color:#94a3b8;">✕ No</span>
-              {% endif %}
-            </td>
-            <td style="font-weight: bold;">
-              ₱{{ "{:,.2f}".format(c.credit_limit or 0.0) }}
-            </td>
-            <td>
-              <form action="/admin/toggle-credit/{{ c.id }}" method="POST" style="display: flex; gap: 4px;">
-                <input type="number" step="100" name="credit_limit" value="{{ c.credit_limit or 1000 }}" style="width: 65px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.75rem;">
-                <button type="submit" class="btn btn-pink" style="padding: 3px 6px; font-size: 0.72rem;">Set</button>
-              </form>
-            </td>
-            <td style="display: flex; gap: 4px; flex-wrap: wrap;">
-              <form action="/admin/reset-customer-pin/{{ c.id }}" method="POST" style="display: flex; gap: 3px;">
-                <input type="text" name="new_pin" placeholder="PIN" minlength="4" style="width: 48px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.72rem;">
-                <button type="submit" class="btn btn-dark" style="padding: 3px 6px; font-size: 0.7rem;">Reset</button>
-              </form>
-
-              <form action="/admin/purge-dummy-orders/{{ c.id }}" method="POST" onsubmit="return confirm('Clear test orders & reset points for {{ c.name }}?');">
-                <button type="submit" class="btn" style="background: #f59e0b; color: white; padding: 3px 6px; font-size: 0.7rem;" title="Purge Test Orders">🧹 Clear</button>
-              </form>
-
-              <form action="/admin/delete-customer/{{ c.id }}" method="POST" onsubmit="return confirm('Permanently remove {{ c.name }} and all associated data?');">
-                <button type="submit" class="btn" style="background: #ef4444; color: white; padding: 3px 6px; font-size: 0.7rem;" title="Delete Account">🗑️ Delete</button>
+              <form action="/admin/revert-order/{{ o.id }}" method="POST" onsubmit="return confirm('⚠️ Revert sale #{{ o.id }}?');">
+                <button type="submit" class="btn" style="background:#ef4444; color:white; padding:4px 6px; font-size:0.7rem;">🗑️</button>
               </form>
             </td>
           </tr>
@@ -387,54 +289,6 @@
         </tbody>
       </table>
     </div>
-  </div>
-
-  <!-- Add Product Form with Time Constraints -->
-  <div class="card">
-    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">➕ Add Dish with Photo, Time Schedule & Badges</h3>
-    <form action="/admin/add-product" method="POST" class="form-row">
-      <div class="form-group">
-        <label>Dish Name</label>
-        <input type="text" name="name" class="form-control" required placeholder="e.g. Pork Sisig">
-      </div>
-      <div class="form-group">
-        <label>Category</label>
-        <select name="category_name" class="form-control">
-          {% for cat in categories %}
-            <option value="{{ cat.name }}">{{ cat.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="form-group" style="max-width:70px;">
-        <label>Cost</label>
-        <input type="number" step="0.5" name="cost" class="form-control" placeholder="0.00">
-      </div>
-      <div class="form-group" style="max-width:70px;">
-        <label>Price</label>
-        <input type="number" step="0.5" name="price" class="form-control" required placeholder="0.00">
-      </div>
-      <div class="form-group">
-        <label>Direct Photo URL</label>
-        <input type="url" name="image_url" class="form-control" placeholder="https://...">
-      </div>
-      <div class="form-group" style="max-width:90px;">
-        <label>Avail From</label>
-        <input type="time" name="available_start_time" class="form-control">
-      </div>
-      <div class="form-group" style="max-width:90px;">
-        <label>Avail Until</label>
-        <input type="time" name="available_end_time" class="form-control">
-      </div>
-      <div class="form-group" style="max-width:80px; text-align:center;">
-        <label>Featured</label>
-        <input type="checkbox" name="is_featured" style="margin-top:6px;">
-      </div>
-      <div class="form-group" style="max-width:80px; text-align:center;">
-        <label>Best Seller</label>
-        <input type="checkbox" name="is_top_seller" style="margin-top:6px;">
-      </div>
-      <button type="submit" class="btn btn-pink">+ Add Dish</button>
-    </form>
   </div>
 
   <!-- Bulk Catalog Editor with Live Search & Active/Inactive Filter -->
@@ -445,10 +299,8 @@
       </div>
       
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <!-- Live Search -->
         <input type="text" id="catalogSearchInput" oninput="filterCatalogTable()" placeholder="🔍 Search dish or category..." style="padding:5px 10px; border-radius:6px; border:1.5px solid var(--hk-pink); font-size:0.8rem; width:180px; outline:none;">
 
-        <!-- Active/Inactive Filter -->
         <label style="font-size:0.8rem; font-weight:bold;">Status Filter:</label>
         <select id="statusFilterSelect" onchange="filterCatalogTable()" style="padding:4px 8px; border-radius:4px; border:1px solid #cbd5e1; font-size:0.8rem;">
           <option value="ALL">All Dishes</option>
@@ -530,19 +382,35 @@
     {% endfor %}
   </div>
 
-  <!-- Change Logo Form -->
-  <div class="card">
-    <h3 style="color:var(--hk-dark); margin-bottom:8px; font-size:0.95rem;">🖼️ Update Company Logo</h3>
-    <form action="/admin/update-logo" method="POST" class="form-row">
-      <div class="form-group" style="flex:2;">
-        <label>Direct Logo Image URL (PNG / JPG / WebP)</label>
-        <input type="url" name="logo_url" value="{{ store_logo }}" required class="form-control" placeholder="https://...">
-      </div>
-      <button type="submit" class="btn btn-pink">Update Store Logo</button>
-    </form>
-  </div>
-
   <script>
+    function switchReportTab(tabId) {
+      document.getElementById('tabProducts').style.display = 'none';
+      document.getElementById('tabCustomers').style.display = 'none';
+      document.getElementById('tabTransactions').style.display = 'none';
+
+      document.getElementById('btnTabProducts').className = 'btn';
+      document.getElementById('btnTabCustomers').className = 'btn';
+      document.getElementById('btnTabTransactions').className = 'btn';
+      document.getElementById('btnTabProducts').style.background = '#e0f2fe';
+      document.getElementById('btnTabCustomers').style.background = '#e0f2fe';
+      document.getElementById('btnTabTransactions').style.background = '#e0f2fe';
+      document.getElementById('btnTabProducts').style.color = '#0369a1';
+      document.getElementById('btnTabCustomers').style.color = '#0369a1';
+      document.getElementById('btnTabTransactions').style.color = '#0369a1';
+
+      document.getElementById(tabId).style.display = 'block';
+      if (tabId === 'tabProducts') {
+        document.getElementById('btnTabProducts').className = 'btn btn-pink';
+        document.getElementById('btnTabProducts').style.color = 'white';
+      } else if (tabId === 'tabCustomers') {
+        document.getElementById('btnTabCustomers').className = 'btn btn-pink';
+        document.getElementById('btnTabCustomers').style.color = 'white';
+      } else if (tabId === 'tabTransactions') {
+        document.getElementById('btnTabTransactions').className = 'btn btn-pink';
+        document.getElementById('btnTabTransactions').style.color = 'white';
+      }
+    }
+
     function filterCatalogTable() {
       const search = document.getElementById('catalogSearchInput').value.toLowerCase().trim();
       const statusFilter = document.getElementById('statusFilterSelect').value;

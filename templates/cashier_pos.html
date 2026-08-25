@@ -38,7 +38,7 @@
     .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
     .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center; }
-    .modal-box { background: #1e293b; color: white; border: 2px solid #ec4899; border-radius: 12px; width: 90%; max-width: 480px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    .modal-box { background: #1e293b; color: white; border: 2px solid #ec4899; border-radius: 12px; width: 90%; max-width: 500px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
     .form-input { width: 100%; background: #0f172a; border: 1px solid #475569; color: white; padding: 6px 8px; border-radius: 4px; font-size: 0.8rem; margin-bottom: 8px; }
   </style>
 </head>
@@ -52,14 +52,15 @@
     </div>
     
     <div style="display:flex; gap:6px; align-items:center;">
-      <button onclick="openModal('promoClaimModal')" style="background:#e11d48; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🍔 + Promo Deal (₱50)</button>
-      <button onclick="openModal('changeFundModal')" style="background:#065f46; color:#34d399; border:1px solid #059669; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💵 Change Fund</button>
-      <button onclick="openModal('collectionModal')" style="background:#f43f5e; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📋 + For Collection</button>
-      <button onclick="openModal('miscModal')" style="background:#8b5cf6; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🖨️ Misc / Printing</button>
-      <button onclick="openModal('expenseModal')" style="background:#f59e0b; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💸 Expense</button>
-      <button onclick="openModal('vaultModal')" style="background:#10b981; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🏦 Vault Drop (#{{ next_drop_num }})</button>
-      <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
-      <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 10px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Logout</a>
+      <button onclick="openPromoModal('BURGER_FRIES_50', '🍔 Claim ₱50 Burger + Fries Deal', 50)" style="background:#e11d48; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🍔 + Burger (₱50)</button>
+      <button onclick="openPromoModal('BEEFY_NACHOS_75', '🧀 Claim ₱75 Beefy Nachos Deal', 75)" style="background:#d97706; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🧀 + Nachos (₱75)</button>
+      <button onclick="openModal('changeFundModal')" style="background:#065f46; color:#34d399; border:1px solid #059669; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💵 Change Fund</button>
+      <button onclick="openModal('collectionModal')" style="background:#f43f5e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📋 + For Collection</button>
+      <button onclick="openModal('miscModal')" style="background:#8b5cf6; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🖨️ Misc / Printing</button>
+      <button onclick="openModal('expenseModal')" style="background:#f59e0b; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💸 Expense</button>
+      <button onclick="openModal('vaultModal')" style="background:#10b981; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🏦 Vault Drop (#{{ next_drop_num }})</button>
+      <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
+      <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Logout</a>
     </div>
   </header>
 
@@ -307,11 +308,11 @@
   <div id="promoClaimModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#e11d48;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#f43f5e; font-size:1rem;">🍔 Claim ₱50 Burger + Fries Promo Deal</h3>
+        <h3 id="promoModalTitle" style="color:#f43f5e; font-size:1rem;">🍔 Claim Promo Deal</h3>
         <button onclick="closeModal('promoClaimModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
       <form action="/pos/claim-promo" method="POST">
-        <input type="hidden" name="promo_code" value="BURGER_FRIES_50">
+        <input type="hidden" name="promo_code" id="promoModalCode" value="BURGER_FRIES_50">
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Select Member (To credit loyalty points)</label>
         <select name="registered_customer_id" class="form-input" required>
@@ -323,11 +324,11 @@
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Payment Method</label>
         <select name="payment_method" class="form-input">
-          <option value="CASH">Cash (₱50.00)</option>
-          <option value="GCASH">GCash (₱50.00)</option>
+          <option value="CASH">Cash</option>
+          <option value="GCASH">GCash</option>
         </select>
 
-        <button type="submit" style="background:#e11d48; color:white; border:none; padding:9px; border-radius:6px; width:100%; font-weight:900; cursor:pointer; margin-top:6px;">RECORD PROMO SALE (₱50.00)</button>
+        <button type="submit" id="promoModalSubmitBtn" style="background:#e11d48; color:white; border:none; padding:9px; border-radius:6px; width:100%; font-weight:900; cursor:pointer; margin-top:6px;">RECORD PROMO SALE</button>
       </form>
     </div>
   </div>
@@ -377,11 +378,11 @@
     </div>
   </div>
 
-  <!-- 4. FOR COLLECTION MODAL -->
+  <!-- 4. FOR COLLECTION MODAL (Attributable to a specific product) -->
   <div id="collectionModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f43f5e;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#fb7185; font-size:1rem;">📋 Put Sale For Collection / Unpaid</h3>
+        <h3 style="color:#fb7185; font-size:1rem;">📋 Put Sale For Collection (Attributable to Product)</h3>
         <button onclick="closeModal('collectionModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
       <form action="/pos/create-collection" method="POST">
@@ -407,14 +408,42 @@
           <input type="text" name="custom_contact" class="form-input" placeholder="0917xxxxxxx / Poblacion">
         </div>
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Item / Service Description *</label>
-        <input type="text" name="title" class="form-input" placeholder="e.g. 5x Meals for meeting" required>
+        <label style="font-size:0.75rem; color:#cbd5e1;">Item Selection Mode</label>
+        <select name="item_choice_type" id="colItemChoiceType" class="form-input" onchange="toggleColItemType()">
+          <option value="PRODUCT">Specific Menu Product</option>
+          <option value="CUSTOM">Custom Service / Other</option>
+        </select>
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Payable Amount (₱) *</label>
-        <input type="number" step="0.25" name="amount" class="form-input" placeholder="0.00" required>
+        <div id="colProductSelectBox">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Choose Specific Product</label>
+          <select name="product_id" id="colProductSelect" class="form-input" onchange="updateColProductAmount()">
+            <option value="">-- Choose Menu Item --</option>
+            {% for p in products %}
+              <option value="{{ p.id }}" data-price="{{ p.price }}">{{ p.name }} (₱{{ "{:,.2f}".format(p.price) }})</option>
+            {% endfor %}
+          </select>
+
+          <label style="font-size:0.75rem; color:#cbd5e1;">Quantity</label>
+          <input type="number" name="quantity" id="colProductQty" class="form-input" value="1" min="1" oninput="updateColProductAmount()">
+        </div>
+
+        <div id="colCustomItemBox" style="display:none;">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Custom Item / Service Title *</label>
+          <input type="text" name="custom_title" class="form-input" placeholder="e.g. Special Catering / Tray">
+
+          <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱) *</label>
+          <input type="number" step="0.25" name="custom_amount" id="colCustomAmount" class="form-input" placeholder="0.00">
+        </div>
+
+        <div style="background:#0f172a; padding:6px; border-radius:6px; border:1px solid #334155; margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:bold;">
+            <span>TOTAL RECEIVABLE:</span>
+            <span id="colCalculatedTotal" style="color:#fb7185;">₱0.00</span>
+          </div>
+        </div>
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Collection Notes / Due Date</label>
-        <input type="text" name="notes" class="form-input" placeholder="e.g. To be paid on payroll">
+        <input type="text" name="notes" class="form-input" placeholder="e.g. Pay upon payroll">
 
         <button type="submit" style="background:#f43f5e; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Unpaid Collection</button>
       </form>
@@ -453,30 +482,71 @@
     </div>
   </div>
 
-  <!-- 6. SAFE VAULT DROPS MODAL -->
+  <!-- 6. SAFE VAULT DROPS MODAL WITH CASH COUNT BREAKDOWN CALCULATOR -->
   <div id="vaultModal" class="modal-backdrop">
-    <div class="modal-box" style="border-color:#10b981;">
+    <div class="modal-box" style="border-color:#10b981; max-width:540px;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#34d399; font-size:1rem;">🏦 Safe Vault Cash Drop</h3>
+        <h3 style="color:#34d399; font-size:1rem;">🏦 Safe Vault Cash Drop & Cash Count Calculator</h3>
         <button onclick="closeModal('vaultModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
-      <form action="/pos/record-vault-drop" method="POST">
-        <label style="font-size:0.75rem; color:#cbd5e1;">Drop Sequence</label>
-        <select name="drop_number" class="form-input">
-          <option value="1" {% if next_drop_num == 1 %}selected{% endif %}>1st Drop</option>
-          <option value="2" {% if next_drop_num == 2 %}selected{% endif %}>2nd Drop</option>
-          <option value="3" {% if next_drop_num == 3 %}selected{% endif %}>3rd Drop</option>
-          <option value="4" {% if next_drop_num == 4 %}selected{% endif %}>4th Drop</option>
-          <option value="5" {% if next_drop_num >= 5 %}selected{% endif %}>5th Drop</option>
-        </select>
+      <form action="/pos/record-vault-drop" method="POST" onsubmit="prepareVaultDropSubmission()">
+        <input type="hidden" name="cash_breakdown" id="vaultCashBreakdown">
+        
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.72rem; color:#cbd5e1;">Drop Sequence</label>
+            <select name="drop_number" class="form-input" style="margin-bottom:0;">
+              <option value="1" {% if next_drop_num == 1 %}selected{% endif %}>1st Drop</option>
+              <option value="2" {% if next_drop_num == 2 %}selected{% endif %}>2nd Drop</option>
+              <option value="3" {% if next_drop_num == 3 %}selected{% endif %}>3rd Drop</option>
+              <option value="4" {% if next_drop_num == 4 %}selected{% endif %}>4th Drop</option>
+              <option value="5" {% if next_drop_num >= 5 %}selected{% endif %}>5th Drop</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.72rem; color:#cbd5e1;">Calculated Drop Total (₱)</label>
+            <input type="number" step="0.25" name="amount" id="vaultCalculatedAmount" class="form-input" style="font-weight:900; color:#34d399; margin-bottom:0;" required>
+          </div>
+        </div>
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Dropped Amount (₱)</label>
-        <input type="number" step="0.25" name="amount" class="form-input" placeholder="e.g. 5000.00" required>
+        <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:8px; margin-bottom:8px;">
+          <div style="font-size:0.72rem; font-weight:bold; color:#38bdf8; margin-bottom:4px;">💵 Cash Denomination Breakdown Form:</div>
+          <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; font-size:0.72rem;">
+            <div>
+              <label>₱1,000 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="1000" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div>
+              <label>₱500 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="500" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div>
+              <label>₱200 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="200" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div>
+              <label>₱100 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="100" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div>
+              <label>₱50 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="50" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div>
+              <label>₱20 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="20" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div style="grid-column: span 3;">
+              <label>Coins Total (₱)</label>
+              <input type="number" step="0.25" min="0" class="form-input denom-input" data-val="1" oninput="calculateVaultTotal()" placeholder="0.00" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+          </div>
+        </div>
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Witness / Shift Notes</label>
-        <input type="text" name="notes" class="form-input" placeholder="e.g., Excess register transfer">
+        <label style="font-size:0.72rem; color:#cbd5e1;">Witness / Shift Notes</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g., Lunch rush cash drop verified by Manager">
 
-        <button type="submit" style="background:#10b981; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Confirm Vault Drop</button>
+        <button type="submit" style="background:#10b981; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Confirm Cash Drop</button>
       </form>
     </div>
   </div>
@@ -522,10 +592,61 @@
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
+    function openPromoModal(code, title, price) {
+      document.getElementById('promoModalCode').value = code;
+      document.getElementById('promoModalTitle').innerText = title;
+      document.getElementById('promoModalSubmitBtn').innerText = `RECORD PROMO SALE (₱${price.toFixed(2)})`;
+      openModal('promoClaimModal');
+    }
+
     function toggleCustInput() {
       const type = document.getElementById('collectionCustType').value;
       document.getElementById('regCustBox').style.display = (type === 'REGISTERED') ? 'block' : 'none';
       document.getElementById('customCustBox').style.display = (type === 'CUSTOM') ? 'block' : 'none';
+    }
+
+    function toggleColItemType() {
+      const mode = document.getElementById('colItemChoiceType').value;
+      document.getElementById('colProductSelectBox').style.display = (mode === 'PRODUCT') ? 'block' : 'none';
+      document.getElementById('colCustomItemBox').style.display = (mode === 'CUSTOM') ? 'block' : 'none';
+      updateColProductAmount();
+    }
+
+    function updateColProductAmount() {
+      const mode = document.getElementById('colItemChoiceType').value;
+      let total = 0.0;
+      if (mode === 'PRODUCT') {
+        const select = document.getElementById('colProductSelect');
+        const qty = parseInt(document.getElementById('colProductQty').value) || 1;
+        if (select.selectedOptions[0] && select.selectedOptions[0].dataset.price) {
+          total = parseFloat(select.selectedOptions[0].dataset.price) * qty;
+        }
+      } else {
+        total = parseFloat(document.getElementById('colCustomAmount').value) || 0.0;
+      }
+      document.getElementById('colCalculatedTotal').innerText = `₱${total.toFixed(2)}`;
+    }
+
+    function calculateVaultTotal() {
+      let total = 0.0;
+      document.querySelectorAll('.denom-input').forEach(input => {
+        const val = parseFloat(input.dataset.val) || 0;
+        const count = parseFloat(input.value) || 0;
+        total += val * count;
+      });
+      document.getElementById('vaultCalculatedAmount').value = total > 0 ? total.toFixed(2) : '';
+    }
+
+    function prepareVaultDropSubmission() {
+      let details = [];
+      document.querySelectorAll('.denom-input').forEach(input => {
+        const val = input.dataset.val;
+        const count = input.value || 0;
+        if (parseFloat(count) > 0) {
+          details.push(`₱${val} x ${count}`);
+        }
+      });
+      document.getElementById('vaultCashBreakdown').value = details.join(', ');
     }
 
     function togglePosCustSelect() {

@@ -59,7 +59,7 @@
     .carousel-track::-webkit-scrollbar-thumb { background: #ec4899; border-radius: 10px; }
     .carousel-track::-webkit-scrollbar-thumb:hover { background: var(--hk-dark); }
 
-    .carousel-card { min-width: 160px; max-width: 160px; background: white; border: 2px solid var(--hk-pink); border-radius: 12px; padding: 10px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 6px rgba(255,105,180,0.1); }
+    .carousel-card { min-width: 175px; max-width: 175px; background: white; border: 2px solid var(--hk-pink); border-radius: 12px; padding: 10px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 6px rgba(255,105,180,0.1); }
 
     .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
     @media(min-width:768px){ .cat-grid { grid-template-columns: repeat(6, 1fr); gap: 12px; } }
@@ -115,6 +115,31 @@
   </div>
 
   <div class="container">
+
+    <!-- 🎁 ACTIVE PROMOTIONAL DROPS CAROUSEL (Burger & Beefy Nachos) -->
+    {% if active_promos %}
+    <div class="section-title">
+      <span style="color:#e11d48;">🎁 Active 3-Day Promotional Drops</span>
+      <div class="carousel-header-controls">
+        <button class="scroll-btn" style="border-color:#e11d48;" onclick="slideCarousel('promoTrack', -300)">‹</button>
+        <button class="scroll-btn" style="border-color:#e11d48;" onclick="slideCarousel('promoTrack', 300)">›</button>
+      </div>
+    </div>
+    <div class="carousel-track" id="promoTrack">
+      {% for pr in active_promos %}
+      <div class="carousel-card" style="border-color: {% if 'NACHOS' in pr.promo_code %}#f59e0b{% else %}#e11d48{% endif %}; background: {% if 'NACHOS' in pr.promo_code %}#fffbeb{% else %}#fff1f2{% endif %};">
+        <div>
+          <span style="background: {% if 'NACHOS' in pr.promo_code %}#d97706{% else %}#e11d48{% endif %}; color:white; padding:2px 6px; border-radius:4px; font-size:0.65rem; font-weight:bold; display:inline-block; margin-bottom:4px;">PROMO DEAL</span>
+          <div style="font-size:0.85rem; font-weight:900; line-height:1.2; margin-bottom:4px;">{{ pr.title }}</div>
+          <div style="font-size:1.15rem; font-weight:900; color:{% if 'NACHOS' in pr.promo_code %}#b45309{% else %}#be123c{% endif %};">₱{{ "{:,.2f}".format(pr.promo_price) }}</div>
+        </div>
+        <div style="margin-top:8px;">
+          <a href="/portal/dashboard" class="btn-add" style="background:{% if 'NACHOS' in pr.promo_code %}#d97706{% else %}#e11d48{% endif %}; text-align:center; text-decoration:none; display:block; padding:5px; font-size:0.75rem;">⚡ Reserve (₱{{ "{:,.2f}".format(pr.promo_price) }})</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
     
     <!-- TOP CAROUSEL: Featured Specials -->
     {% if featured %}

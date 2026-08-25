@@ -178,6 +178,7 @@ class VaultDrop(db.Model):
     drop_number = db.Column(db.Integer, nullable=False)
     amount = db.Column(db.Float, nullable=False)
     notes = db.Column(db.String(255), nullable=True)
+    cash_breakdown = db.Column(db.Text, nullable=True)
     created_by = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -388,6 +389,7 @@ def store_catalog():
     liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=get_client_ip()).all()}
     delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()
     status = check_operating_status()
+    active_promos = PromotionTracker.query.filter_by(is_active=True).all()
 
     cust = None
     if 'customer_id' in session:
@@ -400,6 +402,7 @@ def store_catalog():
                            products=products, 
                            liked_ids=liked_ids,
                            delivery_zones=delivery_zones,
+                           active_promos=active_promos,
                            cust=cust,
                            status=status,
                            unique_visitors=unique_visitors, 
@@ -900,10 +903,26 @@ def cashier_record_change_fund():
 @require_cashier
 def cashier_create_collection():
     cust_type = request.form.get('customer_type', 'REGISTERED')
-    amount = float(request.form.get('amount') or 0.0)
-    service_title = request.form.get('title', '').strip() or 'Unpaid / Receivable Sale'
+    item_choice_type = request.form.get('item_choice_type', 'PRODUCT')
+    product_id = request.form.get('product_id')
+    qty = int(request.form.get('quantity') or 1)
     notes = request.form.get('notes', '').strip()
     
+    prod_name = 'Custom Receivable Item'
+    unit_p = float(request.form.get('custom_amount') or 0.0)
+    cost_p = 0.0
+
+    if item_choice_type == 'PRODUCT' and product_id:
+        prod = Product.query.get(int(product_id))
+        if prod:
+            prod_name = prod.name
+            unit_p = prod.price
+            cost_p = prod.cost
+    else:
+        prod_name = request.form.get('custom_title', '').strip() or 'Custom Receivable Service'
+
+    amount = unit_p * qty
+
     if amount <= 0:
         flash("Amount must be greater than zero.", "error")
         return redirect(url_for('cashier_terminal'))
@@ -938,23 +957,23 @@ def cashier_create_collection():
         status='UNPAID_COLLECTION',
         is_unpaid=True,
         collection_notes=notes,
-        notes=service_title
+        notes=f"Attributable Item: {prod_name} (x{qty})"
     )
     db.session.add(order)
     db.session.flush()
 
     db.session.add(OrderItem(
         order_id=order.id,
-        product_id=None,
-        product_name=f"[Receivable] {service_title}",
-        unit_price=amount,
-        cost_price=0.0,
-        quantity=1,
+        product_id=int(product_id) if (item_choice_type == 'PRODUCT' and product_id) else None,
+        product_name=prod_name,
+        unit_price=unit_p,
+        cost_price=cost_p,
+        quantity=qty,
         subtotal=amount
     ))
 
     db.session.commit()
-    flash(f"Unpaid collection order recorded for {cust_name} (₱{amount:,.2f})", "info")
+    flash(f"For Collection order recorded for {cust_name}: {prod_name} x{qty} (₱{amount:,.2f})", "info")
     return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/settle-collection/<int:order_id>', methods=['POST'])
@@ -1030,13 +1049,14 @@ def cashier_record_vault_drop():
     drop_num = int(request.form.get('drop_number') or 1)
     amount = float(request.form.get('amount') or 0.0)
     notes = request.form.get('notes', '').strip()
+    breakdown = request.form.get('cash_breakdown', '').strip()
     staff_user = session.get('cashier_user') or session.get('admin_user') or 'Cashier'
 
     if amount <= 0:
         flash("Drop amount must be greater than zero.", "error")
         return redirect(url_for('cashier_terminal'))
 
-    db.session.add(VaultDrop(drop_number=drop_num, amount=amount, notes=notes, created_by=staff_user))
+    db.session.add(VaultDrop(drop_number=drop_num, amount=amount, notes=notes, cash_breakdown=breakdown, created_by=staff_user))
     db.session.commit()
     flash(f"Vault Cash Drop #{drop_num} recorded: ₱{amount:,.2f}", "success")
     return redirect(url_for('cashier_terminal'))
@@ -1110,8 +1130,9 @@ def admin_dashboard():
     staff_members = Staff.query.all()
     customers = Customer.query.order_by(Customer.id.desc()).all()
     delivery_zones = DeliveryZone.query.all()
-    all_orders = Order.query.order_by(Order.created_at.desc()).limit(100).all()
+    all_orders = Order.query.order_by(Order.created_at.desc()).limit(150).all()
     all_expenses = Expense.query.order_by(Expense.created_at.desc()).all()
+    vault_drops = VaultDrop.query.order_by(VaultDrop.created_at.desc()).all()
     promotions = PromotionTracker.query.order_by(PromotionTracker.created_at.desc()).all()
 
     unique_visitors = SiteVisitor.query.count()
@@ -1157,6 +1178,17 @@ def admin_dashboard():
     fin_monthly = calc_period(monthly_orders, monthly_exp, monthly_vault)
     fin_all = calc_period(all_completed, total_exp_all, all_vault)
 
+    # Product Sales Breakdown Aggregate
+    product_sales_stats = {}
+    for o in all_completed:
+        for it in o.items:
+            pname = it.product_name
+            if pname not in product_sales_stats:
+                product_sales_stats[pname] = {'qty': 0, 'revenue': 0.0, 'cost': 0.0}
+            product_sales_stats[pname]['qty'] += it.quantity
+            product_sales_stats[pname]['revenue'] += it.subtotal
+            product_sales_stats[pname]['cost'] += (it.cost_price or 0.0) * it.quantity
+
     total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
 
     return render_template('admin.html', 
@@ -1167,7 +1199,9 @@ def admin_dashboard():
                            delivery_zones=delivery_zones,
                            all_orders=all_orders,
                            all_expenses=all_expenses,
+                           vault_drops=vault_drops,
                            promotions=promotions,
+                           product_sales_stats=product_sales_stats,
                            unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits,
                            fin_daily=fin_daily,
@@ -1176,6 +1210,66 @@ def admin_dashboard():
                            fin_all=fin_all,
                            total_ar=total_ar,
                            current_sort=sort_by)
+
+@app.route('/admin/allocate-vault-drop/<int:drop_id>', methods=['POST'])
+@require_admin
+def admin_allocate_vault_drop(drop_id):
+    drop = VaultDrop.query.get_or_404(drop_id)
+    cust_id = request.form.get('customer_id')
+    product_id = request.form.get('product_id')
+    allocated_amount = float(request.form.get('amount') or 0.0)
+    qty = int(request.form.get('quantity') or 1)
+
+    if allocated_amount <= 0 or allocated_amount > drop.amount:
+        flash("Allocated amount must be between ₱0.01 and the remaining drop balance.", "error")
+        return redirect(url_for('admin_dashboard'))
+
+    cust = Customer.query.get(int(cust_id)) if cust_id else None
+    prod = Product.query.get(int(product_id)) if product_id else None
+
+    # Deduct allocated amount from Vault Drop balance
+    drop.amount = max(0.0, drop.amount - allocated_amount)
+
+    order = Order(
+        order_type='ALLOCATED_VAULT_SALE',
+        customer_id=cust.id if cust else None,
+        customer_name=cust.name if cust else 'Allocated Vault Customer',
+        contact_number=cust.contact if cust else 'N/A',
+        subtotal=allocated_amount,
+        delivery_fee=0.0,
+        total_amount=allocated_amount,
+        payment_method='CASH',
+        payment_verified=True,
+        status='COMPLETED',
+        notes=f"Allocated from Vault Drop #{drop.drop_number}"
+    )
+    db.session.add(order)
+    db.session.flush()
+
+    db.session.add(OrderItem(
+        order_id=order.id,
+        product_id=prod.id if prod else None,
+        product_name=prod.name if prod else f"Ulam Sale (Drop #{drop.drop_number})",
+        unit_price=allocated_amount / qty,
+        cost_price=prod.cost if prod else 0.0,
+        quantity=qty,
+        subtotal=allocated_amount
+    ))
+
+    if cust:
+        cust.accumulated_spend = (cust.accumulated_spend or 0.0) + allocated_amount
+        earned = int(allocated_amount // 30)
+        if earned > 0:
+            cust.points_balance = (cust.points_balance or 0.0) + earned
+            db.session.add(RewardLedger(
+                customer_id=cust.id,
+                points_change=earned,
+                reason=f"Allocated Sale from Drop #{drop.drop_number}"
+            ))
+
+    db.session.commit()
+    flash(f"Allocated ₱{allocated_amount:,.2f} from Drop #{drop.drop_number} into a dedicated Order #{order.id}!", "success")
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/reassign-order/<int:order_id>', methods=['POST'])
 @require_admin
@@ -1190,13 +1284,11 @@ def admin_reassign_order(order_id):
     new_cust = Customer.query.get_or_404(int(new_cust_id))
     old_cust = Customer.query.get(order.customer_id) if order.customer_id else None
 
-    # Reverse points/spend from old customer if previously completed
     if old_cust and order.status == 'COMPLETED':
         earned = int(order.total_amount // 30)
         old_cust.points_balance = max(0.0, (old_cust.points_balance or 0.0) - earned)
         old_cust.accumulated_spend = max(0.0, (old_cust.accumulated_spend or 0.0) - order.total_amount)
 
-    # Reassign
     order.customer_id = new_cust.id
     order.customer_name = new_cust.name
     order.contact_number = new_cust.contact
@@ -1655,7 +1747,8 @@ with app.app_context():
         for stmt in [
             "ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
             "ALTER TABLE product ADD COLUMN available_start_time VARCHAR(10)",
-            "ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10)"
+            "ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10)",
+            "ALTER TABLE vault_drop ADD COLUMN cash_breakdown TEXT"
         ]:
             try:
                 conn.execute(text(stmt))
