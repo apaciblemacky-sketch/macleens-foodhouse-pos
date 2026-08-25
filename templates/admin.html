@@ -36,7 +36,7 @@
       <img src="{{ store_logo }}" style="width:50px; height:50px; border-radius:50%; border:2px solid var(--hk-pink); object-fit:cover;">
       <div>
         <h2 style="color:var(--hk-dark);">🎀 Macleen's Food House — Master Control</h2>
-        <p style="font-size:0.85rem; color:#64748b;">Daily, Weekly & Monthly Financial Audit, Expense Editing & Menu Scheduling</p>
+        <p style="font-size:0.85rem; color:#64748b;">Financial Audit, Transaction Reassignment & Filtered Product Management</p>
       </div>
     </div>
     <div style="display:flex; gap:8px;">
@@ -45,7 +45,7 @@
     </div>
   </header>
 
-  <!-- 📊 COMPREHENSIVE FINANCIAL PERFORMANCE TABLE (Daily, Weekly, Monthly, All-time) -->
+  <!-- 📊 COMPREHENSIVE FINANCIAL PERFORMANCE TABLE -->
   <div class="card" style="border: 2px solid var(--hk-pink);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
@@ -95,7 +95,7 @@
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.rev) }}</td>
             <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_monthly.cost) }}</td>
             <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.gross_p) }}</td>
-            <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_daily.exp) }}</td>
+            <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_monthly.exp) }}</td>
             <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_monthly.net_p) }}</td>
           </tr>
           <tr style="background:#fff1f2; font-weight:bold;">
@@ -175,9 +175,12 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <div>
         <h3 style="color:#831843; font-size:1.05rem;">📊 Active Promotion Performance & Revenue Metrics</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Manage 3-day campaigns, view conversions, and bring back archived deals anytime.</p>
+        <p style="font-size:0.75rem; color:#64748b;">Live campaigns, claim tracking, and landing page URLs.</p>
       </div>
-      <a href="/promo/burger-deal" target="_blank" style="background:#ec4899; color:white; padding:4px 10px; border-radius:6px; font-weight:bold; font-size:0.75rem; text-decoration:none;">🔗 View Landing Page</a>
+      <div style="display:flex; gap:6px;">
+        <a href="/promo/burger-deal" target="_blank" style="background:#ec4899; color:white; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.72rem; text-decoration:none;">🔗 Burger Deal (₱50)</a>
+        <a href="/promo/beefy-nachos" target="_blank" style="background:#d97706; color:white; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.72rem; text-decoration:none;">🔗 Nachos Deal (₱75)</a>
+      </div>
     </div>
 
     <div style="overflow-x: auto;">
@@ -204,7 +207,7 @@
             </td>
             <td>
               {% if pr.is_active %}
-                <span class="badge" style="background:#dcfce7; color:#15803d;">ACTIVE (3-Day Deal)</span>
+                <span class="badge" style="background:#dcfce7; color:#15803d;">ACTIVE</span>
               {% else %}
                 <span class="badge" style="background:#fee2e2; color:#991b1b;">ARCHIVED</span>
               {% endif %}
@@ -225,7 +228,7 @@
                 {% if pr.is_active %}
                   <button type="submit" class="btn" style="background:#f59e0b; color:white; padding:3px 8px; font-size:0.7rem;">📦 Archive</button>
                 {% else %}
-                  <button type="submit" class="btn" style="background:#16a34a; color:white; padding:3px 8px; font-size:0.7rem;">🚀 Bring Back (3 Days)</button>
+                  <button type="submit" class="btn" style="background:#16a34a; color:white; padding:3px 8px; font-size:0.7rem;">🚀 Bring Back</button>
                 {% endif %}
               </form>
             </td>
@@ -236,29 +239,29 @@
     </div>
   </div>
 
-  <!-- MASTER TRANSACTION AUDIT & REVERSAL CONTROL -->
+  <!-- MASTER TRANSACTION AUDIT & CUSTOMER REASSIGNMENT -->
   <div class="card" style="border: 2px solid #f43f5e;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <div>
-        <h3 style="color:#e11d48; font-size:1.05rem;">⚡ Master Transaction Log & Sale Reversal Control</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Delete mistaken orders, restock quantities, and reverse customer points automatically.</p>
+        <h3 style="color:#e11d48; font-size:1.05rem;">⚡ Master Transaction Log & Customer Reassignment</h3>
+        <p style="font-size:0.75rem; color:#64748b;">Reassign walk-in orders to specific member accounts, transfer points, or revert mistakes.</p>
       </div>
       <span style="background:#ffe4e6; color:#be123c; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">Last {{ all_orders|length }} Transactions</span>
     </div>
 
-    <div style="max-height: 380px; overflow-y: auto;">
+    <div style="max-height: 400px; overflow-y: auto;">
       <table>
         <thead style="position:sticky; top:0; z-index:2;">
           <tr>
             <th>Order #</th>
             <th>Type</th>
-            <th>Customer / Contact</th>
+            <th>Assigned Customer</th>
             <th>Items</th>
             <th>Total Amount</th>
             <th>Payment</th>
             <th>Status</th>
-            <th>Date & Time</th>
-            <th>Revert Action</th>
+            <th>Reassign Customer</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -272,7 +275,7 @@
             </td>
             <td style="font-size:0.72rem;">
               {% for it in o.items %}
-                <div>• {{ it.product_name }} x{{ it.quantity }} (₱{{ "{:,.2f}".format(it.subtotal) }})</div>
+                <div>• {{ it.product_name }} x{{ it.quantity }}</div>
               {% endfor %}
             </td>
             <td style="font-weight:900; color:#16a34a; font-size:0.9rem;">
@@ -282,18 +285,24 @@
             <td>
               {% if o.status == 'COMPLETED' %}
                 <span class="badge" style="background:#dcfce7; color:#15803d;">COMPLETED</span>
-              {% elif o.status == 'VERIFICATION' %}
-                <span class="badge" style="background:#fef3c7; color:#b45309;">VERIFICATION</span>
               {% else %}
-                <span class="badge" style="background:#f1f5f9; color:#475569;">{{ o.status }}</span>
+                <span class="badge" style="background:#fef3c7; color:#b45309;">{{ o.status }}</span>
               {% endif %}
             </td>
-            <td style="font-size:0.72rem; color:#64748b;">
-              {{ o.created_at.strftime('%b %d, %Y - %I:%M %p') if o.created_at else '—' }}
+            <td>
+              <form action="/admin/reassign-order/{{ o.id }}" method="POST" style="display:flex; gap:3px;">
+                <select name="customer_id" class="form-control" style="padding:2px; font-size:0.72rem; max-width:140px;" required>
+                  <option value="">-- Choose Member --</option>
+                  {% for c in customers %}
+                    <option value="{{ c.id }}" {% if o.customer_id == c.id %}selected{% endif %}>{{ c.name }} ({{ c.contact }})</option>
+                  {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-pink" style="padding:2px 6px; font-size:0.7rem;">Assign</button>
+              </form>
             </td>
             <td>
-              <form action="/admin/revert-order/{{ o.id }}" method="POST" onsubmit="return confirm('⚠️ REVERT SALE #{{ o.id }}?\n\nThis will:\n1. Delete this sale record\n2. Restock products into inventory\n3. Deduct points credited to customer');">
-                <button type="submit" class="btn" style="background:#ef4444; color:white; padding:4px 8px; font-size:0.72rem;" title="Delete & Revert Sale">🗑️ Revert</button>
+              <form action="/admin/revert-order/{{ o.id }}" method="POST" onsubmit="return confirm('⚠️ REVERT SALE #{{ o.id }}?\n\nThis will delete the sale, restock items, and reverse points.');">
+                <button type="submit" class="btn" style="background:#ef4444; color:white; padding:4px 6px; font-size:0.7rem;" title="Delete & Revert Sale">🗑️</button>
               </form>
             </td>
           </tr>
@@ -428,7 +437,7 @@
     </form>
   </div>
 
-  <!-- Bulk Catalog Editor with Live Search, Time Constraints & Delete Actions -->
+  <!-- Bulk Catalog Editor with Live Search & Active/Inactive Filter -->
   <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
       <div>
@@ -436,15 +445,22 @@
       </div>
       
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <div style="position:relative;">
-          <input type="text" id="catalogSearchInput" oninput="filterCatalogTable()" placeholder="🔍 Search dish or category..." style="padding:5px 10px; border-radius:6px; border:1.5px solid var(--hk-pink); font-size:0.8rem; width:220px; outline:none;">
-        </div>
+        <!-- Live Search -->
+        <input type="text" id="catalogSearchInput" oninput="filterCatalogTable()" placeholder="🔍 Search dish or category..." style="padding:5px 10px; border-radius:6px; border:1.5px solid var(--hk-pink); font-size:0.8rem; width:180px; outline:none;">
+
+        <!-- Active/Inactive Filter -->
+        <label style="font-size:0.8rem; font-weight:bold;">Status Filter:</label>
+        <select id="statusFilterSelect" onchange="filterCatalogTable()" style="padding:4px 8px; border-radius:4px; border:1px solid #cbd5e1; font-size:0.8rem;">
+          <option value="ALL">All Dishes</option>
+          <option value="ACTIVE">Active Only</option>
+          <option value="INACTIVE">Inactive / Hidden</option>
+        </select>
 
         <label style="font-size:0.8rem; font-weight:bold; margin-left:4px;">Sort By:</label>
         <select onchange="window.location.href='/admin?sort=' + this.value" style="padding:4px 8px; border-radius:4px; border:1px solid #cbd5e1; font-size:0.8rem;">
           <option value="likes_desc" {% if current_sort == 'likes_desc' %}selected{% endif %}>❤️ Likes / Ranking</option>
           <option value="category" {% if current_sort == 'category' %}selected{% endif %}>📂 Category</option>
-          <option value="name_asc" {% if current_sort == 'name_asc' %}selected{% endif %}>🔤 Product Name (A-Z)</option>
+          <option value="name_asc" {% if current_sort == 'name_asc' %}selected{% endif %}>🔤 Name (A-Z)</option>
           <option value="price_asc" {% if current_sort == 'price_asc' %}selected{% endif %}>💵 Price: Low to High</option>
           <option value="price_desc" {% if current_sort == 'price_desc' %}selected{% endif %}>💰 Price: High to Low</option>
           <option value="featured" {% if current_sort == 'featured' %}selected{% endif %}>✨ Featured First</option>
@@ -475,7 +491,7 @@
           </thead>
           <tbody>
             {% for p in products %}
-            <tr class="product-row" data-name="{{ p.name|lower }}" data-cat="{{ p.category_name|lower }}">
+            <tr class="product-row" data-name="{{ p.name|lower }}" data-cat="{{ p.category_name|lower }}" data-active="{{ 'true' if p.is_active else 'false' }}">
               <input type="hidden" name="product_id" value="{{ p.id }}">
               <td>
                 {% if p.image_url %}
@@ -510,7 +526,7 @@
     </form>
 
     {% for p in products %}
-      <form id="delForm-{{ p.id }}" action="/admin/delete-product/{{ p.id }}" method="POST" onsubmit="return confirm('⚠️ Permanently delete \'{{ p.name }}\'?\n\nThis will remove it from the menu and storefront.');" style="display:none;"></form>
+      <form id="delForm-{{ p.id }}" action="/admin/delete-product/{{ p.id }}" method="POST" onsubmit="return confirm('⚠️ Permanently delete \'{{ p.name }}\'?');" style="display:none;"></form>
     {% endfor %}
   </div>
 
@@ -528,14 +544,22 @@
 
   <script>
     function filterCatalogTable() {
-      const input = document.getElementById('catalogSearchInput').value.toLowerCase().trim();
+      const search = document.getElementById('catalogSearchInput').value.toLowerCase().trim();
+      const statusFilter = document.getElementById('statusFilterSelect').value;
       const rows = document.querySelectorAll('.product-row');
       let visibleCount = 0;
 
       rows.forEach(row => {
         const name = row.getAttribute('data-name') || '';
         const cat = row.getAttribute('data-cat') || '';
-        if (name.includes(input) || cat.includes(input)) {
+        const isActive = row.getAttribute('data-active') === 'true';
+
+        const matchSearch = name.includes(search) || cat.includes(search);
+        let matchStatus = true;
+        if (statusFilter === 'ACTIVE') matchStatus = isActive;
+        if (statusFilter === 'INACTIVE') matchStatus = !isActive;
+
+        if (matchSearch && matchStatus) {
           row.style.display = '';
           visibleCount++;
         } else {

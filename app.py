@@ -25,7 +25,6 @@ db = SQLAlchemy(app)
 @app.before_request
 def make_session_permanent():
     session.permanent = True
-    # Heartbeat to track active/online customers safely
     if 'customer_id' in session:
         try:
             cust = Customer.query.get(session['customer_id'])
@@ -242,9 +241,9 @@ def get_store_settings():
     settings = {s.key: s.value for s in StoreSetting.query.all()}
     defaults = {
         'store_open_time': '08:00',
-        'store_close_time': '19:00',
-        'delivery_open_time': '09:00',
-        'delivery_close_time': '17:00',
+        'store_close_time': '21:00',
+        'delivery_open_time': '08:00',
+        'delivery_close_time': '20:00',
         'is_store_open': 'true',
         'is_delivery_enabled': 'true'
     }
@@ -264,9 +263,9 @@ def check_operating_status():
             return fallback
 
     store_open = parse_t(s.get('store_open_time', '08:00'), time(8, 0))
-    store_close = parse_t(s.get('store_close_time', '19:00'), time(19, 0))
-    del_open = parse_t(s.get('delivery_open_time', '09:00'), time(9, 0))
-    del_close = parse_t(s.get('delivery_close_time', '17:00'), time(17, 0))
+    store_close = parse_t(s.get('store_close_time', '21:00'), time(21, 0))
+    del_open = parse_t(s.get('delivery_open_time', '08:00'), time(8, 0))
+    del_close = parse_t(s.get('delivery_close_time', '20:00'), time(20, 0))
 
     is_store_active = (s.get('is_store_open') == 'true') and (store_open <= now_ph <= store_close)
     is_delivery_active = (s.get('is_delivery_enabled') == 'true') and (del_open <= now_ph <= del_close) and is_store_active
@@ -295,8 +294,8 @@ def is_product_available_now(prod):
 
 def ensure_default_promos():
     try:
-        deal = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
-        if not deal:
+        deal1 = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
+        if not deal1:
             db.session.add(PromotionTracker(
                 promo_code='BURGER_FRIES_50',
                 title='1 Regular Burger + Crispy Fries',
@@ -304,9 +303,24 @@ def ensure_default_promos():
                 promo_cost=28.0,
                 page_views=0,
                 claims_count=0,
-                total_revenue=0.0
+                total_revenue=0.0,
+                is_active=True
             ))
-            db.session.commit()
+
+        deal2 = PromotionTracker.query.filter_by(promo_code='BEEFY_NACHOS_75').first()
+        if not deal2:
+            db.session.add(PromotionTracker(
+                promo_code='BEEFY_NACHOS_75',
+                title='All-New Loaded Beefy Nachos Supreme',
+                promo_price=75.0,
+                promo_cost=42.0,
+                page_views=0,
+                claims_count=0,
+                total_revenue=0.0,
+                is_active=True
+            ))
+
+        db.session.commit()
     except Exception:
         db.session.rollback()
 
@@ -348,6 +362,7 @@ def api_queue_counts():
 
 @app.route('/')
 def store_catalog():
+    ensure_default_promos()
     try:
         ip = get_client_ip()
         v = SiteVisitor.query.filter_by(ip_address=ip).first()
@@ -398,6 +413,15 @@ def promo_burger_deal():
         promo.page_views = (promo.page_views or 0) + 1
         db.session.commit()
     return render_template('promo_burger_deal.html')
+
+@app.route('/promo/beefy-nachos')
+def promo_beefy_nachos():
+    ensure_default_promos()
+    promo = PromotionTracker.query.filter_by(promo_code='BEEFY_NACHOS_75').first()
+    if promo:
+        promo.page_views = (promo.page_views or 0) + 1
+        db.session.commit()
+    return render_template('promo_beefy_nachos.html')
 
 @app.route('/product/<int:product_id>')
 def product_detail(product_id):
@@ -601,11 +625,12 @@ def api_tablet_checkout():
     db.session.commit()
     return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})
 
-# ==================== CASHIER TERMINAL, DIRECT SALE & MISC SALE ====================
+# ==================== CASHIER TERMINAL & CLAIM DISPATCH ====================
 
 @app.route('/pos/cashier')
 @require_cashier
 def cashier_terminal():
+    ensure_default_promos()
     categories = Category.query.all()
     products = Product.query.filter_by(is_active=True).all()
     pending_orders = Order.query.filter_by(status="VERIFICATION").order_by(Order.created_at.asc()).all()
@@ -615,14 +640,12 @@ def cashier_terminal():
     staff_list = Staff.query.all()
     customers_list = Customer.query.order_by(Customer.name.asc()).all()
 
-    # Online active customers in the last 2 minutes
     two_mins_ago = datetime.utcnow() - timedelta(minutes=2)
     try:
         online_customers = Customer.query.filter(Customer.last_active_at >= two_mins_ago).order_by(Customer.last_active_at.desc()).all()
     except Exception:
         online_customers = []
 
-    # Registered customers with outstanding credit balance
     credit_customers = Customer.query.filter(Customer.outstanding_ar > 0).order_by(Customer.outstanding_ar.desc()).all()
 
     today = date.today()
@@ -1108,7 +1131,6 @@ def admin_dashboard():
     monthly_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(Expense.created_at >= month_ago).scalar() or 0.0
     total_exp_all = sum(e.amount for e in all_expenses)
 
-    # Safe Vault Drops (Direct Ulam Cash Sales)
     daily_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(db.func.date(VaultDrop.created_at) == today).scalar() or 0.0
     weekly_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(VaultDrop.created_at >= week_ago).scalar() or 0.0
     monthly_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(VaultDrop.created_at >= month_ago).scalar() or 0.0
@@ -1116,7 +1138,7 @@ def admin_dashboard():
 
     def calc_period(orders, exp, vault_drop_sales):
         order_rev = sum(o.total_amount for o in orders)
-        total_rev = order_rev + vault_drop_sales  # Vault drops integrated into gross sales
+        total_rev = order_rev + vault_drop_sales
         cost = sum(sum((it.cost_price or 0.0) * it.quantity for it in o.items) for o in orders)
         gross_p = total_rev - cost
         net_p = gross_p - exp
@@ -1154,6 +1176,45 @@ def admin_dashboard():
                            fin_all=fin_all,
                            total_ar=total_ar,
                            current_sort=sort_by)
+
+@app.route('/admin/reassign-order/<int:order_id>', methods=['POST'])
+@require_admin
+def admin_reassign_order(order_id):
+    order = Order.query.get_or_404(order_id)
+    new_cust_id = request.form.get('customer_id')
+
+    if not new_cust_id:
+        flash("Please select a target customer.", "error")
+        return redirect(url_for('admin_dashboard'))
+
+    new_cust = Customer.query.get_or_404(int(new_cust_id))
+    old_cust = Customer.query.get(order.customer_id) if order.customer_id else None
+
+    # Reverse points/spend from old customer if previously completed
+    if old_cust and order.status == 'COMPLETED':
+        earned = int(order.total_amount // 30)
+        old_cust.points_balance = max(0.0, (old_cust.points_balance or 0.0) - earned)
+        old_cust.accumulated_spend = max(0.0, (old_cust.accumulated_spend or 0.0) - order.total_amount)
+
+    # Reassign
+    order.customer_id = new_cust.id
+    order.customer_name = new_cust.name
+    order.contact_number = new_cust.contact
+
+    if order.status == 'COMPLETED':
+        earned_new = int(order.total_amount // 30)
+        new_cust.accumulated_spend = (new_cust.accumulated_spend or 0.0) + order.total_amount
+        if earned_new > 0:
+            new_cust.points_balance = (new_cust.points_balance or 0.0) + earned_new
+            db.session.add(RewardLedger(
+                customer_id=new_cust.id,
+                points_change=earned_new,
+                reason=f"Admin Reassigned Order #{order.id}"
+            ))
+
+    db.session.commit()
+    flash(f"Transaction #{order.id} reassigned to '{new_cust.name}'.", "success")
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/update-expense/<int:expense_id>', methods=['POST'])
 @require_admin
@@ -1363,7 +1424,7 @@ def admin_toggle_promo(promo_id):
     if promo.is_active:
         promo.created_at = datetime.utcnow()
     db.session.commit()
-    flash(f"Campaign '{promo.title}' status updated to {'ACTIVE (3-Day Clock Reset)' if promo.is_active else 'ARCHIVED'}.", "success")
+    flash(f"Campaign '{promo.title}' status updated to {'ACTIVE' if promo.is_active else 'ARCHIVED'}.", "success")
     return redirect(url_for('admin_dashboard'))
 
 # ==================== CUSTOMER PORTAL ====================
@@ -1438,6 +1499,7 @@ def customer_dashboard():
     if 'customer_id' not in session:
         return redirect(url_for('customer_login'))
     
+    ensure_default_promos()
     cust = Customer.query.get(session['customer_id'])
     if not cust:
         session.pop('customer_id', None)
@@ -1445,8 +1507,15 @@ def customer_dashboard():
         return redirect(url_for('customer_login'))
     
     my_orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).all()
-    promo = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
-    return render_template('customer_dashboard.html', cust=cust, orders=my_orders, promo=promo, today=date.today())
+    promo_burger = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
+    promo_nachos = PromotionTracker.query.filter_by(promo_code='BEEFY_NACHOS_75').first()
+    
+    return render_template('customer_dashboard.html', 
+                           cust=cust, 
+                           orders=my_orders, 
+                           promo_burger=promo_burger, 
+                           promo_nachos=promo_nachos, 
+                           today=date.today())
 
 @app.route('/portal/logout')
 def customer_logout():
@@ -1462,22 +1531,25 @@ def customer_logout():
     flash("Successfully logged out.", "info")
     return redirect(url_for('store_catalog'))
 
-@app.route('/portal/reserve-promo', methods=['POST'])
-def customer_reserve_promo():
+@app.route('/portal/reserve-promo/<string:promo_code>', methods=['POST'])
+def customer_reserve_promo_by_code(promo_code):
     if 'customer_id' not in session:
         return redirect(url_for('customer_login'))
     
     ensure_default_promos()
     cust = Customer.query.get_or_404(session['customer_id'])
-    promo = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
+    promo = PromotionTracker.query.filter_by(promo_code=promo_code).first()
 
-    if promo:
-        days_active = (datetime.utcnow() - promo.created_at).days
-        if days_active > 3 or not promo.is_active:
-            promo.is_active = False
-            db.session.commit()
-            flash("This 3-day promotion campaign has ended and is now archived.", "info")
-            return redirect(url_for('customer_dashboard'))
+    if not promo or not promo.is_active:
+        flash("This promotion campaign is currently archived.", "info")
+        return redirect(url_for('customer_dashboard'))
+
+    days_active = (datetime.utcnow() - promo.created_at).days
+    if days_active > 3:
+        promo.is_active = False
+        db.session.commit()
+        flash("This 3-day promotion campaign has ended and is now archived.", "info")
+        return redirect(url_for('customer_dashboard'))
 
     order = Order(
         order_type='PICKUP',
@@ -1486,13 +1558,13 @@ def customer_reserve_promo():
         contact_number=cust.contact,
         pickup_time='Today / In-Store Claim',
         target_time='In-Store Counter Claim',
-        subtotal=50.0,
+        subtotal=promo.promo_price,
         delivery_fee=0.0,
-        total_amount=50.0,
+        total_amount=promo.promo_price,
         payment_method='CASH',
         payment_verified=False,
         status='VERIFICATION',
-        notes='[3-DAY PROMO CLAIM] 1 Regular Burger + Crispy Fries (₱50 Deal)'
+        notes=f"[3-DAY PROMO CLAIM] {promo.title} (₱{promo.promo_price:,.2f} Deal)"
     )
     db.session.add(order)
     db.session.flush()
@@ -1500,19 +1572,18 @@ def customer_reserve_promo():
     db.session.add(OrderItem(
         order_id=order.id,
         product_id=None,
-        product_name='[PROMO 3-DAY] 1 Regular Burger + Fries',
-        unit_price=50.0,
-        cost_price=28.0,
+        product_name=f"[PROMO 3-DAY] {promo.title}",
+        unit_price=promo.promo_price,
+        cost_price=promo.promo_cost,
         quantity=1,
-        subtotal=50.0
+        subtotal=promo.promo_price
     ))
 
-    if promo:
-        promo.claims_count = (promo.claims_count or 0) + 1
-        promo.total_revenue = (promo.total_revenue or 0.0) + 50.0
+    promo.claims_count = (promo.claims_count or 0) + 1
+    promo.total_revenue = (promo.total_revenue or 0.0) + promo.promo_price
 
     db.session.commit()
-    flash(f"🎉 Deal reserved! Order #{order.id} sent to Cashier. Pay ₱50.00 at the counter upon claiming!", "success")
+    flash(f"🎉 Deal reserved! Order #{order.id} sent to Cashier. Pay ₱{promo.promo_price:,.2f} at the counter upon claiming!", "success")
     return redirect(url_for('customer_dashboard'))
 
 @app.route('/portal/update-profile-pic', methods=['POST'])
@@ -1575,7 +1646,7 @@ def staff_logout():
     flash('Logged out.', 'info')
     return redirect(url_for('staff_login'))
 
-# ==================== INITIAL SEEDER & SAFE AUTO-MIGRATION ====================
+# ==================== INITIAL SEEDER & AUTO-MIGRATION ====================
 
 with app.app_context():
     db.create_all()
@@ -1605,6 +1676,7 @@ with app.app_context():
             st.role = role
 
     db.session.commit()
+    ensure_default_promos()
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
