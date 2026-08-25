@@ -24,6 +24,15 @@ db = SQLAlchemy(app)
 @app.before_request
 def make_session_permanent():
     session.permanent = True
+    # Heartbeat to track active/online customers
+    if 'customer_id' in session:
+        cust = Customer.query.get(session['customer_id'])
+        if cust:
+            cust.last_active_at = datetime.utcnow()
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
 
 # ==================== DATA MODELS ====================
 
@@ -38,7 +47,7 @@ class Staff(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(50), unique=True, nullable=False)
     pin_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(20), nullable=False) # ADMIN or CASHIER
+    role = db.Column(db.String(20), nullable=False)
     active = db.Column(db.Boolean, default=True)
 
 class Customer(db.Model):
@@ -63,6 +72,7 @@ class Customer(db.Model):
     last_wifi_claim = db.Column(db.Date, nullable=True)
     wifi_voucher_code = db.Column(db.String(20), nullable=True)
     wifi_minutes_left = db.Column(db.Integer, default=10)
+    last_active_at = db.Column(db.DateTime, default=datetime.utcnow)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class DeliveryZone(db.Model):
@@ -92,6 +102,8 @@ class Product(db.Model):
     is_featured = db.Column(db.Boolean, default=False)
     is_top_seller = db.Column(db.Boolean, default=False)
     is_active = db.Column(db.Boolean, default=True)
+    available_start_time = db.Column(db.String(10), nullable=True) # e.g. "07:00"
+    available_end_time = db.Column(db.String(10), nullable=True)   # e.g. "14:00"
     total_likes = db.Column(db.Integer, default=0)
     comments = db.relationship('ProductComment', backref='product_rel', cascade="all, delete-orphan", lazy=True, order_by="desc(ProductComment.created_at)")
 
@@ -164,6 +176,15 @@ class VaultDrop(db.Model):
     __tablename__ = 'vault_drop'
     id = db.Column(db.Integer, primary_key=True)
     drop_number = db.Column(db.Integer, nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    notes = db.Column(db.String(255), nullable=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class ChangeFund(db.Model):
+    __tablename__ = 'change_fund'
+    id = db.Column(db.Integer, primary_key=True)
+    fund_title = db.Column(db.String(150), nullable=False, default="Cashier Opening Change Fund")
     amount = db.Column(db.Float, nullable=False)
     notes = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(50), nullable=True)
@@ -256,6 +277,21 @@ def check_operating_status():
         'current_time': now_ph.strftime('%I:%M %p')
     }
 
+def is_product_available_now(prod):
+    if not prod.is_active:
+        return False
+    if not prod.available_start_time or not prod.available_end_time:
+        return True
+    try:
+        now_ph = (datetime.utcnow() + timedelta(hours=8)).time()
+        start = datetime.strptime(prod.available_start_time, '%H:%M').time()
+        end = datetime.strptime(prod.available_end_time, '%H:%M').time()
+        if start <= end:
+            return start <= now_ph <= end
+        return now_ph >= start or now_ph <= end
+    except Exception:
+        return True
+
 def ensure_default_promos():
     deal = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
     if not deal:
@@ -323,9 +359,12 @@ def store_catalog():
     total_accumulated_visits = db.session.query(db.func.coalesce(db.func.sum(SiteVisitor.visit_count), 0)).scalar() or unique_visitors
 
     categories = Category.query.all()
-    featured = Product.query.filter_by(is_featured=True, is_active=True).all()
-    top_sellers = Product.query.filter_by(is_top_seller=True, is_active=True).all()
-    products = Product.query.filter_by(is_active=True).order_by(Product.total_likes.desc(), Product.id.asc()).all()
+    all_active_products = Product.query.filter_by(is_active=True).all()
+    available_products = [p for p in all_active_products if is_product_available_now(p)]
+
+    featured = [p for p in available_products if p.is_featured]
+    top_sellers = [p for p in available_products if p.is_top_seller]
+    products = sorted(available_products, key=lambda x: (-(x.total_likes or 0), x.id))
 
     liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=get_client_ip()).all()}
     delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()
@@ -414,9 +453,9 @@ def api_storefront_checkout():
     pay_method = data.get('payment_method', 'CASH').upper()
     notes = data.get('notes', '').strip() or 'None'
     target_time = data.get('target_time', '').strip()
+    zone_id = data.get('delivery_zone_id')
     landmark = data.get('landmark', '').strip()
     delivery_address = data.get('delivery_address', '').strip()
-    zone_id = data.get('delivery_zone_id')
     gcash_ref = data.get('gcash_ref', '').strip()
     fb = data.get('fb_messenger', '').strip()
 
@@ -429,9 +468,19 @@ def api_storefront_checkout():
     if not items or not target_time:
         return jsonify({'success': False, 'message': 'Please complete your target time and select cart items.'}), 400
 
+    delivery_fee = 0.0
+    final_address = delivery_address
+    final_landmark = landmark
+
     if order_type == 'DELIVERY':
-        if not landmark or not delivery_address:
-            return jsonify({'success': False, 'message': 'Delivery address and Landmark are strictly required.'}), 400
+        if not zone_id and (not landmark or not delivery_address):
+            return jsonify({'success': False, 'message': 'Please choose a Barangay Delivery Zone or provide address info.'}), 400
+        if zone_id:
+            zone = DeliveryZone.query.get(zone_id)
+            if zone:
+                delivery_fee = zone.rate
+                final_address = f"Barangay: {zone.barangay} ({zone.place_name})"
+                final_landmark = landmark or zone.note or "Designated Delivery Spot"
 
     if pay_method == 'CREDIT' and not cust.is_credit_eligible:
         return jsonify({'success': False, 'message': 'Your account is not authorized for A/R Credit.'}), 403
@@ -443,15 +492,6 @@ def api_storefront_checkout():
         return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400
 
     subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
-
-    delivery_fee = 0.0
-    if order_type == 'DELIVERY':
-        zone = DeliveryZone.query.get(zone_id) if zone_id else None
-        delivery_fee = zone.rate if zone else 40.0
-        cust.default_address = delivery_address
-        cust.default_landmark = landmark
-        cust.fb_messenger = fb
-
     total = subtotal + delivery_fee
 
     order = Order(
@@ -460,8 +500,8 @@ def api_storefront_checkout():
         customer_name=cust.name,
         contact_number=cust.contact,
         fb_messenger=fb,
-        delivery_address=delivery_address if order_type == 'DELIVERY' else None,
-        landmark=landmark if order_type == 'DELIVERY' else None,
+        delivery_address=final_address if order_type == 'DELIVERY' else None,
+        landmark=final_landmark if order_type == 'DELIVERY' else None,
         pickup_time=target_time if order_type == 'PICKUP' else None,
         target_time=target_time,
         change_for=float(data.get('change_for') or 0.0) if pay_method in ['CASH', 'COD'] else None,
@@ -496,8 +536,9 @@ def api_storefront_checkout():
 @app.route('/tablet')
 def tablet_kiosk():
     categories = Category.query.all()
-    products = Product.query.filter_by(is_active=True).order_by(Product.category_name, Product.name).all()
-    return render_template('tablet.html', categories=categories, products=products)
+    all_active_products = Product.query.filter_by(is_active=True).all()
+    available_products = [p for p in all_active_products if is_product_available_now(p)]
+    return render_template('tablet.html', categories=categories, products=available_products)
 
 @app.route('/api/tablet-checkout', methods=['POST'])
 def api_tablet_checkout():
@@ -570,9 +611,17 @@ def cashier_terminal():
     staff_list = Staff.query.all()
     customers_list = Customer.query.order_by(Customer.name.asc()).all()
 
+    # Online active customers in the last 15 minutes
+    fifteen_mins_ago = datetime.utcnow() - timedelta(minutes=15)
+    online_customers = Customer.query.filter(Customer.last_active_at >= fifteen_mins_ago).order_by(Customer.last_active_at.desc()).all()
+
+    # Registered customers with outstanding credit balance
+    credit_customers = Customer.query.filter(Customer.outstanding_ar > 0).order_by(Customer.outstanding_ar.desc()).all()
+
     today = date.today()
     today_expenses = Expense.query.filter(db.func.date(Expense.created_at) == today).order_by(Expense.created_at.desc()).all()
     today_drops = VaultDrop.query.filter(db.func.date(VaultDrop.created_at) == today).order_by(VaultDrop.drop_number.asc()).all()
+    today_change_funds = ChangeFund.query.filter(db.func.date(ChangeFund.created_at) == today).order_by(ChangeFund.created_at.desc()).all()
     next_drop_num = len(today_drops) + 1
 
     return render_template('cashier_pos.html', 
@@ -581,11 +630,14 @@ def cashier_terminal():
                            pending_orders=pending_orders, 
                            completed_orders=completed_orders,
                            unpaid_collections=unpaid_collections,
+                           credit_customers=credit_customers,
+                           online_customers=online_customers,
                            today_wifi_claims=today_wifi_claims,
                            staff_list=staff_list,
                            customers_list=customers_list,
                            today_expenses=today_expenses,
                            today_drops=today_drops,
+                           today_change_funds=today_change_funds,
                            next_drop_num=next_drop_num)
 
 @app.route('/pos/direct-sale', methods=['POST'])
@@ -794,6 +846,23 @@ def cashier_misc_sale():
     flash(f"Misc Sale recorded: {service_name} for {customer_name} (₱{amount:,.2f})", "success")
     return redirect(url_for('cashier_terminal'))
 
+@app.route('/pos/record-change-fund', methods=['POST'])
+@require_cashier
+def cashier_record_change_fund():
+    title = request.form.get('fund_title', 'Opening Petty/Change Fund').strip()
+    amount = float(request.form.get('amount') or 0.0)
+    notes = request.form.get('notes', 'Ulam / Register Drawer Starting Cash').strip()
+    staff_user = session.get('cashier_user') or session.get('admin_user') or 'Cashier'
+
+    if amount <= 0:
+        flash("Change fund amount must be greater than zero.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    db.session.add(ChangeFund(fund_title=title, amount=amount, notes=notes, created_by=staff_user))
+    db.session.commit()
+    flash(f"Change Fund (₱{amount:,.2f}) added to register drawer notes. (Excluded from Sales/Revenue)", "success")
+    return redirect(url_for('cashier_terminal'))
+
 @app.route('/pos/create-collection', methods=['POST'])
 @require_cashier
 def cashier_create_collection():
@@ -866,18 +935,44 @@ def cashier_settle_collection(order_id):
     order.payment_method = pay_method
     order.payment_verified = True
 
+    # Same-day payment points eligibility check
+    is_same_day = (order.created_at.date() == datetime.utcnow().date())
+    earned = 0
+
     if order.customer_id:
         cust = Customer.query.get(order.customer_id)
         if cust:
             cust.outstanding_ar = max(0.0, (cust.outstanding_ar or 0.0) - order.total_amount)
             cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
-            earned = int(order.total_amount // 30)
-            if earned > 0:
-                cust.points_balance = (cust.points_balance or 0.0) + earned
-                db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Settled Collection #{order.id}"))
+            
+            if is_same_day:
+                earned = int(order.total_amount // 30)
+                if earned > 0:
+                    cust.points_balance = (cust.points_balance or 0.0) + earned
+                    db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Same-Day Settled Credit #{order.id}"))
 
     db.session.commit()
-    flash(f"Collection #{order.id} for {order.customer_name} fully settled via {pay_method}!", "success")
+    bonus_msg = f" (+{earned} pts earned for Same-Day payment!)" if earned > 0 else " (No points: paid after order date)"
+    flash(f"Collection #{order.id} for {order.customer_name} settled via {pay_method}!{bonus_msg}", "success")
+    return redirect(url_for('cashier_terminal'))
+
+@app.route('/pos/settle-customer-credit/<int:cust_id>', methods=['POST'])
+@require_cashier
+def cashier_settle_customer_credit(cust_id):
+    cust = Customer.query.get_or_404(cust_id)
+    amount = float(request.form.get('amount') or cust.outstanding_ar)
+    pay_method = request.form.get('payment_method', 'CASH').upper()
+
+    if amount <= 0:
+        flash("Amount must be greater than zero.", "error")
+        return redirect(url_for('cashier_terminal'))
+
+    amount_to_pay = min(amount, cust.outstanding_ar)
+    cust.outstanding_ar = max(0.0, cust.outstanding_ar - amount_to_pay)
+    cust.accumulated_spend = (cust.accumulated_spend or 0.0) + amount_to_pay
+
+    db.session.commit()
+    flash(f"Settled ₱{amount_to_pay:,.2f} credit balance for {cust.name} via {pay_method}!", "success")
     return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/record-expense', methods=['POST'])
@@ -984,15 +1079,38 @@ def admin_dashboard():
     customers = Customer.query.order_by(Customer.id.desc()).all()
     delivery_zones = DeliveryZone.query.all()
     all_orders = Order.query.order_by(Order.created_at.desc()).limit(100).all()
+    all_expenses = Expense.query.order_by(Expense.created_at.desc()).all()
     promotions = PromotionTracker.query.order_by(PromotionTracker.created_at.desc()).all()
 
     unique_visitors = SiteVisitor.query.count()
     total_accumulated_visits = db.session.query(db.func.coalesce(db.func.sum(SiteVisitor.visit_count), 0)).scalar() or unique_visitors
 
-    completed = Order.query.filter_by(status='COMPLETED').all()
-    total_rev = sum(o.total_amount for o in completed)
-    total_cost = sum(sum(it.cost_price * it.quantity for it in o.items) for o in completed)
-    estimated_profit = total_rev - total_cost
+    today = date.today()
+    week_ago = datetime.utcnow() - timedelta(days=7)
+    month_ago = datetime.utcnow() - timedelta(days=30)
+
+    daily_orders = Order.query.filter(db.func.date(Order.created_at) == today, Order.status == 'COMPLETED').all()
+    weekly_orders = Order.query.filter(Order.created_at >= week_ago, Order.status == 'COMPLETED').all()
+    monthly_orders = Order.query.filter(Order.created_at >= month_ago, Order.status == 'COMPLETED').all()
+    all_completed = Order.query.filter_by(status='COMPLETED').all()
+
+    daily_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(db.func.date(Expense.created_at) == today).scalar() or 0.0
+    weekly_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(Expense.created_at >= week_ago).scalar() or 0.0
+    monthly_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(Expense.created_at >= month_ago).scalar() or 0.0
+    total_exp_all = sum(e.amount for e in all_expenses)
+
+    def calc_period(orders, exp):
+        rev = sum(o.total_amount for o in orders)
+        cost = sum(sum((it.cost_price or 0.0) * it.quantity for it in o.items) for o in orders)
+        gross_p = rev - cost
+        net_p = gross_p - exp
+        return {'rev': rev, 'cost': cost, 'gross_p': gross_p, 'exp': exp, 'net_p': net_p}
+
+    fin_daily = calc_period(daily_orders, daily_exp)
+    fin_weekly = calc_period(weekly_orders, weekly_exp)
+    fin_monthly = calc_period(monthly_orders, monthly_exp)
+    fin_all = calc_period(all_completed, total_exp_all)
+
     total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
 
     return render_template('admin.html', 
@@ -1002,28 +1120,63 @@ def admin_dashboard():
                            customers=customers, 
                            delivery_zones=delivery_zones,
                            all_orders=all_orders,
+                           all_expenses=all_expenses,
                            promotions=promotions,
                            unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits,
-                           total_rev=total_rev,
-                           total_cost=total_cost,
-                           estimated_profit=estimated_profit,
+                           fin_daily=fin_daily,
+                           fin_weekly=fin_weekly,
+                           fin_monthly=fin_monthly,
+                           fin_all=fin_all,
                            total_ar=total_ar,
                            current_sort=sort_by)
+
+@app.route('/admin/update-expense/<int:expense_id>', methods=['POST'])
+@require_admin
+def admin_update_expense(expense_id):
+    exp = Expense.query.get_or_404(expense_id)
+    exp.title = request.form.get('title', exp.title).strip()
+    exp.amount = float(request.form.get('amount') or exp.amount)
+    exp.category = request.form.get('category', exp.category).strip()
+    db.session.commit()
+    flash(f"Expense #{exp.id} updated successfully.", "success")
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/delete-expense/<int:expense_id>', methods=['POST'])
+@require_admin
+def admin_delete_expense(expense_id):
+    exp = Expense.query.get_or_404(expense_id)
+    db.session.delete(exp)
+    db.session.commit()
+    flash(f"Expense record removed.", "info")
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/delete-product/<int:product_id>', methods=['POST'])
+@require_admin
+def admin_delete_product(product_id):
+    prod = Product.query.get_or_404(product_id)
+    prod_name = prod.name
+
+    OrderItem.query.filter_by(product_id=prod.id).update({'product_id': None})
+    ProductLike.query.filter_by(product_id=prod.id).delete()
+    ProductComment.query.filter_by(product_id=prod.id).delete()
+
+    db.session.delete(prod)
+    db.session.commit()
+    flash(f"Product '{prod_name}' permanently deleted.", "info")
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/revert-order/<int:order_id>', methods=['POST'])
 @require_admin
 def admin_revert_order(order_id):
     order = Order.query.get_or_404(order_id)
     
-    # 1. Restock items
     for item in order.items:
         if item.product_id:
             p = Product.query.get(item.product_id)
             if p:
                 p.stock += item.quantity
 
-    # 2. Reverse customer points / spend if completed
     if order.customer_id and order.status == 'COMPLETED':
         cust = Customer.query.get(order.customer_id)
         if cust:
@@ -1036,7 +1189,6 @@ def admin_revert_order(order_id):
                 reason=f"Admin Reverted Sale #{order.id}"
             ))
 
-    # 3. If it was an unpaid collection, reverse the AR balance
     if order.is_unpaid and order.customer_id:
         cust = Customer.query.get(order.customer_id)
         if cust:
@@ -1089,32 +1241,6 @@ def admin_update_logo():
         flash("Company logo updated across all portals.", "success")
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/portal/accounting')
-@require_admin
-def accounting_portal():
-    today = date.today()
-    week_ago = datetime.utcnow() - timedelta(days=7)
-    month_ago = datetime.utcnow() - timedelta(days=30)
-
-    daily_orders = Order.query.filter(db.func.date(Order.created_at) == today, Order.status == 'COMPLETED').all()
-    weekly_orders = Order.query.filter(Order.created_at >= week_ago, Order.status == 'COMPLETED').all()
-    monthly_orders = Order.query.filter(Order.created_at >= month_ago, Order.status == 'COMPLETED').all()
-
-    def calc_fin(orders):
-        rev = sum(o.total_amount for o in orders)
-        cost = sum(sum(it.cost_price * it.quantity for it in o.items) for o in orders)
-        return rev, cost, rev - cost
-
-    d_rev, d_cost, d_profit = calc_fin(daily_orders)
-    w_rev, w_cost, w_profit = calc_fin(weekly_orders)
-    m_rev, m_cost, m_profit = calc_fin(monthly_orders)
-
-    return render_template('accounting.html', 
-                           daily_orders=daily_orders,
-                           d_rev=d_rev, d_cost=d_cost, d_profit=d_profit,
-                           w_rev=w_rev, w_cost=w_cost, w_profit=w_profit,
-                           m_rev=m_rev, m_cost=m_cost, m_profit=m_profit)
-
 @app.route('/admin/add-product', methods=['POST'])
 @require_admin
 def admin_add_product():
@@ -1124,11 +1250,14 @@ def admin_add_product():
     cost = float(request.form.get('cost') or 0.0)
     stock = int(request.form.get('stock') or 100)
     image_url = request.form.get('image_url', '').strip()
+    start_t = request.form.get('available_start_time', '').strip() or None
+    end_t = request.form.get('available_end_time', '').strip() or None
     is_featured = bool(request.form.get('is_featured'))
     is_top_seller = bool(request.form.get('is_top_seller'))
 
     db.session.add(Product(name=name, category_name=category_name, price=price, cost=cost, stock=stock, 
-                           image_url=image_url, is_featured=is_featured, is_top_seller=is_top_seller))
+                           image_url=image_url, available_start_time=start_t, available_end_time=end_t,
+                           is_featured=is_featured, is_top_seller=is_top_seller))
     db.session.commit()
     flash(f"Product '{name}' added.", "success")
     return redirect(url_for('admin_dashboard'))
@@ -1143,6 +1272,8 @@ def admin_batch_update_products():
             prod.cost = float(request.form.get(f'cost_{pid}') or prod.cost)
             prod.stock = int(request.form.get(f'stock_{pid}') or prod.stock)
             prod.image_url = request.form.get(f'image_url_{pid}', '').strip()
+            prod.available_start_time = request.form.get(f'available_start_time_{pid}', '').strip() or None
+            prod.available_end_time = request.form.get(f'available_end_time_{pid}', '').strip() or None
             prod.is_active = (f'is_active_{pid}' in request.form)
             prod.is_featured = (f'is_featured_{pid}' in request.form)
             prod.is_top_seller = (f'is_top_seller_{pid}' in request.form)
@@ -1216,6 +1347,8 @@ def customer_login():
         cust = Customer.query.filter_by(contact=contact).first()
         if cust and check_password_hash(cust.pin_hash, pin):
             session['customer_id'] = cust.id
+            cust.last_active_at = datetime.utcnow()
+            db.session.commit()
             return redirect(url_for('customer_dashboard'))
         flash("Invalid Contact or PIN.", "error")
     return render_template('customer_login.html')
@@ -1248,7 +1381,8 @@ def customer_register():
             points_balance=starting_bonus_points,
             pin_hash=generate_password_hash(pin),
             card_number=f"MFH-{random.randint(1, 100):04d}",
-            card_expires_at=date.today() + timedelta(days=365)
+            card_expires_at=date.today() + timedelta(days=365),
+            last_active_at=datetime.utcnow()
         )
         db.session.add(new_cust)
         db.session.flush()

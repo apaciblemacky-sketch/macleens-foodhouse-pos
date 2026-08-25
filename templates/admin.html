@@ -10,15 +10,15 @@
     body { background: #fff0f5; color: #1e293b; padding: 1.5rem; }
     
     .header { display: flex; justify-content: space-between; align-items: center; background: white; padding: 1rem 1.5rem; border-radius: 12px; border: 2px solid var(--hk-border); margin-bottom: 1.5rem; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
     .card { background: white; padding: 1.2rem; border-radius: 12px; border: 1px solid var(--hk-border); margin-bottom: 1.5rem; }
-    .kpi-title { font-size: 0.75rem; font-weight: bold; color: #64748b; text-transform: uppercase; }
-    .kpi-val { font-size: 1.5rem; font-weight: 900; color: var(--hk-dark); margin-top: 4px; }
     
     table { width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left; }
     th { background: #fdf2f8; color: var(--hk-dark); padding: 8px; border: 1px solid var(--hk-border); }
     td { padding: 8px; border: 1px solid #fce7f3; }
     
+    .fin-table th, .fin-table td { text-align: right; }
+    .fin-table th:first-child, .fin-table td:first-child { text-align: left; }
+
     .form-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
     .form-group { flex: 1; min-width: 120px; }
     .form-group label { display: block; font-size: 0.75rem; font-weight: 700; margin-bottom: 3px; }
@@ -36,34 +36,134 @@
       <img src="{{ store_logo }}" style="width:50px; height:50px; border-radius:50%; border:2px solid var(--hk-pink); object-fit:cover;">
       <div>
         <h2 style="color:var(--hk-dark);">🎀 Macleen's Food House — Master Control</h2>
-        <p style="font-size:0.85rem; color:#64748b;">Transaction Reversal, Real-time Sales Audit & Management</p>
+        <p style="font-size:0.85rem; color:#64748b;">Daily, Weekly & Monthly Financial Audit, Expense Editing & Menu Scheduling</p>
       </div>
     </div>
     <div style="display:flex; gap:8px;">
-      <a href="/portal/accounting" class="btn btn-dark">📊 Accounting</a>
-      <a href="/pos/cashier" class="btn btn-pink">🛒 POS</a>
+      <a href="/pos/cashier" class="btn btn-pink">🛒 POS Terminal</a>
       <a href="/staff/logout?role=admin" class="btn" style="background:#fee2e2; color:#991b1b;">Admin Logout</a>
     </div>
   </header>
 
-  <div class="kpi-grid">
-    <div class="card" style="margin:0;">
-      <div class="kpi-title">Gross Revenue</div>
-      <div class="kpi-val" style="color:#16a34a;">₱{{ "{:,.2f}".format(total_rev) }}</div>
+  <!-- 📊 COMPREHENSIVE FINANCIAL PERFORMANCE TABLE (Daily, Weekly, Monthly, All-time) -->
+  <div class="card" style="border: 2px solid var(--hk-pink);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <div>
+        <h3 style="color:var(--hk-dark); font-size:1.1rem;">📊 Sales, Cost, Expenses & Profit Breakdown</h3>
+        <p style="font-size:0.75rem; color:#64748b;">Real-time comparison across Daily, Weekly, Monthly, and All-Time totals.</p>
+      </div>
+      <div style="font-size:0.78rem; background:#fdf2f8; padding:6px 12px; border-radius:8px; border:1px solid var(--hk-border);">
+        <strong>Traffic:</strong> {{ unique_visitors }} Unique Visitors | {{ total_accumulated_visits }} Total Visits
+      </div>
     </div>
-    <div class="card" style="margin:0;">
-      <div class="kpi-title">Estimated Net Profit</div>
-      <div class="kpi-val" style="color:#0284c7;">₱{{ "{:,.2f}".format(estimated_profit) }}</div>
-    </div>
-    <div class="card" style="margin:0;">
-      <div class="kpi-title">Unique IP Visitors</div>
-      <div class="kpi-val">{{ unique_visitors }}</div>
-    </div>
-    <div class="card" style="margin:0;">
-      <div class="kpi-title">Accumulated Visits</div>
-      <div class="kpi-val" style="color:var(--hk-pink);">{{ total_accumulated_visits }}</div>
+
+    <div style="overflow-x: auto;">
+      <table class="fin-table">
+        <thead>
+          <tr>
+            <th>Timeframe</th>
+            <th>Gross Sales (Revenue)</th>
+            <th>Product Cost (COGS)</th>
+            <th>Gross Profit (Sales - Cost)</th>
+            <th>Logged Expenses</th>
+            <th>Net Profit (Actual Earnings)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>📅 Today (Daily)</strong></td>
+            <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.rev) }}</td>
+            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_daily.cost) }}</td>
+            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.gross_p) }}</td>
+            <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_daily.exp) }}</td>
+            <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_daily.net_p) }}</td>
+          </tr>
+          <tr>
+            <td><strong>📆 Past 7 Days (Weekly)</strong></td>
+            <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.rev) }}</td>
+            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_weekly.cost) }}</td>
+            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.gross_p) }}</td>
+            <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_weekly.exp) }}</td>
+            <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_weekly.net_p) }}</td>
+          </tr>
+          <tr>
+            <td><strong>🗓️ Past 30 Days (Monthly)</strong></td>
+            <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.rev) }}</td>
+            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_monthly.cost) }}</td>
+            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.gross_p) }}</td>
+            <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_monthly.exp) }}</td>
+            <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_monthly.net_p) }}</td>
+          </tr>
+          <tr style="background:#fff1f2; font-weight:bold;">
+            <td><strong>🏆 All-Time Total</strong></td>
+            <td style="color:#16a34a;">₱{{ "{:,.2f}".format(fin_all.rev) }}</td>
+            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_all.cost) }}</td>
+            <td style="color:#0284c7;">₱{{ "{:,.2f}".format(fin_all.gross_p) }}</td>
+            <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_all.exp) }}</td>
+            <td style="color:#9333ea; font-size:1.05rem; font-weight:900;">₱{{ "{:,.2f}".format(fin_all.net_p) }}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   </div>
+
+  <!-- 💸 EDITABLE EXPENSE AUDIT & MANAGEMENT TABLE -->
+  <div class="card" style="border: 1.5px solid #f59e0b;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+      <div>
+        <h3 style="color:#b45309; font-size:1.05rem;">💸 Operational Expenses Audit (Editable)</h3>
+        <p style="font-size:0.75rem; color:#64748b;">Modify entries, fix amounts, or remove erroneous cashier expense logs.</p>
+      </div>
+      <span style="background:#fef3c7; color:#b45309; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">Total Logged: {{ all_expenses|length }}</span>
+    </div>
+
+    <div style="max-height: 280px; overflow-y: auto;">
+      <table>
+        <thead style="position:sticky; top:0; z-index:2;">
+          <tr>
+            <th>Date & Time</th>
+            <th>Title / Description</th>
+            <th>Category</th>
+            <th>Amount (₱)</th>
+            <th>Logged By</th>
+            <th style="text-align:center;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for exp in all_expenses %}
+          <tr>
+            <form action="/admin/update-expense/{{ exp.id }}" method="POST">
+              <td style="font-size:0.72rem; color:#64748b;">{{ exp.created_at.strftime('%b %d, %Y - %I:%M %p') }}</td>
+              <td><input type="text" name="title" value="{{ exp.title }}" class="form-control" style="padding:2px; font-size:0.75rem;"></td>
+              <td>
+                <select name="category" class="form-control" style="padding:2px; font-size:0.75rem;">
+                  <option value="Ingredients" {% if exp.category == 'Ingredients' %}selected{% endif %}>Ingredients</option>
+                  <option value="Supplies" {% if exp.category == 'Supplies' %}selected{% endif %}>Supplies</option>
+                  <option value="Utilities" {% if exp.category == 'Utilities' %}selected{% endif %}>Utilities</option>
+                  <option value="General" {% if exp.category == 'General' %}selected{% endif %}>General</option>
+                  <option value="Miscellaneous" {% if exp.category == 'Miscellaneous' %}selected{% endif %}>Miscellaneous</option>
+                </select>
+              </td>
+              <td><input type="number" step="0.25" name="amount" value="{{ exp.amount }}" class="form-control" style="padding:2px; width:80px; font-weight:bold; color:#b45309; font-size:0.75rem;"></td>
+              <td style="font-size:0.72rem; color:#64748b;">{{ exp.created_by or 'Cashier' }}</td>
+              <td style="display:flex; gap:4px; justify-content:center;">
+                <button type="submit" class="btn btn-pink" style="padding:2px 6px; font-size:0.7rem;">💾</button>
+                <button type="submit" form="delExp-{{ exp.id }}" class="btn" style="background:#ef4444; color:white; padding:2px 6px; font-size:0.7rem;">🗑️</button>
+              </td>
+            </form>
+          </tr>
+          {% endfor %}
+          {% if not all_expenses %}
+            <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:20px;">No expense records logged yet.</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% for exp in all_expenses %}
+    <form id="delExp-{{ exp.id }}" action="/admin/delete-expense/{{ exp.id }}" method="POST" onsubmit="return confirm('Delete expense entry \'{{ exp.title }}\'?');" style="display:none;"></form>
+  {% endfor %}
 
   <!-- PROMOTION METRICS & REVENUE TRACKER -->
   <div class="card" style="border: 2px solid #ec4899;">
@@ -275,9 +375,9 @@
     </div>
   </div>
 
-  <!-- Add Product Form -->
+  <!-- Add Product Form with Time Constraints -->
   <div class="card">
-    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">➕ Add Dish with Photo & Badges</h3>
+    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">➕ Add Dish with Photo, Time Schedule & Badges</h3>
     <form action="/admin/add-product" method="POST" class="form-row">
       <div class="form-group">
         <label>Dish Name</label>
@@ -303,11 +403,19 @@
         <label>Direct Photo URL</label>
         <input type="url" name="image_url" class="form-control" placeholder="https://...">
       </div>
-      <div class="form-group" style="max-width:90px; text-align:center;">
+      <div class="form-group" style="max-width:90px;">
+        <label>Avail From</label>
+        <input type="time" name="available_start_time" class="form-control">
+      </div>
+      <div class="form-group" style="max-width:90px;">
+        <label>Avail Until</label>
+        <input type="time" name="available_end_time" class="form-control">
+      </div>
+      <div class="form-group" style="max-width:80px; text-align:center;">
         <label>Featured</label>
         <input type="checkbox" name="is_featured" style="margin-top:6px;">
       </div>
-      <div class="form-group" style="max-width:90px; text-align:center;">
+      <div class="form-group" style="max-width:80px; text-align:center;">
         <label>Best Seller</label>
         <input type="checkbox" name="is_top_seller" style="margin-top:6px;">
       </div>
@@ -315,7 +423,7 @@
     </form>
   </div>
 
-  <!-- Bulk Catalog Editor with Live Search -->
+  <!-- Bulk Catalog Editor with Live Search, Time Constraints & Delete Actions -->
   <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
       <div>
@@ -323,7 +431,6 @@
       </div>
       
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <!-- Live Search Input -->
         <div style="position:relative;">
           <input type="text" id="catalogSearchInput" oninput="filterCatalogTable()" placeholder="🔍 Search dish or category..." style="padding:5px 10px; border-radius:6px; border:1.5px solid var(--hk-pink); font-size:0.8rem; width:220px; outline:none;">
         </div>
@@ -349,13 +456,16 @@
               <th>Preview</th>
               <th>Dish</th>
               <th>Category</th>
-              <th style="width:75px;">Cost</th>
-              <th style="width:75px;">Price</th>
-              <th style="width:65px;">Stock</th>
+              <th style="width:70px;">Cost</th>
+              <th style="width:70px;">Price</th>
+              <th style="width:60px;">Stock</th>
               <th>Photo URL</th>
-              <th style="width:60px;">Featured</th>
-              <th style="width:60px;">Top Seller</th>
+              <th style="width:85px;">From Time</th>
+              <th style="width:85px;">To Time</th>
+              <th style="width:50px;">Featured</th>
+              <th style="width:50px;">Top Seller</th>
               <th style="width:50px;">Active</th>
+              <th style="width:50px; text-align:center;">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -375,19 +485,28 @@
               <td><input type="number" step="0.5" name="price_{{ p.id }}" value="{{ p.price }}" class="form-control" style="padding:2px;"></td>
               <td><input type="number" name="stock_{{ p.id }}" value="{{ p.stock }}" class="form-control" style="padding:2px;"></td>
               <td><input type="url" name="image_url_{{ p.id }}" value="{{ p.image_url or '' }}" placeholder="https://..." class="form-control" style="padding:2px;"></td>
+              <td><input type="time" name="available_start_time_{{ p.id }}" value="{{ p.available_start_time or '' }}" class="form-control" style="padding:2px; font-size:0.7rem;"></td>
+              <td><input type="time" name="available_end_time_{{ p.id }}" value="{{ p.available_end_time or '' }}" class="form-control" style="padding:2px; font-size:0.7rem;"></td>
               <td style="text-align:center;"><input type="checkbox" name="is_featured_{{ p.id }}" {% if p.is_featured %}checked{% endif %}></td>
               <td style="text-align:center;"><input type="checkbox" name="is_top_seller_{{ p.id }}" {% if p.is_top_seller %}checked{% endif %}></td>
               <td style="text-align:center;"><input type="checkbox" name="is_active_{{ p.id }}" {% if p.is_active %}checked{% endif %}></td>
+              <td style="text-align:center;">
+                <button type="submit" form="delForm-{{ p.id }}" class="btn" style="background:#ef4444; color:white; padding:3px 6px; font-size:0.7rem;" title="Delete Product">🗑️</button>
+              </td>
             </tr>
             {% endfor %}
             <tr id="noResultsRow" style="display:none;">
-              <td colspan="10" style="text-align:center; padding:20px; color:#94a3b8;">No matching products found.</td>
+              <td colspan="13" style="text-align:center; padding:20px; color:#94a3b8;">No matching products found.</td>
             </tr>
           </tbody>
         </table>
       </div>
       <button type="submit" class="btn btn-pink" style="padding:10px 20px;">💾 SAVE ALL BULK CHANGES</button>
     </form>
+
+    {% for p in products %}
+      <form id="delForm-{{ p.id }}" action="/admin/delete-product/{{ p.id }}" method="POST" onsubmit="return confirm('⚠️ Permanently delete \'{{ p.name }}\'?\n\nThis will remove it from the menu and storefront.');" style="display:none;"></form>
+    {% endfor %}
   </div>
 
   <!-- Change Logo Form -->

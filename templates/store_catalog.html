@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Macleen's Food House</title>
-  <link rel="manifest" href="/static/manifest.json">
+  <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#ff69b4">
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/static/sw.js');
+      navigator.serviceWorker.register('/sw.js');
     }
   </script>
   <style>
@@ -261,15 +261,14 @@
             {% endfor %}
           </select>
 
-          <!-- Toggle Option to Hide Detailed Street Address/Landmark when Zone is chosen -->
           <div style="margin-top:6px; display:flex; align-items:center; gap:6px;">
-            <input type="checkbox" id="hideDetailAddress" onchange="toggleDetailedAddress()" style="cursor:pointer;">
+            <input type="checkbox" id="hideDetailAddress" onchange="toggleDetailedAddress()" style="cursor:pointer;" checked>
             <label for="hideDetailAddress" style="font-size:0.75rem; color:#64748b; font-weight:bold; cursor:pointer;">Hide detailed Purok & Landmark (Use chosen Barangay Zone)</label>
           </div>
         </div>
 
         <div id="deliveryFields" style="display:none; margin-bottom:10px;">
-          <div id="detailedAddressInputs">
+          <div id="detailedAddressInputs" style="display:none;">
             <label style="font-size:0.8rem; font-weight:bold;">Purok / Street Address</label>
             <input type="text" id="deliveryAddress" class="form-control" value="{{ cust.default_address if cust else '' }}" placeholder="Purok Mahogany">
             
@@ -294,7 +293,6 @@
           </select>
         </div>
 
-        <!-- Cash Bill Amount & Change Calculator for COD / Cash -->
         <div id="cashChangeFields" style="margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);">Cash Bill / Amount to Pay (₱)</label>
           <input type="number" step="1" id="changeFor" class="form-control" placeholder="e.g. 500, 1000, or Exact Amount" oninput="calculateChangePreview()">
@@ -581,6 +579,7 @@
     document.addEventListener("DOMContentLoaded", () => {
       renderCart();
       checkPayMethod();
+      toggleDetailedAddress();
     });
   </script>
 </body>

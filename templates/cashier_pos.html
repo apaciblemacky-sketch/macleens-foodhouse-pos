@@ -53,12 +53,12 @@
     
     <div style="display:flex; gap:6px; align-items:center;">
       <button onclick="openModal('promoClaimModal')" style="background:#e11d48; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🍔 + Promo Deal (₱50)</button>
+      <button onclick="openModal('changeFundModal')" style="background:#065f46; color:#34d399; border:1px solid #059669; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💵 Change Fund</button>
       <button onclick="openModal('collectionModal')" style="background:#f43f5e; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📋 + For Collection</button>
       <button onclick="openModal('miscModal')" style="background:#8b5cf6; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🖨️ Misc / Printing</button>
       <button onclick="openModal('expenseModal')" style="background:#f59e0b; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💸 Expense</button>
       <button onclick="openModal('vaultModal')" style="background:#10b981; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🏦 Vault Drop (#{{ next_drop_num }})</button>
-      <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings & Password</button>
-      <a href="/portal/accounting" style="background:#334155; color:white; padding:5px 10px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Ledger</a>
+      <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 10px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
       <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 10px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Logout</a>
     </div>
   </header>
@@ -83,6 +83,7 @@
             </span>
           {% endif %}
           <br>
+          {% if o.delivery_address %}📍 {{ o.delivery_address }}<br>{% endif %}
           {% if o.landmark %}🚩 Landmark: <strong>{{ o.landmark }}</strong><br>{% endif %}
           📝 Notes: <strong>{{ o.notes }}</strong>
         </div>
@@ -177,20 +178,68 @@
       </div>
     </div>
 
-    <!-- 4. Right Status Panels: Collections & Live Wi-Fi -->
+    <!-- 4. Right Status Panels: Online Users, Credit AR Collections & Wi-Fi -->
     <div class="pickup-panel">
-      <!-- Unpaid / For Collection Panel -->
+      <!-- 🟢 Online / Active Customers View -->
+      <div style="background:#1e293b; border:1.5px solid #10b981; border-radius:8px; padding:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.8rem; color:#34d399; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+          <span>🟢 Online Members (Active Now)</span>
+          <span style="background:#059669; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ online_customers|length }}</span>
+        </h3>
+        <div style="max-height:90px; overflow-y:auto;">
+          {% for oc in online_customers %}
+          <div style="font-size:0.7rem; padding:2px 0; border-bottom:1px dashed #334155; color:#cbd5e1; display:flex; justify-content:space-between;">
+            <strong>{{ oc.name }}</strong>
+            <span style="color:#6ee7b7;">Active Now</span>
+          </div>
+          {% endfor %}
+          {% if not online_customers %}
+            <div style="font-size:0.7rem; color:#64748b; text-align:center;">No members browsing.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- 📋 Outstanding Registered Customer Credit Balance (For Collection) -->
       <div style="background:#1e293b; border:1.5px solid #f43f5e; border-radius:8px; padding:8px; margin-bottom:10px;">
         <h3 style="font-size:0.8rem; color:#fb7185; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
-          <span>📋 For Collection</span>
-          <span style="background:#e11d48; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ unpaid_collections|length }}</span>
+          <span>📋 Registered Member Credit AR</span>
+          <span style="background:#e11d48; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ credit_customers|length }}</span>
         </h3>
-        <div style="max-height:120px; overflow-y:auto;">
+        <div style="max-height:110px; overflow-y:auto;">
+          {% for cc in credit_customers %}
+          <div style="font-size:0.72rem; padding:4px 0; border-bottom:1px dashed #475569; color:#cbd5e1;">
+            <div style="display:flex; justify-content:space-between; font-weight:bold;">
+              <span>{{ cc.name }} ({{ cc.card_number or 'Card' }})</span>
+              <span style="color:#f43f5e;">₱{{ "{:,.2f}".format(cc.outstanding_ar) }}</span>
+            </div>
+            <form action="/pos/settle-customer-credit/{{ cc.id }}" method="POST" style="display:flex; gap:3px; margin-top:3px;">
+              <input type="number" step="0.25" name="amount" value="{{ cc.outstanding_ar }}" style="width:60px; background:#0f172a; border:1px solid #475569; color:white; font-size:0.68rem; border-radius:3px; padding:1px;">
+              <select name="payment_method" style="flex:1; background:#0f172a; border:1px solid #475569; color:white; font-size:0.68rem; border-radius:3px; padding:1px;">
+                <option value="CASH">Cash</option>
+                <option value="GCASH">GCash</option>
+              </select>
+              <button type="submit" style="background:#10b981; color:white; border:none; padding:1px 6px; border-radius:3px; font-size:0.68rem; font-weight:bold; cursor:pointer;">Pay</button>
+            </form>
+          </div>
+          {% endfor %}
+          {% if not credit_customers %}
+            <div style="font-size:0.7rem; color:#64748b; text-align:center;">No pending member credit receivables.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Unpaid Orders For Collection -->
+      <div style="background:#1e293b; border:1.5px solid #f97316; border-radius:8px; padding:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.8rem; color:#fdba74; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+          <span>📦 Unpaid Orders / Tickets</span>
+          <span style="background:#ea580c; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ unpaid_collections|length }}</span>
+        </h3>
+        <div style="max-height:100px; overflow-y:auto;">
           {% for uc in unpaid_collections %}
           <div style="font-size:0.72rem; padding:4px 0; border-bottom:1px dashed #475569; color:#cbd5e1;">
             <div style="display:flex; justify-content:space-between; font-weight:bold;">
-              <span>{{ uc.customer_name }}</span>
-              <span style="color:#f43f5e;">₱{{ "{:,.2f}".format(uc.total_amount) }}</span>
+              <span>#{{ uc.id }} - {{ uc.customer_name }}</span>
+              <span style="color:#fb923c;">₱{{ "{:,.2f}".format(uc.total_amount) }}</span>
             </div>
             <form action="/pos/settle-collection/{{ uc.id }}" method="POST" style="display:flex; gap:3px; margin-top:2px;">
               <select name="payment_method" style="flex:1; background:#0f172a; border:1px solid #475569; color:white; font-size:0.68rem; border-radius:3px; padding:1px;">
@@ -202,7 +251,7 @@
           </div>
           {% endfor %}
           {% if not unpaid_collections %}
-            <div style="font-size:0.7rem; color:#64748b; text-align:center;">No unpaid collections.</div>
+            <div style="font-size:0.7rem; color:#64748b; text-align:center;">No unpaid orders.</div>
           {% endif %}
         </div>
       </div>
@@ -213,7 +262,7 @@
           <span>📶 Wi-Fi Claims Today</span>
           <span style="background:#2563eb; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ today_wifi_claims|length }}</span>
         </h3>
-        <div style="max-height:100px; overflow-y:auto;">
+        <div style="max-height:80px; overflow-y:auto;">
           {% for w in today_wifi_claims %}
           <div style="font-size:0.7rem; padding:3px 0; border-bottom:1px dashed #334155; color:#cbd5e1;">
             <div style="display:flex; justify-content:space-between;">
@@ -229,24 +278,32 @@
           {% endfor %}
         </div>
       </div>
-
-      <!-- Recent Completed Sales for Quick Printing -->
-      <h3 style="font-size:0.8rem; color:#38bdf8; margin-bottom:6px;">🧾 Recent Completed Sales</h3>
-      <div style="max-height:180px; overflow-y:auto;">
-        {% for ro in completed_orders %}
-        <div style="background:#334155; padding:6px; border-radius:6px; margin-bottom:4px; font-size:0.72rem; display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <strong>#{{ ro.id }}</strong> — {{ ro.customer_name }}<br>
-            <span style="color:var(--hk-pink); font-weight:bold;">₱{{ "{:,.2f}".format(ro.total_amount) }}</span>
-          </div>
-          <button type="button" onclick="printSimpleSlip('{{ ro.id }}', '{{ ro.customer_name|replace('\'', '') }}', '{{ ro.order_type }}', '{{ '{:,.2f}'.format(ro.total_amount) }}')" class="btn-act" style="background:#0284c7; color:white; padding:3px 6px; font-size:0.68rem;">🖨️ Print</button>
-        </div>
-        {% endfor %}
-      </div>
     </div>
   </div>
 
-  <!-- 1. PROMO DEAL CLAIM MODAL -->
+  <!-- 1. CHANGE FUND MODAL -->
+  <div id="changeFundModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#10b981;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#34d399; font-size:1rem;">💵 Add Cashier Change Fund (Excluded from Revenue)</h3>
+        <button onclick="closeModal('changeFundModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/record-change-fund" method="POST">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Fund Label / Description</label>
+        <input type="text" name="fund_title" class="form-input" value="Cashier Opening Change Fund" required>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱) *</label>
+        <input type="number" step="0.25" name="amount" class="form-input" placeholder="e.g. 1000.00" required>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Drawer Notes</label>
+        <input type="text" name="notes" class="form-input" value="Drawer loose change fund (No profit impact)">
+
+        <button type="submit" style="background:#10b981; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Confirm Change Fund</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. PROMO DEAL CLAIM MODAL -->
   <div id="promoClaimModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#e11d48;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -275,7 +332,7 @@
     </div>
   </div>
 
-  <!-- 2. MISCELLANEOUS SERVICE MODAL -->
+  <!-- 3. MISCELLANEOUS SERVICE MODAL -->
   <div id="miscModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#8b5cf6;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -320,7 +377,7 @@
     </div>
   </div>
 
-  <!-- 3. FOR COLLECTION MODAL -->
+  <!-- 4. FOR COLLECTION MODAL -->
   <div id="collectionModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f43f5e;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -364,7 +421,7 @@
     </div>
   </div>
 
-  <!-- 4. EXPENSES MODAL -->
+  <!-- 5. EXPENSES MODAL -->
   <div id="expenseModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f59e0b;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -396,7 +453,7 @@
     </div>
   </div>
 
-  <!-- 5. SAFE VAULT DROPS MODAL -->
+  <!-- 6. SAFE VAULT DROPS MODAL -->
   <div id="vaultModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#10b981;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
@@ -424,11 +481,11 @@
     </div>
   </div>
 
-  <!-- 6. SETTINGS & STAFF PASSWORD MODAL -->
+  <!-- 7. SETTINGS & STAFF PASSWORD MODAL -->
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#f472b6; font-size:1.05rem;">⚙️ Store Settings & Passwords</h3>
+        <h3 style="color:#f472b6; font-size:1.05rem;">⚙️ Store Settings & Operating Schedule</h3>
         <button onclick="closeModal('settingsModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
 
@@ -484,7 +541,6 @@
       });
     }
 
-    /* Counter Cart Functions */
     function addPosCartItem(id, name, price) {
       id = String(id);
       if (posCart[id]) {
@@ -609,7 +665,6 @@
       }
     }
 
-    /* Print Helper Engines */
     function triggerThermalPrint(contentHtml) {
       const printWindow = window.open('', '_blank', 'width=380,height=560');
       printWindow.document.write(`
@@ -680,26 +735,6 @@
       triggerThermalPrint(receipt);
     }
 
-    function printSimpleSlip(orderId, custName, orderType, totalFormatted) {
-      const receipt = `
-        <div class="center bold" style="font-size: 13px;">MACLEEN'S FOOD HOUSE</div>
-        <div class="divider"></div>
-        <div class="row"><span>ORDER #:</span><span class="bold">${orderId}</span></div>
-        <div class="row"><span>CUSTOMER:</span><span>${custName}</span></div>
-        <div class="row"><span>TYPE:</span><span>${orderType}</span></div>
-        <div class="row"><span>DATE:</span><span>${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
-        <div class="divider"></div>
-        <div class="row bold" style="font-size: 13px;">
-          <span>PAID TOTAL:</span>
-          <span>₱${totalFormatted}</span>
-        </div>
-        <div class="divider"></div>
-        <div class="footer center">Thank you for dining with us! 🎀</div>
-      `;
-      triggerThermalPrint(receipt);
-    }
-
-    /* Cashier Order Incoming Sound */
     function playCashierBeep() {
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
