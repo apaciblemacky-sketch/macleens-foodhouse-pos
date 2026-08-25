@@ -22,7 +22,7 @@
     .points-val { font-size: 2rem; font-weight: 900; color: var(--hk-pink); }
     .points-sub { font-size: 0.75rem; color: #64748b; }
 
-    /* Promo Banner */
+    /* Promo Banners */
     .promo-box {
       background: linear-gradient(135deg, #fff1f2, #ffe4e6);
       border: 2px dashed #f43f5e;
@@ -60,6 +60,7 @@
     .btn { display: block; width: 100%; padding: 10px; border-radius: 8px; font-weight: bold; border: none; cursor: pointer; text-align: center; text-decoration: none; font-size: 0.85rem; }
     .btn-pink { background: var(--hk-pink); color: white; }
     .btn-red { background: #e11d48; color: white; box-shadow: 0 4px 10px rgba(225, 29, 72, 0.25); }
+    .btn-amber { background: #d97706; color: white; box-shadow: 0 4px 10px rgba(217, 119, 6, 0.25); }
     .btn-outline { background: transparent; border: 1.5px solid #cbd5e1; color: #64748b; margin-top: 6px; }
     
     .form-control { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.82rem; margin-bottom: 8px; }
@@ -100,17 +101,33 @@
       </div>
     </div>
 
-    <!-- 🔥 3-DAY EXCLUSIVE MEMBER PROMO BANNER 🔥 -->
-    {% if promo and promo.is_active %}
+    <!-- 🔥 3-DAY EXCLUSIVE MEMBER PROMO: BURGER + FRIES (₱50) 🔥 -->
+    {% if promo_burger and promo_burger.is_active %}
     <div class="promo-box">
       <span class="promo-badge">👑 3-Day Limited Member Perk</span>
       <h2 class="promo-title">🍔 1 Regular Burger + 🍟 Fries for only ₱50!</h2>
       <p class="promo-desc">
         Temporary 3-day deal. Tap below to reserve instantly and pay <strong>₱50.00</strong> at the counter upon claiming!
       </p>
-      <form action="/portal/reserve-promo" method="POST" onsubmit="return confirm('Reserve 1 Regular Burger + Fries for ₱50.00?\n\nYour order slip will be queued at the cashier counter for pickup!');">
+      <form action="/portal/reserve-promo/BURGER_FRIES_50" method="POST" onsubmit="return confirm('Reserve 1 Regular Burger + Fries for ₱50.00?\n\nYour order slip will be queued at the cashier counter for pickup!');">
         <button type="submit" class="btn btn-red" style="font-size:0.95rem; letter-spacing:0.5px;">
           ⚡ Reserve Deal Now (Pay at Counter)
+        </button>
+      </form>
+    </div>
+    {% endif %}
+
+    <!-- 🔥 3-DAY EXCLUSIVE MEMBER PROMO: BEEFY NACHOS (₱75) 🔥 -->
+    {% if promo_nachos and promo_nachos.is_active %}
+    <div class="promo-box" style="border-color:#f59e0b; background:linear-gradient(135deg, #fffbeb, #fef3c7);">
+      <span class="promo-badge" style="background:#d97706;">🔥 All-New Member Drop</span>
+      <h2 class="promo-title" style="color:#92400e;">🧀 All-New Loaded Beefy Nachos for only ₱75!</h2>
+      <p class="promo-desc">
+        Crispy golden tortilla chips smothered in seasoned ground beef & warm melted cheese sauce. Pay <strong>₱75.00</strong> at the counter upon claiming!
+      </p>
+      <form action="/portal/reserve-promo/BEEFY_NACHOS_75" method="POST" onsubmit="return confirm('Reserve All-New Beefy Nachos for ₱75.00?\n\nYour order slip will be queued at the cashier counter for pickup!');">
+        <button type="submit" class="btn btn-amber" style="font-size:0.95rem; letter-spacing:0.5px;">
+          ⚡ Reserve Beefy Nachos Now (₱75.00)
         </button>
       </form>
     </div>
