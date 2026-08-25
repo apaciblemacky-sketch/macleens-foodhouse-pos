@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta, time
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import text
+from sqlalchemy import text, inspect
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -1178,16 +1178,15 @@ def admin_dashboard():
     fin_monthly = calc_period(monthly_orders, monthly_exp, monthly_vault)
     fin_all = calc_period(all_completed, total_exp_all, all_vault)
 
-    # Product Sales Breakdown Aggregate
     product_sales_stats = {}
     for o in all_completed:
         for it in o.items:
             pname = it.product_name
             if pname not in product_sales_stats:
                 product_sales_stats[pname] = {'qty': 0, 'revenue': 0.0, 'cost': 0.0}
-            product_sales_stats[pname]['qty'] += it.quantity
-            product_sales_stats[pname]['revenue'] += it.subtotal
-            product_sales_stats[pname]['cost'] += (it.cost_price or 0.0) * it.quantity
+            product_sales_stats[pname]['qty'] += (it.quantity or 0)
+            product_sales_stats[pname]['revenue'] += (it.subtotal or 0.0)
+            product_sales_stats[pname]['cost'] += (it.cost_price or 0.0) * (it.quantity or 0)
 
     total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
 
@@ -1227,7 +1226,6 @@ def admin_allocate_vault_drop(drop_id):
     cust = Customer.query.get(int(cust_id)) if cust_id else None
     prod = Product.query.get(int(product_id)) if product_id else None
 
-    # Deduct allocated amount from Vault Drop balance
     drop.amount = max(0.0, drop.amount - allocated_amount)
 
     order = Order(
@@ -1738,23 +1736,31 @@ def staff_logout():
     flash('Logged out.', 'info')
     return redirect(url_for('staff_login'))
 
-# ==================== INITIAL SEEDER & AUTO-MIGRATION ====================
+# ==================== INITIAL SEEDER & SAFE AUTO-MIGRATION ====================
 
 with app.app_context():
     db.create_all()
 
-    with db.engine.connect() as conn:
-        for stmt in [
-            "ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-            "ALTER TABLE product ADD COLUMN available_start_time VARCHAR(10)",
-            "ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10)",
-            "ALTER TABLE vault_drop ADD COLUMN cash_breakdown TEXT"
-        ]:
-            try:
-                conn.execute(text(stmt))
-                conn.commit()
-            except Exception:
-                pass
+    # Self-healing Schema Inspector that prevents aborted PostgreSQL transactions
+    inspector = inspect(db.engine)
+    
+    cust_cols = [c['name'] for c in inspector.get_columns('customer')]
+    if 'last_active_at' not in cust_cols:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
+
+    prod_cols = [c['name'] for c in inspector.get_columns('product')]
+    if 'available_start_time' not in prod_cols:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE product ADD COLUMN available_start_time VARCHAR(10)"))
+    if 'available_end_time' not in prod_cols:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10)"))
+
+    vault_cols = [c['name'] for c in inspector.get_columns('vault_drop')]
+    if 'cash_breakdown' not in vault_cols:
+        with db.engine.begin() as conn:
+            conn.execute(text("ALTER TABLE vault_drop ADD COLUMN cash_breakdown TEXT"))
 
     default_roles = [
         ('admin', '1234', 'ADMIN'),
