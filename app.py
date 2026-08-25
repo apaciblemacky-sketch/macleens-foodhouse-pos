@@ -615,10 +615,10 @@ def cashier_terminal():
     staff_list = Staff.query.all()
     customers_list = Customer.query.order_by(Customer.name.asc()).all()
 
-    # Online active customers in the last 15 minutes (safely queried)
-    fifteen_mins_ago = datetime.utcnow() - timedelta(minutes=15)
+    # Online active customers in the last 2 minutes
+    two_mins_ago = datetime.utcnow() - timedelta(minutes=2)
     try:
-        online_customers = Customer.query.filter(Customer.last_active_at >= fifteen_mins_ago).order_by(Customer.last_active_at.desc()).all()
+        online_customers = Customer.query.filter(Customer.last_active_at >= two_mins_ago).order_by(Customer.last_active_at.desc()).all()
     except Exception:
         online_customers = []
 
@@ -1396,7 +1396,8 @@ def customer_register():
             points_balance=starting_bonus_points,
             pin_hash=generate_password_hash(pin),
             card_number=f"MFH-{random.randint(1, 100):04d}",
-            card_expires_at=date.today() + timedelta(days=365)
+            card_expires_at=date.today() + timedelta(days=365),
+            last_active_at=datetime.utcnow()
         )
         db.session.add(new_cust)
         db.session.flush()
@@ -1431,6 +1432,20 @@ def customer_dashboard():
     my_orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).all()
     promo = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
     return render_template('customer_dashboard.html', cust=cust, orders=my_orders, promo=promo, today=date.today())
+
+@app.route('/portal/logout')
+def customer_logout():
+    if 'customer_id' in session:
+        try:
+            cust = Customer.query.get(session['customer_id'])
+            if cust and hasattr(cust, 'last_active_at'):
+                cust.last_active_at = datetime.utcnow() - timedelta(hours=1)
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+    session.pop('customer_id', None)
+    flash("Successfully logged out.", "info")
+    return redirect(url_for('store_catalog'))
 
 @app.route('/portal/reserve-promo', methods=['POST'])
 def customer_reserve_promo():
@@ -1550,7 +1565,6 @@ def staff_logout():
 with app.app_context():
     db.create_all()
 
-    # Safe column auto-migration to prevent 500 error on existing databases
     with db.engine.connect() as conn:
         for stmt in [
             "ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
@@ -1561,7 +1575,7 @@ with app.app_context():
                 conn.execute(text(stmt))
                 conn.commit()
             except Exception:
-                pass  # Column already exists
+                pass
 
     default_roles = [
         ('admin', '1234', 'ADMIN'),
