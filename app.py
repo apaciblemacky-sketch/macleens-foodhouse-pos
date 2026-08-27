@@ -9,223 +9,238 @@ from sqlalchemy import text
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-hk-pos-2026-master')[cite: 13]
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-hk-pos-2026-master')
 
-database_url = os.environ.get('DATABASE_URL')[cite: 13]
+database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
-    database_url = database_url.replace("postgres://", "postgresql://", 1)[cite: 13]
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///foodhouse_pos.db'[cite: 13]
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False[cite: 13]
-app.config['SESSION_PERMANENT'] = True[cite: 13]
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=3650)[cite: 13]
+app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///foodhouse_pos.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SESSION_PERMANENT'] = True
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=3650)
 
-db = SQLAlchemy(app)[cite: 13]
+db = SQLAlchemy(app)
+
+@app.before_request
+def make_session_permanent():
+    session.permanent = True
+    if 'customer_id' in session:
+        try:
+            cust = Customer.query.get(session['customer_id'])
+            if cust and hasattr(cust, 'last_active_at'):
+                cust.last_active_at = datetime.utcnow()
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
 
 # ==================== DATA MODELS ====================
 
 class StoreSetting(db.Model):
     __tablename__ = 'store_setting'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    key = db.Column(db.String(50), unique=True, nullable=False)[cite: 13]
-    value = db.Column(db.Text, nullable=False)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(50), unique=True, nullable=False)
+    value = db.Column(db.Text, nullable=False)
 
 class Staff(db.Model):
     __tablename__ = 'staff'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    username = db.Column(db.String(50), unique=True, nullable=False)[cite: 13]
-    pin_hash = db.Column(db.String(255), nullable=False)[cite: 13]
-    role = db.Column(db.String(20), nullable=False)[cite: 13]
-    active = db.Column(db.Boolean, default=True)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    pin_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), nullable=False)
+    active = db.Column(db.Boolean, default=True)
 
 class Customer(db.Model):
     __tablename__ = 'customer'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    name = db.Column(db.String(100), nullable=False)[cite: 13]
-    email = db.Column(db.String(120), nullable=True)[cite: 13]
-    contact = db.Column(db.String(30), unique=True, nullable=False)[cite: 13]
-    fb_messenger = db.Column(db.String(150), nullable=True)[cite: 13]
-    pin_hash = db.Column(db.String(255), nullable=False)[cite: 13]
-    profile_image = db.Column(db.Text, nullable=True)[cite: 13]
-    default_address = db.Column(db.Text, nullable=True)[cite: 13]
-    default_landmark = db.Column(db.String(150), nullable=True)[cite: 13]
-    points_balance = db.Column(db.Float, default=0.0)[cite: 13]
-    is_credit_eligible = db.Column(db.Boolean, default=False)[cite: 13]
-    credit_limit = db.Column(db.Float, default=0.0)[cite: 13]
-    outstanding_ar = db.Column(db.Float, default=0.0)[cite: 13]
-    accumulated_spend = db.Column(db.Float, default=0.0)[cite: 13]
-    card_number = db.Column(db.String(20), unique=True, nullable=True)[cite: 13]
-    card_status = db.Column(db.String(20), default="ACTIVE")[cite: 13]
-    card_expires_at = db.Column(db.Date, nullable=True)[cite: 13]
-    referred_by = db.Column(db.String(50), nullable=True)[cite: 13]
-    last_daily_login = db.Column(db.Date, nullable=True)[cite: 13]
-    login_streak = db.Column(db.Integer, default=1)[cite: 13]
-    wifi_voucher_code = db.Column(db.String(20), nullable=True)[cite: 13]
-    wifi_minutes_left = db.Column(db.Integer, default=10)[cite: 13]
-    last_active_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120), nullable=True)
+    contact = db.Column(db.String(30), unique=True, nullable=False)
+    fb_messenger = db.Column(db.String(150), nullable=True)
+    pin_hash = db.Column(db.String(255), nullable=False)
+    profile_image = db.Column(db.Text, nullable=True)
+    default_address = db.Column(db.Text, nullable=True)
+    default_landmark = db.Column(db.String(150), nullable=True)
+    points_balance = db.Column(db.Float, default=0.0)
+    is_credit_eligible = db.Column(db.Boolean, default=False)
+    credit_limit = db.Column(db.Float, default=0.0)
+    outstanding_ar = db.Column(db.Float, default=0.0)
+    accumulated_spend = db.Column(db.Float, default=0.0)
+    card_number = db.Column(db.String(20), unique=True, nullable=True)
+    card_status = db.Column(db.String(20), default="ACTIVE")
+    card_expires_at = db.Column(db.Date, nullable=True)
+    referred_by = db.Column(db.String(50), nullable=True)
+    last_daily_login = db.Column(db.Date, nullable=True)
+    login_streak = db.Column(db.Integer, default=1)
+    wifi_voucher_code = db.Column(db.String(20), nullable=True)
+    wifi_minutes_left = db.Column(db.Integer, default=10)
+    last_active_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class DeliveryZone(db.Model):
     __tablename__ = 'delivery_zone'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    place_name = db.Column(db.String(100), nullable=False)[cite: 13]
-    barangay = db.Column(db.String(100), nullable=False)[cite: 13]
-    rate = db.Column(db.Float, nullable=False)[cite: 13]
-    distance = db.Column(db.String(50), nullable=True)[cite: 13]
-    note = db.Column(db.String(150), nullable=True)[cite: 13]
-    is_active = db.Column(db.Boolean, default=True)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    place_name = db.Column(db.String(100), nullable=False)
+    barangay = db.Column(db.String(100), nullable=False)
+    rate = db.Column(db.Float, nullable=False)
+    distance = db.Column(db.String(50), nullable=True)
+    note = db.Column(db.String(150), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
 
 class Category(db.Model):
     __tablename__ = 'category'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    name = db.Column(db.String(80), unique=True, nullable=False)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), unique=True, nullable=False)
 
 class Product(db.Model):
     __tablename__ = 'product'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    name = db.Column(db.String(120), nullable=False)[cite: 13]
-    category_name = db.Column(db.String(80), nullable=False)[cite: 13]
-    price = db.Column(db.Float, nullable=False)[cite: 13]
-    stock = db.Column(db.Integer, default=100)[cite: 13]
-    image_url = db.Column(db.Text, nullable=True)[cite: 13]
-    is_featured = db.Column(db.Boolean, default=False)[cite: 13]
-    is_top_seller = db.Column(db.Boolean, default=False)[cite: 13]
-    is_active = db.Column(db.Boolean, default=True)[cite: 13]
-    available_start_time = db.Column(db.String(10), nullable=True)[cite: 13]
-    available_end_time = db.Column(db.String(10), nullable=True)[cite: 13]
-    total_likes = db.Column(db.Integer, default=0)[cite: 13]
-    comments = db.relationship('ProductComment', backref='product_rel', cascade="all, delete-orphan", lazy=True, order_by="desc(ProductComment.created_at)")[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    category_name = db.Column(db.String(80), nullable=False)
+    price = db.Column(db.Float, nullable=False)
+    cost = db.Column(db.Float, default=0.0, nullable=True)
+    stock = db.Column(db.Integer, default=100)
+    image_url = db.Column(db.Text, nullable=True)
+    is_featured = db.Column(db.Boolean, default=False)
+    is_top_seller = db.Column(db.Boolean, default=False)
+    is_active = db.Column(db.Boolean, default=True)
+    available_start_time = db.Column(db.String(10), nullable=True)
+    available_end_time = db.Column(db.String(10), nullable=True)
+    total_likes = db.Column(db.Integer, default=0)
+    comments = db.relationship('ProductComment', backref='product_rel', cascade="all, delete-orphan", lazy=True, order_by="desc(ProductComment.created_at)")
 
 class ProductLike(db.Model):
     __tablename__ = 'product_like'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='CASCADE'), nullable=False)[cite: 13]
-    ip_address = db.Column(db.String(50), nullable=False)[cite: 13]
-    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)[cite: 13]
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='CASCADE'), nullable=False)
+    ip_address = db.Column(db.String(50), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class ProductComment(db.Model):
     __tablename__ = 'product_comment'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='CASCADE'), nullable=False)[cite: 13]
-    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)[cite: 13]
-    author_name = db.Column(db.String(100), nullable=False)[cite: 13]
-    ip_address = db.Column(db.String(50), nullable=False)[cite: 13]
-    comment_text = db.Column(db.Text, nullable=False)[cite: 13]
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='CASCADE'), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)
+    author_name = db.Column(db.String(100), nullable=False)
+    ip_address = db.Column(db.String(50), nullable=False)
+    comment_text = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Order(db.Model):
     __tablename__ = 'order'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    order_type = db.Column(db.String(30), nullable=False)[cite: 13]
-    dining_option = db.Column(db.String(20), default='DINE-IN')[cite: 13]
-    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)[cite: 13]
-    customer_name = db.Column(db.String(100), default='Customer')[cite: 13]
-    contact_number = db.Column(db.String(50), default='N/A')[cite: 13]
-    fb_messenger = db.Column(db.String(150), nullable=True)[cite: 13]
-    delivery_address = db.Column(db.Text, nullable=True)[cite: 13]
-    landmark = db.Column(db.String(150), nullable=True)[cite: 13]
-    pickup_time = db.Column(db.String(50), nullable=True)[cite: 13]
-    target_time = db.Column(db.String(50), nullable=True)[cite: 13]
-    change_for = db.Column(db.Float, nullable=True)[cite: 13]
-    gcash_ref = db.Column(db.String(10), nullable=True)[cite: 13]
-    subtotal = db.Column(db.Float, nullable=False)[cite: 13]
-    delivery_fee = db.Column(db.Float, default=0.0)[cite: 13]
-    total_amount = db.Column(db.Float, nullable=False)[cite: 13]
-    payment_method = db.Column(db.String(20), nullable=False)[cite: 13]
-    payment_verified = db.Column(db.Boolean, default=False)[cite: 13]
-    status = db.Column(db.String(30), default="VERIFICATION")[cite: 13]
-    is_unpaid = db.Column(db.Boolean, default=False)[cite: 13]
-    collection_notes = db.Column(db.String(255), nullable=True)[cite: 13]
-    notes = db.Column(db.Text, nullable=False, default="None")[cite: 13]
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
-    customer = db.relationship('Customer', backref='orders', lazy=True)[cite: 13]
-    items = db.relationship('OrderItem', backref='order_rel', cascade="all, delete-orphan", lazy=True)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    order_type = db.Column(db.String(30), nullable=False)
+    dining_option = db.Column(db.String(20), default='DINE-IN')
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
+    customer_name = db.Column(db.String(100), default='Customer')
+    contact_number = db.Column(db.String(50), default='N/A')
+    fb_messenger = db.Column(db.String(150), nullable=True)
+    delivery_address = db.Column(db.Text, nullable=True)
+    landmark = db.Column(db.String(150), nullable=True)
+    pickup_time = db.Column(db.String(50), nullable=True)
+    target_time = db.Column(db.String(50), nullable=True)
+    change_for = db.Column(db.Float, nullable=True)
+    gcash_ref = db.Column(db.String(10), nullable=True)
+    subtotal = db.Column(db.Float, nullable=False)
+    delivery_fee = db.Column(db.Float, default=0.0)
+    total_amount = db.Column(db.Float, nullable=False)
+    payment_method = db.Column(db.String(20), nullable=False)
+    payment_verified = db.Column(db.Boolean, default=False)
+    status = db.Column(db.String(30), default="VERIFICATION")
+    is_unpaid = db.Column(db.Boolean, default=False)
+    collection_notes = db.Column(db.String(255), nullable=True)
+    notes = db.Column(db.Text, nullable=False, default="None")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    customer = db.relationship('Customer', backref='orders', lazy=True)
+    items = db.relationship('OrderItem', backref='order_rel', cascade="all, delete-orphan", lazy=True)
 
 class OrderItem(db.Model):
     __tablename__ = 'order_item'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)[cite: 13]
-    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)[cite: 13]
-    product_name = db.Column(db.String(120), nullable=False)[cite: 13]
-    unit_price = db.Column(db.Float, nullable=False)[cite: 13]
-    quantity = db.Column(db.Integer, nullable=False)[cite: 13]
-    subtotal = db.Column(db.Float, nullable=False)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('order.id'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
+    product_name = db.Column(db.String(120), nullable=False)
+    unit_price = db.Column(db.Float, nullable=False)
+    cost_price = db.Column(db.Float, default=0.0, nullable=True)
+    quantity = db.Column(db.Integer, nullable=False)
+    subtotal = db.Column(db.Float, nullable=False)
 
 class Expense(db.Model):
     __tablename__ = 'expense'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    title = db.Column(db.String(150), nullable=False)[cite: 13]
-    amount = db.Column(db.Float, nullable=False)[cite: 13]
-    category = db.Column(db.String(50), default='General')[cite: 13]
-    created_by = db.Column(db.String(50), nullable=True)[cite: 13]
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(150), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    category = db.Column(db.String(50), default='General')
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class VaultDrop(db.Model):
     __tablename__ = 'vault_drop'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    drop_number = db.Column(db.Integer, nullable=False)[cite: 13]
-    amount = db.Column(db.Float, nullable=False)[cite: 13]
-    notes = db.Column(db.String(255), nullable=True)[cite: 13]
-    cash_breakdown = db.Column(db.Text, nullable=True)[cite: 13]
-    created_by = db.Column(db.String(50), nullable=True)[cite: 13]
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    drop_number = db.Column(db.Integer, nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    notes = db.Column(db.String(255), nullable=True)
+    cash_breakdown = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class ChangeFund(db.Model):
     __tablename__ = 'change_fund'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    fund_title = db.Column(db.String(150), nullable=False, default="Cashier Opening Change Fund")[cite: 13]
-    amount = db.Column(db.Float, nullable=False)[cite: 13]
-    notes = db.Column(db.String(255), nullable=True)[cite: 13]
-    created_by = db.Column(db.String(50), nullable=True)[cite: 13]
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    fund_title = db.Column(db.String(150), nullable=False, default="Cashier Opening Change Fund")
+    amount = db.Column(db.Float, nullable=False)
+    notes = db.Column(db.String(255), nullable=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class RewardLedger(db.Model):
     __tablename__ = 'reward_ledger'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)[cite: 13]
-    points_change = db.Column(db.Float, nullable=False)[cite: 13]
-    reason = db.Column(db.String(150), nullable=False)[cite: 13]
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
+    points_change = db.Column(db.Float, nullable=False)
+    reason = db.Column(db.String(150), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class SiteVisitor(db.Model):
     __tablename__ = 'site_visitor'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    ip_address = db.Column(db.String(50), unique=True, nullable=False)[cite: 13]
-    visit_count = db.Column(db.Integer, default=1)[cite: 13]
-    visited_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    ip_address = db.Column(db.String(50), unique=True, nullable=False)
+    visit_count = db.Column(db.Integer, default=1)
+    visited_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class PromotionTracker(db.Model):
     __tablename__ = 'promotion_tracker'
-    id = db.Column(db.Integer, primary_key=True)[cite: 13]
-    promo_code = db.Column(db.String(50), unique=True, nullable=False)[cite: 13]
-    title = db.Column(db.String(120), nullable=False)[cite: 13]
-    promo_price = db.Column(db.Float, nullable=False)[cite: 13]
-    page_views = db.Column(db.Integer, default=0)[cite: 13]
-    claims_count = db.Column(db.Integer, default=0)[cite: 13]
-    total_revenue = db.Column(db.Float, default=0.0)[cite: 13]
-    is_active = db.Column(db.Boolean, default=True)[cite: 13]
-    is_visible = db.Column(db.Boolean, default=True)[cite: 13]
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)[cite: 13]
+    id = db.Column(db.Integer, primary_key=True)
+    promo_code = db.Column(db.String(50), unique=True, nullable=False)
+    title = db.Column(db.String(120), nullable=False)
+    promo_price = db.Column(db.Float, nullable=False)
+    promo_cost = db.Column(db.Float, default=0.0, nullable=True)
+    page_views = db.Column(db.Integer, default=0)
+    claims_count = db.Column(db.Integer, default=0)
+    total_revenue = db.Column(db.Float, default=0.0)
+    is_active = db.Column(db.Boolean, default=True)
+    is_visible = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # ==================== PWA ROOT ROUTES ====================
 
 @app.route('/manifest.json')
 def serve_manifest():
-    return send_from_directory(os.path.join(app.root_path, 'static'), 'manifest.json', mimetype='application/manifest+json')[cite: 13]
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'manifest.json', mimetype='application/manifest+json')
 
 @app.route('/sw.js')
 def serve_sw():
-    response = send_from_directory(os.path.join(app.root_path, 'static'), 'sw.js', mimetype='application/javascript')[cite: 13]
-    response.headers['Service-Worker-Allowed'] = '/'[cite: 13]
-    return response[cite: 13]
+    response = send_from_directory(os.path.join(app.root_path, 'static'), 'sw.js', mimetype='application/javascript')
+    response.headers['Service-Worker-Allowed'] = '/'
+    return response
 
 # ==================== HELPERS & GUARDS ====================
 
 def get_client_ip():
     if request.headers.get('X-Forwarded-For'):
-        return request.headers.get('X-Forwarded-For').split(',')[0].strip()[cite: 13]
-    return request.remote_addr or '127.0.0.1'[cite: 13]
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    return request.remote_addr or '127.0.0.1'
 
 def get_store_settings():
     try:
@@ -239,55 +254,55 @@ def get_store_settings():
         'delivery_close_time': '20:00',
         'is_store_open': 'true',
         'is_delivery_enabled': 'true'
-    }[cite: 13]
+    }
     for k, v in defaults.items():
-        settings.setdefault(k, v)[cite: 13]
-    return settings[cite: 13]
+        settings.setdefault(k, v)
+    return settings
 
 def check_operating_status():
     s = get_store_settings()
-    now_utc = datetime.utcnow()[cite: 13]
-    now_ph = (now_utc + timedelta(hours=8)).time()[cite: 13]
+    now_utc = datetime.utcnow()
+    now_ph = (now_utc + timedelta(hours=8)).time()
 
     def parse_t(val, fallback):
         try:
-            return datetime.strptime(val, '%H:%M').time()[cite: 13]
+            return datetime.strptime(val, '%H:%M').time()
         except Exception:
-            return fallback[cite: 13]
+            return fallback
 
-    store_open = parse_t(s.get('store_open_time', '08:00'), time(8, 0))[cite: 13]
-    store_close = parse_t(s.get('store_close_time', '21:00'), time(21, 0))[cite: 13]
-    del_open = parse_t(s.get('delivery_open_time', '08:00'), time(8, 0))[cite: 13]
-    del_close = parse_t(s.get('delivery_close_time', '20:00'), time(20, 0))[cite: 13]
+    store_open = parse_t(s.get('store_open_time', '08:00'), time(8, 0))
+    store_close = parse_t(s.get('store_close_time', '21:00'), time(21, 0))
+    del_open = parse_t(s.get('delivery_open_time', '08:00'), time(8, 0))
+    del_close = parse_t(s.get('delivery_close_time', '20:00'), time(20, 0))
 
-    is_store_active = (s.get('is_store_open') == 'true') and (store_open <= now_ph <= store_close)[cite: 13]
-    is_delivery_active = (s.get('is_delivery_enabled') == 'true') and (del_open <= now_ph <= del_close) and is_store_active[cite: 13]
+    is_store_active = (s.get('is_store_open') == 'true') and (store_open <= now_ph <= store_close)
+    is_delivery_active = (s.get('is_delivery_enabled') == 'true') and (del_open <= now_ph <= del_close) and is_store_active
 
     return {
         'store_open': is_store_active,
         'delivery_open': is_delivery_active,
         'settings': s,
         'current_time': now_ph.strftime('%I:%M %p')
-    }[cite: 13]
+    }
 
 def is_product_available_now(prod):
     if not prod.is_active:
-        return False[cite: 13]
+        return False
     if not getattr(prod, 'available_start_time', None) or not getattr(prod, 'available_end_time', None):
-        return True[cite: 13]
+        return True
     try:
-        now_ph = (datetime.utcnow() + timedelta(hours=8)).time()[cite: 13]
-        start = datetime.strptime(prod.available_start_time, '%H:%M').time()[cite: 13]
-        end = datetime.strptime(prod.available_end_time, '%H:%M').time()[cite: 13]
+        now_ph = (datetime.utcnow() + timedelta(hours=8)).time()
+        start = datetime.strptime(prod.available_start_time, '%H:%M').time()
+        end = datetime.strptime(prod.available_end_time, '%H:%M').time()
         if start <= end:
-            return start <= now_ph <= end[cite: 13]
-        return now_ph >= start or now_ph <= end[cite: 13]
+            return start <= now_ph <= end
+        return now_ph >= start or now_ph <= end
     except Exception:
-        return True[cite: 13]
+        return True
 
 def ensure_default_promos():
     try:
-        deal1 = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()[cite: 13]
+        deal1 = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
         if not deal1:
             db.session.add(PromotionTracker(
                 promo_code='BURGER_FRIES_50',
@@ -298,9 +313,9 @@ def ensure_default_promos():
                 total_revenue=0.0,
                 is_active=True,
                 is_visible=True
-            ))[cite: 13]
+            ))
 
-        deal2 = PromotionTracker.query.filter_by(promo_code='BEEFY_NACHOS_75').first()[cite: 13]
+        deal2 = PromotionTracker.query.filter_by(promo_code='BEEFY_NACHOS_75').first()
         if not deal2:
             db.session.add(PromotionTracker(
                 promo_code='BEEFY_NACHOS_75',
@@ -311,82 +326,82 @@ def ensure_default_promos():
                 total_revenue=0.0,
                 is_active=True,
                 is_visible=True
-            ))[cite: 13]
+            ))
 
-        db.session.commit()[cite: 13]
+        db.session.commit()
     except Exception:
-        db.session.rollback()[cite: 13]
+        db.session.rollback()
 
 @app.context_processor
 def inject_globals():
     try:
-        setting = StoreSetting.query.filter_by(key='logo_url').first()[cite: 13]
-        logo = setting.value if setting else '/static/logo.png'[cite: 13]
+        setting = StoreSetting.query.filter_by(key='logo_url').first()
+        logo = setting.value if setting else '/static/logo.png'
     except Exception:
         logo = '/static/logo.png'
-    status = check_operating_status()[cite: 13]
-    return dict(store_logo=logo, status=status)[cite: 13]
+    status = check_operating_status()
+    return dict(store_logo=logo, status=status)
 
 def require_admin(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get('admin_user'):
-            return redirect(url_for('staff_login', target='admin'))[cite: 13]
-        return f(*args, **kwargs)[cite: 13]
-    return decorated[cite: 13]
+            return redirect(url_for('staff_login', target='admin'))
+        return f(*args, **kwargs)
+    return decorated
 
 def require_cashier(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not (session.get('cashier_user') or session.get('admin_user')):
-            return redirect(url_for('staff_login', target='cashier'))[cite: 13]
-        return f(*args, **kwargs)[cite: 13]
-    return decorated[cite: 13]
+            return redirect(url_for('staff_login', target='cashier'))
+        return f(*args, **kwargs)
+    return decorated
 
 # ==================== REAL-TIME POLLING API ====================
 
 @app.route('/api/queue-counts')
 def api_queue_counts():
-    pending_cashier = Order.query.filter_by(status="VERIFICATION").count()[cite: 13]
-    return jsonify({'pending_cashier': pending_cashier})[cite: 13]
+    pending_cashier = Order.query.filter_by(status="VERIFICATION").count()
+    return jsonify({'pending_cashier': pending_cashier})
 
 # ==================== STOREFRONT ====================
 
 @app.route('/')
 def store_catalog():
-    ensure_default_promos()[cite: 13]
+    ensure_default_promos()
     try:
-        ip = get_client_ip()[cite: 13]
-        v = SiteVisitor.query.filter_by(ip_address=ip).first()[cite: 13]
+        ip = get_client_ip()
+        v = SiteVisitor.query.filter_by(ip_address=ip).first()
         if not v:
-            db.session.add(SiteVisitor(ip_address=ip, visit_count=1))[cite: 13]
+            db.session.add(SiteVisitor(ip_address=ip, visit_count=1))
         else:
-            v.visit_count = (v.visit_count or 0) + 1[cite: 13]
-        db.session.commit()[cite: 13]
+            v.visit_count = (v.visit_count or 0) + 1
+        db.session.commit()
     except Exception:
-        db.session.rollback()[cite: 13]
+        db.session.rollback()
 
-    unique_visitors = SiteVisitor.query.count()[cite: 13]
-    total_accumulated_visits = db.session.query(db.func.coalesce(db.func.sum(SiteVisitor.visit_count), 0)).scalar() or unique_visitors[cite: 13]
+    unique_visitors = SiteVisitor.query.count()
+    total_accumulated_visits = db.session.query(db.func.coalesce(db.func.sum(SiteVisitor.visit_count), 0)).scalar() or unique_visitors
 
-    categories = Category.query.all()[cite: 13]
-    all_active_products = Product.query.filter_by(is_active=True).all()[cite: 13]
-    available_products = [p for p in all_active_products if is_product_available_now(p)][cite: 13]
+    categories = Category.query.all()
+    all_active_products = Product.query.filter_by(is_active=True).all()
+    available_products = [p for p in all_active_products if is_product_available_now(p)]
 
-    featured = [p for p in available_products if p.is_featured][cite: 13]
-    top_sellers = [p for p in available_products if p.is_top_seller][cite: 13]
-    products = sorted(available_products, key=lambda x: (-(x.total_likes or 0), x.id))[cite: 13]
+    featured = [p for p in available_products if p.is_featured]
+    top_sellers = [p for p in available_products if p.is_top_seller]
+    products = sorted(available_products, key=lambda x: (-(x.total_likes or 0), x.id))
 
-    liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=get_client_ip()).all()}[cite: 13]
-    delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()[cite: 13]
-    status = check_operating_status()[cite: 13]
-    active_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True).all()[cite: 13]
+    liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=get_client_ip()).all()}
+    delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()
+    status = check_operating_status()
+    active_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True).all()
 
     top_customers = Customer.query.order_by(Customer.points_balance.desc()).limit(10).all()
 
     cust = None
     if 'customer_id' in session:
-        cust = Customer.query.get(session['customer_id'])[cite: 13]
+        cust = Customer.query.get(session['customer_id'])
 
     return render_template('store_catalog.html', 
                            categories=categories, 
@@ -400,126 +415,126 @@ def store_catalog():
                            cust=cust,
                            status=status,
                            unique_visitors=unique_visitors, 
-                           total_accumulated_visits=total_accumulated_visits)[cite: 13]
+                           total_accumulated_visits=total_accumulated_visits)[cite: 4]
 
 @app.route('/promo/burger-deal')
 def promo_burger_deal():
-    ensure_default_promos()[cite: 13]
-    promo = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()[cite: 13]
+    ensure_default_promos()
+    promo = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50').first()
     if promo:
-        promo.page_views = (promo.page_views or 0) + 1[cite: 13]
-        db.session.commit()[cite: 13]
-    return render_template('promo_burger_deal.html')[cite: 13]
+        promo.page_views = (promo.page_views or 0) + 1
+        db.session.commit()
+    return render_template('promo_burger_deal.html')
 
 @app.route('/promo/beefy-nachos')
 def promo_beefy_nachos():
-    ensure_default_promos()[cite: 13]
-    promo = PromotionTracker.query.filter_by(promo_code='BEEFY_NACHOS_75').first()[cite: 13]
+    ensure_default_promos()
+    promo = PromotionTracker.query.filter_by(promo_code='BEEFY_NACHOS_75').first()
     if promo:
-        promo.page_views = (promo.page_views or 0) + 1[cite: 13]
-        db.session.commit()[cite: 13]
-    return render_template('promo_beefy_nachos.html')[cite: 13]
+        promo.page_views = (promo.page_views or 0) + 1
+        db.session.commit()
+    return render_template('promo_beefy_nachos.html')
 
 @app.route('/product/<int:product_id>')
 def product_detail(product_id):
-    prod = Product.query.get_or_404(product_id)[cite: 13]
-    ip = get_client_ip()[cite: 13]
-    liked = bool(ProductLike.query.filter_by(product_id=product_id, ip_address=ip).first())[cite: 13]
-    return render_template('product_detail.html', prod=prod, liked=liked)[cite: 13]
+    prod = Product.query.get_or_404(product_id)
+    ip = get_client_ip()
+    liked = bool(ProductLike.query.filter_by(product_id=product_id, ip_address=ip).first())
+    return render_template('product_detail.html', prod=prod, liked=liked)
 
 @app.route('/api/toggle-like/<int:product_id>', methods=['POST'])
 def api_toggle_like(product_id):
-    ip = get_client_ip()[cite: 13]
-    cust_id = session.get('customer_id')[cite: 13]
-    prod = Product.query.get_or_404(product_id)[cite: 13]
+    ip = get_client_ip()
+    cust_id = session.get('customer_id')
+    prod = Product.query.get_or_404(product_id)
 
-    existing = ProductLike.query.filter_by(product_id=product_id, ip_address=ip).first()[cite: 13]
+    existing = ProductLike.query.filter_by(product_id=product_id, ip_address=ip).first()
     if existing:
-        db.session.delete(existing)[cite: 13]
-        prod.total_likes = max(0, (prod.total_likes or 0) - 1)[cite: 13]
-        db.session.commit()[cite: 13]
-        return jsonify({'liked': False, 'total_likes': prod.total_likes})[cite: 13]
+        db.session.delete(existing)
+        prod.total_likes = max(0, (prod.total_likes or 0) - 1)
+        db.session.commit()
+        return jsonify({'liked': False, 'total_likes': prod.total_likes})
     else:
-        db.session.add(ProductLike(product_id=product_id, ip_address=ip, customer_id=cust_id))[cite: 13]
-        prod.total_likes = (prod.total_likes or 0) + 1[cite: 13]
-        db.session.commit()[cite: 13]
-        return jsonify({'liked': True, 'total_likes': prod.total_likes})[cite: 13]
+        db.session.add(ProductLike(product_id=product_id, ip_address=ip, customer_id=cust_id))
+        prod.total_likes = (prod.total_likes or 0) + 1
+        db.session.commit()
+        return jsonify({'liked': True, 'total_likes': prod.total_likes})
 
 @app.route('/api/add-comment/<int:product_id>', methods=['POST'])
 def api_add_comment(product_id):
-    ip = get_client_ip()[cite: 13]
-    cust_id = session.get('customer_id')[cite: 13]
-    data = request.get_json() or {}[cite: 13]
+    ip = get_client_ip()
+    cust_id = session.get('customer_id')
+    data = request.get_json() or {}
     text_content = data.get('comment', '').strip()
     if not text_content:
-        return jsonify({'success': False, 'message': 'Comment cannot be empty.'}), 400[cite: 13]
+        return jsonify({'success': False, 'message': 'Comment cannot be empty.'}), 400
 
-    name = f"Guest ({ip})"[cite: 13]
+    name = f"Guest ({ip})"
     if cust_id:
-        cust = Customer.query.get(cust_id)[cite: 13]
+        cust = Customer.query.get(cust_id)
         if cust:
-            name = cust.name[cite: 13]
+            name = cust.name
 
     comment = ProductComment(product_id=product_id, customer_id=cust_id, author_name=name, ip_address=ip, comment_text=text_content)
-    db.session.add(comment)[cite: 13]
-    db.session.commit()[cite: 13]
+    db.session.add(comment)
+    db.session.commit()
     return jsonify({'success': True, 'author': name, 'comment': text_content, 'created_at': 'Just now'})
 
 @app.route('/api/storefront-checkout', methods=['POST'])
 def api_storefront_checkout():
     if 'customer_id' not in session:
-        return jsonify({'success': False, 'message': 'Registration / Login is required. No guest checkout.'}), 403[cite: 13]
+        return jsonify({'success': False, 'message': 'Registration / Login is required. No guest checkout.'}), 403
 
-    status = check_operating_status()[cite: 13]
-    cust = Customer.query.get(session['customer_id'])[cite: 13]
-    data = request.get_json() or {}[cite: 13]
-    items = data.get('items', [])[cite: 13]
-    order_type = data.get('order_type', 'PICKUP').upper()[cite: 13]
-    dining_opt = data.get('dining_option', 'TAKEOUT').upper()[cite: 13]
-    pay_method = data.get('payment_method', 'CASH').upper()[cite: 13]
-    notes = data.get('notes', '').strip() or 'None'[cite: 13]
-    target_time = data.get('target_time', '').strip()[cite: 13]
-    zone_id = data.get('delivery_zone_id')[cite: 13]
-    landmark = data.get('landmark', '').strip()[cite: 13]
-    delivery_address = data.get('delivery_address', '').strip()[cite: 13]
-    gcash_ref = data.get('gcash_ref', '').strip()[cite: 13]
-    fb = data.get('fb_messenger', '').strip()[cite: 13]
+    status = check_operating_status()
+    cust = Customer.query.get(session['customer_id'])
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    order_type = data.get('order_type', 'PICKUP').upper()
+    dining_opt = data.get('dining_option', 'TAKEOUT').upper()
+    pay_method = data.get('payment_method', 'CASH').upper()
+    notes = data.get('notes', '').strip() or 'None'
+    target_time = data.get('target_time', '').strip()
+    zone_id = data.get('delivery_zone_id')
+    landmark = data.get('landmark', '').strip()
+    delivery_address = data.get('delivery_address', '').strip()
+    gcash_ref = data.get('gcash_ref', '').strip()
+    fb = data.get('fb_messenger', '').strip()
 
     if order_type == 'PICKUP' and not status['store_open']:
-        return jsonify({'success': False, 'message': 'Store ordering is currently closed.'}), 400[cite: 13]
+        return jsonify({'success': False, 'message': 'Store ordering is currently closed.'}), 400
 
     if order_type == 'DELIVERY' and not status['delivery_open']:
-        return jsonify({'success': False, 'message': 'Barangay delivery is currently unavailable/closed.'}), 400[cite: 13]
+        return jsonify({'success': False, 'message': 'Barangay delivery is currently unavailable/closed.'}), 400
 
     if not items or not target_time:
-        return jsonify({'success': False, 'message': 'Please complete your target time and select cart items.'}), 400[cite: 13]
+        return jsonify({'success': False, 'message': 'Please complete your target time and select cart items.'}), 400
 
-    delivery_fee = 0.0[cite: 13]
-    final_address = delivery_address[cite: 13]
-    final_landmark = landmark[cite: 13]
+    delivery_fee = 0.0
+    final_address = delivery_address
+    final_landmark = landmark
 
     if order_type == 'DELIVERY':
-        dining_opt = 'DELIVERY'[cite: 13]
+        dining_opt = 'DELIVERY'
         if not zone_id and (not landmark or not delivery_address):
-            return jsonify({'success': False, 'message': 'Please choose a Barangay Delivery Zone or provide address info.'}), 400[cite: 13]
+            return jsonify({'success': False, 'message': 'Please choose a Barangay Delivery Zone or provide address info.'}), 400
         if zone_id:
-            zone = DeliveryZone.query.get(zone_id)[cite: 13]
+            zone = DeliveryZone.query.get(zone_id)
             if zone:
-                delivery_fee = zone.rate[cite: 13]
-                final_address = f"Barangay: {zone.barangay} ({zone.place_name})"[cite: 13]
-                final_landmark = landmark or zone.note or "Designated Delivery Spot"[cite: 13]
+                delivery_fee = zone.rate
+                final_address = f"Barangay: {zone.barangay} ({zone.place_name})"
+                final_landmark = landmark or zone.note or "Designated Delivery Spot"
 
     if pay_method == 'CREDIT' and not cust.is_credit_eligible:
-        return jsonify({'success': False, 'message': 'Your account is not authorized for A/R Credit.'}), 403[cite: 13]
+        return jsonify({'success': False, 'message': 'Your account is not authorized for A/R Credit.'}), 403
 
     if pay_method in ['GCASH', 'CREDIT'] and not fb:
-        return jsonify({'success': False, 'message': 'Facebook messenger link is required for evaluation.'}), 400[cite: 13]
+        return jsonify({'success': False, 'message': 'Facebook messenger link is required for evaluation.'}), 400
 
     if pay_method == 'GCASH' and len(gcash_ref) < 6:
-        return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400[cite: 13]
+        return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400
 
-    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))[cite: 13]
-    total = subtotal + delivery_fee[cite: 13]
+    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
+    total = subtotal + delivery_fee
 
     order = Order(
         order_type=order_type,
@@ -541,12 +556,12 @@ def api_storefront_checkout():
         payment_verified=False,
         status='VERIFICATION',
         notes=notes
-    )[cite: 13]
-    db.session.add(order)[cite: 13]
-    db.session.flush()[cite: 13]
+    )
+    db.session.add(order)
+    db.session.flush()
 
     for it in items:
-        prod = Product.query.get(it['product_id'])[cite: 13]
+        prod = Product.query.get(it['product_id'])
         if prod:
             db.session.add(OrderItem(
                 order_id=order.id, product_id=prod.id, product_name=prod.name,
@@ -554,43 +569,43 @@ def api_storefront_checkout():
                 subtotal=prod.price * int(it['quantity'])
             ))
             if prod.stock >= int(it['quantity']):
-                prod.stock -= int(it['quantity'])[cite: 13]
+                prod.stock -= int(it['quantity'])
 
-    db.session.commit()[cite: 13]
-    return jsonify({'success': True, 'order_id': order.id, 'total': total})[cite: 13]
+    db.session.commit()
+    return jsonify({'success': True, 'order_id': order.id, 'total': total})
 
 # ==================== TABLET KIOSK ENDPOINTS ====================
 
 @app.route('/tablet')
 def tablet_kiosk():
-    categories = Category.query.all()[cite: 13]
-    all_active_products = Product.query.filter_by(is_active=True).all()[cite: 13]
-    available_products = [p for p in all_active_products if is_product_available_now(p)][cite: 13]
-    return render_template('tablet.html', categories=categories, products=available_products)[cite: 13]
+    categories = Category.query.all()
+    all_active_products = Product.query.filter_by(is_active=True).all()
+    available_products = [p for p in all_active_products if is_product_available_now(p)]
+    return render_template('tablet.html', categories=categories, products=available_products)
 
 @app.route('/api/tablet-checkout', methods=['POST'])
 def api_tablet_checkout():
-    data = request.get_json() or {}[cite: 13]
-    items = data.get('items', [])[cite: 13]
-    dining_opt = data.get('dining_option', 'DINE-IN').upper()[cite: 13]
-    customer_name = data.get('customer_name', 'Tablet Kiosk Guest').strip() or 'Tablet Kiosk Guest'[cite: 13]
-    pay_method = data.get('payment_method', 'CASH').upper()[cite: 13]
-    notes = data.get('notes', 'Tablet Self-Order').strip() or 'Tablet Self-Order'[cite: 13]
+    data = request.get_json() or {}
+    items = data.get('items', [])
+    dining_opt = data.get('dining_option', 'DINE-IN').upper()
+    customer_name = data.get('customer_name', 'Tablet Kiosk Guest').strip() or 'Tablet Kiosk Guest'
+    pay_method = data.get('payment_method', 'CASH').upper()
+    notes = data.get('notes', 'Tablet Self-Order').strip() or 'Tablet Self-Order'
 
     if not items:
-        return jsonify({'success': False, 'message': 'Ticket is empty.'}), 400[cite: 13]
+        return jsonify({'success': False, 'message': 'Ticket is empty.'}), 400
 
-    cust_id = None[cite: 13]
-    contact_num = 'Kiosk'[cite: 13]
+    cust_id = None
+    contact_num = 'Kiosk'
     if 'PIN:' in customer_name:
-        pin_code = customer_name.split('PIN:')[1].replace(')', '').strip()[cite: 13]
-        matched = Customer.query.filter((Customer.contact == pin_code) | (Customer.card_number == pin_code)).first()[cite: 13]
+        pin_code = customer_name.split('PIN:')[1].replace(')', '').strip()
+        matched = Customer.query.filter((Customer.contact == pin_code) | (Customer.card_number == pin_code)).first()
         if matched:
-            cust_id = matched.id[cite: 13]
-            customer_name = matched.name[cite: 13]
-            contact_num = matched.contact[cite: 13]
+            cust_id = matched.id
+            customer_name = matched.name
+            contact_num = matched.contact
 
-    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))[cite: 13]
+    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
 
     order = Order(
         order_type='TABLET',
@@ -605,12 +620,12 @@ def api_tablet_checkout():
         payment_verified=False,
         status='VERIFICATION',
         notes=notes
-    )[cite: 13]
-    db.session.add(order)[cite: 13]
-    db.session.flush()[cite: 13]
+    )
+    db.session.add(order)
+    db.session.flush()
 
     for it in items:
-        prod = Product.query.get(it['product_id'])[cite: 13]
+        prod = Product.query.get(it['product_id'])
         if prod:
             db.session.add(OrderItem(
                 order_id=order.id,
@@ -621,41 +636,41 @@ def api_tablet_checkout():
                 subtotal=prod.price * int(it['quantity'])
             ))
             if prod.stock >= int(it['quantity']):
-                prod.stock -= int(it['quantity'])[cite: 13]
+                prod.stock -= int(it['quantity'])
 
-    db.session.commit()[cite: 13]
-    return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})[cite: 13]
+    db.session.commit()
+    return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})
 
 # ==================== CASHIER TERMINAL & CLAIM DISPATCH ====================
 
 @app.route('/pos/cashier')
 @require_cashier
 def cashier_terminal():
-    ensure_default_promos()[cite: 13]
-    categories = Category.query.all()[cite: 13]
-    products = Product.query.filter_by(is_active=True).all()[cite: 13]
-    pending_orders = Order.query.filter_by(status="VERIFICATION").order_by(Order.created_at.asc()).all()[cite: 13]
-    completed_orders = Order.query.filter_by(status="COMPLETED").order_by(Order.created_at.desc()).limit(15).all()[cite: 13]
-    unpaid_collections = Order.query.filter_by(is_unpaid=True).order_by(Order.created_at.desc()).all()[cite: 13]
-    staff_list = Staff.query.all()[cite: 13]
-    customers_list = Customer.query.order_by(Customer.name.asc()).all()[cite: 13]
+    ensure_default_promos()
+    categories = Category.query.all()
+    products = Product.query.filter_by(is_active=True).all()
+    pending_orders = Order.query.filter_by(status="VERIFICATION").order_by(Order.created_at.asc()).all()
+    completed_orders = Order.query.filter_by(status="COMPLETED").order_by(Order.created_at.desc()).limit(15).all()
+    unpaid_collections = Order.query.filter_by(is_unpaid=True).order_by(Order.created_at.desc()).all()
+    staff_list = Staff.query.all()
+    customers_list = Customer.query.order_by(Customer.name.asc()).all()
 
-    two_mins_ago = datetime.utcnow() - timedelta(minutes=2)[cite: 13]
+    two_mins_ago = datetime.utcnow() - timedelta(minutes=2)
     try:
-        online_customers = Customer.query.filter(Customer.last_active_at >= two_mins_ago).order_by(Customer.last_active_at.desc()).all()[cite: 13]
+        online_customers = Customer.query.filter(Customer.last_active_at >= two_mins_ago).order_by(Customer.last_active_at.desc()).all()
     except Exception:
-        online_customers = [][cite: 13]
+        online_customers = []
 
-    credit_customers = Customer.query.filter(Customer.outstanding_ar > 0).order_by(Customer.outstanding_ar.desc()).all()[cite: 13]
+    credit_customers = Customer.query.filter(Customer.outstanding_ar > 0).order_by(Customer.outstanding_ar.desc()).all()
 
-    today = date.today()[cite: 13]
-    today_expenses = Expense.query.filter(db.func.date(Expense.created_at) == today).order_by(Expense.created_at.desc()).all()[cite: 13]
-    today_drops = VaultDrop.query.filter(db.func.date(VaultDrop.created_at) == today).order_by(VaultDrop.drop_number.asc()).all()[cite: 13]
+    today = date.today()
+    today_expenses = Expense.query.filter(db.func.date(Expense.created_at) == today).order_by(Expense.created_at.desc()).all()
+    today_drops = VaultDrop.query.filter(db.func.date(VaultDrop.created_at) == today).order_by(VaultDrop.drop_number.asc()).all()
     try:
-        today_change_funds = ChangeFund.query.filter(db.func.date(ChangeFund.created_at) == today).order_by(ChangeFund.created_at.desc()).all()[cite: 13]
+        today_change_funds = ChangeFund.query.filter(db.func.date(ChangeFund.created_at) == today).order_by(ChangeFund.created_at.desc()).all()
     except Exception:
-        today_change_funds = [][cite: 13]
-    next_drop_num = len(today_drops) + 1[cite: 13]
+        today_change_funds = []
+    next_drop_num = len(today_drops) + 1
 
     return render_template('cashier_pos.html', 
                            categories=categories, 
@@ -670,7 +685,7 @@ def cashier_terminal():
                            today_expenses=today_expenses,
                            today_drops=today_drops,
                            today_change_funds=today_change_funds,
-                           next_drop_num=next_drop_num)
+                           next_drop_num=next_drop_num)[cite: 11]
 
 @app.route('/pos/topup-member-wifi', methods=['POST'])
 @require_cashier
@@ -753,6 +768,7 @@ def cashier_direct_sale():
                 product_id=prod.id,
                 product_name=prod.name,
                 unit_price=prod.price,
+                cost_price=0.0,
                 quantity=int(it['quantity']),
                 subtotal=prod.price * int(it['quantity'])
             ))
@@ -824,6 +840,7 @@ def cashier_claim_promo():
         product_id=None,
         product_name=f"[PROMO] {promo.title}",
         unit_price=promo.promo_price,
+        cost_price=0.0,
         quantity=1,
         subtotal=promo.promo_price
     ))
@@ -892,6 +909,7 @@ def cashier_create_reservation():
         product_id=prod.id,
         product_name=prod.name,
         unit_price=prod.price,
+        cost_price=0.0,
         quantity=qty,
         subtotal=subtotal
     ))
@@ -957,6 +975,7 @@ def cashier_misc_sale():
         product_id=None,
         product_name=f"[Service] {service_name}",
         unit_price=amount,
+        cost_price=0.0,
         quantity=1,
         subtotal=amount
     ))
@@ -1050,6 +1069,7 @@ def cashier_create_collection():
         product_id=int(product_id) if (item_choice_type == 'PRODUCT' and product_id) else None,
         product_name=prod_name,
         unit_price=unit_p,
+        cost_price=0.0,
         quantity=qty,
         subtotal=amount
     ))
@@ -1242,13 +1262,15 @@ def admin_dashboard():
     def calc_period(orders, exp, vault_drop_sales):
         order_rev = sum(o.total_amount for o in orders)[cite: 13]
         total_rev = order_rev + vault_drop_sales[cite: 13]
-        net_p = total_rev - exp
+        cost = sum(sum((getattr(it, 'cost_price', 0.0) or 0.0) * it.quantity for it in o.items) for o in orders)
+        gross_p = total_rev - cost
+        net_p = gross_p - exp
         return {
             'order_rev': order_rev,
             'vault_sales': vault_drop_sales,
             'rev': total_rev,
-            'cost': 0.0,
-            'gross_p': total_rev,
+            'cost': cost,
+            'gross_p': gross_p,
             'exp': exp,
             'net_p': net_p
         }
@@ -1266,9 +1288,10 @@ def admin_dashboard():
         for it in o.items:
             pname = it.product_name[cite: 13]
             if pname not in product_sales_stats:
-                product_sales_stats[pname] = {'qty': 0, 'revenue': 0.0}[cite: 13]
+                product_sales_stats[pname] = {'qty': 0, 'revenue': 0.0, 'cost': 0.0}
             product_sales_stats[pname]['qty'] += (it.quantity or 0)[cite: 13]
             product_sales_stats[pname]['revenue'] += (it.subtotal or 0.0)[cite: 13]
+            product_sales_stats[pname]['cost'] += (getattr(it, 'cost_price', 0.0) or 0.0) * (it.quantity or 0)
 
             if '[Service]' in pname or o.order_type == 'SERVICE/MISC' or 'Printing' in pname:
                 service_revenue_total += (it.subtotal or 0.0)[cite: 13]
@@ -1340,6 +1363,7 @@ def admin_allocate_vault_drop(drop_id):
         product_id=prod.id if prod else None,
         product_name=prod.name if prod else f"Ulam Sale (Drop #{drop.drop_number})",
         unit_price=allocated_amount / qty,
+        cost_price=0.0,
         quantity=qty,
         subtotal=allocated_amount
     ))
@@ -1489,7 +1513,7 @@ def admin_delete_customer(cust_id):
     ProductComment.query.filter_by(customer_id=cust.id).delete()[cite: 13]
     db.session.delete(cust)[cite: 13]
     db.session.commit()[cite: 13]
-    flash(f"Account '{cust.name}' permanently removed.", "success")[cite: 13]
+    flash(f"Account '{cust.name}' permanently removed.", "success")
     return redirect(url_for('admin_dashboard'))[cite: 13]
 
 @app.route('/admin/update-logo', methods=['POST'])
@@ -1523,7 +1547,7 @@ def admin_add_product():
         flash("Please enter a valid product name and price.", "error")
         return redirect(url_for('admin_dashboard'))[cite: 13]
 
-    db.session.add(Product(name=name, category_name=category_name, price=price, stock=stock, 
+    db.session.add(Product(name=name, category_name=category_name, price=price, cost=0.0, stock=stock, 
                            image_url=image_url, available_start_time=start_t, available_end_time=end_t,
                            is_featured=is_featured, is_top_seller=is_top_seller, is_active=True))
     db.session.commit()[cite: 13]
@@ -1718,8 +1742,7 @@ def customer_dashboard():
         flash("Account session expired. Please log in again.", "info")[cite: 13]
         return redirect(url_for('customer_login'))[cite: 13]
     
-    # Safe fallback initialization for existing accounts
-    if cust.login_streak is None:
+    if getattr(cust, 'login_streak', None) is None:
         cust.login_streak = 1
         db.session.commit()
 
@@ -1792,6 +1815,7 @@ def customer_reserve_promo_by_code(promo_code):
         product_id=None,
         product_name=f"[PROMO 3-DAY] {promo.title}",
         unit_price=promo.promo_price,
+        cost_price=0.0,
         quantity=1,
         subtotal=promo.promo_price
     ))
@@ -1846,22 +1870,22 @@ def staff_logout():
     flash('Logged out.', 'info')[cite: 13]
     return redirect(url_for('staff_login'))[cite: 13]
 
-# ==================== INITIAL STARTUP MIGRATIONS ====================
+# ==================== SAFE AUTO-MIGRATIONS & SEEDER ====================
 
 with app.app_context():
     try:
         db.create_all()[cite: 13]
-        
+
         migration_statements = [
-            "ALTER TABLE customer ADD COLUMN last_daily_login DATE;",
-            "ALTER TABLE customer ADD COLUMN login_streak INTEGER DEFAULT 1;",
-            "ALTER TABLE customer ADD COLUMN referred_by VARCHAR(50);",
-            "ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
-            "ALTER TABLE \"order\" ADD COLUMN dining_option VARCHAR(20) DEFAULT 'DINE-IN';",
-            "ALTER TABLE promotion_tracker ADD COLUMN is_visible BOOLEAN DEFAULT TRUE;",
-            "ALTER TABLE product ADD COLUMN available_start_time VARCHAR(10);",
-            "ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10);",
-            "ALTER TABLE vault_drop ADD COLUMN cash_breakdown TEXT;"
+            "ALTER TABLE customer ADD COLUMN IF NOT EXISTS last_daily_login DATE;",
+            "ALTER TABLE customer ADD COLUMN IF NOT EXISTS login_streak INTEGER DEFAULT 1;",
+            "ALTER TABLE customer ADD COLUMN IF NOT EXISTS referred_by VARCHAR(50);",
+            "ALTER TABLE customer ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+            "ALTER TABLE \"order\" ADD COLUMN IF NOT EXISTS dining_option VARCHAR(20) DEFAULT 'DINE-IN';",
+            "ALTER TABLE promotion_tracker ADD COLUMN IF NOT EXISTS is_visible BOOLEAN DEFAULT TRUE;",
+            "ALTER TABLE product ADD COLUMN IF NOT EXISTS available_start_time VARCHAR(10);",
+            "ALTER TABLE product ADD COLUMN IF NOT EXISTS available_end_time VARCHAR(10);",
+            "ALTER TABLE vault_drop ADD COLUMN IF NOT EXISTS cash_breakdown TEXT;"
         ]
 
         with db.engine.connect() as conn:
