@@ -22,17 +22,8 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=3650)[cite: 14]
 
 db = SQLAlchemy(app)[cite: 14]
 
-@app.before_request
-def make_session_permanent():
-    session.permanent = True[cite: 14]
-    if 'customer_id' in session:
-        try:
-            cust = Customer.query.get(session['customer_id'])[cite: 14]
-            if cust and hasattr(cust, 'last_active_at'):
-                cust.last_active_at = datetime.utcnow()[cite: 14]
-                db.session.commit()[cite: 14]
-        except Exception:
-            db.session.rollback()[cite: 14]
+# Flag to guarantee migrations only run once per worker process safely
+DB_INITIALIZED = False
 
 # ==================== DATA MODELS ====================
 
@@ -231,6 +222,68 @@ def serve_sw():
     response = send_from_directory(os.path.join(app.root_path, 'static'), 'sw.js', mimetype='application/javascript')[cite: 14]
     response.headers['Service-Worker-Allowed'] = '/'[cite: 14]
     return response[cite: 14]
+
+# ==================== SAFE MIGRATION HELPER ====================
+
+def run_safe_migrations():
+    global DB_INITIALIZED
+    if DB_INITIALIZED:
+        return
+    
+    try:
+        db.create_all()[cite: 14]
+        
+        statements = [
+            "ALTER TABLE customer ADD COLUMN last_daily_login DATE;",
+            "ALTER TABLE customer ADD COLUMN login_streak INTEGER DEFAULT 1;",
+            "ALTER TABLE customer ADD COLUMN referred_by VARCHAR(50);",
+            "ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+            "ALTER TABLE \"order\" ADD COLUMN dining_option VARCHAR(20) DEFAULT 'DINE-IN';",
+            "ALTER TABLE promotion_tracker ADD COLUMN is_visible BOOLEAN DEFAULT TRUE;",
+            "ALTER TABLE product ADD COLUMN available_start_time VARCHAR(10);",
+            "ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10);",
+            "ALTER TABLE vault_drop ADD COLUMN cash_breakdown TEXT;"
+        ]
+
+        with db.engine.connect() as conn:
+            for sql in statements:
+                try:
+                    conn.execute(text(sql))
+                    conn.commit()
+                except Exception:
+                    pass
+
+        default_roles = [
+            ('admin', '1234', 'ADMIN'),
+            ('cashier1', '1111', 'CASHIER')
+        ][cite: 14]
+        for user, pin, role in default_roles:
+            st = Staff.query.filter_by(username=user).first()[cite: 14]
+            if not st:
+                db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))[cite: 14]
+            else:
+                st.pin_hash = generate_password_hash(pin)[cite: 14]
+                st.role = role[cite: 14]
+        db.session.commit()[cite: 14]
+
+        ensure_default_promos()[cite: 14]
+        DB_INITIALIZED = True
+    except Exception:
+        db.session.rollback()
+
+@app.before_request
+def initial_setup_and_session():
+    session.permanent = True[cite: 14]
+    run_safe_migrations()
+    
+    if 'customer_id' in session:
+        try:
+            cust = Customer.query.get(session['customer_id'])[cite: 14]
+            if cust and hasattr(cust, 'last_active_at'):
+                cust.last_active_at = datetime.utcnow()[cite: 14]
+                db.session.commit()[cite: 14]
+        except Exception:
+            db.session.rollback()[cite: 14]
 
 # ==================== HELPERS & GUARDS ====================
 
@@ -1851,49 +1904,7 @@ def staff_logout():
     flash('Logged out.', 'info')[cite: 14]
     return redirect(url_for('staff_login'))[cite: 14]
 
-# ==================== SAFE AUTO-MIGRATION & SEEDER ====================
-
-with app.app_context():
-    db.create_all()[cite: 14]
-
-    # Clean schema patcher using safe SQL commands per transaction
-    migration_statements = [
-        "ALTER TABLE customer ADD COLUMN last_daily_login DATE",
-        "ALTER TABLE customer ADD COLUMN login_streak INTEGER DEFAULT 1",
-        "ALTER TABLE customer ADD COLUMN referred_by VARCHAR(50)",
-        "ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-        "ALTER TABLE \"order\" ADD COLUMN dining_option VARCHAR(20) DEFAULT 'DINE-IN'",
-        "ALTER TABLE promotion_tracker ADD COLUMN is_visible BOOLEAN DEFAULT TRUE",
-        "ALTER TABLE product ADD COLUMN available_start_time VARCHAR(10)",
-        "ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10)",
-        "ALTER TABLE vault_drop ADD COLUMN cash_breakdown TEXT"
-    ]
-
-    for stmt in migration_statements:
-        try:
-            with db.engine.connect() as conn:
-                conn.execute(text(stmt))
-                conn.commit()
-        except Exception:
-            pass
-
-    default_roles = [
-        ('admin', '1234', 'ADMIN'),
-        ('cashier1', '1111', 'CASHIER')
-    ][cite: 14]
-    for user, pin, role in default_roles:
-        try:
-            st = Staff.query.filter_by(username=user).first()[cite: 14]
-            if not st:
-                db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))[cite: 14]
-            else:
-                st.pin_hash = generate_password_hash(pin)[cite: 14]
-                st.role = role[cite: 14]
-            db.session.commit()[cite: 14]
-        except Exception:
-            db.session.rollback()
-
-    ensure_default_promos()[cite: 14]
-
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)[cite: 14]
+    with app.app_context():
+        run_safe_migrations()
+    app.run(debug=True, port=5000)
