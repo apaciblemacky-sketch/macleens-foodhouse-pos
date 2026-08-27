@@ -81,6 +81,41 @@
 
     .btn-add { background: var(--hk-pink); color: white; border: none; border-radius: 8px; padding: 8px; font-weight: 900; width: 100%; cursor: pointer; font-size: 0.85rem; }
 
+    /* Top 10 Leaderboard Styles */
+    .leaderboard-card {
+      background: white;
+      border: 2px solid var(--hk-border);
+      border-radius: 16px;
+      padding: 14px;
+      margin-bottom: 16px;
+      box-shadow: 0 4px 12px rgba(251, 207, 232, 0.4);
+    }
+    .leaderboard-list {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+    @media(min-width: 768px) {
+      .leaderboard-list { grid-template-columns: 1fr 1fr; gap: 8px; }
+    }
+    .leaderboard-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 10px;
+      border-radius: 8px;
+      background: #fff5f7;
+      font-size: 0.82rem;
+    }
+    .leaderboard-rank {
+      font-weight: 900;
+      width: 24px;
+      color: var(--hk-dark);
+    }
+    .rank-1 { background: #fef3c7; border: 1px solid #fde047; }
+    .rank-2 { background: #f1f5f9; border: 1px solid #cbd5e1; }
+    .rank-3 { background: #ffedd5; border: 1px solid #fdba74; }
+
     .floating-bar { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 2px solid var(--hk-pink); padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 60; }
     .btn-checkout { background: var(--hk-pink); color: white; border: none; padding: 10px 18px; border-radius: 20px; font-weight: 900; font-size: 0.88rem; cursor: pointer; }
 
@@ -115,6 +150,36 @@
   </div>
 
   <div class="container">
+
+    <!-- 🏆 TOP 10 POINTS LEADERBOARD (Customer ID & Points) -->
+    <div class="leaderboard-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h3 style="color:var(--hk-dark); font-size:0.95rem; font-weight:900;">🏆 Top 10 VIP Reward Members</h3>
+        <span style="font-size:0.7rem; background:#fdf2f8; color:#be185d; padding:2px 8px; border-radius:10px; font-weight:bold;">Live Rankings</span>
+      </div>
+      <div class="leaderboard-list">
+        {% for top_c in top_customers %}
+          {% set pos = loop.index %}
+          <div class="leaderboard-row {% if pos == 1 %}rank-1{% elif pos == 2 %}rank-2{% elif pos == 3 %}rank-3{% endif %}">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="leaderboard-rank">
+                {% if pos == 1 %}🥇{% elif pos == 2 %}🥈{% elif pos == 3 %}🥉{% else %}#{{ pos }}{% endif %}
+              </span>
+              <div>
+                <strong>{{ top_c.name[:3] }}***</strong>
+                <span style="font-size:0.7rem; color:#64748b;">(ID: {{ top_c.card_number or 'MFH-' ~ top_c.id }})</span>
+              </div>
+            </div>
+            <div style="font-weight:900; color:var(--hk-dark);">
+              ⭐ {{ (top_c.points_balance or 0)|int }} pts
+            </div>
+          </div>
+        {% endfor %}
+        {% if not top_customers %}
+          <div style="text-align:center; color:#94a3b8; font-size:0.75rem; padding:8px;">Members registering soon.</div>
+        {% endif %}
+      </div>
+    </div>
 
     <!-- 🎁 ACTIVE PROMOTIONAL DROPS CAROUSEL (Burger & Beefy Nachos) -->
     {% if active_promos %}

@@ -52,7 +52,7 @@
   <div class="card" style="border: 2px solid var(--hk-pink);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
-        <h3 style="color:var(--hk-dark); font-size:1.1rem;">📊 Sales, Cost, Expenses & Profit Breakdown</h3>
+        <h3 style="color:var(--hk-dark); font-size:1.1rem;">📊 Sales, Expenses & Net Earnings Breakdown</h3>
         <p style="font-size:0.75rem; color:#64748b;">Includes POS orders + Safe Vault Drops as direct Ulam Sales[cite: 8].</p>
       </div>
       <div style="font-size:0.78rem; background:#fdf2f8; padding:6px 12px; border-radius:8px; border:1px solid var(--hk-border);">
@@ -67,8 +67,6 @@
             <th>Timeframe</th>
             <th>Vault Drop (Ulam Sales)</th>
             <th>Total Gross Revenue</th>
-            <th>Product Cost (COGS)</th>
-            <th>Gross Profit</th>
             <th>Logged Expenses</th>
             <th>Net Profit (Earnings)</th>
           </tr>
@@ -78,8 +76,6 @@
             <td><strong>📅 Today (Daily)</strong></td>
             <td style="color:#059669; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.vault_sales) }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.rev) }}</td>
-            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_daily.cost) }}</td>
-            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.gross_p) }}</td>
             <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_daily.exp) }}</td>
             <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_daily.net_p) }}</td>
           </tr>
@@ -87,8 +83,6 @@
             <td><strong>📆 Past 7 Days (Weekly)</strong></td>
             <td style="color:#059669; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.vault_sales) }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.rev) }}</td>
-            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_weekly.cost) }}</td>
-            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.gross_p) }}</td>
             <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_weekly.exp) }}</td>
             <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_weekly.net_p) }}</td>
           </tr>
@@ -96,8 +90,6 @@
             <td><strong>🗓️ Past 30 Days (Monthly)</strong></td>
             <td style="color:#059669; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.vault_sales) }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.rev) }}</td>
-            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_monthly.cost) }}</td>
-            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.gross_p) }}</td>
             <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_monthly.exp) }}</td>
             <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_monthly.net_p) }}</td>
           </tr>
@@ -105,8 +97,6 @@
             <td><strong>🏆 All-Time Total</strong></td>
             <td style="color:#059669;">₱{{ "{:,.2f}".format(fin_all.vault_sales) }}</td>
             <td style="color:#16a34a;">₱{{ "{:,.2f}".format(fin_all.rev) }}</td>
-            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_all.cost) }}</td>
-            <td style="color:#0284c7;">₱{{ "{:,.2f}".format(fin_all.gross_p) }}</td>
             <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_all.exp) }}</td>
             <td style="color:#9333ea; font-size:1.05rem; font-weight:900;">₱{{ "{:,.2f}".format(fin_all.net_p) }}</td>
           </tr>
@@ -115,7 +105,7 @@
     </div>
   </div>
 
-  <!-- 📈 MULTI-DIMENSIONAL SALES BREAKDOWN & CATEGORY RUNNING TOTALS -->
+  <!-- 📈 CATEGORY RUNNING TOTALS -->
   <div class="card" style="border: 2px solid #3b82f6;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
       <div>
@@ -157,8 +147,6 @@
             <th style="text-align:center;">Type</th>
             <th style="text-align:center;">Qty Sold</th>
             <th>Total Sales Revenue</th>
-            <th>Total Cost (COGS)</th>
-            <th>Gross Margin</th>
           </tr>
         </thead>
         <tbody>
@@ -174,8 +162,6 @@
             </td>
             <td style="text-align:center; font-weight:bold;">{{ pdata.qty }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(pdata.revenue) }}</td>
-            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(pdata.cost) }}</td>
-            <td style="color:#0284c7; font-weight:900;">₱{{ "{:,.2f}".format(pdata.revenue - pdata.cost) }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -197,11 +183,11 @@
         <tbody>
           {% for c in customers %}
           <tr>
-            <td><strong>{{ c.name }}</strong> (Card: {{ c.card_number or 'MFH-0000' }})</td>
+            <td><strong>{{ c.name }}</strong> (Card: {{ c.card_number or 'MFH-0000' }})[cite: 8]</td>
             <td>{{ c.contact }}</td>
             <td style="font-weight:900; color:#16a34a;">₱{{ "{:,.2f}".format(c.accumulated_spend or 0.0) }}</td>
             <td style="color:#f43f5e; font-weight:bold;">₱{{ "{:,.2f}".format(c.outstanding_ar or 0.0) }}</td>
-            <td>⭐ {{ (c.points_balance or 0.0)|int }} pts</td>
+            <td>⭐ {{ "{:,.1f}".format(c.points_balance or 0.0) }} pts</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -264,7 +250,7 @@
     </div>
   </div>
 
-  <!-- 🏦 SAFE VAULT DROPS & PRODUCT ALLOCATION CONTROL -->
+  <!-- 🏦 SAFE VAULT DROPS & ALLOCATION -->
   <div class="card" style="border: 2px solid #10b981;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <div>
@@ -324,7 +310,7 @@
     </div>
   </div>
 
-  <!-- 💸 EDITABLE & EXPANDABLE OPERATIONAL EXPENSES AUDIT -->
+  <!-- 💸 OPERATIONAL EXPENSES -->
   <div class="card" style="border: 1.5px solid #f59e0b;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <div>
@@ -438,15 +424,10 @@
             <td style="font-weight:900; color:#16a34a; font-size:0.95rem;">
               ₱{{ "{:,.2f}".format(pr.total_revenue) }}
             </td>
-            <td style="display:flex; gap:4px;">
+            <td>
               <form action="/admin/toggle-promo-visibility/{{ pr.id }}" method="POST">
                 <button type="submit" class="btn" style="background:#3b82f6; color:white; padding:3px 8px; font-size:0.7rem;">
                   {{ '🚫 Hide from Users' if pr.is_visible else '👁️ Unhide & Display' }}
-                </button>
-              </form>
-              <form action="/admin/toggle-promo/{{ pr.id }}" method="POST">
-                <button type="submit" class="btn" style="background:#f59e0b; color:white; padding:3px 8px; font-size:0.7rem;">
-                  {{ '📦 Archive' if pr.is_active else '🚀 Activate' }}
                 </button>
               </form>
             </td>
@@ -491,7 +472,7 @@
             </td>
             <td style="text-align: center;">
               <span style="background: #fef3c7; color: #92400e; padding: 3px 8px; border-radius: 12px; font-weight: 900; font-size: 0.8rem; display: inline-block;">
-                ⭐ {{ (c.points_balance or 0.0)|int }} pts[cite: 8]
+                ⭐ {{ "{:,.1f}".format(c.points_balance or 0.0) }} pts
               </span>
             </td>
             <td>
@@ -531,7 +512,7 @@
     </div>
   </div>
 
-  <!-- ➕ RESTORED: ADD DISH FORM WITH OPTIONAL COST -->
+  <!-- ➕ RESTORED: ADD DISH FORM -->
   <div class="card">
     <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">➕ Add Dish with Photo, Time Schedule & Badges[cite: 8]</h3>
     <form action="/admin/add-product" method="POST" class="form-row">
@@ -550,10 +531,6 @@
       <div class="form-group" style="max-width:80px;">
         <label>Price *</label>
         <input type="number" step="0.5" name="price" class="form-control" required placeholder="0.00"[cite: 8]>
-      </div>
-      <div class="form-group" style="max-width:80px;">
-        <label>Cost (Optional)</label>
-        <input type="number" step="0.5" name="cost" class="form-control" placeholder="0.00"[cite: 8]>
       </div>
       <div class="form-group" style="max-width:70px;">
         <label>Stock</label>
@@ -583,7 +560,7 @@
     </form>
   </div>
 
-  <!-- 📦 BULK CATALOG EDITOR (Cost is completely optional) -->
+  <!-- 📦 BULK CATALOG EDITOR -->
   <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
       <div>
@@ -622,7 +599,6 @@
               <th>Dish</th>
               <th>Category</th>
               <th style="width:70px;">Price</th>
-              <th style="width:70px;">Cost (Optional)</th>
               <th style="width:60px;">Stock</th>
               <th>Photo URL</th>
               <th style="width:85px;">From Time</th>
@@ -647,7 +623,6 @@
               <td><strong class="dish-name">{{ p.name }}</strong></td>
               <td class="dish-cat">{{ p.category_name }}</td>
               <td><input type="number" step="0.5" name="price_{{ p.id }}" value="{{ p.price }}" class="form-control" style="padding:2px;"></td>
-              <td><input type="number" step="0.5" name="cost_{{ p.id }}" value="{{ p.cost if p.cost else '' }}" placeholder="None" class="form-control" style="padding:2px;"></td>
               <td><input type="number" name="stock_{{ p.id }}" value="{{ p.stock }}" class="form-control" style="padding:2px;"></td>
               <td><input type="url" name="image_url_{{ p.id }}" value="{{ p.image_url or '' }}" placeholder="https://..." class="form-control" style="padding:2px;"></td>
               <td><input type="time" name="available_start_time_{{ p.id }}" value="{{ p.available_start_time or '' }}" class="form-control" style="padding:2px; font-size:0.7rem;"></td>
@@ -661,7 +636,7 @@
             </tr>
             {% endfor %}
             <tr id="noResultsRow" style="display:none;">
-              <td colspan="13" style="text-align:center; padding:20px; color:#94a3b8;">No matching products found.</td>
+              <td colspan="12" style="text-align:center; padding:20px; color:#94a3b8;">No matching products found.</td>
             </tr>
           </tbody>
         </table>

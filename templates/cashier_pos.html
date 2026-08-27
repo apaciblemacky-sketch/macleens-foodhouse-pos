@@ -72,7 +72,7 @@
       {% for o in pending_orders %}
       <div class="ticket-card" id="ticket-{{ o.id }}">
         <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;">
-          <span>#{{ o.id }} ({{ o.order_type }})</span>
+          <span>#{{ o.id }} ({{ o.order_type }} • {{ o.dining_option or 'DINE-IN' }})</span>
           <span style="color:var(--hk-pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</span>
         </div>
         <div style="color:#cbd5e1; font-size:0.75rem; margin-bottom:6px;">
@@ -138,11 +138,22 @@
       </div>
 
       <div style="background:#0f172a; padding:6px; border-radius:6px; border:1px solid #334155; margin-bottom:6px;">
-        <label style="font-size:0.68rem; color:#94a3b8; font-weight:bold; display:block; margin-bottom:2px;">Customer Account Type:</label>
-        <select id="posCustType" class="form-input" style="margin-bottom:4px; padding:3px; font-size:0.75rem;" onchange="togglePosCustSelect()">
-          <option value="WALKIN">Anonymous Walk-in</option>
-          <option value="REGISTERED">Registered Member (Earn Points)</option>
-        </select>
+        <div style="display:flex; gap:4px; margin-bottom:4px;">
+          <div style="flex:1;">
+            <label style="font-size:0.68rem; color:#94a3b8; font-weight:bold;">Dining Option:</label>
+            <select id="posDiningOption" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;">
+              <option value="DINE-IN">🍽️ Dine-In</option>
+              <option value="TAKEOUT">🛍️ Takeout</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.68rem; color:#94a3b8; font-weight:bold;">Account Type:</label>
+            <select id="posCustType" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;" onchange="togglePosCustSelect()">
+              <option value="WALKIN">Anonymous Walk-in</option>
+              <option value="REGISTERED">Member (+Points)</option>
+            </select>
+          </div>
+        </div>
 
         <div id="posRegCustWrap" style="display:none; margin-bottom:4px;">
           <select id="posRegCustSelect" class="form-input" style="margin-bottom:0; padding:3px; color:#38bdf8; font-size:0.75rem;">
@@ -180,15 +191,15 @@
       </div>
     </div>
 
-    <!-- 4. Right Status Panels: Online Users, Credit AR Collections & Wi-Fi -->
+    <!-- 4. Right Status Panels: Online Users, Credit AR & Wi-Fi Claim -->
     <div class="pickup-panel">
-      <!-- 🟢 Online / Active Customers View -->
+      <!-- 🟢 Online Members -->
       <div style="background:#1e293b; border:1.5px solid #10b981; border-radius:8px; padding:8px; margin-bottom:10px;">
         <h3 style="font-size:0.8rem; color:#34d399; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
-          <span>🟢 Online Members (Active Now)</span>
+          <span>🟢 Online Members</span>
           <span style="background:#059669; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ online_customers|length }}</span>
         </h3>
-        <div style="max-height:90px; overflow-y:auto;">
+        <div style="max-height:80px; overflow-y:auto;">
           {% for oc in online_customers %}
           <div style="font-size:0.7rem; padding:2px 0; border-bottom:1px dashed #334155; color:#cbd5e1; display:flex; justify-content:space-between;">
             <strong>{{ oc.name }}</strong>
@@ -201,17 +212,33 @@
         </div>
       </div>
 
-      <!-- 📋 Outstanding Registered Customer Credit Balance (For Collection) -->
+      <!-- 📶 Stackable Wi-Fi Topup for Members -->
+      <div style="background:#1e293b; border:1.5px solid #3b82f6; border-radius:8px; padding:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.8rem; color:#60a5fa; margin-bottom:6px; font-weight:bold;">
+          📶 Stack Free Wi-Fi (+10 Mins)
+        </h3>
+        <form action="/pos/topup-member-wifi" method="POST" style="display:flex; flex-direction:column; gap:4px;">
+          <select name="customer_id" class="form-input" style="padding:3px; margin-bottom:0; font-size:0.72rem;" required>
+            <option value="">-- Choose Member --</option>
+            {% for c in customers_list %}
+              <option value="{{ c.id }}">{{ c.name }} ({{ c.wifi_minutes_left or 0 }}m left)</option>
+            {% endfor %}
+          </select>
+          <button type="submit" style="background:#0284c7; color:white; border:none; padding:4px; border-radius:4px; font-size:0.7rem; font-weight:bold; cursor:pointer;">+ Add 10 Mins Wi-Fi (Stack)</button>
+        </form>
+      </div>
+
+      <!-- 📋 Member Credit AR -->
       <div style="background:#1e293b; border:1.5px solid #f43f5e; border-radius:8px; padding:8px; margin-bottom:10px;">
         <h3 style="font-size:0.8rem; color:#fb7185; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
-          <span>📋 Registered Member Credit AR</span>
+          <span>📋 Member Credit AR</span>
           <span style="background:#e11d48; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ credit_customers|length }}</span>
         </h3>
-        <div style="max-height:110px; overflow-y:auto;">
+        <div style="max-height:100px; overflow-y:auto;">
           {% for cc in credit_customers %}
           <div style="font-size:0.72rem; padding:4px 0; border-bottom:1px dashed #475569; color:#cbd5e1;">
             <div style="display:flex; justify-content:space-between; font-weight:bold;">
-              <span>{{ cc.name }} ({{ cc.card_number or 'Card' }})</span>
+              <span>{{ cc.name }}</span>
               <span style="color:#f43f5e;">₱{{ "{:,.2f}".format(cc.outstanding_ar) }}</span>
             </div>
             <form action="/pos/settle-customer-credit/{{ cc.id }}" method="POST" style="display:flex; gap:3px; margin-top:3px;">
@@ -225,15 +252,15 @@
           </div>
           {% endfor %}
           {% if not credit_customers %}
-            <div style="font-size:0.7rem; color:#64748b; text-align:center;">No pending member credit receivables.</div>
+            <div style="font-size:0.7rem; color:#64748b; text-align:center;">No pending receivables.</div>
           {% endif %}
         </div>
       </div>
 
-      <!-- Unpaid Orders For Collection -->
+      <!-- Unpaid Orders -->
       <div style="background:#1e293b; border:1.5px solid #f97316; border-radius:8px; padding:8px; margin-bottom:10px;">
         <h3 style="font-size:0.8rem; color:#fdba74; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
-          <span>📦 Unpaid Orders / Tickets</span>
+          <span>📦 Unpaid Orders</span>
           <span style="background:#ea580c; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ unpaid_collections|length }}</span>
         </h3>
         <div style="max-height:100px; overflow-y:auto;">
@@ -257,29 +284,6 @@
           {% endif %}
         </div>
       </div>
-
-      <!-- Wi-Fi Claims Panel -->
-      <div style="background:#1e293b; border:1.5px solid #3b82f6; border-radius:8px; padding:8px; margin-bottom:10px;">
-        <h3 style="font-size:0.8rem; color:#60a5fa; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
-          <span>📶 Wi-Fi Claims Today</span>
-          <span style="background:#2563eb; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ today_wifi_claims|length }}</span>
-        </h3>
-        <div style="max-height:80px; overflow-y:auto;">
-          {% for w in today_wifi_claims %}
-          <div style="font-size:0.7rem; padding:3px 0; border-bottom:1px dashed #334155; color:#cbd5e1;">
-            <div style="display:flex; justify-content:space-between;">
-              <strong>{{ w.name }}</strong>
-              <span style="color:#fbbf24; font-family:monospace;">{{ w.wifi_voucher_code }}</span>
-            </div>
-            <form action="/pos/update-wifi-minutes/{{ w.id }}" method="POST" style="display:flex; align-items:center; gap:3px; margin-top:2px;">
-              <span style="color:#38bdf8;">Left:</span>
-              <input type="number" name="wifi_minutes" value="{{ w.wifi_minutes_left if w.wifi_minutes_left is not none else 10 }}" min="0" max="180" style="width:38px; padding:1px 2px; border:1px solid #475569; background:#0f172a; color:#fff; border-radius:3px; font-size:0.7rem; text-align:center;">
-              <button type="submit" style="background:#0284c7; color:white; border:none; padding:1px 4px; border-radius:3px; font-size:0.65rem; font-weight:bold; cursor:pointer;">Set</button>
-            </form>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
     </div>
   </div>
 
@@ -287,11 +291,11 @@
   <div id="changeFundModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#10b981;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#34d399; font-size:1rem;">💵 Add Cashier Change Fund (Excluded from Revenue)</h3>
+        <h3 style="color:#34d399; font-size:1rem;">💵 Add Cashier Change Fund</h3>
         <button onclick="closeModal('changeFundModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
       <form action="/pos/record-change-fund" method="POST">
-        <label style="font-size:0.75rem; color:#cbd5e1;">Fund Label / Description</label>
+        <label style="font-size:0.75rem; color:#cbd5e1;">Fund Label</label>
         <input type="text" name="fund_title" class="form-input" value="Cashier Opening Change Fund" required>
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱) *</label>
@@ -315,7 +319,13 @@
       <form action="/pos/claim-promo" method="POST">
         <input type="hidden" name="promo_code" id="promoModalCode" value="BURGER_FRIES_50">
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Select Member (To credit loyalty points)</label>
+        <label style="font-size:0.75rem; color:#cbd5e1;">Dining Option</label>
+        <select name="dining_option" class="form-input">
+          <option value="DINE-IN">🍽️ Dine-In</option>
+          <option value="TAKEOUT">🛍️ Takeout</option>
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Select Member (To credit points)</label>
         <select name="registered_customer_id" class="form-input" required>
           <option value="">-- Choose Registered Member --</option>
           {% for c in customers_list %}
@@ -342,11 +352,22 @@
         <button onclick="closeModal('reservationModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
       <form action="/pos/create-reservation" method="POST">
-        <label style="font-size:0.75rem; color:#cbd5e1;">Customer Type</label>
-        <select name="customer_type" id="resCustType" class="form-input" onchange="toggleResCustType()">
-          <option value="REGISTERED">Registered Member Account (Earns Points)</option>
-          <option value="CUSTOM">Walk-in / Custom Name</option>
-        </select>
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Customer Type</label>
+            <select name="customer_type" id="resCustType" class="form-input" onchange="toggleResCustType()">
+              <option value="REGISTERED">Member Account</option>
+              <option value="CUSTOM">Walk-in / Custom</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Dining Option</label>
+            <select name="dining_option" class="form-input">
+              <option value="TAKEOUT">🛍️ Takeout</option>
+              <option value="DINE-IN">🍽️ Dine-In</option>
+            </select>
+          </div>
+        </div>
 
         <div id="resRegCustBox">
           <label style="font-size:0.75rem; color:#cbd5e1;">Select Registered Member *</label>
@@ -371,7 +392,7 @@
             <select name="product_id" id="resProductSelect" class="form-input" onchange="updateResAmount()" required>
               <option value="">-- Choose Dish --</option>
               {% for p in products %}
-                <option value="{{ p.id }}" data-price="{{ p.price }}">{{ p.name }} (₱{{ "{:,.2f}".format(p.price) }}) [Stock: {{ p.stock }}]</option>
+                <option value="{{ p.id }}" data-price="{{ p.price }}">{{ p.name }} (₱{{ "{:,.2f}".format(p.price) }})</option>
               {% endfor %}
             </select>
           </div>
@@ -384,12 +405,12 @@
         <div style="display:flex; gap:8px;">
           <div style="flex:1;">
             <label style="font-size:0.75rem; color:#38bdf8; font-weight:bold;">Time to Get / Pick-up *</label>
-            <input type="text" name="target_time" class="form-input" placeholder="e.g. 5:30 PM / After Shift" required>
+            <input type="text" name="target_time" class="form-input" placeholder="e.g. 5:30 PM" required>
           </div>
           <div style="flex:1;">
             <label style="font-size:0.75rem; color:#cbd5e1;">Payment Plan</label>
             <select name="payment_method" class="form-input">
-              <option value="CASH">Pay at Counter (Cash)</option>
+              <option value="CASH">Pay at Counter</option>
               <option value="GCASH">GCash</option>
             </select>
           </div>
@@ -402,8 +423,8 @@
           </div>
         </div>
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Special Instructions / Packaging</label>
-        <input type="text" name="notes" class="form-input" placeholder="e.g. Extra sauce, pack separately in box">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Special Instructions</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g. Extra sauce, pack separately">
 
         <button type="submit" style="background:#0284c7; color:white; border:none; padding:9px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">CONFIRM & QUEUE RESERVATION</button>
       </form>
@@ -426,11 +447,11 @@
           {% endfor %}
         </select>
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Custom Customer Name (If not registered)</label>
+        <label style="font-size:0.75rem; color:#cbd5e1;">Custom Customer Name</label>
         <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Kagawad Cruz">
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Service Name *</label>
-        <input type="text" name="service_name" class="form-input" list="serviceSuggestions" placeholder="e.g., Document Printing, Scanning, Rush Service" required>
+        <input type="text" name="service_name" class="form-input" list="serviceSuggestions" placeholder="e.g., Document Printing" required>
         <datalist id="serviceSuggestions">
           <option value="Document Printing">
           <option value="Photo Printing">
@@ -455,19 +476,30 @@
     </div>
   </div>
 
-  <!-- 5. FOR COLLECTION MODAL (Attributable to a specific product) -->
+  <!-- 5. FOR COLLECTION MODAL -->
   <div id="collectionModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f43f5e;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#fb7185; font-size:1rem;">📋 Put Sale For Collection (Attributable to Product)</h3>
+        <h3 style="color:#fb7185; font-size:1rem;">📋 Put Sale For Collection (Attributable)</h3>
         <button onclick="closeModal('collectionModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
       <form action="/pos/create-collection" method="POST">
-        <label style="font-size:0.75rem; color:#cbd5e1;">Customer Type</label>
-        <select name="customer_type" id="collectionCustType" class="form-input" onchange="toggleCustInput()">
-          <option value="REGISTERED">Registered Member Account</option>
-          <option value="CUSTOM">Walk-in / Specific Customer Name</option>
-        </select>
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Customer Type</label>
+            <select name="customer_type" id="collectionCustType" class="form-input" onchange="toggleCustInput()">
+              <option value="REGISTERED">Member Account</option>
+              <option value="CUSTOM">Custom Name</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Dining Option</label>
+            <select name="dining_option" class="form-input">
+              <option value="TAKEOUT">🛍️ Takeout</option>
+              <option value="DINE-IN">🍽️ Dine-In</option>
+            </select>
+          </div>
+        </div>
 
         <div id="regCustBox">
           <label style="font-size:0.75rem; color:#cbd5e1;">Select Registered Member</label>
@@ -479,10 +511,10 @@
         </div>
 
         <div id="customCustBox" style="display:none;">
-          <label style="font-size:0.75rem; color:#cbd5e1;">Customer Specific Name *</label>
+          <label style="font-size:0.75rem; color:#cbd5e1;">Customer Name *</label>
           <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Teacher Elena">
-          <label style="font-size:0.75rem; color:#cbd5e1;">Contact / Address</label>
-          <input type="text" name="custom_contact" class="form-input" placeholder="0917xxxxxxx / Poblacion">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Contact</label>
+          <input type="text" name="custom_contact" class="form-input" placeholder="0917xxxxxxx">
         </div>
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Item Selection Mode</label>
@@ -505,8 +537,8 @@
         </div>
 
         <div id="colCustomItemBox" style="display:none;">
-          <label style="font-size:0.75rem; color:#cbd5e1;">Custom Item / Service Title *</label>
-          <input type="text" name="custom_title" class="form-input" placeholder="e.g. Special Catering / Tray">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Custom Item Title *</label>
+          <input type="text" name="custom_title" class="form-input" placeholder="e.g. Special Catering">
 
           <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱) *</label>
           <input type="number" step="0.25" name="custom_amount" id="colCustomAmount" class="form-input" placeholder="0.00">
@@ -519,8 +551,8 @@
           </div>
         </div>
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Collection Notes / Due Date</label>
-        <input type="text" name="notes" class="form-input" placeholder="e.g. Pay upon payroll">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Collection Notes</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g. Pay on payroll">
 
         <button type="submit" style="background:#f43f5e; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Unpaid Collection</button>
       </form>
@@ -536,7 +568,7 @@
       </div>
       <form action="/pos/record-expense" method="POST">
         <label style="font-size:0.75rem; color:#cbd5e1;">Expense Description</label>
-        <input type="text" name="title" class="form-input" placeholder="e.g., Ice purchase, Cup supplies" required>
+        <input type="text" name="title" class="form-input" placeholder="e.g., Ice purchase" required>
 
         <div style="display:flex; gap:8px;">
           <div style="flex:1;">
@@ -559,11 +591,11 @@
     </div>
   </div>
 
-  <!-- 7. SAFE VAULT DROPS MODAL WITH CASH COUNT BREAKDOWN CALCULATOR -->
+  <!-- 7. SAFE VAULT DROPS MODAL WITH DENOMINATION CALCULATOR -->
   <div id="vaultModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#10b981; max-width:540px;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#34d399; font-size:1rem;">🏦 Safe Vault Cash Drop & Cash Count Calculator</h3>
+        <h3 style="color:#34d399; font-size:1rem;">🏦 Safe Vault Cash Drop</h3>
         <button onclick="closeModal('vaultModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
       <form action="/pos/record-vault-drop" method="POST" onsubmit="prepareVaultDropSubmission()">
@@ -581,13 +613,13 @@
             </select>
           </div>
           <div style="flex:1;">
-            <label style="font-size:0.72rem; color:#cbd5e1;">Calculated Drop Total (₱)</label>
+            <label style="font-size:0.72rem; color:#cbd5e1;">Calculated Total (₱)</label>
             <input type="number" step="0.25" name="amount" id="vaultCalculatedAmount" class="form-input" style="font-weight:900; color:#34d399; margin-bottom:0;" required>
           </div>
         </div>
 
         <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:8px; margin-bottom:8px;">
-          <div style="font-size:0.72rem; font-weight:bold; color:#38bdf8; margin-bottom:4px;">💵 Cash Denomination Breakdown Form:</div>
+          <div style="font-size:0.72rem; font-weight:bold; color:#38bdf8; margin-bottom:4px;">💵 Denomination Breakdown:</div>
           <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; font-size:0.72rem;">
             <div>
               <label>₱1,000 x</label>
@@ -620,24 +652,23 @@
           </div>
         </div>
 
-        <label style="font-size:0.72rem; color:#cbd5e1;">Witness / Shift Notes</label>
-        <input type="text" name="notes" class="form-input" placeholder="e.g., Lunch rush cash drop verified by Manager">
+        <label style="font-size:0.72rem; color:#cbd5e1;">Witness Notes</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g., Verified shift transfer">
 
         <button type="submit" style="background:#10b981; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Confirm Cash Drop</button>
       </form>
     </div>
   </div>
 
-  <!-- 8. SETTINGS & STAFF PASSWORD MODAL -->
+  <!-- 8. SETTINGS MODAL -->
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal-box">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#f472b6; font-size:1.05rem;">⚙️ Store Settings & Operating Schedule</h3>
+        <h3 style="color:#f472b6; font-size:1.05rem;">⚙️ Operating Hours</h3>
         <button onclick="closeModal('settingsModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
 
-      <form action="/admin/settings/hours" method="POST" style="margin-bottom:16px;">
-        <h4 style="color:#fbcfe8; font-size:0.85rem; margin-bottom:6px;">⏰ Operating Hours</h4>
+      <form action="/admin/settings/hours" method="POST">
         <div style="display:flex; gap:8px; margin-bottom:6px;">
           <div style="flex:1;">
             <label style="font-size:0.7rem; color:#94a3b8;">Store Open/Close</label>
@@ -839,6 +870,7 @@
       const keys = Object.keys(posCart);
       if (keys.length === 0) return alert("Cart is empty. Tap items to add first.");
 
+      const diningOpt = document.getElementById('posDiningOption').value;
       const custType = document.getElementById('posCustType').value;
       const regCustId = document.getElementById('posRegCustSelect').value;
       const customName = document.getElementById('posCustomName').value.trim();
@@ -851,12 +883,13 @@
 
       const payload = {
         items: keys.map(id => ({ product_id: parseInt(id), quantity: posCart[id].qty })),
+        dining_option: diningOpt,
         customer_type: custType,
         registered_customer_id: regCustId ? parseInt(regCustId) : null,
         customer_name: customName || (custType === 'REGISTERED' ? 'Registered Member' : 'Counter Walk-in'),
         payment_method: payMethod,
         change_for: bill,
-        notes: 'Cashier Counter POS Sale'
+        notes: `Cashier POS (${diningOpt})`
       };
 
       try {

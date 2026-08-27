@@ -22,6 +22,23 @@
     .points-val { font-size: 2rem; font-weight: 900; color: var(--hk-pink); }
     .points-sub { font-size: 0.75rem; color: #64748b; }
 
+    /* Streak & Referral Cards */
+    .streak-box {
+      background: #eff6ff;
+      border: 1.5px solid #bfdbfe;
+      border-radius: 12px;
+      padding: 10px;
+      margin-top: 10px;
+      text-align: center;
+    }
+    .referral-box {
+      background: #fdf2f8;
+      border: 1.5px dashed var(--hk-pink);
+      border-radius: 12px;
+      padding: 12px;
+      margin-top: 10px;
+    }
+
     /* Promo Banners */
     .promo-box {
       background: linear-gradient(135deg, #fff1f2, #ffe4e6);
@@ -64,6 +81,24 @@
     .btn-outline { background: transparent; border: 1.5px solid #cbd5e1; color: #64748b; margin-top: 6px; }
     
     .form-control { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.82rem; margin-bottom: 8px; }
+
+    /* Emphasized Order More CTA */
+    .btn-order-more {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: linear-gradient(135deg, #ff69b4, #ec4899);
+      color: white;
+      font-weight: 900;
+      font-size: 0.82rem;
+      padding: 7px 16px;
+      border-radius: 20px;
+      text-decoration: none;
+      box-shadow: 0 4px 12px rgba(236, 72, 153, 0.35);
+      border: 1.5px solid #fbcfe8;
+      transition: transform 0.15s ease-in-out;
+    }
+    .btn-order-more:hover { transform: scale(1.05); }
   </style>
 </head>
 <body>
@@ -83,26 +118,47 @@
 
       <div class="points-card" style="width: 100%;">
         <div style="font-size: 0.75rem; font-weight: bold; color: var(--hk-dark); text-transform: uppercase;">REWARD POINTS</div>
-        <div class="points-val">{{ (cust.points_balance or 0.0)|int }}</div>
-        <div class="points-sub">Earn 1 Point for every ₱30 spend on purchases</div>
+        <div class="points-val">{{ "{:,.1f}".format(cust.points_balance or 0.0) }}</div>
+        <div class="points-sub">Earn 1 Point per ₱30 spend • 0.5 pts Daily Login</div>
       </div>
 
-      <!-- Free Wi-Fi Claim Status -->
-      <div style="width: 100%; margin-top: 10px;">
-        {% if cust.last_wifi_claim == today %}
-          <div style="background: #e0f2fe; color: #0369a1; padding: 8px; border-radius: 8px; font-size: 0.78rem; font-weight: bold;">
-            ✓ Today's Free Wi-Fi Claimed (Code: {{ cust.wifi_voucher_code }})
+      <!-- 📅 Daily Login (+0.5 pts) & 7-Day Spin Streak -->
+      <div style="width: 100%;" class="streak-box">
+        <div style="font-size:0.8rem; font-weight:bold; color:#1e40af;">
+          🔥 Daily Login Streak: Day {{ cust.login_streak or 1 }}/7
+        </div>
+        {% if (cust.login_streak or 1) >= 7 %}
+          <div style="background:#fef3c7; color:#92400e; padding:6px; border-radius:6px; font-weight:900; font-size:0.75rem; margin-top:4px;">
+            🎉 7-Day Streak Complete! Show your phone to the cashier for your <strong>FREE SPIN WHEEL</strong> prize!
           </div>
         {% else %}
-          <form action="/portal/claim-wifi" method="POST">
-            <button type="submit" class="btn btn-pink" style="background: #3b82f6;">📶 Claim Daily 10-Min Free Wi-Fi</button>
-          </form>
+          <div style="font-size:0.72rem; color:#64748b; margin-top:2px;">
+            +0.5 pts added today! Reach Day 7 to unlock your <strong>Free Spin</strong> at the cashier!
+          </div>
         {% endif %}
+      </div>
+
+      <!-- 🎁 Invite & Referral Link (+2 pts) -->
+      <div style="width: 100%;" class="referral-box">
+        <div style="font-size:0.78rem; font-weight:bold; color:var(--hk-dark); margin-bottom:4px;">
+          🎁 Invite Friends & Earn +2 Points!
+        </div>
+        <p style="font-size:0.72rem; color:#64748b; margin-bottom:6px;">Share your link. When a friend signs up with your code, you receive 2 reward points.</p>
+        <div style="display:flex; gap:4px;">
+          <input type="text" id="refLinkInput" value="{{ request.url_root }}portal/register?ref={{ cust.card_number or cust.contact }}" readonly class="form-control" style="margin-bottom:0; font-size:0.72rem; background:#fff;">
+          <button onclick="copyInviteLink()" class="btn btn-pink" style="padding:4px 10px; font-size:0.72rem; width:auto; white-space:nowrap;">📋 Copy</button>
+        </div>
+      </div>
+
+      <!-- Member Wi-Fi Stack Notice -->
+      <div style="width: 100%; margin-top: 10px; background: #e0f2fe; color: #0369a1; padding: 8px; border-radius: 8px; font-size: 0.75rem; text-align: center;">
+        📶 <strong>Free Wi-Fi:</strong> {{ cust.wifi_minutes_left or 0 }} mins remaining.<br>
+        <span style="font-size:0.7rem; color:#0284c7;">Ask Cashier anytime to top up +10 mins (Stackable for Members).</span>
       </div>
     </div>
 
     <!-- 🔥 3-DAY EXCLUSIVE MEMBER PROMO: BURGER + FRIES (₱50) 🔥 -->
-    {% if promo_burger and promo_burger.is_active %}
+    {% if promo_burger and promo_burger.is_active and promo_burger.is_visible %}
     <div class="promo-box">
       <span class="promo-badge">👑 3-Day Limited Member Perk</span>
       <h2 class="promo-title">🍔 1 Regular Burger + 🍟 Fries for only ₱50!</h2>
@@ -118,7 +174,7 @@
     {% endif %}
 
     <!-- 🔥 3-DAY EXCLUSIVE MEMBER PROMO: BEEFY NACHOS (₱75) 🔥 -->
-    {% if promo_nachos and promo_nachos.is_active %}
+    {% if promo_nachos and promo_nachos.is_active and promo_nachos.is_visible %}
     <div class="promo-box" style="border-color:#f59e0b; background:linear-gradient(135deg, #fffbeb, #fef3c7);">
       <span class="promo-badge" style="background:#d97706;">🔥 All-New Member Drop</span>
       <h2 class="promo-title" style="color:#92400e;">🧀 All-New Loaded Beefy Nachos for only ₱75!</h2>
@@ -133,11 +189,11 @@
     </div>
     {% endif %}
 
-    <!-- Order Live Monitoring -->
+    <!-- Order Live Monitoring & Emphasized Order More CTA -->
     <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <h3 style="color: var(--hk-dark); font-size: 0.95rem;">📦 Order Live Monitoring</h3>
-        <a href="/" style="font-size: 0.75rem; color: var(--hk-pink); font-weight: bold; text-decoration: none;">+ Order More</a>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="color: var(--hk-dark); font-size: 0.95rem;">📦 Live Orders & History</h3>
+        <a href="/" class="btn-order-more">🛍️ + ORDER MORE</a>
       </div>
 
       {% if orders %}
@@ -145,7 +201,7 @@
           {% for o in orders %}
           <div style="border-bottom: 1px dashed #fce7f3; padding: 6px 0; font-size: 0.75rem;">
             <div style="display: flex; justify-content: space-between; font-weight: bold;">
-              <span>#{{ o.id }} ({{ o.order_type }})</span>
+              <span>#{{ o.id }} ({{ o.order_type }} • {{ o.dining_option or 'DINE-IN' }})</span>
               <span style="color: var(--hk-pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</span>
             </div>
             <div style="color: #64748b;">Status: <strong>{{ o.status }}</strong></div>
@@ -169,6 +225,16 @@
     </div>
 
   </div>
+
+  <script>
+    function copyInviteLink() {
+      const copyText = document.getElementById("refLinkInput");
+      copyText.select();
+      copyText.setSelectionRange(0, 99999);
+      navigator.clipboard.writeText(copyText.value);
+      alert("🎉 Invite link copied to clipboard!");
+    }
+  </script>
 
 </body>
 </html>
