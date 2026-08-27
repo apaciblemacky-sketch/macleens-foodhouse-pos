@@ -223,6 +223,55 @@ def serve_sw():
     response.headers['Service-Worker-Allowed'] = '/'
     return response
 
+# ==================== DATABASE INITIALIZER & SESSION HOOK ====================
+
+def run_db_setup():
+    try:
+        db.create_all()
+        stmts = [
+            "ALTER TABLE customer ADD COLUMN last_daily_login DATE;",
+            "ALTER TABLE customer ADD COLUMN login_streak INTEGER DEFAULT 1;",
+            "ALTER TABLE customer ADD COLUMN referred_by VARCHAR(50);",
+            "ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
+            "ALTER TABLE \"order\" ADD COLUMN dining_option VARCHAR(20) DEFAULT 'DINE-IN';",
+            "ALTER TABLE promotion_tracker ADD COLUMN is_visible BOOLEAN DEFAULT TRUE;",
+            "ALTER TABLE product ADD COLUMN available_start_time VARCHAR(10);",
+            "ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10);",
+            "ALTER TABLE vault_drop ADD COLUMN cash_breakdown TEXT;"
+        ]
+        with db.engine.connect() as conn:
+            for s in stmts:
+                try:
+                    conn.execute(text(s))
+                    conn.commit()
+                except Exception:
+                    pass
+
+        default_roles = [('admin', '1234', 'ADMIN'), ('cashier1', '1111', 'CASHIER')]
+        for user, pin, role in default_roles:
+            st = Staff.query.filter_by(username=user).first()
+            if not st:
+                db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))
+            else:
+                st.pin_hash = generate_password_hash(pin)
+                st.role = role
+        db.session.commit()
+        ensure_default_promos()
+    except Exception:
+        db.session.rollback()
+
+@app.before_request
+def make_session_permanent_and_check():
+    session.permanent = True
+    if 'customer_id' in session:
+        try:
+            cust = Customer.query.get(session['customer_id'])
+            if cust and hasattr(cust, 'last_active_at'):
+                cust.last_active_at = datetime.utcnow()
+                db.session.commit()
+        except Exception:
+            db.session.rollback()
+
 # ==================== HELPERS & GUARDS ====================
 
 def get_client_ip():
@@ -1858,48 +1907,6 @@ def staff_logout():
     flash('Logged out.', 'info')
     return redirect(url_for('staff_login'))
 
-# ==================== SAFE BOOT MIGRATIONS ====================
-
-with app.app_context():
-    try:
-        db.create_all()
-        
-        migration_statements = [
-            "ALTER TABLE customer ADD COLUMN last_daily_login DATE;",
-            "ALTER TABLE customer ADD COLUMN login_streak INTEGER DEFAULT 1;",
-            "ALTER TABLE customer ADD COLUMN referred_by VARCHAR(50);",
-            "ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;",
-            "ALTER TABLE \"order\" ADD COLUMN dining_option VARCHAR(20) DEFAULT 'DINE-IN';",
-            "ALTER TABLE promotion_tracker ADD COLUMN is_visible BOOLEAN DEFAULT TRUE;",
-            "ALTER TABLE product ADD COLUMN available_start_time VARCHAR(10);",
-            "ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10);",
-            "ALTER TABLE vault_drop ADD COLUMN cash_breakdown TEXT;"
-        ]
-
-        # Execute each migration statement in an isolated transaction
-        for stmt in migration_statements:
-            try:
-                with db.engine.begin() as conn:
-                    conn.execute(text(stmt))
-            except Exception:
-                pass
-
-        default_roles = [
-            ('admin', '1234', 'ADMIN'),
-            ('cashier1', '1111', 'CASHIER')
-        ]
-        for user, pin, role in default_roles:
-            st = Staff.query.filter_by(username=user).first()
-            if not st:
-                db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))
-            else:
-                st.pin_hash = generate_password_hash(pin)
-                st.role = role
-        db.session.commit()
-
-        ensure_default_promos()
-    except Exception:
-        db.session.rollback()
-
 if __name__ == '__main__':
+    run_db_setup()
     app.run(debug=True, port=5000)
