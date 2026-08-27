@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta, time
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import text, inspect
+from sqlalchemy import text
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
@@ -240,7 +240,10 @@ def get_client_ip():
     return request.remote_addr or '127.0.0.1'[cite: 14]
 
 def get_store_settings():
-    settings = {s.key: s.value for s in StoreSetting.query.all()}[cite: 14]
+    try:
+        settings = {s.key: s.value for s in StoreSetting.query.all()}[cite: 14]
+    except Exception:
+        settings = {}
     defaults = {
         'store_open_time': '08:00',
         'store_close_time': '21:00',
@@ -328,12 +331,13 @@ def ensure_default_promos():
 
 @app.context_processor
 def inject_globals():
-    setting = StoreSetting.query.filter_by(key='logo_url').first()[cite: 14]
+    try:
+        setting = StoreSetting.query.filter_by(key='logo_url').first()[cite: 14]
+        logo = setting.value if setting else '/static/logo.png'[cite: 14]
+    except Exception:
+        logo = '/static/logo.png'
     status = check_operating_status()[cite: 14]
-    return dict(
-        store_logo=setting.value if setting else '/static/logo.png',
-        status=status
-    )[cite: 14]
+    return dict(store_logo=logo, status=status)[cite: 14]
 
 def require_admin(f):
     @wraps(f)
@@ -356,9 +360,7 @@ def require_cashier(f):
 @app.route('/api/queue-counts')
 def api_queue_counts():
     pending_cashier = Order.query.filter_by(status="VERIFICATION").count()[cite: 14]
-    return jsonify({
-        'pending_cashier': pending_cashier
-    })[cite: 14]
+    return jsonify({'pending_cashier': pending_cashier})[cite: 14]
 
 # ==================== STOREFRONT ====================
 
@@ -392,7 +394,6 @@ def store_catalog():
     status = check_operating_status()[cite: 14]
     active_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True).all()[cite: 14]
 
-    # Top 10 Leaderboard Query
     top_customers = Customer.query.order_by(Customer.points_balance.desc()).limit(10).all()
 
     cust = None
@@ -1267,7 +1268,6 @@ def admin_dashboard():
     fin_monthly = calc_period(monthly_orders, monthly_exp, monthly_vault)[cite: 14]
     fin_all = calc_period(all_completed, total_exp_all, all_vault)[cite: 14]
 
-    # Category Sales Splits
     product_sales_stats = {}[cite: 14]
     food_revenue_total = 0.0[cite: 14]
     service_revenue_total = 0.0[cite: 14]
@@ -1570,6 +1570,26 @@ def admin_toggle_credit(cust_id):
     flash(f"Credit eligibility updated for {cust.name}.", "success")[cite: 14]
     return redirect(url_for('admin_dashboard'))[cite: 14]
 
+@app.route('/admin/delivery-zones', methods=['POST'])
+@require_admin
+def admin_manage_delivery_zones():
+    action = request.form.get('action')[cite: 14]
+    if action == 'ADD':
+        place = request.form.get('place_name')[cite: 14]
+        brgy = request.form.get('barangay')[cite: 14]
+        rate = float(request.form.get('rate') or 40.0)[cite: 14]
+        dist = request.form.get('distance')[cite: 14]
+        note = request.form.get('note')[cite: 14]
+        db.session.add(DeliveryZone(place_name=place, barangay=brgy, rate=rate, distance=dist, note=note))[cite: 14]
+    elif action == 'DELETE':
+        zid = request.form.get('zone_id')[cite: 14]
+        zone = DeliveryZone.query.get(zid)[cite: 14]
+        if zone:
+            db.session.delete(zone)[cite: 14]
+    db.session.commit()[cite: 14]
+    flash("Delivery zones updated.", "success")[cite: 14]
+    return redirect(url_for('admin_dashboard'))[cite: 14]
+
 @app.route('/admin/reset-customer-pin/<int:cust_id>', methods=['POST'])
 @require_admin
 def admin_reset_customer_pin(cust_id):
@@ -1615,7 +1635,6 @@ def customer_login():
             session['customer_id'] = cust.id[cite: 14]
             today = date.today()
 
-            # Daily Check-in (+0.5 pts) and Streak Tracking
             if cust.last_daily_login != today:
                 yesterday = today - timedelta(days=1)
                 if cust.last_daily_login == yesterday:
@@ -1681,7 +1700,6 @@ def customer_register():
             reason="Welcome Login Bonus"
         ))
 
-        # Reward 2 points to Referrer
         if ref:
             referrer = Customer.query.filter((Customer.card_number == ref) | (Customer.contact == ref)).first()
             if referrer:
@@ -1746,6 +1764,13 @@ def customer_reserve_promo_by_code(promo_code):
 
     if not promo or not promo.is_active:
         flash("This promotion campaign is currently archived.", "info")[cite: 14]
+        return redirect(url_for('customer_dashboard'))[cite: 14]
+
+    days_active = (datetime.utcnow() - promo.created_at).days[cite: 14]
+    if days_active > 3:
+        promo.is_active = False[cite: 14]
+        db.session.commit()[cite: 14]
+        flash("This 3-day promotion campaign has ended and is now archived.", "info")[cite: 14]
         return redirect(url_for('customer_dashboard'))[cite: 14]
 
     order = Order(
@@ -1826,55 +1851,48 @@ def staff_logout():
     flash('Logged out.', 'info')[cite: 14]
     return redirect(url_for('staff_login'))[cite: 14]
 
-# ==================== INITIAL SEEDER & SAFE AUTO-MIGRATION ====================
+# ==================== SAFE AUTO-MIGRATION & SEEDER ====================
 
 with app.app_context():
     db.create_all()[cite: 14]
 
-    inspector = inspect(db.engine)[cite: 14]
-    
-    cust_cols = [c['name'] for c in inspector.get_columns('customer')][cite: 14]
-    if 'last_daily_login' not in cust_cols:
-        with db.engine.begin() as conn:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN last_daily_login DATE"))
-    if 'login_streak' not in cust_cols:
-        with db.engine.begin() as conn:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN login_streak INTEGER DEFAULT 1"))
-    if 'referred_by' not in cust_cols:
-        with db.engine.begin() as conn:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN referred_by VARCHAR(50)"))
-    if 'last_active_at' not in cust_cols:
-        with db.engine.begin() as conn:
-            conn.execute(text("ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))[cite: 14]
+    # Clean schema patcher using safe SQL commands per transaction
+    migration_statements = [
+        "ALTER TABLE customer ADD COLUMN last_daily_login DATE",
+        "ALTER TABLE customer ADD COLUMN login_streak INTEGER DEFAULT 1",
+        "ALTER TABLE customer ADD COLUMN referred_by VARCHAR(50)",
+        "ALTER TABLE customer ADD COLUMN last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "ALTER TABLE \"order\" ADD COLUMN dining_option VARCHAR(20) DEFAULT 'DINE-IN'",
+        "ALTER TABLE promotion_tracker ADD COLUMN is_visible BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE product ADD COLUMN available_start_time VARCHAR(10)",
+        "ALTER TABLE product ADD COLUMN available_end_time VARCHAR(10)",
+        "ALTER TABLE vault_drop ADD COLUMN cash_breakdown TEXT"
+    ]
 
-    order_cols = [c['name'] for c in inspector.get_columns('order')][cite: 14]
-    if 'dining_option' not in order_cols:
-        with db.engine.begin() as conn:
-            conn.execute(text("ALTER TABLE \"order\" ADD COLUMN dining_option VARCHAR(20) DEFAULT 'DINE-IN'"))[cite: 14]
-
-    promo_cols = [c['name'] for c in inspector.get_columns('promotion_tracker')][cite: 14]
-    if 'is_visible' not in promo_cols:
-        with db.engine.begin() as conn:
-            conn.execute(text("ALTER TABLE promotion_tracker ADD COLUMN is_visible BOOLEAN DEFAULT TRUE"))[cite: 14]
-
-    vault_cols = [c['name'] for c in inspector.get_columns('vault_drop')][cite: 14]
-    if 'cash_breakdown' not in vault_cols:
-        with db.engine.begin() as conn:
-            conn.execute(text("ALTER TABLE vault_drop ADD COLUMN cash_breakdown TEXT"))[cite: 14]
+    for stmt in migration_statements:
+        try:
+            with db.engine.connect() as conn:
+                conn.execute(text(stmt))
+                conn.commit()
+        except Exception:
+            pass
 
     default_roles = [
         ('admin', '1234', 'ADMIN'),
         ('cashier1', '1111', 'CASHIER')
     ][cite: 14]
     for user, pin, role in default_roles:
-        st = Staff.query.filter_by(username=user).first()[cite: 14]
-        if not st:
-            db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))[cite: 14]
-        else:
-            st.pin_hash = generate_password_hash(pin)[cite: 14]
-            st.role = role[cite: 14]
+        try:
+            st = Staff.query.filter_by(username=user).first()[cite: 14]
+            if not st:
+                db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))[cite: 14]
+            else:
+                st.pin_hash = generate_password_hash(pin)[cite: 14]
+                st.role = role[cite: 14]
+            db.session.commit()[cite: 14]
+        except Exception:
+            db.session.rollback()
 
-    db.session.commit()[cite: 14]
     ensure_default_promos()[cite: 14]
 
 if __name__ == '__main__':
