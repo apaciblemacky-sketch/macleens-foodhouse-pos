@@ -163,7 +163,7 @@
           <select id="posRegCustSelect" class="form-input" style="margin-bottom:0; padding:3px; color:#38bdf8; font-size:0.75rem;" onchange="updateMemberQuickInfo()">
             <option value="">-- Select Registered Member --</option>
             {% for c in customers_list %}
-              <option value="{{ c.id }}" data-points="{{ c.points_balance or 0 }}" data-card="{{ c.card_number or '' }}" data-wifi="{{ c.wifi_minutes_left or 0 }}">{{ c.name }} • {{ c.card_number or 'No Card' }} • {{ c.contact }} • {{ "{:.1f}".format(c.points_balance or 0) }} pts</option>
+              <option value="{{ c.id }}" data-points="{{ c.points_balance or 0 }}" data-card="{{ c.card_number or '' }}">{{ c.name }} • {{ c.card_number or 'No Card' }} • {{ c.contact }} • {{ "{:.1f}".format(c.points_balance or 0) }} pts</option>
             {% endfor %}
           </select>
           <div id="memberQuickInfo" style="font-size:0.68rem; color:#f9a8d4; margin-top:3px; min-height:14px;"></div>
@@ -196,7 +196,7 @@
       </div>
     </div>
 
-    <!-- 4. Right Status Panels: Online Users, Credit AR & Wi-Fi Claim -->
+    <!-- 4. Right Status Panels: Online Users & Credit AR -->
     <div class="pickup-panel">
       <!-- 🟢 Online Members -->
       <div style="background:#1e293b; border:1.5px solid #10b981; border-radius:8px; padding:8px; margin-bottom:10px;">
@@ -215,22 +215,6 @@
             <div style="font-size:0.7rem; color:#64748b; text-align:center;">No members browsing.</div>
           {% endif %}
         </div>
-      </div>
-
-      <!-- 📶 Stackable Wi-Fi Topup for Members -->
-      <div style="background:#1e293b; border:1.5px solid #3b82f6; border-radius:8px; padding:8px; margin-bottom:10px;">
-        <h3 style="font-size:0.8rem; color:#60a5fa; margin-bottom:6px; font-weight:bold;">
-          📶 Stack Free Wi-Fi (+10 Mins)
-        </h3>
-        <form action="/pos/topup-member-wifi" method="POST" style="display:flex; flex-direction:column; gap:4px;">
-          <select name="customer_id" class="form-input" style="padding:3px; margin-bottom:0; font-size:0.72rem;" required>
-            <option value="">-- Choose Member --</option>
-            {% for c in customers_list %}
-              <option value="{{ c.id }}">{{ c.name }} ({{ c.wifi_minutes_left or 0 }}m left)</option>
-            {% endfor %}
-          </select>
-          <button type="submit" style="background:#0284c7; color:white; border:none; padding:4px; border-radius:4px; font-size:0.7rem; font-weight:bold; cursor:pointer;">+ Add 10 Mins Wi-Fi (Stack)</button>
-        </form>
       </div>
 
       <!-- 📋 Member Credit AR -->
@@ -674,7 +658,7 @@
       </div>
       <img src="/marketing/qr/counter.svg" alt="Counter member registration QR" style="width:240px; height:240px; background:white; padding:8px; border-radius:12px;">
       <div style="font-size:0.82rem; font-weight:900; margin-top:8px;">New customer? Scan before payment.</div>
-      <div style="font-size:0.72rem; color:#cbd5e1; margin-top:4px; line-height:1.4;">Join in about 20 seconds • Earn walk-in points • Free Wi-Fi • Vote & Earn • Member-only deals.</div>
+      <div style="font-size:0.72rem; color:#cbd5e1; margin-top:4px; line-height:1.4;">Join in about 20 seconds • Earn walk-in points • Suggest products • Member-only deals.</div>
       <div style="font-size:0.68rem; color:#94a3b8; margin-top:8px;">After registration, refresh the Cashier page and select the new member before recording the sale.</div>
     </div>
   </div>
@@ -804,10 +788,9 @@
       if (!sel || !info || !sel.value) { if (info) info.innerText = ''; return; }
       const opt = sel.options[sel.selectedIndex];
       const pts = parseFloat(opt.dataset.points || '0');
-      const wifi = parseInt(opt.dataset.wifi || '0');
       const card = opt.dataset.card || 'No card';
       const left = Math.max(0, 20 - pts);
-      info.innerText = `🎁 ${card} • ${pts.toFixed(1)} pts • ${left.toFixed(1)} pts to 20-point milestone • 📶 ${wifi}m`;
+      info.innerText = `🎁 ${card} • ${pts.toFixed(1)} pts • ${left.toFixed(1)} pts to 20-point milestone`;
     }
 
     function filterCat(cat, btn) {

@@ -30,23 +30,12 @@
     .progress > div { height:100%; background:linear-gradient(90deg,#ff69b4,#ec4899); }
     .btn { width:100%; display:block; border:none; border-radius:9px; padding:10px; text-align:center; text-decoration:none; font-weight:900; cursor:pointer; font-size:.82rem; }
     .btn-pink { background:var(--pink); color:#fff; }
-    .btn-blue { background:#0284c7; color:#fff; }
     .btn-red { background:#e11d48; color:#fff; }
     .btn-amber { background:#d97706; color:#fff; }
     .btn-outline { background:#fff; border:1.5px solid #cbd5e1; color:#475569; }
     .btn-soft { background:#fdf2f8; border:1px solid var(--border); color:var(--dark); }
     .deal { border:1.5px dashed #f43f5e; border-radius:12px; padding:12px; margin-top:8px; background:#fff1f2; }
     .bonus { border:1.5px solid #fde68a; border-radius:12px; padding:12px; margin-top:8px; background:#fffbeb; }
-    .cat { margin-top:12px; }
-    .cat h4 { color:var(--dark); font-size:.82rem; margin-bottom:6px; text-transform:uppercase; letter-spacing:.3px; }
-    .menu-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
-    .menu-item { border:1px solid #f3e8ff; border-radius:11px; padding:9px; background:#fff; }
-    .menu-name { font-weight:900; font-size:.8rem; min-height:34px; }
-    .menu-meta { font-size:.68rem; color:var(--muted); margin:3px 0 7px; }
-    .mini-actions { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
-    .mini-actions button { padding:6px 4px; border-radius:7px; font-size:.68rem; font-weight:800; cursor:pointer; border:1px solid #cbd5e1; }
-    .active-vote { background:#ede9fe; color:#6d28d9; border-color:#8b5cf6 !important; }
-    .active-wish { background:#fce7f3; color:#be185d; border-color:#ec4899 !important; }
     .row { display:flex; justify-content:space-between; gap:8px; align-items:center; }
     .history { max-height:190px; overflow-y:auto; }
     .history-row { padding:7px 0; border-bottom:1px dashed #fce7f3; font-size:.75rem; }
@@ -55,7 +44,8 @@
     .copy-row input { flex:1; min-width:0; padding:8px; border:1px solid #cbd5e1; border-radius:7px; font-size:.7rem; }
     .copy-row button { width:auto; padding:8px 10px; }
     .secondary-order { background:#f8fafc; border-color:#e2e8f0; }
-    @media (max-width:420px){ .menu-grid{grid-template-columns:1fr;} }
+    .suggest-box { width:100%; min-height:120px; resize:vertical; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:.9rem; outline:none; background:#fff; color:#1e293b; }
+    .suggest-box:focus { border-color:var(--pink); box-shadow:0 0 0 3px rgba(255,105,180,.12); }
   </style>
 </head>
 <body>
@@ -78,9 +68,9 @@
 
     <div class="action-grid">
       <a class="action" href="#rewards"><span>🎁</span>My Rewards</a>
-      <a class="action" href="#wifi"><span>📶</span>Free Wi-Fi</a>
-      <a class="action" href="#vote"><span>🗳️</span>Vote & Earn</a>
-      <a class="action" href="#deals"><span>🔥</span>Today's Deals</a>
+      <a class="action" href="#suggest"><span>💡</span>Suggest a Product</a>
+      <a class="action" href="#deals"><span>🔥</span>Today's Member Deals</a>
+      <a class="action" href="/"><span>🛍️</span>Order / View Menu</a>
     </div>
   </div>
 
@@ -106,36 +96,13 @@
     {% endif %}
   </div>
 
-  <div class="card" id="wifi">
-    <div class="section-title">📶 Free Wi-Fi</div>
-    <div style="font-size:1.5rem; font-weight:900; color:#0284c7;">{{ cust.wifi_minutes_left or 0 }} minutes</div>
-    <div class="muted" style="margin-bottom:9px;">Members can claim +10 free minutes once per Philippine day. Cashier top-ups can still be added when needed.</div>
-    <form action="/portal/claim-wifi" method="POST"><button class="btn btn-blue" type="submit">📶 Claim Today's +10 Minutes</button></form>
-    <div class="muted" style="margin-top:8px;">Voucher: <strong>{{ cust.wifi_voucher_code or 'Ask cashier' }}</strong></div>
-  </div>
-
-  <div class="card" id="vote">
-    <div class="section-title">🗳️ Vote & Earn • Weekly Menu Wishlist</div>
-    <div class="muted">Tell us what you want Macleen's to prepare. Your first vote or wishlist action each week earns <strong>+2 points</strong>. You can still vote for more items after the bonus is claimed.</div>
-
-    {% for group in products|groupby('category_name') %}
-      <div class="cat">
-        <h4>{{ group.grouper }}</h4>
-        <div class="menu-grid">
-          {% for p in group.list %}
-            <div class="menu-item">
-              <div class="menu-name">{{ p.name }}</div>
-              <div class="menu-meta">₱{{ "{:,.2f}".format(p.price) }} • {{ vote_counts.get(p.id, 0) }} vote{{ '' if vote_counts.get(p.id, 0) == 1 else 's' }} this week</div>
-              <div class="mini-actions">
-                <form action="/portal/vote/{{ p.id }}" method="POST"><button class="{{ 'active-vote' if p.id in weekly_vote_ids else '' }}" type="submit">{{ '✓ Voted' if p.id in weekly_vote_ids else '🗳️ Vote' }}</button></form>
-                <form action="/portal/wishlist/{{ p.id }}" method="POST"><button class="{{ 'active-wish' if p.id in wishlist_ids else '' }}" type="submit">{{ '♥ Saved' if p.id in wishlist_ids else '♡ Wishlist' }}</button></form>
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      </div>
-    {% endfor %}
-    {% if not products %}<div class="muted" style="text-align:center; padding:12px;">No active menu items are available for voting right now.</div>{% endif %}
+  <div class="card" id="suggest">
+    <div class="section-title">💡 What would you like to buy from our shop?</div>
+    <div class="muted" style="margin-bottom:10px;">Tell us anything you'd like us to offer — past products, current products, or something completely new.</div>
+    <form action="/portal/suggest-product" method="POST">
+      <textarea class="suggest-box" name="suggestion" maxlength="500" required placeholder="Example: Bring back palabok, mango shake, chicken wings, corndog..."></textarea>
+      <button class="btn btn-pink" type="submit" style="margin-top:8px;">SUBMIT SUGGESTION</button>
+    </form>
   </div>
 
   <div class="card" id="deals">

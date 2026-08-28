@@ -5,8 +5,8 @@
   <style>*{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}body{background:#fff5f7;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem}.card{background:#fff;padding:1.6rem;border-radius:16px;border:1.5px solid #fbcfe8;width:100%;max-width:420px;box-shadow:0 8px 24px rgba(236,72,153,.12)}input{width:100%;padding:.7rem;margin:.25rem 0 .75rem;border:1px solid #fbcfe8;border-radius:8px}.btn{width:100%;padding:.8rem;background:#ec4899;color:white;border:none;border-radius:8px;font-weight:900;cursor:pointer}a{color:#be185d;text-decoration:none;font-size:.82rem;font-weight:800}.note{background:#fdf2f8;border:1px solid #fbcfe8;border-radius:9px;padding:9px;font-size:.73rem;color:#831843;margin:10px 0}</style>
 </head><body><div class="card">
   <h2 style="color:#831843;text-align:center;">✨ Join Macleen's Rewards</h2>
-  <p style="text-align:center;color:#6b7280;font-size:.8rem;margin:5px 0 10px;">Use it for walk-in rewards, free Wi-Fi, voting and member deals.</p>
-  <div class="note">🎁 Instant welcome: +0.5 point + 10 Wi-Fi minutes. If a friend referred you, both referral bonuses unlock after your first paid purchase.</div>
+  <p style="text-align:center;color:#6b7280;font-size:.8rem;margin:5px 0 10px;">Use it for walk-in rewards, product suggestions, referrals and member deals.</p>
+  <div class="note">🎁 Instant welcome: +0.5 point. If a friend referred you, both referral bonuses unlock after your first paid purchase.</div>
   {% with msgs=get_flashed_messages() %}{% if msgs %}<div style="background:#fee2e2;color:#991b1b;padding:8px;border-radius:7px;font-size:.78rem;margin-bottom:8px;">{{ msgs[0] }}</div>{% endif %}{% endwith %}
   <form method="POST">
     <input type="hidden" name="source" value="{{ source or 'direct' }}"><input type="hidden" name="next" value="{{ next_section or '' }}">

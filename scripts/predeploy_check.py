@@ -45,9 +45,7 @@ REQUIRED_DB_COLUMNS = {
     },
     "promotion_tracker": {"id", "promo_code", "promo_price", "promo_cost", "is_visible", "portal_only", "description"},
     "vault_drop": {"id", "drop_number", "amount", "cash_breakdown", "created_at"},
-    "customer_wishlist": {"id", "customer_id", "product_id", "created_at"},
-    "menu_vote": {"id", "customer_id", "product_id", "period_key", "created_at"},
-    "engagement_claim": {"id", "customer_id", "action_code", "period_key", "points_awarded"},
+    "product_suggestion": {"id", "customer_id", "customer_name", "suggestion_text", "status", "created_at"},
     "bonus_campaign": {"id", "title", "bonus_points", "points_multiplier", "min_spend", "is_active"},
     "bonus_campaign_claim": {"id", "campaign_id", "customer_id", "order_id", "points_awarded"},
     "referral_reward": {"id", "referrer_customer_id", "referred_customer_id", "first_order_id"},
@@ -149,17 +147,40 @@ def main() -> int:
     ok("vault drops remain included in gross sales by project policy")
 
     engagement_markers = [
-        "@app.route('/portal/claim-wifi'",
-        "@app.route('/portal/wishlist/<int:product_id>'",
-        "@app.route('/portal/vote/<int:product_id>'",
+        "@app.route('/portal/suggest-product'",
+        "@app.route('/admin/product-suggestion/<int:suggestion_id>/status'",
         "@app.route('/marketing/qr/<string:source>.svg'",
+        "class ProductSuggestion(db.Model):",
         "class BonusCampaign(db.Model):",
         "class ReferralReward(db.Model):",
     ]
     missing = [marker for marker in engagement_markers if marker not in source]
     if missing:
-        fail("engagement update markers missing: " + ", ".join(missing))
-    ok("in-store rewards, voting, Wi-Fi, referral and QR features are present")
+        fail("current engagement update markers missing: " + ", ".join(missing))
+
+    retired_routes = [
+        "@app.route('/portal/claim-wifi'",
+        "@app.route('/portal/wishlist/<int:product_id>'",
+        "@app.route('/portal/vote/<int:product_id>'",
+        "@app.route('/pos/topup-member-wifi'",
+        "@app.route('/pos/update-wifi-minutes/",
+    ]
+    still_present = [marker for marker in retired_routes if marker in source]
+    if still_present:
+        fail("retired Wi-Fi/vote/wishlist routes are still present: " + ", ".join(still_present))
+    ok("product suggestions are active and retired Wi-Fi/vote/wishlist routes are removed")
+
+    storefront = (TEMPLATES / "store_catalog.html").read_text(encoding="utf-8")
+    if "Top 10 VIP Reward Members" in storefront or "top_customers" in storefront:
+        fail("public VIP rewards leaderboard is still present on the storefront")
+    ok("public VIP rewards leaderboard is removed")
+
+    admin_template = (TEMPLATES / "admin.html").read_text(encoding="utf-8")
+    if "window.location.href='/admin?sort='" in admin_template:
+        fail("admin product sorting still reloads the page")
+    if "sortCatalogTable()" not in admin_template:
+        fail("client-side admin product sorting is missing")
+    ok("admin catalog sorting is client-side and preserves page/filter state")
 
     req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     if "qrcode" not in req.lower():

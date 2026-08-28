@@ -1,123 +1,60 @@
-# Macleen's Food House — In-Store Engagement & Marketing Update
+# Macleen's Food House — Customer Suggestion & Portal Simplification Update
 
-This update builds on the Stability Upgrade and keeps the existing project policy that Vault Drops are included in gross sales.
+This release keeps the Stability Upgrade and the existing sales/rewards/promo systems, while simplifying the customer portal around walk-in engagement.
 
-## Customer portal changes
+## Implemented changes
 
-The customer portal is now a walk-in benefits hub first and an online ordering tool second. The dashboard opens with four primary actions:
+- Admin product sorting now happens instantly in the browser without reloading the Admin page.
+- Search and status filters remain selected while sorting.
+- The public Top 10 VIP rewards leaderboard was removed from the storefront.
+- Customer Vote & Wishlist UI was retired.
+- Customers now get one simple free-text prompt:
+  **“What would you like to buy from our shop?”**
+- Suggestions may be past products, current products, or completely new ideas.
+- Suggestions are stored with customer ID, customer name, text, timestamp and status.
+- Admin has a Customer Product Requests list with:
+  - search
+  - status filter
+  - NEW / CONSIDERING / PLANNED / AVAILABLE / ARCHIVED workflow
+  - repeated-request demand badges and a top-demand summary
+- Free Wi-Fi claim/top-up controls were removed from the customer and cashier interfaces.
+- Wi-Fi, Vote and Wishlist routes were retired so old links cannot continue using those features.
+- Historical database columns/tables for old engagement features are not destructively deleted.
+- Customer portal primary actions are now:
+  - My Rewards
+  - Suggest a Product
+  - Today's Member Deals
+  - Order / View Menu
+- Table QR now opens the product suggestion section.
+- Wi-Fi QR was removed from the printable QR kit.
+- New product suggestions do not award the old Vote/Wishlist +2 points.
+- Vault Drop remains included in gross sales by project policy.
 
-- My Rewards
-- Free Wi-Fi
-- Vote & Earn
-- Today's Member Deals
+## New table
 
-Walk-in purchases continue to earn normal rewards when the cashier selects the registered member before recording the paid sale.
+`product_suggestion`
 
-### Rewards progress
+Fields:
+- id
+- customer_id
+- customer_name
+- suggestion_text
+- status
+- created_at
 
-The dashboard shows the member's current points, progress toward the 20-point milestone, recent reward activity, and explains that walk-in purchases count.
+Existing deployments create the new table automatically through `db.create_all()`.
 
-### Vote & Earn + Wishlist
+## Pre-deploy check
 
-Members can vote for active menu products and save products to a wishlist. Products are grouped by menu category. The first Vote or Wishlist action in each ISO week earns +2 points; additional votes/wishlist actions in the same week remain available but do not award extra engagement points.
-
-### Free Wi-Fi
-
-New members receive 10 minutes on registration. That welcome allocation counts as that Philippine day's free Wi-Fi claim. On later Philippine calendar days, a member can claim +10 minutes once per day from the portal. Existing cashier Wi-Fi top-ups remain available.
-
-### Referrals
-
-New referrals are now validated by a real paid purchase. A referred member registers with the referrer's card/link, then after the referred member's first completed paid purchase:
-
-- referrer receives +2 points
-- referred member receives +2 points
-
-Legacy signup referral bonuses are detected so an older referrer is not paid twice.
-
-### Member promotions and timed bonus campaigns
-
-Admin can create:
-
-- 3-day member deals, including portal-only deals hidden from the public storefront
-- fixed bonus-point campaigns
-- double-points or other points-multiplier campaigns
-- minimum-spend campaigns
-- campaigns restricted by date, day of week, and time window (useful for slow hours)
-
-Campaign awards are recorded per order to prevent the same campaign from awarding twice to one transaction.
-
-## In-store QR system
-
-A dynamic QR system generates the correct live hostname automatically, so the same code works on Render or another domain.
-
-Admin QR Kit: `/admin/marketing/qr-kit`
-
-QR entry points:
-
-- `/portal/start/counter` — registration / member benefits at cashier
-- `/portal/start/table` — Vote & Earn while waiting
-- `/portal/start/receipt` — rewards check after purchase
-- `/portal/start/facebook` — social / printed promotions
-- `/portal/start/wifi` — daily Wi-Fi claim
-
-The cashier includes a New Member QR button, and printed cashier order slips include the receipt rewards QR.
-
-## Marketing measurement
-
-Admin now shows:
-
-- QR scans in the last 7 days
-- portal logins in the last 7 days
-- new registrations in the last 7 days
-- counter-sourced registrations in the last 7 days
-- Wi-Fi claims in the last 7 days
-- weekly votes
-- total wishlist saves
-- rewarded referrals
-- categorized weekly vote results
-
-## Database additions
-
-New tables are created automatically by `db.create_all()`:
-
-- `customer_wishlist`
-- `menu_vote`
-- `engagement_claim`
-- `bonus_campaign`
-- `bonus_campaign_claim`
-- `referral_reward`
-- `portal_event`
-
-`promotion_tracker` receives two additive columns:
-
-- `description`
-- `portal_only`
-
-The bundled local SQLite database has also been updated to match.
-
-## New dependency
-
-`qrcode>=7.4.2` is included in `requirements.txt` for dynamic SVG QR generation.
-
-## Deployment
-
-After replacing the project folder contents, run:
-
-```bash
-git status
-git add app.py templates static scripts requirements.txt .gitignore STABILITY_UPGRADE.md ENGAGEMENT_UPDATE.md
-git commit -m "Add in-store rewards and marketing engagement system"
-git push origin main
-```
-
-Then watch the Render deployment log. The application will add the new PostgreSQL tables/columns automatically on startup.
-
-## Validation
-
-Run locally from the project root when Python is available:
+Run:
 
 ```bash
 python scripts/predeploy_check.py
 ```
 
-The check verifies source compilation, template targets, bundled SQLite schema, the Vault Drop accounting policy, and the new engagement-system markers.
+The checker now verifies that:
+- the product suggestion routes/model exist,
+- retired Wi-Fi/Vote/Wishlist routes are absent,
+- the public VIP leaderboard is absent,
+- Admin sorting is client-side,
+- Vault Drop remains included in gross sales.

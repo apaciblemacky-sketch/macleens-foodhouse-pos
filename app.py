@@ -1,10 +1,8 @@
 import io
 import logging
 import os
-import random
 import re
 import secrets
-import string
 from datetime import datetime, date, timedelta, time, timezone
 from functools import wraps
 from zoneinfo import ZoneInfo
@@ -118,7 +116,7 @@ class Customer(db.Model):
     last_daily_login = db.Column(db.Date, nullable=True)
     login_streak = db.Column(db.Integer, default=1)
     wifi_voucher_code = db.Column(db.String(20), nullable=True)
-    wifi_minutes_left = db.Column(db.Integer, default=10)
+    wifi_minutes_left = db.Column(db.Integer, default=0)
     last_active_at = db.Column(db.DateTime, default=utc_now)
     created_at = db.Column(db.DateTime, default=utc_now)
 
@@ -270,6 +268,7 @@ class PromotionTracker(db.Model):
     portal_only = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=utc_now)
 
+# Legacy historical tables retained for non-destructive compatibility with older deployments.
 class CustomerWishlist(db.Model):
     __tablename__ = 'customer_wishlist'
     __table_args__ = (UniqueConstraint('customer_id', 'product_id', name='uq_customer_wishlist_product'),)
@@ -341,6 +340,17 @@ class PortalEvent(db.Model):
     event_type = db.Column(db.String(50), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
+
+class ProductSuggestion(db.Model):
+    __tablename__ = 'product_suggestion'
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)
+    customer_name = db.Column(db.String(100), nullable=False)
+    suggestion_text = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='NEW')
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+SUGGESTION_STATUSES = ('NEW', 'CONSIDERING', 'PLANNED', 'AVAILABLE', 'ARCHIVED')
 
 # ==================== PWA ROOT ROUTES ====================
 
@@ -738,11 +748,6 @@ def ph_datetime_filter(value, fmt='%b %d, %Y - %I:%M %p'):
     local_value = utc_naive_to_ph(value)
     return local_value.strftime(fmt) if local_value else ''
 
-def current_week_key(day=None):
-    day = day or ph_today()
-    iso = day.isocalendar()
-    return f"{iso.year}-W{iso.week:02d}"
-
 def track_portal_event(event_type, source=None, customer_id=None):
     """Best-effort portal/QR analytics. Never block a customer action if tracking fails."""
     try:
@@ -753,26 +758,6 @@ def track_portal_event(event_type, source=None, customer_id=None):
         ))
     except Exception:
         app.logger.exception('Could not queue portal event %s', event_type)
-
-def award_engagement_once(cust, action_code, period_key, points, reason):
-    existing = EngagementClaim.query.filter_by(
-        customer_id=cust.id,
-        action_code=action_code,
-        period_key=period_key,
-    ).first()
-    if existing:
-        return 0.0
-    points = max(0.0, float(points or 0.0))
-    db.session.add(EngagementClaim(
-        customer_id=cust.id,
-        action_code=action_code,
-        period_key=period_key,
-        points_awarded=points,
-    ))
-    if points > 0:
-        cust.points_balance = (cust.points_balance or 0.0) + points
-        db.session.add(RewardLedger(customer_id=cust.id, points_change=points, reason=reason))
-    return points
 
 def _parse_campaign_time(value):
     if not value:
@@ -1028,12 +1013,6 @@ def store_catalog():
     active_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True, portal_only=False).all()
     active_promos = [p for p in active_promos if not p.created_at or (utc_now() - p.created_at).days <= 3]
 
-    try:
-        top_customers = Customer.query.order_by(Customer.points_balance.desc()).limit(10).all()
-    except Exception:
-        app.logger.exception('Top-customer leaderboard query failed')
-        top_customers = []
-
     cust = None
     credit_available = 0.0
     if 'customer_id' in session:
@@ -1049,7 +1028,6 @@ def store_catalog():
                            liked_ids=liked_ids, 
                            delivery_zones=delivery_zones, 
                            active_promos=active_promos, 
-                           top_customers=top_customers, 
                            cust=cust, 
                            status=status, 
                            unique_visitors=unique_visitors, 
@@ -1351,7 +1329,6 @@ def cashier_terminal():
     return render_template(
         'cashier_pos.html',
         categories=categories,
-        products=products,
         pending_orders=pending_orders,
         completed_orders=completed_orders,
         unpaid_collections=unpaid_collections,
@@ -1365,23 +1342,6 @@ def cashier_terminal():
         next_drop_num=next_drop_num,
         active_bonus_campaigns=active_bonus_campaigns,
     )
-
-@app.route('/pos/topup-member-wifi', methods=['POST'])
-@require_cashier
-def cashier_topup_member_wifi():
-    cust_id = request.form.get('customer_id')
-    if not cust_id:
-        flash("Please select a member.", "error")
-        return redirect(url_for('cashier_terminal'))
-    
-    cust = Customer.query.get_or_404(int(cust_id))
-    cust.wifi_minutes_left = (cust.wifi_minutes_left or 0) + 10
-    if not cust.wifi_voucher_code:
-        cust.wifi_voucher_code = "MFH-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    
-    db.session.commit()
-    flash(f"📶 Stacked +10 Mins Wi-Fi for {cust.name}! (Total: {cust.wifi_minutes_left} mins)", "success")
-    return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/direct-sale', methods=['POST'])
 @require_cashier
@@ -1915,20 +1875,6 @@ def cashier_record_vault_drop():
     flash(f"Vault Cash Drop #{drop_num} recorded: ₱{amount:,.2f}", "success")
     return redirect(url_for('cashier_terminal'))
 
-@app.route('/pos/update-wifi-minutes/<int:cust_id>', methods=['POST'])
-@require_cashier
-def cashier_update_wifi_minutes(cust_id):
-    cust = Customer.query.get_or_404(cust_id)
-    mins = request.form.get('wifi_minutes')
-    if mins is not None:
-        try:
-            cust.wifi_minutes_left = max(0, int(mins))
-            db.session.commit()
-            flash(f"Updated Wi-Fi time for {cust.name} to {cust.wifi_minutes_left} mins.", "success")
-        except ValueError:
-            flash("Invalid minutes entered.", "error")
-    return redirect(url_for('cashier_terminal'))
-
 @app.route('/pos/verify/<int:order_id>', methods=['POST'])
 @require_cashier
 def verify_order(order_id):
@@ -2134,24 +2080,41 @@ def admin_dashboard():
     total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
 
     bonus_campaigns = BonusCampaign.query.order_by(BonusCampaign.created_at.desc()).all()
-    week_key = current_week_key()
-    vote_rows = (
-        db.session.query(Product.category_name, Product.name, Product.id, db.func.count(MenuVote.id).label('votes'))
-        .join(MenuVote, MenuVote.product_id == Product.id)
-        .filter(MenuVote.period_key == week_key)
-        .group_by(Product.category_name, Product.name, Product.id)
-        .order_by(Product.category_name.asc(), db.func.count(MenuVote.id).desc(), Product.name.asc())
-        .all()
-    )
+    product_suggestions = ProductSuggestion.query.order_by(ProductSuggestion.created_at.desc()).all()
+
+    # Group near-identical requests (case/punctuation-insensitive) so repeated demand is obvious.
+    demand_map = {}
+    suggestion_repeat_counts = {}
+    for suggestion in product_suggestions:
+        normalized = re.sub(r'[^a-z0-9]+', ' ', (suggestion.suggestion_text or '').lower()).strip()
+        normalized = re.sub(r'\s+', ' ', normalized)
+        key = normalized or f'__suggestion_{suggestion.id}'
+        bucket = demand_map.setdefault(key, {
+            'label': suggestion.suggestion_text.strip(),
+            'count': 0,
+        })
+        bucket['count'] += 1
+
+    for suggestion in product_suggestions:
+        normalized = re.sub(r'[^a-z0-9]+', ' ', (suggestion.suggestion_text or '').lower()).strip()
+        normalized = re.sub(r'\s+', ' ', normalized)
+        key = normalized or f'__suggestion_{suggestion.id}'
+        suggestion_repeat_counts[suggestion.id] = demand_map[key]['count']
+
+    suggestion_demand = sorted(
+        demand_map.values(),
+        key=lambda row: (-row['count'], row['label'].lower())
+    )[:10]
+
     seven_days_ago = utc_now() - timedelta(days=7)
     marketing_metrics = {
         'qr_scans_7d': PortalEvent.query.filter(PortalEvent.event_type == 'QR_SCAN', PortalEvent.created_at >= seven_days_ago).count(),
         'portal_logins_7d': PortalEvent.query.filter(PortalEvent.event_type == 'LOGIN', PortalEvent.created_at >= seven_days_ago).count(),
         'registrations_7d': PortalEvent.query.filter(PortalEvent.event_type == 'REGISTER', PortalEvent.created_at >= seven_days_ago).count(),
         'counter_registrations_7d': PortalEvent.query.filter(PortalEvent.event_type == 'REGISTER', PortalEvent.source == 'counter', PortalEvent.created_at >= seven_days_ago).count(),
-        'wifi_claims_7d': PortalEvent.query.filter(PortalEvent.event_type == 'WIFI_CLAIM', PortalEvent.created_at >= seven_days_ago).count(),
-        'wishlist_total': CustomerWishlist.query.count(),
-        'weekly_votes': MenuVote.query.filter_by(period_key=week_key).count(),
+        'suggestions_7d': ProductSuggestion.query.filter(ProductSuggestion.created_at >= seven_days_ago).count(),
+        'suggestions_total': ProductSuggestion.query.count(),
+        'suggestions_open': ProductSuggestion.query.filter(ProductSuggestion.status != 'ARCHIVED').count(),
         'referral_rewards': ReferralReward.query.count(),
     }
 
@@ -2177,9 +2140,25 @@ def admin_dashboard():
                            total_ar=total_ar, 
                            current_sort=sort_by,
                            bonus_campaigns=bonus_campaigns,
-                           vote_rows=vote_rows,
                            marketing_metrics=marketing_metrics,
-                           week_key=week_key)
+                           product_suggestions=product_suggestions,
+                           suggestion_repeat_counts=suggestion_repeat_counts,
+                           suggestion_demand=suggestion_demand,
+                           suggestion_statuses=SUGGESTION_STATUSES)
+
+@app.route('/admin/product-suggestion/<int:suggestion_id>/status', methods=['POST'])
+@require_admin
+def admin_update_product_suggestion_status(suggestion_id):
+    suggestion = ProductSuggestion.query.get_or_404(suggestion_id)
+    new_status = request.form.get('status', 'NEW').strip().upper()
+    if new_status not in SUGGESTION_STATUSES:
+        flash('Invalid suggestion status.', 'error')
+        return redirect(url_for('admin_dashboard') + '#customerSuggestions')
+
+    suggestion.status = new_status
+    db.session.commit()
+    flash(f"Suggestion #{suggestion.id} marked {new_status}.", 'success')
+    return redirect(url_for('admin_dashboard') + '#customerSuggestions')
 
 @app.route('/admin/allocate-vault-drop/<int:drop_id>', methods=['POST'])
 @require_admin
@@ -2693,16 +2672,15 @@ def admin_create_member_promo():
 def admin_qr_kit():
     qr_sources = [
         ('counter', 'Counter Registration', 'Scan to join rewards before or after a walk-in purchase.'),
-        ('table', 'Table Vote & Earn', 'Scan while waiting to vote for menu items and check rewards.'),
+        ('table', 'Table Product Suggestion', 'Scan while waiting and tell us what you would like Macleen\'s to offer.'),
         ('receipt', 'Receipt Rewards Check', 'Scan after purchase to check points and member benefits.'),
         ('facebook', 'Facebook / Social', 'Use this QR on printed social promotions and posters.'),
-        ('wifi', 'Free Wi-Fi', 'Scan to log in and claim today’s free Wi-Fi minutes.'),
     ]
     return render_template('qr_kit.html', qr_sources=qr_sources)
 
 @app.route('/marketing/qr/<string:source>.svg')
 def marketing_qr_svg(source):
-    allowed = {'counter', 'table', 'receipt', 'facebook', 'wifi'}
+    allowed = {'counter', 'table', 'receipt', 'facebook'}
     if source not in allowed:
         return Response('Unknown QR source', status=404, mimetype='text/plain')
     target = url_for('portal_start', source=source, _external=True)
@@ -2715,13 +2693,13 @@ def marketing_qr_svg(source):
 
 @app.route('/portal/start/<string:source>')
 def portal_start(source):
-    allowed = {'counter', 'table', 'receipt', 'facebook', 'wifi'}
+    allowed = {'counter', 'table', 'receipt', 'facebook'}
     if source not in allowed:
         source = 'direct'
     session['portal_source'] = source
     track_portal_event('QR_SCAN', source=source, customer_id=session.get('customer_id'))
     db.session.commit()
-    section = {'table': 'vote', 'wifi': 'wifi', 'counter': 'rewards', 'receipt': 'rewards', 'facebook': 'deals'}.get(source, 'rewards')
+    section = {'table': 'suggest', 'counter': 'rewards', 'receipt': 'rewards', 'facebook': 'deals'}.get(source, 'rewards')
     if session.get('customer_id'):
         return redirect(url_for('customer_dashboard') + f'#{section}')
     return redirect(url_for('customer_login', src=source, next=section))
@@ -2816,8 +2794,6 @@ def customer_register():
                 referred_by=ref if ref else None,
                 last_daily_login=today,
                 login_streak=1,
-                wifi_minutes_left=10,
-                wifi_voucher_code='MFH-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6)),
                 last_active_at=utc_now(),
             )
             db.session.add(new_cust)
@@ -2829,15 +2805,6 @@ def customer_register():
                 points_change=0.5,
                 reason='Welcome Login Bonus',
             ))
-            # The 10 welcome Wi-Fi minutes are today's free allocation, so registration
-            # cannot immediately claim another 10 minutes on the same Philippine day.
-            db.session.add(EngagementClaim(
-                customer_id=new_cust.id,
-                action_code='DAILY_WIFI',
-                period_key=today.isoformat(),
-                points_awarded=0.0,
-            ))
-
             # Referral rewards are intentionally held until the new member completes a paid purchase.
             # This prevents fake registrations and rewards both sides for an actual new customer.
             track_portal_event('REGISTER', source=source, customer_id=new_cust.id)
@@ -2848,9 +2815,9 @@ def customer_register():
             session['portal_source'] = portal_source
             session.permanent = True
             if ref:
-                flash('🎉 Welcome! +0.5 pt and 10 free Wi-Fi minutes added. Complete your first paid purchase to unlock the referral bonus for both of you!', 'success')
+                flash('🎉 Welcome! +0.5 point added. Complete your first paid purchase to unlock the referral bonus for both of you!', 'success')
             else:
-                flash('🎉 Welcome! You earned 0.5 points and 10 mins free Wi-Fi!', 'success')
+                flash('🎉 Welcome! You earned 0.5 points!', 'success')
             target = url_for('customer_dashboard')
             return redirect(target + (f'#{next_section}' if next_section else ''))
         except Exception:
@@ -2888,17 +2855,6 @@ def customer_dashboard():
     active_promos = [p for p in active_promos if (utc_now() - p.created_at).days <= 3]
     bonus_campaigns = get_active_bonus_campaigns()
 
-    products = Product.query.filter_by(is_active=True).order_by(Product.category_name.asc(), Product.name.asc()).all()
-    products = [p for p in products if is_product_available_now(p)]
-    wishlist_ids = {row.product_id for row in CustomerWishlist.query.filter_by(customer_id=cust.id).all()}
-    week_key = current_week_key()
-    weekly_vote_ids = {row.product_id for row in MenuVote.query.filter_by(customer_id=cust.id, period_key=week_key).all()}
-    vote_counts = dict(
-        db.session.query(MenuVote.product_id, db.func.count(MenuVote.id))
-        .filter(MenuVote.period_key == week_key)
-        .group_by(MenuVote.product_id)
-        .all()
-    )
     reward_target = 20.0
     balance = float(cust.points_balance or 0.0)
     points_to_reward = max(0.0, reward_target - balance)
@@ -2913,10 +2869,6 @@ def customer_dashboard():
         active_promos=active_promos,
         bonus_campaigns=bonus_campaigns,
         products=products,
-        wishlist_ids=wishlist_ids,
-        weekly_vote_ids=weekly_vote_ids,
-        vote_counts=vote_counts,
-        week_key=week_key,
         reward_target=reward_target,
         points_to_reward=points_to_reward,
         reward_progress_pct=reward_progress_pct,
@@ -2925,89 +2877,35 @@ def customer_dashboard():
         today=ph_today(),
     )
 
-@app.route('/portal/claim-wifi', methods=['POST'])
-def customer_claim_wifi():
+@app.route('/portal/suggest-product', methods=['POST'])
+def customer_submit_product_suggestion():
     if 'customer_id' not in session:
-        return redirect(url_for('customer_login', next='wifi'))
+        return redirect(url_for('customer_login', next='suggest'))
+
     cust = Customer.query.get_or_404(session['customer_id'])
     issue = customer_access_issue(cust)
     if issue:
         flash(issue, 'error')
         return redirect(url_for('customer_login'))
 
-    day_key = ph_today().isoformat()
-    existing = EngagementClaim.query.filter_by(customer_id=cust.id, action_code='DAILY_WIFI', period_key=day_key).first()
-    if existing:
-        flash('📶 You already claimed today’s free 10 Wi-Fi minutes. Ask the cashier if you need an additional top-up.', 'info')
-        return redirect(url_for('customer_dashboard') + '#wifi')
+    suggestion_text = re.sub(r'\s+', ' ', request.form.get('suggestion', '').strip())
+    if len(suggestion_text) < 2:
+        flash('Please tell us what you would like Macleen\'s to offer.', 'error')
+        return redirect(url_for('customer_dashboard') + '#suggest')
+    if len(suggestion_text) > 500:
+        flash('Please keep your suggestion to 500 characters or less.', 'error')
+        return redirect(url_for('customer_dashboard') + '#suggest')
 
-    db.session.add(EngagementClaim(customer_id=cust.id, action_code='DAILY_WIFI', period_key=day_key, points_awarded=0.0))
-    cust.wifi_minutes_left = (cust.wifi_minutes_left or 0) + 10
-    if not cust.wifi_voucher_code:
-        cust.wifi_voucher_code = 'MFH-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    track_portal_event('WIFI_CLAIM', customer_id=cust.id)
+    db.session.add(ProductSuggestion(
+        customer_id=cust.id,
+        customer_name=cust.name,
+        suggestion_text=suggestion_text,
+        status='NEW',
+    ))
+    track_portal_event('PRODUCT_SUGGESTION', customer_id=cust.id)
     db.session.commit()
-    flash(f'📶 +10 free Wi-Fi minutes claimed! You now have {cust.wifi_minutes_left} minutes.', 'success')
-    return redirect(url_for('customer_dashboard') + '#wifi')
-
-@app.route('/portal/wishlist/<int:product_id>', methods=['POST'])
-def customer_toggle_wishlist(product_id):
-    if 'customer_id' not in session:
-        return redirect(url_for('customer_login', next='vote'))
-    cust = Customer.query.get_or_404(session['customer_id'])
-    prod = Product.query.get_or_404(product_id)
-    issue = customer_access_issue(cust)
-    if issue or not prod.is_active:
-        flash(issue or 'That menu item is not active.', 'error')
-        return redirect(url_for('customer_dashboard') + '#vote')
-
-    existing = CustomerWishlist.query.filter_by(customer_id=cust.id, product_id=prod.id).first()
-    awarded = 0.0
-    if existing:
-        db.session.delete(existing)
-        message = f'💔 {prod.name} removed from your wishlist.'
-        track_portal_event('WISHLIST_REMOVE', customer_id=cust.id)
-    else:
-        db.session.add(CustomerWishlist(customer_id=cust.id, product_id=prod.id))
-        awarded = award_engagement_once(
-            cust, 'VOTE_OR_WISHLIST', current_week_key(), 2.0,
-            f'Weekly Vote/Wishlist Engagement: {prod.name}',
-        )
-        message = f'❤️ {prod.name} added to your wishlist.' + (' +2 points earned this week!' if awarded else '')
-        track_portal_event('WISHLIST_ADD', customer_id=cust.id)
-    db.session.commit()
-    flash(message, 'success' if not existing else 'info')
-    return redirect(url_for('customer_dashboard') + '#vote')
-
-@app.route('/portal/vote/<int:product_id>', methods=['POST'])
-def customer_toggle_vote(product_id):
-    if 'customer_id' not in session:
-        return redirect(url_for('customer_login', next='vote'))
-    cust = Customer.query.get_or_404(session['customer_id'])
-    prod = Product.query.get_or_404(product_id)
-    issue = customer_access_issue(cust)
-    if issue or not prod.is_active:
-        flash(issue or 'That menu item is not active.', 'error')
-        return redirect(url_for('customer_dashboard') + '#vote')
-
-    week_key = current_week_key()
-    existing = MenuVote.query.filter_by(customer_id=cust.id, product_id=prod.id, period_key=week_key).first()
-    awarded = 0.0
-    if existing:
-        db.session.delete(existing)
-        message = f'🗳️ Your vote for {prod.name} was removed.'
-        track_portal_event('VOTE_REMOVE', customer_id=cust.id)
-    else:
-        db.session.add(MenuVote(customer_id=cust.id, product_id=prod.id, period_key=week_key))
-        awarded = award_engagement_once(
-            cust, 'VOTE_OR_WISHLIST', week_key, 2.0,
-            f'Weekly Vote/Wishlist Engagement: {prod.name}',
-        )
-        message = f'🗳️ Vote counted for {prod.name}!' + (' +2 points earned this week!' if awarded else '')
-        track_portal_event('VOTE_ADD', customer_id=cust.id)
-    db.session.commit()
-    flash(message, 'success' if not existing else 'info')
-    return redirect(url_for('customer_dashboard') + '#vote')
+    flash('💡 Thank you! Your product suggestion was sent to Macleen\'s.', 'success')
+    return redirect(url_for('customer_dashboard') + '#suggest')
 
 @app.route('/portal/logout')
 def customer_logout():

@@ -17,7 +17,7 @@ This project has been hardened for safer Render deployment and day-to-day cashie
 - Customer card numbers are generated sequentially/uniquely instead of randomly from only 100 possible values.
 - Customer card status and expiry are enforced; Admin can renew a card for one year.
 - Tablet member identification now requires the real 4-digit customer PIN and verifies its password hash.
-- Public leaderboard card numbers are masked.
+- The later portal-simplification update removes the public VIP leaderboard entirely.
 - Credit eligibility and available credit limit are enforced for credit orders/registered-member collections.
 - Philippine business-day calculations use `Asia/Manila`; stored timestamps remain UTC-compatible.
 - Admin now separates "Set credit limit" from "Enable/Disable credit" so changing a limit no longer toggles eligibility accidentally.

@@ -390,7 +390,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
       <div>
         <h3 style="color:#6d28d9; font-size:1.05rem;">📣 In-Store Engagement & Marketing Engine</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Use the portal as a walk-in benefits hub: QR onboarding, Vote & Earn, free Wi-Fi, referrals, portal-only deals and timed bonus points.</p>
+        <p style="font-size:0.75rem; color:#64748b;">Use the portal as a walk-in benefits hub: QR onboarding, customer product requests, referrals, portal-only deals and timed bonus points.</p>
       </div>
       <a href="/admin/marketing/qr-kit" target="_blank" class="btn" style="background:#7c3aed; color:white; padding:6px 10px; font-size:0.75rem;">🖨️ Open Printable QR Kit</a>
     </div>
@@ -400,9 +400,9 @@
       <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">PORTAL LOGINS • 7D</div><div class="metric-val" style="color:#0284c7;">{{ marketing_metrics.portal_logins_7d }}</div></div>
       <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">NEW MEMBERS • 7D</div><div class="metric-val" style="color:#16a34a;">{{ marketing_metrics.registrations_7d }}</div></div>
       <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">COUNTER SIGNUPS • 7D</div><div class="metric-val" style="color:#059669;">{{ marketing_metrics.counter_registrations_7d }}</div></div>
-      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">WI-FI CLAIMS • 7D</div><div class="metric-val" style="color:#0284c7;">{{ marketing_metrics.wifi_claims_7d }}</div></div>
-      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">WEEKLY VOTES</div><div class="metric-val" style="color:#db2777;">{{ marketing_metrics.weekly_votes }}</div></div>
-      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">WISHLIST SAVES</div><div class="metric-val" style="color:#e11d48;">{{ marketing_metrics.wishlist_total }}</div></div>
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">SUGGESTIONS • 7D</div><div class="metric-val" style="color:#db2777;">{{ marketing_metrics.suggestions_7d }}</div></div>
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">TOTAL SUGGESTIONS</div><div class="metric-val" style="color:#be185d;">{{ marketing_metrics.suggestions_total }}</div></div>
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">OPEN REQUESTS</div><div class="metric-val" style="color:#7c3aed;">{{ marketing_metrics.suggestions_open }}</div></div>
       <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">REFERRALS REWARDED</div><div class="metric-val" style="color:#b45309;">{{ marketing_metrics.referral_rewards }}</div></div>
     </div>
 
@@ -465,15 +465,54 @@
           <button class="btn btn-pink" style="margin-top:7px;padding:6px 10px;font-size:.75rem;" type="submit">Create 3-Day Deal</button>
         </form>
 
-        <h4 style="color:#831843; margin:12px 0 6px; font-size:0.85rem;">🗳️ Weekly Vote Results • {{ week_key }}</h4>
-        <div style="max-height:240px;overflow:auto;">
-          <table>
-            <thead><tr><th>Category</th><th>Menu Item</th><th style="text-align:center;">Votes</th></tr></thead>
-            <tbody>
-              {% for row in vote_rows %}<tr><td>{{ row[0] }}</td><td><strong>{{ row[1] }}</strong></td><td style="text-align:center;font-weight:900;color:#7c3aed;">{{ row[3] }}</td></tr>{% endfor %}
-              {% if not vote_rows %}<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:12px;">No votes yet this week.</td></tr>{% endif %}
-            </tbody>
-          </table>
+        <div id="customerSuggestions" style="margin-top:14px; border-top:1px solid #fbcfe8; padding-top:10px;">
+          <h4 style="color:#831843; margin-bottom:6px; font-size:0.9rem;">💡 Customer Product Requests</h4>
+          <p style="font-size:0.7rem; color:#64748b; margin-bottom:7px;">Customers can request past, present or completely new products. Repeated wording is grouped as demand so popular requests stand out.</p>
+
+          {% if suggestion_demand %}
+          <div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:8px;">
+            {% for demand in suggestion_demand %}
+              <span style="background:#fdf2f8; border:1px solid #fbcfe8; color:#831843; border-radius:14px; padding:3px 8px; font-size:0.68rem; font-weight:800;">{{ demand.label }} ×{{ demand.count }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          <div style="display:flex; gap:6px; margin-bottom:7px; flex-wrap:wrap;">
+            <input id="suggestionSearchInput" type="text" oninput="filterSuggestionTable()" placeholder="🔍 Search customer or request..." class="form-control" style="flex:1; min-width:180px; padding:5px;">
+            <select id="suggestionStatusFilter" onchange="filterSuggestionTable()" class="form-control" style="width:145px; padding:5px;">
+              <option value="ALL">All Statuses</option>
+              {% for st in suggestion_statuses %}<option value="{{ st }}">{{ st }}</option>{% endfor %}
+            </select>
+          </div>
+
+          <div style="max-height:330px; overflow:auto;">
+            <table id="suggestionTable">
+              <thead><tr><th>Customer</th><th>Suggestion</th><th>Date</th><th>Status</th></tr></thead>
+              <tbody>
+                {% for s in product_suggestions %}
+                <tr class="suggestion-row" data-status="{{ s.status }}" data-search="{{ (s.customer_name ~ ' ' ~ s.suggestion_text)|lower }}">
+                  <td style="white-space:nowrap;"><strong>{{ s.customer_name }}</strong><br><span style="font-size:0.66rem;color:#94a3b8;">ID {{ s.customer_id or '—' }}</span></td>
+                  <td>
+                    <strong>{{ s.suggestion_text }}</strong>
+                    {% set repeat_count = suggestion_repeat_counts.get(s.id, 1) %}
+                    {% if repeat_count > 1 %}<span class="badge" style="background:#fce7f3;color:#be185d;margin-left:4px;">×{{ repeat_count }} repeated</span>{% endif %}
+                  </td>
+                  <td style="white-space:nowrap;font-size:0.68rem;color:#64748b;">{{ s.created_at|ph_datetime('%b %d, %Y') }}</td>
+                  <td>
+                    <form action="/admin/product-suggestion/{{ s.id }}/status" method="POST" style="display:flex;gap:4px;align-items:center;">
+                      <select name="status" class="form-control" style="padding:3px;min-width:112px;font-size:0.68rem;">
+                        {% for st in suggestion_statuses %}<option value="{{ st }}" {% if s.status == st %}selected{% endif %}>{{ st }}</option>{% endfor %}
+                      </select>
+                      <button class="btn btn-pink" type="submit" style="padding:4px 6px;font-size:0.66rem;">Save</button>
+                    </form>
+                  </td>
+                </tr>
+                {% endfor %}
+                <tr id="noSuggestionResults" style="display:none;"><td colspan="4" style="text-align:center;color:#94a3b8;padding:12px;">No matching customer requests.</td></tr>
+                {% if not product_suggestions %}<tr class="suggestion-empty"><td colspan="4" style="text-align:center;color:#94a3b8;padding:12px;">No customer suggestions yet.</td></tr>{% endif %}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -735,7 +774,7 @@
         </select>
 
         <label style="font-size:0.8rem; font-weight:bold; margin-left:4px;">Sort By:</label>
-        <select onchange="window.location.href='/admin?sort=' + this.value" style="padding:4px 8px; border-radius:4px; border:1px solid #cbd5e1; font-size:0.8rem;">
+        <select id="catalogSortSelect" onchange="sortCatalogTable()" style="padding:4px 8px; border-radius:4px; border:1px solid #cbd5e1; font-size:0.8rem;">
           <option value="likes_desc" {% if current_sort == 'likes_desc' %}selected{% endif %}>❤️ Likes / Ranking</option>
           <option value="category" {% if current_sort == 'category' %}selected{% endif %}>📂 Category</option>
           <option value="name_asc" {% if current_sort == 'name_asc' %}selected{% endif %}>🔤 Name (A-Z)</option>
@@ -769,7 +808,15 @@
           </thead>
           <tbody>
             {% for p in products %}
-            <tr class="product-row" data-name="{{ p.name|lower }}" data-cat="{{ p.category_name|lower }}" data-active="{{ 'true' if p.is_active else 'false' }}">
+            <tr class="product-row"
+                data-id="{{ p.id }}"
+                data-name="{{ p.name|lower }}"
+                data-cat="{{ p.category_name|lower }}"
+                data-active="{{ 'true' if p.is_active else 'false' }}"
+                data-likes="{{ p.total_likes or 0 }}"
+                data-price="{{ p.price or 0 }}"
+                data-featured="{{ '1' if p.is_featured else '0' }}"
+                data-top-seller="{{ '1' if p.is_top_seller else '0' }}">
               <input type="hidden" name="product_id" value="{{ p.id }}">
               <td>
                 {% if p.image_url %}
@@ -859,6 +906,53 @@
         document.getElementById('btnTabTransactions').className = 'btn btn-pink';
         document.getElementById('btnTabTransactions').style.color = 'white';
       }
+    }
+
+    function sortCatalogTable() {
+      const sortBy = document.getElementById('catalogSortSelect').value;
+      const tbody = document.querySelector('#catalogTable tbody');
+      const rows = Array.from(tbody.querySelectorAll('.product-row'));
+
+      const textVal = (row, attr) => (row.getAttribute(attr) || '').toLowerCase();
+      const numVal = (row, attr) => parseFloat(row.getAttribute(attr) || '0');
+
+      rows.sort((a, b) => {
+        if (sortBy === 'likes_desc') return numVal(b, 'data-likes') - numVal(a, 'data-likes') || numVal(a, 'data-id') - numVal(b, 'data-id');
+        if (sortBy === 'price_asc') return numVal(a, 'data-price') - numVal(b, 'data-price') || textVal(a, 'data-name').localeCompare(textVal(b, 'data-name'));
+        if (sortBy === 'price_desc') return numVal(b, 'data-price') - numVal(a, 'data-price') || textVal(a, 'data-name').localeCompare(textVal(b, 'data-name'));
+        if (sortBy === 'name_asc') return textVal(a, 'data-name').localeCompare(textVal(b, 'data-name'));
+        if (sortBy === 'category') return textVal(a, 'data-cat').localeCompare(textVal(b, 'data-cat')) || textVal(a, 'data-name').localeCompare(textVal(b, 'data-name'));
+        if (sortBy === 'featured') return numVal(b, 'data-featured') - numVal(a, 'data-featured') || textVal(a, 'data-name').localeCompare(textVal(b, 'data-name'));
+        if (sortBy === 'top_seller') return numVal(b, 'data-top-seller') - numVal(a, 'data-top-seller') || textVal(a, 'data-name').localeCompare(textVal(b, 'data-name'));
+        return 0;
+      });
+
+      rows.forEach(row => tbody.insertBefore(row, document.getElementById('noResultsRow')));
+      filterCatalogTable();
+    }
+
+    function filterSuggestionTable() {
+      const searchEl = document.getElementById('suggestionSearchInput');
+      const statusEl = document.getElementById('suggestionStatusFilter');
+      if (!searchEl || !statusEl) return;
+
+      const search = searchEl.value.toLowerCase().trim();
+      const status = statusEl.value;
+      const rows = document.querySelectorAll('.suggestion-row');
+      let visible = 0;
+
+      rows.forEach(row => {
+        const haystack = row.getAttribute('data-search') || '';
+        const rowStatus = row.getAttribute('data-status') || '';
+        const matches = (!search || haystack.includes(search)) && (status === 'ALL' || rowStatus === status);
+        row.style.display = matches ? '' : 'none';
+        if (matches) visible++;
+      });
+
+      const noResults = document.getElementById('noSuggestionResults');
+      const empty = document.querySelector('.suggestion-empty');
+      if (noResults) noResults.style.display = (rows.length > 0 && visible === 0) ? '' : 'none';
+      if (empty) empty.style.display = rows.length === 0 ? '' : 'none';
     }
 
     function filterCatalogTable() {

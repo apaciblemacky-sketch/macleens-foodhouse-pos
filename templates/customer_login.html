@@ -10,7 +10,7 @@
 <body><div class="card">
   <h2 style="color:#831843;text-align:center;">🎁 Macleen's Rewards</h2>
   <p style="text-align:center;color:#6b7280;font-size:.82rem;margin-top:5px;">For walk-in customers too — no online order required.</p>
-  <div class="perk"><div>⭐ Earn Points</div><div>📶 Free Wi-Fi</div><div>🗳️ Vote & Earn</div><div>🔥 Member Deals</div></div>
+  <div class="perk"><div>⭐ Earn Points</div><div>💡 Suggest Products</div><div>👥 Referral Rewards</div><div>🔥 Member Deals</div></div>
   {% with msgs=get_flashed_messages() %}{% if msgs %}<div style="background:#fee2e2;color:#991b1b;padding:8px;border-radius:7px;font-size:.78rem;margin-bottom:8px;">{{ msgs[0] }}</div>{% endif %}{% endwith %}
   <form method="POST">
     <input type="hidden" name="next" value="{{ next_section or '' }}">
