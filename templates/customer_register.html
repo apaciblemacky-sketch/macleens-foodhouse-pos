@@ -31,7 +31,7 @@
       <input type="text" name="fb_messenger" placeholder="fb.com/yourname">
 
       <label style="font-size: 0.85rem; font-weight: bold;">Create 4-Digit Security PIN</label>
-      <input type="password" name="pin" maxlength="6" required placeholder="****">
+      <input type="password" name="pin" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" required placeholder="4 digits">
 
       <button class="btn" type="submit">Create Rewards Account</button>
     </form>

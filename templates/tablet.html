@@ -76,9 +76,16 @@
       </div>
     </div>
 
-    <!-- Keypad -->
+    <!-- Member ID + real PIN keypad -->
     <div class="keypad-pane">
-      <input type="text" id="keypadInput" placeholder="Card / PIN #" style="background:#0f172a; color:white; border:1px solid #64748b; padding:10px; border-radius:6px; text-align:center; font-weight:bold; font-size:1.1rem; margin-bottom:6px;">
+      <div style="font-size:0.72rem; color:#cbd5e1; font-weight:bold;">Optional Member Login</div>
+      <input type="text" id="memberIdentifier" placeholder="Mobile / Card ID" autocomplete="off" onclick="setActiveField('memberIdentifier')" style="background:#0f172a; color:white; border:1px solid #64748b; padding:8px; border-radius:6px; text-align:center; font-weight:bold; font-size:0.9rem;">
+      <input type="password" id="memberPin" placeholder="4-digit PIN" inputmode="numeric" maxlength="4" autocomplete="off" onclick="setActiveField('memberPin')" style="background:#0f172a; color:white; border:1px solid #64748b; padding:8px; border-radius:6px; text-align:center; font-weight:bold; font-size:0.9rem; margin-bottom:2px;">
+      <div style="display:flex; gap:4px; margin-bottom:4px;">
+        <button type="button" onclick="setActiveField('memberIdentifier')" style="flex:1; background:#475569; color:white; border:none; border-radius:4px; padding:4px; font-size:0.68rem;">Edit ID</button>
+        <button type="button" onclick="setActiveField('memberPin')" style="flex:1; background:#475569; color:white; border:none; border-radius:4px; padding:4px; font-size:0.68rem;">Edit PIN</button>
+      </div>
+      <div style="font-size:0.66rem; color:#94a3b8; margin-bottom:4px;">Leave both blank for guest. Member ID + PIN are verified by the server.</div>
       <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;">
         <div class="pad-key" onclick="pressKey('1')">1</div>
         <div class="pad-key" onclick="pressKey('2')">2</div>
@@ -98,6 +105,12 @@
 
   <script>
     let kCart = {};
+    let activeKioskField = 'memberIdentifier';
+
+    function setActiveField(id) {
+      activeKioskField = id;
+      document.getElementById(id).focus();
+    }
 
     function filterCat(cat, btn) {
       document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
@@ -108,10 +121,25 @@
     }
 
     function pressKey(k) {
-      const inp = document.getElementById('keypadInput');
-      if (k === 'C') inp.value = '';
-      else if (k === 'OK') alert("Card/PIN input saved: " + (inp.value || "None"));
-      else inp.value += k;
+      const inp = document.getElementById(activeKioskField);
+      if (k === 'C') {
+        inp.value = '';
+      } else if (k === 'OK') {
+        if (activeKioskField === 'memberIdentifier') {
+          setActiveField('memberPin');
+        } else {
+          const identifier = document.getElementById('memberIdentifier').value.trim();
+          const pin = document.getElementById('memberPin').value.trim();
+          if ((identifier && pin.length !== 4) || (!identifier && pin)) {
+            alert('Enter your member mobile/card ID and exact 4-digit PIN, or leave both blank.');
+          } else {
+            alert(identifier ? 'Member credentials ready. They will be verified when you send the order.' : 'Guest checkout selected.');
+          }
+        }
+      } else {
+        if (activeKioskField === 'memberPin' && inp.value.length >= 4) return;
+        inp.value += k;
+      }
     }
 
     function addItem(id, name, price) {
@@ -169,6 +197,9 @@
 
     function resetTicket() {
       kCart = {};
+      document.getElementById('memberIdentifier').value = '';
+      document.getElementById('memberPin').value = '';
+      activeKioskField = 'memberIdentifier';
       renderKiosk();
     }
 
@@ -176,12 +207,17 @@
       const keys = Object.keys(kCart);
       if (keys.length === 0) return alert("Ticket is empty.");
 
-      const cardPin = document.getElementById('keypadInput').value.trim();
+      const memberIdentifier = document.getElementById('memberIdentifier').value.trim();
+      const memberPin = document.getElementById('memberPin').value.trim();
+      if ((memberIdentifier && memberPin.length !== 4) || (!memberIdentifier && memberPin)) {
+        return alert('Enter both member ID/mobile and exact 4-digit PIN, or leave both blank for guest.');
+      }
 
       const payload = {
         items: keys.map(id => ({ product_id: parseInt(id), quantity: kCart[id].qty })),
         payment_method: 'CASH',
-        customer_name: cardPin ? `Tablet Kiosk (PIN: ${cardPin})` : 'Tablet Kiosk Guest',
+        member_identifier: memberIdentifier,
+        member_pin: memberPin,
         table_number: 'Table Counter',
         notes: 'Tablet Self-Order'
       };
@@ -194,7 +230,8 @@
         });
         const data = await res.json();
         if (data.success) {
-          alert(`🎉 Order #${data.order_id} sent to Cashier!\nTotal: ₱${data.total.toFixed(2)}\nPlease proceed to pay at the cashier.`);
+          const memberMsg = data.member_name ? `\nMember: ${data.member_name}` : '\nGuest order';
+          alert(`🎉 Order #${data.order_id} sent to Cashier!\nTotal: ₱${data.total.toFixed(2)}${memberMsg}\nPlease proceed to pay at the cashier.`);
           resetTicket();
         } else {
           alert(data.message || "Failed to send order.");

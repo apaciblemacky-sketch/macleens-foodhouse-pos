@@ -55,7 +55,7 @@
         <div class="comment-item">
           <div style="display:flex; justify-content:space-between; margin-bottom:2px;">
             <strong style="color:var(--hk-dark);">{{ c.author_name }}</strong>
-            <span style="font-size:0.75rem; color:#94a3b8;">{{ c.created_at.strftime('%b %d, %Y') }}</span>
+            <span style="font-size:0.75rem; color:#94a3b8;">{{ c.created_at|ph_datetime('%b %d, %Y') }}</span>
           </div>
           <p style="color:#334155;">{{ c.comment_text }}</p>
         </div>

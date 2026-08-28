@@ -53,10 +53,10 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
         <h3 style="color:var(--hk-dark); font-size:1.1rem;">📊 Sales, Expenses & Net Earnings Breakdown</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Includes POS orders + Safe Vault Drops as direct Ulam Sales[cite: 8].</p>
+        <p style="font-size:0.75rem; color:#64748b;">Includes POS orders + Safe Vault Drops as direct Ulam Sales.</p>
       </div>
       <div style="font-size:0.78rem; background:#fdf2f8; padding:6px 12px; border-radius:8px; border:1px solid var(--hk-border);">
-        <strong>Traffic:</strong> {{ unique_visitors }} Unique Visitors | {{ total_accumulated_visits }} Total Visits[cite: 8]
+        <strong>Traffic:</strong> {{ unique_visitors }} Unique Visitors | {{ total_accumulated_visits }} Total Visits
       </div>
     </div>
 
@@ -67,6 +67,8 @@
             <th>Timeframe</th>
             <th>Vault Drop (Ulam Sales)</th>
             <th>Total Gross Revenue</th>
+            <th>COGS / Recorded Product Cost</th>
+            <th>Gross Profit</th>
             <th>Logged Expenses</th>
             <th>Net Profit (Earnings)</th>
           </tr>
@@ -76,6 +78,8 @@
             <td><strong>📅 Today (Daily)</strong></td>
             <td style="color:#059669; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.vault_sales) }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.rev) }}</td>
+            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_daily.cost) }}</td>
+            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_daily.gross_p) }}</td>
             <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_daily.exp) }}</td>
             <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_daily.net_p) }}</td>
           </tr>
@@ -83,6 +87,8 @@
             <td><strong>📆 Past 7 Days (Weekly)</strong></td>
             <td style="color:#059669; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.vault_sales) }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.rev) }}</td>
+            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_weekly.cost) }}</td>
+            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_weekly.gross_p) }}</td>
             <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_weekly.exp) }}</td>
             <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_weekly.net_p) }}</td>
           </tr>
@@ -90,6 +96,8 @@
             <td><strong>🗓️ Past 30 Days (Monthly)</strong></td>
             <td style="color:#059669; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.vault_sales) }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.rev) }}</td>
+            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_monthly.cost) }}</td>
+            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_monthly.gross_p) }}</td>
             <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_monthly.exp) }}</td>
             <td style="color:#9333ea; font-weight:900; font-size:0.95rem;">₱{{ "{:,.2f}".format(fin_monthly.net_p) }}</td>
           </tr>
@@ -97,6 +105,8 @@
             <td><strong>🏆 All-Time Total</strong></td>
             <td style="color:#059669;">₱{{ "{:,.2f}".format(fin_all.vault_sales) }}</td>
             <td style="color:#16a34a;">₱{{ "{:,.2f}".format(fin_all.rev) }}</td>
+            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(fin_all.cost) }}</td>
+            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(fin_all.gross_p) }}</td>
             <td style="color:#ea580c;">₱{{ "{:,.2f}".format(fin_all.exp) }}</td>
             <td style="color:#9333ea; font-size:1.05rem; font-weight:900;">₱{{ "{:,.2f}".format(fin_all.net_p) }}</td>
           </tr>
@@ -110,7 +120,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
       <div>
         <h3 style="color:#1e40af; font-size:1.05rem;">📈 Sales Breakdown & Category Running Totals</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Live sales tracked separately for food meals and printing/miscellaneous services.</p>
+        <p style="font-size:0.75rem; color:#64748b;">Live sales tracked separately for food meals and printing/miscellaneous services. Product cost is snapshotted into each new sale so later cost changes do not rewrite history.</p>
       </div>
       <div style="display:flex; gap:4px;">
         <button onclick="switchReportTab('tabProducts')" id="btnTabProducts" class="btn btn-pink" style="padding:4px 8px; font-size:0.75rem;">📦 Per Product</button>
@@ -147,6 +157,8 @@
             <th style="text-align:center;">Type</th>
             <th style="text-align:center;">Qty Sold</th>
             <th>Total Sales Revenue</th>
+            <th>Recorded Cost</th>
+            <th>Gross Profit</th>
           </tr>
         </thead>
         <tbody>
@@ -162,6 +174,8 @@
             </td>
             <td style="text-align:center; font-weight:bold;">{{ pdata.qty }}</td>
             <td style="color:#16a34a; font-weight:bold;">₱{{ "{:,.2f}".format(pdata.revenue) }}</td>
+            <td style="color:#dc2626;">₱{{ "{:,.2f}".format(pdata.cost) }}</td>
+            <td style="color:#0284c7; font-weight:bold;">₱{{ "{:,.2f}".format(pdata.revenue - pdata.cost) }}</td>
           </tr>
           {% endfor %}
         </tbody>
@@ -183,7 +197,7 @@
         <tbody>
           {% for c in customers %}
           <tr>
-            <td><strong>{{ c.name }}</strong> (Card: {{ c.card_number or 'MFH-0000' }})[cite: 8]</td>
+            <td><strong>{{ c.name }}</strong> (Card: {{ c.card_number or 'MFH-0000' }})</td>
             <td>{{ c.contact }}</td>
             <td style="font-weight:900; color:#16a34a;">₱{{ "{:,.2f}".format(c.accumulated_spend or 0.0) }}</td>
             <td style="color:#f43f5e; font-weight:bold;">₱{{ "{:,.2f}".format(c.outstanding_ar or 0.0) }}</td>
@@ -255,9 +269,9 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <div>
         <h3 style="color:#065f46; font-size:1.05rem;">🏦 Safe Vault Drops & Product/Customer Allocation</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Allocate specific amounts of physical vault drops to products & credit customer accounts[cite: 8].</p>
+        <p style="font-size:0.75rem; color:#64748b;">Allocate specific amounts of physical vault drops to products & credit customer accounts.</p>
       </div>
-      <span style="background:#dcfce7; color:#166534; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">Total Drops: {{ vault_drops|length }}[cite: 8]</span>
+      <span style="background:#dcfce7; color:#166534; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">Total Drops: {{ vault_drops|length }}</span>
     </div>
 
     <div style="max-height: 280px; overflow-y: auto;">
@@ -277,7 +291,7 @@
             <td><strong>Drop #{{ vd.drop_number }}</strong></td>
             <td style="font-weight:900; color:#059669; font-size:0.95rem;">₱{{ "{:,.2f}".format(vd.amount) }}</td>
             <td style="font-size:0.7rem; color:#64748b;">{{ vd.cash_breakdown or 'Direct Cash' }}</td>
-            <td style="font-size:0.72rem; color:#64748b;">{{ vd.created_at.strftime('%b %d, %Y - %I:%M %p') }}</td>
+            <td style="font-size:0.72rem; color:#64748b;">{{ vd.created_at|ph_datetime('%b %d, %Y - %I:%M %p') }}</td>
             <td>
               {% if vd.amount > 0 %}
               <form action="/admin/allocate-vault-drop/{{ vd.id }}" method="POST" style="display:flex; gap:3px; flex-wrap:wrap; align-items:center;">
@@ -315,11 +329,11 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
       <div>
         <h3 style="color:#b45309; font-size:1.05rem;">💸 Operational Expenses Audit (Editable & Expandable)</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Modify titles, fix amounts, change categories, or remove expenses[cite: 8].</p>
+        <p style="font-size:0.75rem; color:#64748b;">Modify titles, fix amounts, change categories, or remove expenses.</p>
       </div>
       <div style="display:flex; gap:6px; align-items:center;">
         <button onclick="toggleExpenseExpansion()" id="btnExpandExp" class="btn" style="background:#fef3c7; color:#b45309; padding:4px 10px; font-size:0.75rem; border:1px solid #f59e0b;">↕️ Expand Full View</button>
-        <span style="background:#fef3c7; color:#b45309; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">Total Logged: {{ all_expenses|length }}[cite: 8]</span>
+        <span style="background:#fef3c7; color:#b45309; padding:4px 8px; border-radius:6px; font-weight:bold; font-size:0.75rem;">Total Logged: {{ all_expenses|length }}</span>
       </div>
     </div>
 
@@ -339,7 +353,7 @@
           {% for exp in all_expenses %}
           <tr>
             <form action="/admin/update-expense/{{ exp.id }}" method="POST">
-              <td style="font-size:0.72rem; color:#64748b;">{{ exp.created_at.strftime('%b %d, %Y - %I:%M %p') }}</td>
+              <td style="font-size:0.72rem; color:#64748b;">{{ exp.created_at|ph_datetime('%b %d, %Y - %I:%M %p') }}</td>
               <td><input type="text" name="title" value="{{ exp.title }}" class="form-control" style="padding:2px; font-size:0.75rem;"></td>
               <td>
                 <select name="category" class="form-control" style="padding:2px; font-size:0.75rem;">
@@ -360,7 +374,7 @@
           </tr>
           {% endfor %}
           {% if not all_expenses %}
-            <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:20px;">No expense records logged yet.[cite: 8]</td></tr>
+            <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:20px;">No expense records logged yet.</td></tr>
           {% endif %}
         </tbody>
       </table>
@@ -390,7 +404,7 @@
           <tr>
             <th>Campaign / Offer</th>
             <th>Visibility Status</th>
-            <th>Offer Price</th>
+            <th>Offer Price / Cost</th>
             <th style="text-align:center;">👀 Views</th>
             <th style="text-align:center;">🛍️ Claims</th>
             <th style="text-align:center;">📈 Conversion</th>
@@ -404,7 +418,7 @@
           <tr>
             <td>
               <strong>{{ pr.title }}</strong><br>
-              <span style="font-size:0.7rem; color:#64748b; font-family:monospace;">CODE: {{ pr.promo_code }}[cite: 8]</span>
+              <span style="font-size:0.7rem; color:#64748b; font-family:monospace;">CODE: {{ pr.promo_code }}</span>
             </td>
             <td>
               {% if pr.is_visible %}
@@ -413,12 +427,19 @@
                 <span class="badge" style="background:#fee2e2; color:#991b1b;">🚫 HIDDEN (Archived)</span>
               {% endif %}
             </td>
-            <td style="font-weight:bold; color:#be123c;">₱{{ "{:,.2f}".format(pr.promo_price) }}</td>
+            <td>
+              <form action="/admin/update-promo-financials/{{ pr.id }}" method="POST" style="display:flex; gap:3px; align-items:center; flex-wrap:wrap;">
+                <input type="number" step="0.01" min="0.01" name="promo_price" value="{{ pr.promo_price }}" title="Selling price" style="width:68px; padding:2px; font-size:0.7rem;">
+                <input type="number" step="0.01" min="0" name="promo_cost" value="{{ pr.promo_cost or 0.0 }}" title="Cost" style="width:68px; padding:2px; font-size:0.7rem;">
+                <button type="submit" class="btn btn-pink" style="padding:2px 6px; font-size:0.68rem;">Save</button>
+              </form>
+              <div style="font-size:0.68rem; color:#64748b; margin-top:2px;">Price / Cost</div>
+            </td>
             <td style="text-align:center; font-weight:bold; color:#0284c7;">{{ pr.page_views }}</td>
             <td style="text-align:center; font-weight:900; color:#16a34a;">{{ pr.claims_count }}</td>
             <td style="text-align:center;">
               <span style="background:#e0f2fe; color:#0369a1; padding:2px 8px; border-radius:10px; font-weight:bold; font-size:0.72rem;">
-                {{ conv }}%[cite: 8]
+                {{ conv }}%
               </span>
             </td>
             <td style="font-weight:900; color:#16a34a; font-size:0.95rem;">
@@ -438,9 +459,33 @@
     </div>
   </div>
 
+  <!-- 🔐 STAFF SECURITY -->
+  <div class="card" style="border: 1.5px solid #334155;">
+    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:1rem;">🔐 Staff Security & PIN Management</h3>
+    <p style="font-size:0.75rem; color:#64748b; margin-bottom:8px;">Bootstrap PINs are created only on the first database setup and are never reset during redeploys. Change them here.</p>
+    <table>
+      <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Change PIN</th></tr></thead>
+      <tbody>
+        {% for st in staff_members %}
+        <tr>
+          <td><strong>{{ st.username }}</strong></td>
+          <td>{{ st.role }}</td>
+          <td>{{ 'Active' if st.active else 'Inactive' }}</td>
+          <td>
+            <form action="/admin/reset-staff-pin/{{ st.id }}" method="POST" style="display:flex; gap:4px;">
+              <input type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" name="new_pin" placeholder="4-8 digits" required style="width:90px; padding:3px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.72rem;">
+              <button type="submit" class="btn btn-dark" style="padding:3px 7px; font-size:0.7rem;">Change</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
   <!-- 👥 REGISTERED CUSTOMER MANAGEMENT & PIN RESET -->
   <div class="card">
-    <h3 style="color:var(--hk-dark); margin-bottom:12px; font-size:1rem;">👥 Registered Customer Management & PIN Reset[cite: 8]</h3>
+    <h3 style="color:var(--hk-dark); margin-bottom:12px; font-size:1rem;">👥 Registered Customer Management & PIN Reset</h3>
     <div style="max-height: 320px; overflow-y: auto;">
       <table>
         <thead>
@@ -460,15 +505,16 @@
           <tr>
             <td>
               <strong>{{ c.name }}</strong><br>
-              <span style="font-size:0.72rem; color:#64748b;">Card: {{ c.card_number or 'MFH-0000' }}[cite: 8]</span>
+              <span style="font-size:0.72rem; color:#64748b;">Card: {{ c.card_number or 'MFH-0000' }}</span><br>
+              <span style="font-size:0.68rem; color:{{ '#16a34a' if (c.card_status or 'ACTIVE') == 'ACTIVE' else '#dc2626' }};">{{ c.card_status or 'ACTIVE' }}{% if c.card_expires_at %} • Expires {{ c.card_expires_at.strftime('%b %d, %Y') }}{% endif %}</span>
             </td>
             <td>
               {{ c.contact }}<br>
-              <span style="font-size:0.72rem; color:#94a3b8;">{{ c.email or 'No email' }}[cite: 8]</span>
+              <span style="font-size:0.72rem; color:#94a3b8;">{{ c.email or 'No email' }}</span>
             </td>
             <td style="font-size:0.75rem;">
               {{ c.default_address or '—' }}<br>
-              <span style="color:#db2777;">🚩 {{ c.default_landmark or '—' }}[cite: 8]</span>
+              <span style="color:#db2777;">🚩 {{ c.default_landmark or '—' }}</span>
             </td>
             <td style="text-align: center;">
               <span style="background: #fef3c7; color: #92400e; padding: 3px 8px; border-radius: 12px; font-weight: 900; font-size: 0.8rem; display: inline-block;">
@@ -477,32 +523,43 @@
             </td>
             <td>
               {% if c.is_credit_eligible %}
-                <span style="color:#16a34a; font-weight:bold;">✓ Yes[cite: 8]</span>
+                <span style="color:#16a34a; font-weight:bold;">✓ Yes</span>
               {% else %}
-                <span style="color:#94a3b8;">✕ No[cite: 8]</span>
+                <span style="color:#94a3b8;">✕ No</span>
               {% endif %}
             </td>
             <td style="font-weight: bold;">
-              ₱{{ "{:,.2f}".format(c.credit_limit or 0.0) }}[cite: 8]
+              ₱{{ "{:,.2f}".format(c.credit_limit or 0.0) }}
             </td>
             <td>
-              <form action="/admin/toggle-credit/{{ c.id }}" method="POST" style="display: flex; gap: 4px;">
-                <input type="number" step="100" name="credit_limit" value="{{ c.credit_limit or 1000 }}" style="width: 65px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.75rem;">
-                <button type="submit" class="btn btn-pink" style="padding: 3px 6px; font-size: 0.72rem;">Set[cite: 8]</button>
-              </form>
+              <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                <form action="/admin/toggle-credit/{{ c.id }}" method="POST" style="display:flex; gap:4px;">
+                  <input type="hidden" name="action" value="SET_LIMIT">
+                  <input type="number" min="0" step="100" name="credit_limit" value="{{ c.credit_limit or 1000 }}" style="width:70px; padding:3px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.75rem;">
+                  <button type="submit" class="btn btn-pink" style="padding:3px 6px; font-size:0.72rem;">Set Limit</button>
+                </form>
+                <form action="/admin/toggle-credit/{{ c.id }}" method="POST">
+                  <input type="hidden" name="action" value="TOGGLE">
+                  <button type="submit" class="btn btn-dark" style="padding:3px 6px; font-size:0.7rem;">{{ 'Disable' if c.is_credit_eligible else 'Enable' }}</button>
+                </form>
+              </div>
             </td>
             <td style="display: flex; gap: 4px; flex-wrap: wrap;">
+              <form action="/admin/renew-customer-card/{{ c.id }}" method="POST" onsubmit="return confirm('Renew {{ c.name }} for one year?');">
+                <button type="submit" class="btn" style="background:#16a34a; color:white; padding:3px 6px; font-size:0.7rem;">♻ Renew 1Y</button>
+              </form>
+
               <form action="/admin/reset-customer-pin/{{ c.id }}" method="POST" style="display: flex; gap: 3px;">
-                <input type="text" name="new_pin" placeholder="PIN" minlength="4" style="width: 48px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.72rem;">
-                <button type="submit" class="btn btn-dark" style="padding: 3px 6px; font-size: 0.7rem;">Reset[cite: 8]</button>
+                <input type="password" inputmode="numeric" pattern="[0-9]{4}" name="new_pin" placeholder="4 PIN" minlength="4" maxlength="4" required style="width: 58px; padding: 3px; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 0.72rem;">
+                <button type="submit" class="btn btn-dark" style="padding: 3px 6px; font-size: 0.7rem;">Reset</button>
               </form>
 
               <form action="/admin/purge-dummy-orders/{{ c.id }}" method="POST" onsubmit="return confirm('Clear test orders & reset points for {{ c.name }}?');">
-                <button type="submit" class="btn" style="background: #f59e0b; color: white; padding: 3px 6px; font-size: 0.7rem;" title="Purge Test Orders">🧹 Clear[cite: 8]</button>
+                <button type="submit" class="btn" style="background: #f59e0b; color: white; padding: 3px 6px; font-size: 0.7rem;" title="Purge Test Orders">🧹 Clear</button>
               </form>
 
               <form action="/admin/delete-customer/{{ c.id }}" method="POST" onsubmit="return confirm('Permanently remove {{ c.name }} and all associated data?');">
-                <button type="submit" class="btn" style="background: #ef4444; color: white; padding: 3px 6px; font-size: 0.7rem;" title="Delete Account">🗑️ Delete[cite: 8]</button>
+                <button type="submit" class="btn" style="background: #ef4444; color: white; padding: 3px 6px; font-size: 0.7rem;" title="Delete Account">🗑️ Delete</button>
               </form>
             </td>
           </tr>
@@ -514,11 +571,11 @@
 
   <!-- ➕ RESTORED: ADD DISH FORM -->
   <div class="card">
-    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">➕ Add Dish with Photo, Time Schedule & Badges[cite: 8]</h3>
+    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">➕ Add Dish with Photo, Time Schedule & Badges</h3>
     <form action="/admin/add-product" method="POST" class="form-row">
       <div class="form-group" style="flex:2;">
         <label>Dish Name *</label>
-        <input type="text" name="name" class="form-control" required placeholder="e.g. Pork Sisig"[cite: 8]>
+        <input type="text" name="name" class="form-control" required placeholder="e.g. Pork Sisig">
       </div>
       <div class="form-group">
         <label>Category *</label>
@@ -530,7 +587,11 @@
       </div>
       <div class="form-group" style="max-width:80px;">
         <label>Price *</label>
-        <input type="number" step="0.5" name="price" class="form-control" required placeholder="0.00"[cite: 8]>
+        <input type="number" min="0.01" step="0.01" name="price" class="form-control" required placeholder="0.00">
+      </div>
+      <div class="form-group" style="max-width:80px;">
+        <label>Cost</label>
+        <input type="number" min="0" step="0.01" name="cost" class="form-control" value="0.00" placeholder="0.00">
       </div>
       <div class="form-group" style="max-width:70px;">
         <label>Stock</label>
@@ -538,7 +599,7 @@
       </div>
       <div class="form-group" style="flex:2;">
         <label>Direct Photo URL</label>
-        <input type="url" name="image_url" class="form-control" placeholder="https://..."[cite: 8]>
+        <input type="url" name="image_url" class="form-control" placeholder="https://...">
       </div>
       <div class="form-group" style="max-width:85px;">
         <label>From Time</label>
@@ -564,11 +625,12 @@
   <div class="card">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
       <div>
-        <h3 style="color:var(--hk-dark); font-size:1rem;">📦 Bulk Catalog Editor (<span id="productCounter">{{ products|length }}</span> / {{ products|length }} Items)[cite: 8]</h3>
+        <h3 style="color:var(--hk-dark); font-size:1rem;">📦 Bulk Catalog Editor (<span id="productCounter">{{ products|length }}</span> / {{ products|length }} Items)</h3>
+        <p style="font-size:0.7rem; color:#64748b;">Cost is copied into each new Order Item when the sale is created. Older historical orders keep the cost that was recorded at that time.</p>
       </div>
       
       <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        <input type="text" id="catalogSearchInput" oninput="filterCatalogTable()" placeholder="🔍 Search dish or category..." style="padding:5px 10px; border-radius:6px; border:1.5px solid var(--hk-pink); font-size:0.8rem; width:180px; outline:none;"[cite: 8]>
+        <input type="text" id="catalogSearchInput" oninput="filterCatalogTable()" placeholder="🔍 Search dish or category..." style="padding:5px 10px; border-radius:6px; border:1.5px solid var(--hk-pink); font-size:0.8rem; width:180px; outline:none;">
 
         <label style="font-size:0.8rem; font-weight:bold;">Status Filter:</label>
         <select id="statusFilterSelect" onchange="filterCatalogTable()" style="padding:4px 8px; border-radius:4px; border:1px solid #cbd5e1; font-size:0.8rem;">
@@ -579,13 +641,13 @@
 
         <label style="font-size:0.8rem; font-weight:bold; margin-left:4px;">Sort By:</label>
         <select onchange="window.location.href='/admin?sort=' + this.value" style="padding:4px 8px; border-radius:4px; border:1px solid #cbd5e1; font-size:0.8rem;">
-          <option value="likes_desc" {% if current_sort == 'likes_desc' %}selected{% endif %}>❤️ Likes / Ranking[cite: 8]</option>
-          <option value="category" {% if current_sort == 'category' %}selected{% endif %}>📂 Category[cite: 8]</option>
+          <option value="likes_desc" {% if current_sort == 'likes_desc' %}selected{% endif %}>❤️ Likes / Ranking</option>
+          <option value="category" {% if current_sort == 'category' %}selected{% endif %}>📂 Category</option>
           <option value="name_asc" {% if current_sort == 'name_asc' %}selected{% endif %}>🔤 Name (A-Z)</option>
-          <option value="price_asc" {% if current_sort == 'price_asc' %}selected{% endif %}>💵 Price: Low to High[cite: 8]</option>
-          <option value="price_desc" {% if current_sort == 'price_desc' %}selected{% endif %}>💰 Price: High to Low[cite: 8]</option>
-          <option value="featured" {% if current_sort == 'featured' %}selected{% endif %}>✨ Featured First[cite: 8]</option>
-          <option value="top_seller" {% if current_sort == 'top_seller' %}selected{% endif %}>🔥 Best Sellers First[cite: 8]</option>
+          <option value="price_asc" {% if current_sort == 'price_asc' %}selected{% endif %}>💵 Price: Low to High</option>
+          <option value="price_desc" {% if current_sort == 'price_desc' %}selected{% endif %}>💰 Price: High to Low</option>
+          <option value="featured" {% if current_sort == 'featured' %}selected{% endif %}>✨ Featured First</option>
+          <option value="top_seller" {% if current_sort == 'top_seller' %}selected{% endif %}>🔥 Best Sellers First</option>
         </select>
       </div>
     </div>
@@ -599,6 +661,7 @@
               <th>Dish</th>
               <th>Category</th>
               <th style="width:70px;">Price</th>
+              <th style="width:70px;">Cost</th>
               <th style="width:60px;">Stock</th>
               <th>Photo URL</th>
               <th style="width:85px;">From Time</th>
@@ -622,8 +685,9 @@
               </td>
               <td><strong class="dish-name">{{ p.name }}</strong></td>
               <td class="dish-cat">{{ p.category_name }}</td>
-              <td><input type="number" step="0.5" name="price_{{ p.id }}" value="{{ p.price }}" class="form-control" style="padding:2px;"></td>
-              <td><input type="number" name="stock_{{ p.id }}" value="{{ p.stock }}" class="form-control" style="padding:2px;"></td>
+              <td><input type="number" min="0.01" step="0.01" name="price_{{ p.id }}" value="{{ p.price }}" class="form-control" style="padding:2px;"></td>
+              <td><input type="number" min="0" step="0.01" name="cost_{{ p.id }}" value="{{ p.cost or 0.0 }}" class="form-control" style="padding:2px;"></td>
+              <td><input type="number" min="0" name="stock_{{ p.id }}" value="{{ p.stock }}" class="form-control" style="padding:2px;"></td>
               <td><input type="url" name="image_url_{{ p.id }}" value="{{ p.image_url or '' }}" placeholder="https://..." class="form-control" style="padding:2px;"></td>
               <td><input type="time" name="available_start_time_{{ p.id }}" value="{{ p.available_start_time or '' }}" class="form-control" style="padding:2px; font-size:0.7rem;"></td>
               <td><input type="time" name="available_end_time_{{ p.id }}" value="{{ p.available_end_time or '' }}" class="form-control" style="padding:2px; font-size:0.7rem;"></td>
@@ -636,7 +700,7 @@
             </tr>
             {% endfor %}
             <tr id="noResultsRow" style="display:none;">
-              <td colspan="12" style="text-align:center; padding:20px; color:#94a3b8;">No matching products found.</td>
+              <td colspan="13" style="text-align:center; padding:20px; color:#94a3b8;">No matching products found.</td>
             </tr>
           </tbody>
         </table>
@@ -651,13 +715,13 @@
 
   <!-- Change Logo Form -->
   <div class="card">
-    <h3 style="color:var(--hk-dark); margin-bottom:8px; font-size:0.95rem;">🖼️ Update Company Logo[cite: 8]</h3>
+    <h3 style="color:var(--hk-dark); margin-bottom:8px; font-size:0.95rem;">🖼️ Update Company Logo</h3>
     <form action="/admin/update-logo" method="POST" class="form-row">
       <div class="form-group" style="flex:2;">
         <label>Direct Logo Image URL (PNG / JPG / WebP)</label>
-        <input type="url" name="logo_url" value="{{ store_logo }}" required class="form-control" placeholder="https://..."[cite: 8]>
+        <input type="url" name="logo_url" value="{{ store_logo }}" required class="form-control" placeholder="https://...">
       </div>
-      <button type="submit" class="btn btn-pink">Update Store Logo[cite: 8]</button>
+      <button type="submit" class="btn btn-pink">Update Store Logo</button>
     </form>
   </div>
 

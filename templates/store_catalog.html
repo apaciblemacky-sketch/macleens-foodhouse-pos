@@ -167,7 +167,7 @@
               </span>
               <div>
                 <strong>{{ top_c.name[:3] }}***</strong>
-                <span style="font-size:0.7rem; color:#64748b;">(ID: {{ top_c.card_number or 'MFH-' ~ top_c.id }})</span>
+                <span style="font-size:0.7rem; color:#64748b;">(ID: {{ mask_card_number(top_c.card_number) }})</span>
               </div>
             </div>
             <div style="font-weight:900; color:var(--hk-dark);">
@@ -378,7 +378,7 @@
             <option value="CASH">Cash on Counter / Cash on Delivery</option>
             <option value="GCASH">GCash</option>
             {% if cust and cust.is_credit_eligible %}
-              <option value="CREDIT">A/R Credit Limit (Authorized)</option>
+              <option value="CREDIT">A/R Credit — Available ₱{{ "{:,.2f}".format(credit_available or 0.0) }}</option>
             {% endif %}
           </select>
         </div>

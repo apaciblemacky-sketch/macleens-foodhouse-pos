@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Tech Ecosystem — Investor Deck & Future Vision</title>
+  <style>
+    :root {
+      --primary-pink: #ec4899;
+      --deep-burgundy: #831843;
+      --accent-slate: #0f172a;
+      --card-bg: #ffffff;
+      --border-subtle: #fbcfe8;
+      --text-muted: #64748b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #fff5f7; color: #1e293b; line-height: 1.5; }
+
+    /* Header / Nav */
+    header { background: white; border-bottom: 2px solid var(--primary-pink); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 50; }
+    .brand { font-weight: 900; color: var(--deep-burgundy); font-size: 1.15rem; display: flex; align-items: center; gap: 8px; }
+    .nav-links a { color: #64748b; text-decoration: none; font-size: 0.85rem; font-weight: 700; margin-left: 1.2rem; }
+    .nav-links a:hover { color: var(--primary-pink); }
+    .badge { background: #fdf2f8; color: var(--deep-burgundy); padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border-subtle); font-size: 0.75rem; font-weight: 900; }
+
+    /* Hero Section */
+    .hero { max-width: 1000px; margin: 2rem auto; padding: 2rem 1.5rem; text-align: center; }
+    .hero-title { font-size: 2.3rem; font-weight: 900; color: var(--deep-burgundy); line-height: 1.2; margin-bottom: 0.8rem; }
+    .hero-subtitle { font-size: 1.1rem; color: #475569; max-width: 720px; margin: 0 auto 1.5rem; }
+    
+    /* Layout Cards */
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 1.5rem 3rem; }
+    .section-header { text-align: center; margin: 3rem 0 1.5rem; }
+    .section-header h2 { font-size: 1.6rem; color: var(--deep-burgundy); font-weight: 900; }
+    .section-header p { color: var(--text-muted); font-size: 0.9rem; }
+
+    .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+    .card { background: white; border-radius: 14px; border: 1.5px solid var(--border-subtle); padding: 1.5rem; box-shadow: 0 4px 12px rgba(251, 207, 232, 0.25); transition: transform 0.2s; }
+    .card:hover { transform: translateY(-3px); }
+    .card-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+    .card-title { font-size: 1.1rem; font-weight: 900; color: var(--deep-burgundy); margin-bottom: 0.4rem; }
+    .card-desc { font-size: 0.85rem; color: #475569; margin-bottom: 1rem; }
+
+    /* Metrics Bar */
+    .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; background: white; border: 2px solid var(--primary-pink); border-radius: 16px; padding: 1.5rem; margin: 2rem 0; text-align: center; }
+    .stat-val { font-size: 1.8rem; font-weight: 900; color: var(--primary-pink); }
+    .stat-lbl { font-size: 0.8rem; color: var(--text-muted); font-weight: 700; text-transform: uppercase; }
+
+    /* Interactive Future Mockups */
+    .mockup-box { background: #0f172a; color: white; border-radius: 14px; padding: 1.5rem; margin-top: 1rem; border: 1px solid #334155; }
+    .code-tag { background: #1e293b; color: #38bdf8; font-family: monospace; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; }
+    
+    /* CTA */
+    .cta-box { background: linear-gradient(135deg, #ff69b4, #ec4899, #831843); color: white; border-radius: 20px; padding: 2.5rem; text-align: center; margin-top: 3rem; }
+    .btn-cta { display: inline-block; background: white; color: var(--deep-burgundy); font-weight: 900; padding: 10px 24px; border-radius: 25px; text-decoration: none; font-size: 0.95rem; margin-top: 1rem; box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <img src="{{ store_logo }}" onerror="this.onerror=null; this.src='/static/logo.png';" style="width:36px; height:36px; border-radius:50%; border:2px solid var(--primary-pink); object-fit:cover;">
+      <span>Macleen's Tech Ventures</span>
+    </div>
+    <div class="nav-links">
+      <a href="/">Storefront</a>
+      <a href="/portal/dashboard">Customer Portal</a>
+      <a href="/pos/cashier">POS Terminal</a>
+      <span class="badge">Series Seed / Growth Deck</span>
+    </div>
+  </header>
+
+  <div class="hero">
+    <span class="badge" style="background:#fce7f3; color:#db2777; margin-bottom:0.8rem; display:inline-block;">🚀 The Next Generation F&B Operating System</span>
+    <h1 class="hero-title">Transforming Traditional Food Houses with AI-Driven Automation</h1>
+    <p class="hero-subtitle">
+      From a single profitable snack hub to a scalable, automated franchise OS combining Real-Time Cashier POS, Predictive Stock Intelligence, and Direct-to-Consumer Digital Loyalty.
+    </p>
+  </div>
+
+  <div class="container">
+
+    <!-- Proven Foundation Stats -->
+    <div class="stats-bar">
+      <div>
+        <div class="stat-val">100%</div>
+        <div class="stat-lbl">Proprietary Full-Stack Stack</div>
+      </div>
+      <div>
+        <div class="stat-val">3-Day</div>
+        <div class="stat-lbl">Dynamic Campaign Cycles</div>
+      </div>
+      <div>
+        <div class="stat-val">Zero-Fee</div>
+        <div class="stat-lbl">Direct Barangay Logistics</div>
+      </div>
+      <div>
+        <div class="stat-val">&lt; 1 sec</div>
+        <div class="stat-lbl">Real-Time Kitchen Queue Polling</div>
+      </div>
+    </div>
+
+    <!-- Product Roadmap -->
+    <div class="section-header">
+      <h2>🌐 What We Are Building Next</h2>
+      <p>Modular capabilities turning neighborhood snack businesses into hyper-efficient technology hubs.</p>
+    </div>
+
+    <div class="grid-3">
+      <!-- Feature 1 -->
+      <div class="card">
+        <div class="card-icon">🤖</div>
+        <div class="card-title">AI Demand & Prep Forecasting</div>
+        <div class="card-desc">
+          Automated ingredient estimation analyzing day-of-week trends, weather patterns, and past sales to eliminate raw food waste and optimize morning batching.
+        </div>
+        <div class="mockup-box">
+          <span class="code-tag">Predictive Stock Engine</span>
+          <p style="font-size:0.75rem; color:#cbd5e1; margin-top:6px;">
+            "Expected Nacho Cheese demand today: +28% due to evening match. Recommended prep: 4.5kg."
+          </p>
+        </div>
+      </div>
+
+      <!-- Feature 2 -->
+      <div class="card">
+        <div class="card-icon">📱</div>
+        <div class="card-title">Autonomous Smart Kiosk & IoT Lockers</div>
+        <div class="card-desc">
+          Zero-wait order collection where self-checkout kiosks notify insulated pickup lockers, allowing customers to pick up warm meals using automated PIN vouchers.
+        </div>
+        <div class="mockup-box">
+          <span class="code-tag">Hardware + POS Sync</span>
+          <p style="font-size:0.75rem; color:#cbd5e1; margin-top:6px;">
+            "Order #1042 ready in Locker 3. Customer unlocked with 4-digit card PIN."
+          </p>
+        </div>
+      </div>
+
+      <!-- Feature 3 -->
+      <div class="card">
+        <div class="card-icon">🏢</div>
+        <div class="card-title">Multi-Branch Cloud Franchise Engine</div>
+        <div class="card-desc">
+          A centralized control tower allowing franchise owners to deploy menu updates, reallocate inventory across nearby stores, and audit daily vault deposits remotely.
+        </div>
+        <div class="mockup-box">
+          <span class="code-tag">Franchise Control Tower</span>
+          <p style="font-size:0.75rem; color:#cbd5e1; margin-top:6px;">
+            "Branch 01 (Poblacion) & Branch 02 (Downtown) reconciled: ₱48,500 total gross."
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Interactive Live Architecture Demo Section -->
+    <div class="section-header">
+      <h2>⚡ Live Product Architecture</h2>
+      <p>Explore the live interconnected sub-systems currently operating in production.</p>
+    </div>
+
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-title">🛍️ Customer Web-App & Loyalty</div>
+        <div class="card-desc">
+          Self-ordering storefront, points redemption (1 pt / ₱30 spend), early-bird launch incentives, and 10-minute daily Wi-Fi voucher integration.
+        </div>
+        <a href="/" target="_blank" style="color:var(--primary-pink); font-weight:800; font-size:0.8rem; text-decoration:none;">View Live Storefront →</a>
+      </div>
+
+      <div class="card">
+        <div class="card-title">🖥️ Cashier Terminal & Vault Drop</div>
+        <div class="card-desc">
+          Instant queue polling, cash denomination count calculators, accountable receivables logging, and item reservations with target collection times.
+        </div>
+        <a href="/pos/cashier" target="_blank" style="color:var(--primary-pink); font-weight:800; font-size:0.8rem; text-decoration:none;">View POS Interface →</a>
+      </div>
+
+      <div class="card">
+        <div class="card-title">📊 Executive Financial Audit</div>
+        <div class="card-desc">
+          Granular sales attribution, running split metrics (Food vs. Printing), expandable expense auditing, and bulk product scheduling with photo asset linking.
+        </div>
+        <a href="/admin" target="_blank" style="color:var(--primary-pink); font-weight:800; font-size:0.8rem; text-decoration:none;">View Master Dashboard →</a>
+      </div>
+    </div>
+
+    <!-- Investor CTA -->
+    <div class="cta-box">
+      <h2 style="font-size:1.8rem; font-weight:900; margin-bottom:8px;">Ready to Scale the Future of Food Operations?</h2>
+      <p style="font-size:0.95rem; opacity:0.9; max-width:600px; margin:0 auto;">
+        We are combining high-demand local food concepts with proprietary, lightweight retail technology to create high-margin, scalable F&B operations.
+      </p>
+      <a href="mailto:invest@macleensfoodhouse.com" class="btn-cta">💼 Request Investor Briefing & Financials</a>
+    </div>
+
+  </div>
+
+</body>
+</html>

@@ -1,15 +1,30 @@
+import logging
 import os
 import random
+import re
+import secrets
 import string
-from datetime import datetime, date, timedelta, time
+from datetime import datetime, date, timedelta, time, timezone
 from functools import wraps
+from zoneinfo import ZoneInfo
+
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 from werkzeug.security import generate_password_hash, check_password_hash
 
+logging.basicConfig(
+    level=os.environ.get('LOG_LEVEL', 'INFO').upper(),
+    format='%(asctime)s %(levelname)s %(name)s: %(message)s'
+)
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'macleens-hk-pos-2026-master')
+IS_PRODUCTION = bool(os.environ.get('RENDER') or os.environ.get('FLASK_ENV') == 'production')
+_secret_key = os.environ.get('SECRET_KEY')
+if not _secret_key:
+    _secret_key = secrets.token_hex(32)
+    app.logger.warning('SECRET_KEY is not configured; generated a temporary key. Set SECRET_KEY in Render for stable sessions.')
+app.config['SECRET_KEY'] = _secret_key
 
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
@@ -17,12 +32,45 @@ if database_url and database_url.startswith("postgres://"):
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///foodhouse_pos.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True}
 app.config['SESSION_PERMANENT'] = True
-app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=3650)
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
+MANILA_TZ = ZoneInfo('Asia/Manila')
+STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
+
+def utc_now():
+    """UTC-naive timestamp for backwards-compatible database storage."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+def ph_now():
+    return datetime.now(MANILA_TZ)
+
+def ph_today():
+    return ph_now().date()
+
+def ph_day_utc_bounds(day=None):
+    """Return UTC-naive [start, end) bounds for one Philippine calendar day."""
+    day = day or ph_today()
+    start_local = datetime.combine(day, time.min, tzinfo=MANILA_TZ)
+    next_local = start_local + timedelta(days=1)
+    return (
+        start_local.astimezone(timezone.utc).replace(tzinfo=None),
+        next_local.astimezone(timezone.utc).replace(tzinfo=None),
+    )
+
+def utc_naive_to_ph(value):
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(MANILA_TZ)
 
 # ==================== DATA MODELS ====================
 
@@ -64,8 +112,8 @@ class Customer(db.Model):
     login_streak = db.Column(db.Integer, default=1)
     wifi_voucher_code = db.Column(db.String(20), nullable=True)
     wifi_minutes_left = db.Column(db.Integer, default=10)
-    last_active_at = db.Column(db.DateTime, default=datetime.utcnow)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_active_at = db.Column(db.DateTime, default=utc_now)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
 class DeliveryZone(db.Model):
     __tablename__ = 'delivery_zone'
@@ -105,7 +153,7 @@ class ProductLike(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='CASCADE'), nullable=False)
     ip_address = db.Column(db.String(50), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
 class ProductComment(db.Model):
     __tablename__ = 'product_comment'
@@ -115,7 +163,7 @@ class ProductComment(db.Model):
     author_name = db.Column(db.String(100), nullable=False)
     ip_address = db.Column(db.String(50), nullable=False)
     comment_text = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
 class Order(db.Model):
     __tablename__ = 'order'
@@ -141,7 +189,7 @@ class Order(db.Model):
     is_unpaid = db.Column(db.Boolean, default=False)
     collection_notes = db.Column(db.String(255), nullable=True)
     notes = db.Column(db.Text, nullable=False, default="None")
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
     customer = db.relationship('Customer', backref='orders', lazy=True)
     items = db.relationship('OrderItem', backref='order_rel', cascade="all, delete-orphan", lazy=True)
 
@@ -163,7 +211,7 @@ class Expense(db.Model):
     amount = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(50), default='General')
     created_by = db.Column(db.String(50), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
 class VaultDrop(db.Model):
     __tablename__ = 'vault_drop'
@@ -173,7 +221,7 @@ class VaultDrop(db.Model):
     notes = db.Column(db.String(255), nullable=True)
     cash_breakdown = db.Column(db.Text, nullable=True)
     created_by = db.Column(db.String(50), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
 class ChangeFund(db.Model):
     __tablename__ = 'change_fund'
@@ -182,7 +230,7 @@ class ChangeFund(db.Model):
     amount = db.Column(db.Float, nullable=False)
     notes = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(50), nullable=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
 class RewardLedger(db.Model):
     __tablename__ = 'reward_ledger'
@@ -190,14 +238,14 @@ class RewardLedger(db.Model):
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     points_change = db.Column(db.Float, nullable=False)
     reason = db.Column(db.String(150), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
 class SiteVisitor(db.Model):
     __tablename__ = 'site_visitor'
     id = db.Column(db.Integer, primary_key=True)
     ip_address = db.Column(db.String(50), unique=True, nullable=False)
     visit_count = db.Column(db.Integer, default=1)
-    visited_at = db.Column(db.DateTime, default=datetime.utcnow)
+    visited_at = db.Column(db.DateTime, default=utc_now)
 
 class PromotionTracker(db.Model):
     __tablename__ = 'promotion_tracker'
@@ -211,7 +259,7 @@ class PromotionTracker(db.Model):
     total_revenue = db.Column(db.Float, default=0.0)
     is_active = db.Column(db.Boolean, default=True)
     is_visible = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=utc_now)
 
 # ==================== PWA ROOT ROUTES ====================
 
@@ -227,63 +275,127 @@ def serve_sw():
 
 # ==================== SAFE MIGRATION & RUN HOOKS ====================
 
+def _ensure_column(table_name, column_name, ddl_type):
+    """Idempotently add one missing column on SQLite or PostgreSQL."""
+    inspector = inspect(db.engine)
+    existing = {c['name'] for c in inspector.get_columns(table_name)}
+    if column_name in existing:
+        return False
+
+    prep = db.engine.dialect.identifier_preparer
+    q_table = prep.quote(table_name)
+    q_col = prep.quote(column_name)
+    try:
+        with db.engine.begin() as conn:
+            conn.execute(text(f"ALTER TABLE {q_table} ADD COLUMN {q_col} {ddl_type}"))
+        app.logger.info('Database migration: added %s.%s', table_name, column_name)
+        return True
+    except Exception:
+        # Another process may have applied it after our inspection. Re-check before failing.
+        inspector = inspect(db.engine)
+        existing = {c['name'] for c in inspector.get_columns(table_name)}
+        if column_name in existing:
+            app.logger.info('Database migration: %s.%s was added concurrently', table_name, column_name)
+            return False
+        app.logger.exception('Database migration failed while adding %s.%s', table_name, column_name)
+        raise
+
+def run_schema_migrations():
+    """Apply the known additive schema upgrades needed by the current application."""
+    migrations = {
+        'customer': [
+            ('referred_by', 'VARCHAR(50)'),
+            ('last_daily_login', 'DATE'),
+            ('login_streak', 'INTEGER DEFAULT 1'),
+            ('last_active_at', 'TIMESTAMP'),
+        ],
+        'order': [
+            ('dining_option', "VARCHAR(20) DEFAULT 'DINE-IN'"),
+        ],
+        'promotion_tracker': [
+            ('promo_cost', 'FLOAT DEFAULT 0.0'),
+            ('is_visible', 'BOOLEAN DEFAULT TRUE'),
+        ],
+        'product': [
+            ('cost', 'FLOAT DEFAULT 0.0'),
+            ('available_start_time', 'VARCHAR(10)'),
+            ('available_end_time', 'VARCHAR(10)'),
+        ],
+        'order_item': [
+            ('cost_price', 'FLOAT DEFAULT 0.0'),
+        ],
+        'vault_drop': [
+            ('cash_breakdown', 'TEXT'),
+        ],
+    }
+
+    inspector = inspect(db.engine)
+    tables = set(inspector.get_table_names())
+    for table_name, columns in migrations.items():
+        if table_name not in tables:
+            continue
+        for column_name, ddl_type in columns:
+            _ensure_column(table_name, column_name, ddl_type)
+
+    # Normalize data for columns that were introduced after initial deployments.
+    with db.engine.begin() as conn:
+        if 'customer' in tables:
+            conn.execute(text("UPDATE customer SET login_streak = 1 WHERE login_streak IS NULL"))
+        if 'promotion_tracker' in tables:
+            conn.execute(text("UPDATE promotion_tracker SET is_visible = TRUE WHERE is_visible IS NULL"))
+
 def run_db_setup():
     global _DB_INITIALIZED
     if _DB_INITIALIZED:
         return
     try:
         db.create_all()
-        
-        cols = [
-            ("customer", "last_daily_login", "DATE"),
-            ("customer", "login_streak", "INTEGER DEFAULT 1"),
-            ("customer", "referred_by", "VARCHAR(50)"),
-            ("customer", "last_active_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
-            ("order", "dining_option", "VARCHAR(20) DEFAULT 'DINE-IN'"),
-            ("promotion_tracker", "is_visible", "BOOLEAN DEFAULT TRUE"),
-            ("product", "cost", "FLOAT DEFAULT 0.0"),
-            ("product", "available_start_time", "VARCHAR(10)"),
-            ("product", "available_end_time", "VARCHAR(10)"),
-            ("vault_drop", "cash_breakdown", "TEXT")
+        run_schema_migrations()
+
+        # Create bootstrap accounts only when they do not already exist. Never reset an existing PIN on restart.
+        default_roles = [
+            ('admin', os.environ.get('DEFAULT_ADMIN_PIN') or '1234', 'ADMIN'),
+            ('cashier1', os.environ.get('DEFAULT_CASHIER_PIN') or '1111', 'CASHIER'),
         ]
-
-        with db.engine.connect() as conn:
-            for tbl, col, col_type in cols:
-                try:
-                    table_name = f'"{tbl}"' if tbl == "order" else tbl
-                    conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {col} {col_type};"))
-                    conn.commit()
-                except Exception:
-                    pass
-
-        default_roles = [('admin', '1234', 'ADMIN'), ('cashier1', '1111', 'CASHIER')]
-        for user, pin, role in default_roles:
-            st = Staff.query.filter_by(username=user).first()
-            if not st:
-                db.session.add(Staff(username=user, pin_hash=generate_password_hash(pin), role=role))
-            else:
-                st.pin_hash = generate_password_hash(pin)
-                st.role = role
+        for username, pin, role in default_roles:
+            existing = Staff.query.filter(db.func.lower(Staff.username) == username.lower()).first()
+            if not existing:
+                db.session.add(Staff(
+                    username=username,
+                    pin_hash=generate_password_hash(pin),
+                    role=role,
+                    active=True,
+                ))
+                if not os.environ.get('DEFAULT_ADMIN_PIN' if role == 'ADMIN' else 'DEFAULT_CASHIER_PIN'):
+                    app.logger.warning('Created bootstrap %s account %r using the built-in first-run PIN. Change it in Admin immediately.', role, username)
         db.session.commit()
+
         ensure_default_promos()
         _DB_INITIALIZED = True
+        app.logger.info('Database setup completed successfully.')
     except Exception:
         db.session.rollback()
+        app.logger.exception('Database setup failed. Deployment/request should fail visibly instead of hiding schema errors.')
+        raise
 
 @app.before_request
 def app_startup_and_session_handler():
-    session.permanent = True
     if not _DB_INITIALIZED:
         run_db_setup()
 
+    # Customer logins may persist for up to 30 days. Staff sessions remain browser-session cookies
+    # and are additionally protected by the explicit 8-hour inactivity check in the staff guards.
+    session.permanent = bool(session.get('customer_id')) and not bool(session.get('admin_user') or session.get('cashier_user'))
+
     if 'customer_id' in session:
         try:
-            cust = Customer.query.get(session['customer_id'])
+            cust = db.session.get(Customer, session['customer_id'])
             if cust and hasattr(cust, 'last_active_at'):
-                cust.last_active_at = datetime.utcnow()
+                cust.last_active_at = utc_now()
                 db.session.commit()
         except Exception:
             db.session.rollback()
+            app.logger.exception('Could not update customer last_active_at for customer_id=%s', session.get('customer_id'))
 
 # ==================== HELPERS & GUARDS ====================
 
@@ -292,10 +404,164 @@ def get_client_ip():
         return request.headers.get('X-Forwarded-For').split(',')[0].strip()
     return request.remote_addr or '127.0.0.1'
 
+class OrderValidationError(ValueError):
+    pass
+
+def parse_float(value, default=0.0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+def parse_int(value, default=0):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+def is_valid_customer_pin(pin):
+    return bool(pin) and len(pin) == 4 and pin.isdigit()
+
+def mask_card_number(card_number):
+    value = (card_number or '').strip()
+    if not value:
+        return 'Member'
+    if len(value) <= 4:
+        return '*' * len(value)
+    return f"{value[:4]}****{value[-2:]}"
+
+def customer_access_issue(cust):
+    if not cust:
+        return 'Customer account was not found.'
+    status = (cust.card_status or 'ACTIVE').upper()
+    if cust.card_expires_at and ph_today() > cust.card_expires_at:
+        return 'Your rewards card has expired. Please ask staff to renew it.'
+    if status != 'ACTIVE':
+        if status == 'LOCKED':
+            return 'Your rewards account is locked. Please ask staff for assistance.'
+        if status == 'EXPIRED':
+            return 'Your rewards card has expired. Please ask staff to renew it.'
+        return f'Your rewards account is currently {status.lower()}.'
+    return None
+
+def get_customer_by_identifier(identifier):
+    value = (identifier or '').strip()
+    if not value:
+        return None
+    return Customer.query.filter(
+        (Customer.contact == value) | (db.func.lower(Customer.card_number) == value.lower())
+    ).first()
+
+def generate_unique_card_number(customer_id=None):
+    """Continue the MFH sequence without random collisions."""
+    highest = 0
+    for (card,) in db.session.query(Customer.card_number).filter(Customer.card_number.isnot(None)).all():
+        match = re.fullmatch(r'MFH-(\d+)', card or '', flags=re.IGNORECASE)
+        if match:
+            highest = max(highest, int(match.group(1)))
+    number = max(highest + 1, parse_int(customer_id, 0) or 1)
+    while True:
+        width = 4 if number <= 9999 else 6
+        candidate = f"MFH-{number:0{width}d}"
+        if not Customer.query.filter(db.func.lower(Customer.card_number) == candidate.lower()).first():
+            return candidate
+        number += 1
+
+def customer_available_credit(cust, include_pending=True):
+    limit = max(0.0, parse_float(cust.credit_limit, 0.0))
+    used = max(0.0, parse_float(cust.outstanding_ar, 0.0))
+    if include_pending:
+        pending = db.session.query(db.func.coalesce(db.func.sum(Order.total_amount), 0.0)).filter(
+            Order.customer_id == cust.id,
+            Order.payment_method == 'CREDIT',
+            Order.status == 'VERIFICATION',
+        ).scalar() or 0.0
+        used += float(pending)
+    return max(0.0, limit - used)
+
+def validate_and_lock_cart(raw_items, require_available=True):
+    """Validate quantities/products/stock and return DB-priced line snapshots.
+
+    Duplicate product IDs are consolidated. Product rows are locked on PostgreSQL so two
+    simultaneous checkouts cannot both consume the same final stock.
+    """
+    if not isinstance(raw_items, list) or not raw_items:
+        raise OrderValidationError('No items were selected.')
+
+    requested = {}
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            raise OrderValidationError('Invalid cart item.')
+        product_id = parse_int(raw.get('product_id'), 0)
+        quantity = parse_int(raw.get('quantity'), 0)
+        if product_id <= 0:
+            raise OrderValidationError('A cart item has an invalid product ID.')
+        if quantity < 1:
+            raise OrderValidationError('Item quantity must be at least 1.')
+        if quantity > 999:
+            raise OrderValidationError('Item quantity is too large.')
+        requested[product_id] = requested.get(product_id, 0) + quantity
+
+    lines = []
+    for product_id, quantity in requested.items():
+        stmt = db.select(Product).where(Product.id == product_id)
+        if db.engine.dialect.name != 'sqlite':
+            stmt = stmt.with_for_update()
+        prod = db.session.execute(stmt).scalar_one_or_none()
+        if not prod:
+            raise OrderValidationError(f'Product #{product_id} no longer exists.')
+        if not prod.is_active:
+            raise OrderValidationError(f'{prod.name} is currently inactive.')
+        if require_available and not is_product_available_now(prod):
+            raise OrderValidationError(f'{prod.name} is not available at this time.')
+
+        stock = max(0, parse_int(prod.stock, 0))
+        if stock < quantity:
+            raise OrderValidationError(f'Not enough stock for {prod.name}. Available: {stock}.')
+
+        unit_price = max(0.0, parse_float(prod.price, 0.0))
+        if unit_price <= 0:
+            raise OrderValidationError(f'{prod.name} has an invalid selling price.')
+        cost_price = max(0.0, parse_float(prod.cost, 0.0))
+        lines.append({
+            'product': prod,
+            'quantity': quantity,
+            'unit_price': unit_price,
+            'cost_price': cost_price,
+            'subtotal': unit_price * quantity,
+        })
+    return lines
+
+def reserve_cart_stock(lines):
+    for line in lines:
+        line['product'].stock = parse_int(line['product'].stock, 0) - line['quantity']
+
+def cart_subtotal(lines):
+    return sum(line['subtotal'] for line in lines)
+
+def staff_session_valid():
+    raw = session.get('_staff_last_activity')
+    if not raw:
+        return False
+    try:
+        last = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        return False
+    now = utc_now()
+    if now - last > STAFF_SESSION_TIMEOUT:
+        return False
+    session['_staff_last_activity'] = now.isoformat()
+    return True
+
+def clear_staff_session():
+    for key in ('admin_id', 'admin_user', 'cashier_id', 'cashier_user', '_staff_last_activity'):
+        session.pop(key, None)
+
 def get_store_settings():
     try:
-        settings = {s.key: s.value for s in StoreSetting.query.all()}
+        settings = {row.key: row.value for row in StoreSetting.query.all()}
     except Exception:
+        app.logger.exception('Store settings query failed; using safe defaults for this request')
         settings = {}
     defaults = {
         'store_open_time': '08:00',
@@ -311,8 +577,7 @@ def get_store_settings():
 
 def check_operating_status():
     s = get_store_settings()
-    now_utc = datetime.utcnow()
-    now_ph = (now_utc + timedelta(hours=8)).time()
+    now_ph = ph_now().time()
 
     def parse_t(val, fallback):
         try:
@@ -341,7 +606,7 @@ def is_product_available_now(prod):
     if not getattr(prod, 'available_start_time', None) or not getattr(prod, 'available_end_time', None):
         return True
     try:
-        now_ph = (datetime.utcnow() + timedelta(hours=8)).time()
+        now_ph = ph_now().time()
         start = datetime.strptime(prod.available_start_time, '%H:%M').time()
         end = datetime.strptime(prod.available_end_time, '%H:%M').time()
         if start <= end:
@@ -381,6 +646,13 @@ def ensure_default_promos():
         db.session.commit()
     except Exception:
         db.session.rollback()
+        app.logger.exception('Could not ensure default promotions')
+        raise
+
+@app.template_filter('ph_datetime')
+def ph_datetime_filter(value, fmt='%b %d, %Y - %I:%M %p'):
+    local_value = utc_naive_to_ph(value)
+    return local_value.strftime(fmt) if local_value else ''
 
 @app.context_processor
 def inject_globals():
@@ -388,23 +660,32 @@ def inject_globals():
         setting = StoreSetting.query.filter_by(key='logo_url').first()
         logo = setting.value if setting else '/static/logo.png'
     except Exception:
+        app.logger.exception('Logo setting query failed; using /static/logo.png fallback')
         logo = '/static/logo.png'
     status = check_operating_status()
-    return dict(store_logo=logo, status=status)
+    return dict(store_logo=logo, status=status, mask_card_number=mask_card_number)
+
+def _staff_auth_failure(target, message):
+    """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
+    clear_staff_session()
+    if request.is_json or request.path.startswith('/api/'):
+        return jsonify({'success': False, 'message': message}), 401
+    flash(message, 'info')
+    return redirect(url_for('staff_login', target=target))
 
 def require_admin(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not session.get('admin_user'):
-            return redirect(url_for('staff_login', target='admin'))
+        if not session.get('admin_user') or not staff_session_valid():
+            return _staff_auth_failure('admin', 'Admin session expired. Please log in again.')
         return f(*args, **kwargs)
     return decorated
 
 def require_cashier(f):
     @wraps(f)
     def decorated(*args, **kwargs):
-        if not (session.get('cashier_user') or session.get('admin_user')):
-            return redirect(url_for('staff_login', target='cashier'))
+        if not (session.get('cashier_user') or session.get('admin_user')) or not staff_session_valid():
+            return _staff_auth_failure('cashier', 'Staff session expired. Please log in again.')
         return f(*args, **kwargs)
     return decorated
 
@@ -414,9 +695,10 @@ def require_cashier(f):
 def api_queue_counts():
     try:
         pending_cashier = Order.query.filter_by(status="VERIFICATION").count()
+        return jsonify({'pending_cashier': pending_cashier})
     except Exception:
-        pending_cashier = 0
-    return jsonify({'pending_cashier': pending_cashier})
+        app.logger.exception('Queue-count query failed')
+        return jsonify({'error': 'Queue data is temporarily unavailable.'}), 500
 
 # ==================== STOREFRONT ====================
 
@@ -432,13 +714,15 @@ def store_catalog():
         db.session.commit()
     except Exception:
         db.session.rollback()
+        app.logger.exception('Storefront visitor tracking update failed')
 
     try:
         unique_visitors = SiteVisitor.query.count()
         total_accumulated_visits = db.session.query(db.func.coalesce(db.func.sum(SiteVisitor.visit_count), 0)).scalar() or unique_visitors
     except Exception:
-        unique_visitors = 1
-        total_accumulated_visits = 1
+        app.logger.exception('Storefront visitor metrics query failed')
+        unique_visitors = 0
+        total_accumulated_visits = 0
 
     categories = Category.query.all()
     all_active_products = Product.query.filter_by(is_active=True).all()
@@ -456,11 +740,15 @@ def store_catalog():
     try:
         top_customers = Customer.query.order_by(Customer.points_balance.desc()).limit(10).all()
     except Exception:
+        app.logger.exception('Top-customer leaderboard query failed')
         top_customers = []
 
     cust = None
+    credit_available = 0.0
     if 'customer_id' in session:
         cust = Customer.query.get(session['customer_id'])
+        if cust and cust.is_credit_eligible and not customer_access_issue(cust):
+            credit_available = customer_available_credit(cust, include_pending=True)
 
     return render_template('store_catalog.html', 
                            categories=categories, 
@@ -474,7 +762,8 @@ def store_catalog():
                            cust=cust, 
                            status=status, 
                            unique_visitors=unique_visitors, 
-                           total_accumulated_visits=total_accumulated_visits)
+                           total_accumulated_visits=total_accumulated_visits,
+                           credit_available=credit_available)
 
 @app.route('/promo/burger-deal')
 def promo_burger_deal():
@@ -542,94 +831,122 @@ def api_storefront_checkout():
     if 'customer_id' not in session:
         return jsonify({'success': False, 'message': 'Registration / Login is required. No guest checkout.'}), 403
 
-    status = check_operating_status()
-    cust = Customer.query.get(session['customer_id'])
-    data = request.get_json() or {}
-    items = data.get('items', [])
-    order_type = data.get('order_type', 'PICKUP').upper()
-    dining_opt = data.get('dining_option', 'TAKEOUT').upper()
-    pay_method = data.get('payment_method', 'CASH').upper()
-    notes = data.get('notes', '').strip() or 'None'
-    target_time = data.get('target_time', '').strip()
-    zone_id = data.get('delivery_zone_id')
-    landmark = data.get('landmark', '').strip()
-    delivery_address = data.get('delivery_address', '').strip()
-    gcash_ref = data.get('gcash_ref', '').strip()
-    fb = data.get('fb_messenger', '').strip()
+    cust = db.session.get(Customer, session['customer_id'])
+    issue = customer_access_issue(cust)
+    if issue:
+        return jsonify({'success': False, 'message': issue}), 403
 
+    data = request.get_json() or {}
+    order_type = str(data.get('order_type', 'PICKUP')).upper()
+    dining_opt = str(data.get('dining_option', 'TAKEOUT')).upper()
+    pay_method = str(data.get('payment_method', 'CASH')).upper()
+    notes = str(data.get('notes', '')).strip() or 'None'
+    target_time = str(data.get('target_time', '')).strip()
+    zone_id = data.get('delivery_zone_id')
+    landmark = str(data.get('landmark', '')).strip()
+    delivery_address = str(data.get('delivery_address', '')).strip()
+    gcash_ref = str(data.get('gcash_ref', '')).strip()
+    fb = str(data.get('fb_messenger', '')).strip()
+
+    if order_type not in {'PICKUP', 'DELIVERY'}:
+        return jsonify({'success': False, 'message': 'Invalid order type.'}), 400
+    if pay_method not in {'CASH', 'GCASH', 'CREDIT'}:
+        return jsonify({'success': False, 'message': 'Invalid payment method.'}), 400
+
+    status = check_operating_status()
     if order_type == 'PICKUP' and not status['store_open']:
         return jsonify({'success': False, 'message': 'Store ordering is currently closed.'}), 400
-
     if order_type == 'DELIVERY' and not status['delivery_open']:
         return jsonify({'success': False, 'message': 'Barangay delivery is currently unavailable/closed.'}), 400
-
-    if not items or not target_time:
-        return jsonify({'success': False, 'message': 'Please complete your target time and select cart items.'}), 400
+    if not target_time:
+        return jsonify({'success': False, 'message': 'Please provide your target time.'}), 400
 
     delivery_fee = 0.0
     final_address = delivery_address
     final_landmark = landmark
-
     if order_type == 'DELIVERY':
         dining_opt = 'DELIVERY'
         if not zone_id and (not landmark or not delivery_address):
             return jsonify({'success': False, 'message': 'Please choose a Barangay Delivery Zone or provide address info.'}), 400
         if zone_id:
-            zone = DeliveryZone.query.get(zone_id)
-            if zone:
-                delivery_fee = zone.rate
-                final_address = f"Barangay: {zone.barangay} ({zone.place_name})"
-                final_landmark = landmark or zone.note or "Designated Delivery Spot"
+            zone = db.session.get(DeliveryZone, parse_int(zone_id, 0))
+            if not zone or not zone.is_active:
+                return jsonify({'success': False, 'message': 'The selected delivery zone is unavailable.'}), 400
+            delivery_fee = max(0.0, parse_float(zone.rate, 0.0))
+            final_address = f"Barangay: {zone.barangay} ({zone.place_name})"
+            final_landmark = landmark or zone.note or 'Designated Delivery Spot'
+    else:
+        dining_opt = 'TAKEOUT' if dining_opt not in {'DINE-IN', 'TAKEOUT'} else dining_opt
 
     if pay_method == 'CREDIT' and not cust.is_credit_eligible:
         return jsonify({'success': False, 'message': 'Your account is not authorized for A/R Credit.'}), 403
-
-    if pay_method in ['GCASH', 'CREDIT'] and not fb:
+    if pay_method in {'GCASH', 'CREDIT'} and not fb:
         return jsonify({'success': False, 'message': 'Facebook messenger link is required for evaluation.'}), 400
-
-    if pay_method == 'GCASH' and len(gcash_ref) < 6:
+    if pay_method == 'GCASH' and (len(gcash_ref) != 6 or not gcash_ref.isdigit()):
         return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400
 
-    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
-    total = subtotal + delivery_fee
+    try:
+        lines = validate_and_lock_cart(data.get('items', []), require_available=True)
+        subtotal = cart_subtotal(lines)
+        total = subtotal + delivery_fee
 
-    order = Order(
-        order_type=order_type,
-        dining_option=dining_opt,
-        customer_id=cust.id,
-        customer_name=cust.name,
-        contact_number=cust.contact,
-        fb_messenger=fb,
-        delivery_address=final_address if order_type == 'DELIVERY' else None,
-        landmark=final_landmark if order_type == 'DELIVERY' else None,
-        pickup_time=target_time if order_type == 'PICKUP' else None,
-        target_time=target_time,
-        change_for=float(data.get('change_for') or 0.0) if pay_method in ['CASH', 'COD'] else None,
-        gcash_ref=gcash_ref if pay_method == 'GCASH' else None,
-        subtotal=subtotal,
-        delivery_fee=delivery_fee,
-        total_amount=total,
-        payment_method=pay_method,
-        payment_verified=False,
-        status='VERIFICATION',
-        notes=notes
-    )
-    db.session.add(order)
-    db.session.flush()
+        if pay_method == 'CREDIT':
+            available_credit = customer_available_credit(cust, include_pending=True)
+            if total > available_credit + 1e-9:
+                return jsonify({
+                    'success': False,
+                    'message': f'Credit limit exceeded. Available credit: ₱{available_credit:,.2f}.'
+                }), 400
 
-    for it in items:
-        prod = Product.query.get(it['product_id'])
-        if prod:
+        change_for = parse_float(data.get('change_for'), 0.0) if pay_method == 'CASH' else 0.0
+        if pay_method == 'CASH' and change_for and change_for < total:
+            return jsonify({'success': False, 'message': 'Cash bill cannot be less than the order total.'}), 400
+
+        order = Order(
+            order_type=order_type,
+            dining_option=dining_opt,
+            customer_id=cust.id,
+            customer_name=cust.name,
+            contact_number=cust.contact,
+            fb_messenger=fb or cust.fb_messenger,
+            delivery_address=final_address if order_type == 'DELIVERY' else None,
+            landmark=final_landmark if order_type == 'DELIVERY' else None,
+            pickup_time=target_time if order_type == 'PICKUP' else None,
+            target_time=target_time,
+            change_for=change_for if pay_method == 'CASH' and change_for > 0 else None,
+            gcash_ref=gcash_ref if pay_method == 'GCASH' else None,
+            subtotal=subtotal,
+            delivery_fee=delivery_fee,
+            total_amount=total,
+            payment_method=pay_method,
+            payment_verified=False,
+            status='VERIFICATION',
+            notes=notes,
+        )
+        db.session.add(order)
+        db.session.flush()
+
+        for line in lines:
+            prod = line['product']
             db.session.add(OrderItem(
-                order_id=order.id, product_id=prod.id, product_name=prod.name,
-                unit_price=prod.price, quantity=int(it['quantity']),
-                subtotal=prod.price * int(it['quantity'])
+                order_id=order.id,
+                product_id=prod.id,
+                product_name=prod.name,
+                unit_price=line['unit_price'],
+                cost_price=line['cost_price'],
+                quantity=line['quantity'],
+                subtotal=line['subtotal'],
             ))
-            if prod.stock >= int(it['quantity']):
-                prod.stock -= int(it['quantity'])
-
-    db.session.commit()
-    return jsonify({'success': True, 'order_id': order.id, 'total': total})
+        reserve_cart_stock(lines)
+        db.session.commit()
+        return jsonify({'success': True, 'order_id': order.id, 'total': total})
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Storefront checkout failed for customer_id=%s', cust.id)
+        return jsonify({'success': False, 'message': 'Checkout failed due to a server error. No order was recorded.'}), 500
 
 # ==================== TABLET KIOSK ENDPOINTS ====================
 
@@ -643,60 +960,75 @@ def tablet_kiosk():
 @app.route('/api/tablet-checkout', methods=['POST'])
 def api_tablet_checkout():
     data = request.get_json() or {}
-    items = data.get('items', [])
-    dining_opt = data.get('dining_option', 'DINE-IN').upper()
-    customer_name = data.get('customer_name', 'Tablet Kiosk Guest').strip() or 'Tablet Kiosk Guest'
-    pay_method = data.get('payment_method', 'CASH').upper()
-    notes = data.get('notes', 'Tablet Self-Order').strip() or 'Tablet Self-Order'
+    dining_opt = str(data.get('dining_option', 'DINE-IN')).upper()
+    if dining_opt not in {'DINE-IN', 'TAKEOUT'}:
+        dining_opt = 'DINE-IN'
+    pay_method = str(data.get('payment_method', 'CASH')).upper()
+    if pay_method not in {'CASH', 'GCASH'}:
+        return jsonify({'success': False, 'message': 'Invalid kiosk payment method.'}), 400
+    notes = str(data.get('notes', 'Tablet Self-Order')).strip() or 'Tablet Self-Order'
 
-    if not items:
-        return jsonify({'success': False, 'message': 'Ticket is empty.'}), 400
+    cust = None
+    member_identifier = str(data.get('member_identifier', '')).strip()
+    member_pin = str(data.get('member_pin', '')).strip()
+    if member_identifier or member_pin:
+        if not member_identifier or not member_pin:
+            return jsonify({'success': False, 'message': 'Enter both member mobile/card ID and 4-digit PIN, or leave both blank for guest checkout.'}), 400
+        if not is_valid_customer_pin(member_pin):
+            return jsonify({'success': False, 'message': 'Member PIN must be exactly 4 digits.'}), 400
+        cust = get_customer_by_identifier(member_identifier)
+        if not cust or not check_password_hash(cust.pin_hash, member_pin):
+            return jsonify({'success': False, 'message': 'Invalid member ID/mobile number or PIN.'}), 403
+        issue = customer_access_issue(cust)
+        if issue:
+            return jsonify({'success': False, 'message': issue}), 403
 
-    cust_id = None
-    contact_num = 'Kiosk'
-    if 'PIN:' in customer_name:
-        pin_code = customer_name.split('PIN:')[1].replace(')', '').strip()
-        matched = Customer.query.filter((Customer.contact == pin_code) | (Customer.card_number == pin_code)).first()
-        if matched:
-            cust_id = matched.id
-            customer_name = matched.name
-            contact_num = matched.contact
+    try:
+        lines = validate_and_lock_cart(data.get('items', []), require_available=True)
+        subtotal = cart_subtotal(lines)
+        order = Order(
+            order_type='TABLET',
+            dining_option=dining_opt,
+            customer_id=cust.id if cust else None,
+            customer_name=cust.name if cust else 'Tablet Kiosk Guest',
+            contact_number=cust.contact if cust else 'Kiosk',
+            subtotal=subtotal,
+            delivery_fee=0.0,
+            total_amount=subtotal,
+            payment_method=pay_method,
+            payment_verified=False,
+            status='VERIFICATION',
+            notes=notes,
+        )
+        db.session.add(order)
+        db.session.flush()
 
-    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
-
-    order = Order(
-        order_type='TABLET',
-        dining_option=dining_opt,
-        customer_id=cust_id,
-        customer_name=customer_name,
-        contact_number=contact_num,
-        subtotal=subtotal,
-        delivery_fee=0.0,
-        total_amount=subtotal,
-        payment_method=pay_method,
-        payment_verified=False,
-        status='VERIFICATION',
-        notes=notes
-    )
-    db.session.add(order)
-    db.session.flush()
-
-    for it in items:
-        prod = Product.query.get(it['product_id'])
-        if prod:
+        for line in lines:
+            prod = line['product']
             db.session.add(OrderItem(
                 order_id=order.id,
                 product_id=prod.id,
                 product_name=prod.name,
-                unit_price=prod.price,
-                quantity=int(it['quantity']),
-                subtotal=prod.price * int(it['quantity'])
+                unit_price=line['unit_price'],
+                cost_price=line['cost_price'],
+                quantity=line['quantity'],
+                subtotal=line['subtotal'],
             ))
-            if prod.stock >= int(it['quantity']):
-                prod.stock -= int(it['quantity'])
-
-    db.session.commit()
-    return jsonify({'success': True, 'order_id': order.id, 'total': subtotal})
+        reserve_cart_stock(lines)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'order_id': order.id,
+            'total': subtotal,
+            'member_name': cust.name if cust else None,
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Tablet checkout failed')
+        return jsonify({'success': False, 'message': 'Server error. No kiosk order was recorded.'}), 500
 
 # ==================== CASHIER TERMINAL & CLAIM DISPATCH ====================
 
@@ -704,72 +1036,42 @@ def api_tablet_checkout():
 @require_cashier
 def cashier_terminal():
     categories = Category.query.all()
-    products = Product.query.filter_by(is_active=True).all()
-    
-    try:
-        pending_orders = Order.query.filter_by(status="VERIFICATION").order_by(Order.created_at.asc()).all()
-    except Exception:
-        pending_orders = []
-        
-    try:
-        completed_orders = Order.query.filter_by(status="COMPLETED").order_by(Order.created_at.desc()).limit(15).all()
-    except Exception:
-        completed_orders = []
-        
-    try:
-        unpaid_collections = Order.query.filter_by(is_unpaid=True).order_by(Order.created_at.desc()).all()
-    except Exception:
-        unpaid_collections = []
-        
+    all_active_products = Product.query.filter_by(is_active=True).all()
+    products = [p for p in all_active_products if is_product_available_now(p)]
+
+    # These are core cashier queries. Do not hide database/schema failures behind empty panels.
+    pending_orders = Order.query.filter_by(status='VERIFICATION').order_by(Order.created_at.asc()).all()
+    completed_orders = Order.query.filter_by(status='COMPLETED').order_by(Order.created_at.desc()).limit(15).all()
+    unpaid_collections = Order.query.filter_by(is_unpaid=True).order_by(Order.created_at.desc()).all()
+
     staff_list = Staff.query.all()
     customers_list = Customer.query.order_by(Customer.name.asc()).all()
+    two_mins_ago = utc_now() - timedelta(minutes=2)
+    online_customers = Customer.query.filter(Customer.last_active_at >= two_mins_ago).order_by(Customer.last_active_at.desc()).all()
+    credit_customers = Customer.query.filter(Customer.outstanding_ar > 0).order_by(Customer.outstanding_ar.desc()).all()
 
-    two_mins_ago = datetime.utcnow() - timedelta(minutes=2)
-    try:
-        online_customers = Customer.query.filter(Customer.last_active_at >= two_mins_ago).order_by(Customer.last_active_at.desc()).all()
-    except Exception:
-        online_customers = []
-
-    try:
-        credit_customers = Customer.query.filter(Customer.outstanding_ar > 0).order_by(Customer.outstanding_ar.desc()).all()
-    except Exception:
-        credit_customers = []
-
-    today = date.today()
-    start_today = datetime.combine(today, time.min)
-    end_today = datetime.combine(today, time.max)
-    
-    try:
-        today_expenses = Expense.query.filter(Expense.created_at >= start_today, Expense.created_at <= end_today).order_by(Expense.created_at.desc()).all()
-    except Exception:
-        today_expenses = []
-
-    try:
-        today_drops = VaultDrop.query.filter(VaultDrop.created_at >= start_today, VaultDrop.created_at <= end_today).order_by(VaultDrop.drop_number.asc()).all()
-    except Exception:
-        today_drops = []
-
-    try:
-        today_change_funds = ChangeFund.query.filter(ChangeFund.created_at >= start_today, ChangeFund.created_at <= end_today).order_by(ChangeFund.created_at.desc()).all()
-    except Exception:
-        today_change_funds = []
-        
+    start_today, next_day = ph_day_utc_bounds()
+    today_expenses = Expense.query.filter(Expense.created_at >= start_today, Expense.created_at < next_day).order_by(Expense.created_at.desc()).all()
+    today_drops = VaultDrop.query.filter(VaultDrop.created_at >= start_today, VaultDrop.created_at < next_day).order_by(VaultDrop.drop_number.asc()).all()
+    today_change_funds = ChangeFund.query.filter(ChangeFund.created_at >= start_today, ChangeFund.created_at < next_day).order_by(ChangeFund.created_at.desc()).all()
     next_drop_num = len(today_drops) + 1
 
-    return render_template('cashier_pos.html', 
-                           categories=categories, 
-                           products=products, 
-                           pending_orders=pending_orders, 
-                           completed_orders=completed_orders, 
-                           unpaid_collections=unpaid_collections, 
-                           credit_customers=credit_customers, 
-                           online_customers=online_customers, 
-                           staff_list=staff_list, 
-                           customers_list=customers_list, 
-                           today_expenses=today_expenses, 
-                           today_drops=today_drops, 
-                           today_change_funds=today_change_funds, 
-                           next_drop_num=next_drop_num)
+    return render_template(
+        'cashier_pos.html',
+        categories=categories,
+        products=products,
+        pending_orders=pending_orders,
+        completed_orders=completed_orders,
+        unpaid_collections=unpaid_collections,
+        credit_customers=credit_customers,
+        online_customers=online_customers,
+        staff_list=staff_list,
+        customers_list=customers_list,
+        today_expenses=today_expenses,
+        today_drops=today_drops,
+        today_change_funds=today_change_funds,
+        next_drop_num=next_drop_num,
+    )
 
 @app.route('/pos/topup-member-wifi', methods=['POST'])
 @require_cashier
@@ -792,28 +1094,35 @@ def cashier_topup_member_wifi():
 @require_cashier
 def cashier_direct_sale():
     data = request.get_json() or {}
-    items = data.get('items', [])
-    cust_type = data.get('customer_type', 'WALKIN')
+    cust_type = str(data.get('customer_type', 'WALKIN')).upper()
     reg_id = data.get('registered_customer_id')
-    dining_opt = data.get('dining_option', 'DINE-IN').upper()
-    pay_method = data.get('payment_method', 'CASH').upper()
-    cust_name = data.get('customer_name', 'Counter Walk-in').strip() or 'Counter Walk-in'
-    notes = data.get('notes', 'Cashier Counter POS Sale').strip() or 'Cashier Counter POS Sale'
-    change_for = float(data.get('change_for') or 0.0)
+    dining_opt = str(data.get('dining_option', 'DINE-IN')).upper()
+    pay_method = str(data.get('payment_method', 'CASH')).upper()
+    cust_name = str(data.get('customer_name', 'Counter Walk-in')).strip() or 'Counter Walk-in'
+    notes = str(data.get('notes', 'Cashier Counter POS Sale')).strip() or 'Cashier Counter POS Sale'
+    change_for = parse_float(data.get('change_for'), 0.0)
 
-    if not items:
-        return jsonify({'success': False, 'message': 'No items in cart.'}), 400
+    if dining_opt not in {'DINE-IN', 'TAKEOUT'}:
+        return jsonify({'success': False, 'message': 'Invalid dining option.'}), 400
+    if pay_method not in {'CASH', 'GCASH'}:
+        return jsonify({'success': False, 'message': 'Direct paid sales support Cash or GCash.'}), 400
 
-    subtotal = sum(Product.query.get(it['product_id']).price * int(it['quantity']) for it in items if Product.query.get(it['product_id']))
+    try:
+        lines = validate_and_lock_cart(data.get('items', []), require_available=True)
+        subtotal = cart_subtotal(lines)
+        if pay_method == 'CASH' and change_for and change_for < subtotal:
+            raise OrderValidationError('Cash bill cannot be less than the sale total.')
 
-    cust_id = None
-    contact = 'N/A'
-    points_earned = 0
-
-    if cust_type == 'REGISTERED' and reg_id:
-        cust = Customer.query.get(reg_id)
-        if cust:
-            cust_id = cust.id
+        cust = None
+        points_earned = 0
+        contact = 'N/A'
+        if cust_type == 'REGISTERED':
+            cust = db.session.get(Customer, parse_int(reg_id, 0))
+            if not cust:
+                raise OrderValidationError('Please select a valid registered member.')
+            issue = customer_access_issue(cust)
+            if issue:
+                raise OrderValidationError(issue)
             cust_name = cust.name
             contact = cust.contact
             cust.accumulated_spend = (cust.accumulated_spend or 0.0) + subtotal
@@ -823,49 +1132,48 @@ def cashier_direct_sale():
                 db.session.add(RewardLedger(
                     customer_id=cust.id,
                     points_change=points_earned,
-                    reason=f"Counter POS Sale (₱{subtotal:,.2f})"
+                    reason=f'Counter POS Sale (₱{subtotal:,.2f})',
                 ))
 
-    order = Order(
-        order_type='COUNTER_SALE',
-        dining_option=dining_opt,
-        customer_id=cust_id,
-        customer_name=cust_name,
-        contact_number=contact,
-        subtotal=subtotal,
-        delivery_fee=0.0,
-        total_amount=subtotal,
-        payment_method=pay_method,
-        payment_verified=True,
-        change_for=change_for if change_for > 0 else None,
-        status='COMPLETED',
-        notes=notes
-    )
-    db.session.add(order)
-    db.session.flush()
+        order = Order(
+            order_type='COUNTER_SALE',
+            dining_option=dining_opt,
+            customer_id=cust.id if cust else None,
+            customer_name=cust_name,
+            contact_number=contact,
+            subtotal=subtotal,
+            delivery_fee=0.0,
+            total_amount=subtotal,
+            payment_method=pay_method,
+            payment_verified=True,
+            change_for=change_for if change_for > 0 else None,
+            status='COMPLETED',
+            notes=notes,
+        )
+        db.session.add(order)
+        db.session.flush()
 
-    for it in items:
-        prod = Product.query.get(it['product_id'])
-        if prod:
+        for line in lines:
+            prod = line['product']
             db.session.add(OrderItem(
                 order_id=order.id,
                 product_id=prod.id,
                 product_name=prod.name,
-                unit_price=prod.price,
-                cost_price=0.0,
-                quantity=int(it['quantity']),
-                subtotal=prod.price * int(it['quantity'])
+                unit_price=line['unit_price'],
+                cost_price=line['cost_price'],
+                quantity=line['quantity'],
+                subtotal=line['subtotal'],
             ))
-            if prod.stock >= int(it['quantity']):
-                prod.stock -= int(it['quantity'])
-
-    db.session.commit()
-    return jsonify({
-        'success': True,
-        'order_id': order.id,
-        'total': subtotal,
-        'points_earned': points_earned
-    })
+        reserve_cart_stock(lines)
+        db.session.commit()
+        return jsonify({'success': True, 'order_id': order.id, 'total': subtotal, 'points_earned': points_earned})
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Cashier direct sale failed')
+        return jsonify({'success': False, 'message': 'Sale failed due to a server error. Nothing was recorded.'}), 500
 
 @app.route('/pos/claim-promo', methods=['POST'])
 @require_cashier
@@ -876,8 +1184,14 @@ def cashier_claim_promo():
     pay_method = request.form.get('payment_method', 'CASH').upper()
     
     promo = PromotionTracker.query.filter_by(promo_code=promo_code).first()
-    if not promo:
-        flash("Promotion deal not found.", "error")
+    if not promo or not promo.is_active:
+        flash("Promotion deal is not active or could not be found.", "error")
+        return redirect(url_for('cashier_terminal'))
+    if dining_opt not in {'DINE-IN', 'TAKEOUT'}:
+        flash('Invalid dining option.', 'error')
+        return redirect(url_for('cashier_terminal'))
+    if pay_method not in {'CASH', 'GCASH'}:
+        flash('Promo sales support Cash or GCash only.', 'error')
         return redirect(url_for('cashier_terminal'))
 
     cust_id = None
@@ -888,6 +1202,10 @@ def cashier_claim_promo():
     if reg_id:
         cust = Customer.query.get(reg_id)
         if cust:
+            issue = customer_access_issue(cust)
+            if issue:
+                flash(issue, 'error')
+                return redirect(url_for('cashier_terminal'))
             cust_id = cust.id
             cust_name = cust.name
             contact = cust.contact
@@ -923,7 +1241,7 @@ def cashier_claim_promo():
         product_id=None,
         product_name=f"[PROMO] {promo.title}",
         unit_price=promo.promo_price,
-        cost_price=0.0,
+        cost_price=max(0.0, parse_float(promo.promo_cost, 0.0)),
         quantity=1,
         subtotal=promo.promo_price
     ))
@@ -940,82 +1258,89 @@ def cashier_claim_promo():
 def cashier_create_reservation():
     cust_type = request.form.get('customer_type', 'REGISTERED')
     reg_id = request.form.get('registered_customer_id')
-    product_id = request.form.get('product_id')
-    qty = int(request.form.get('quantity') or 1)
+    product_id = parse_int(request.form.get('product_id'), 0)
+    qty = parse_int(request.form.get('quantity'), 1)
     dining_opt = request.form.get('dining_option', 'TAKEOUT').upper()
     target_time = request.form.get('target_time', '').strip() or 'Today'
     pay_method = request.form.get('payment_method', 'CASH').upper()
     notes = request.form.get('notes', '').strip() or 'In-Store Reservation'
 
-    if not product_id or qty <= 0:
-        flash("Please select a valid product and quantity.", "error")
-        return redirect(url_for('cashier_terminal'))
+    try:
+        lines = validate_and_lock_cart([{'product_id': product_id, 'quantity': qty}], require_available=True)
+        line = lines[0]
+        prod = line['product']
+        subtotal = line['subtotal']
 
-    prod = Product.query.get_or_404(int(product_id))
-    subtotal = prod.price * qty
-
-    cust_id = None
-    cust_name = 'Walk-in Guest'
-    contact = 'N/A'
-
-    if cust_type == 'REGISTERED' and reg_id:
-        cust = Customer.query.get(int(reg_id))
-        if cust:
-            cust_id = cust.id
+        cust = None
+        cust_name = 'Walk-in Guest'
+        contact = 'N/A'
+        if cust_type == 'REGISTERED':
+            cust = db.session.get(Customer, parse_int(reg_id, 0))
+            if not cust:
+                raise OrderValidationError('Please select a registered member.')
+            issue = customer_access_issue(cust)
+            if issue:
+                raise OrderValidationError(issue)
             cust_name = cust.name
             contact = cust.contact
-    else:
-        cust_name = request.form.get('custom_customer_name', '').strip() or 'Walk-in Reservation'
-        contact = request.form.get('custom_contact', '').strip() or 'N/A'
+        else:
+            cust_name = request.form.get('custom_customer_name', '').strip() or 'Walk-in Reservation'
+            contact = request.form.get('custom_contact', '').strip() or 'N/A'
 
-    order = Order(
-        order_type='RESERVATION',
-        dining_option=dining_opt,
-        customer_id=cust_id,
-        customer_name=f"{cust_name} (Reserved: {target_time})",
-        contact_number=contact,
-        pickup_time=target_time,
-        target_time=target_time,
-        subtotal=subtotal,
-        delivery_fee=0.0,
-        total_amount=subtotal,
-        payment_method=pay_method,
-        payment_verified=False,
-        status='VERIFICATION',
-        notes=f"[{dining_opt} - RESERVED for {target_time}] {notes}"
-    )
-    db.session.add(order)
-    db.session.flush()
-
-    db.session.add(OrderItem(
-        order_id=order.id,
-        product_id=prod.id,
-        product_name=prod.name,
-        unit_price=prod.price,
-        cost_price=0.0,
-        quantity=qty,
-        subtotal=subtotal
-    ))
-
-    if prod.stock >= qty:
-        prod.stock -= qty
-
-    db.session.commit()
-    flash(f"📌 Reserved {prod.name} x{qty} ({dining_opt}) for {cust_name} (Pickup: {target_time}) — ₱{subtotal:,.2f}", "success")
+        order = Order(
+            order_type='RESERVATION',
+            dining_option=dining_opt if dining_opt in {'DINE-IN', 'TAKEOUT'} else 'TAKEOUT',
+            customer_id=cust.id if cust else None,
+            customer_name=f'{cust_name} (Reserved: {target_time})',
+            contact_number=contact,
+            pickup_time=target_time,
+            target_time=target_time,
+            subtotal=subtotal,
+            delivery_fee=0.0,
+            total_amount=subtotal,
+            payment_method=pay_method if pay_method in {'CASH', 'GCASH'} else 'CASH',
+            payment_verified=False,
+            status='VERIFICATION',
+            notes=f'[{dining_opt} - RESERVED for {target_time}] {notes}',
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add(OrderItem(
+            order_id=order.id,
+            product_id=prod.id,
+            product_name=prod.name,
+            unit_price=line['unit_price'],
+            cost_price=line['cost_price'],
+            quantity=qty,
+            subtotal=subtotal,
+        ))
+        reserve_cart_stock(lines)
+        db.session.commit()
+        flash(f'📌 Reserved {prod.name} x{qty} ({dining_opt}) for {cust_name} (Pickup: {target_time}) — ₱{subtotal:,.2f}', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Cashier reservation failed')
+        flash('Reservation failed due to a server error. Nothing was recorded.', 'error')
     return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/misc-sale', methods=['POST'])
 @require_cashier
 def cashier_misc_sale():
     service_name = request.form.get('service_name', '').strip() or 'Printing / Custom Service'
-    amount = float(request.form.get('amount') or 0.0)
-    pay_method = request.form.get('payment_method', 'CASH')
+    amount = parse_float(request.form.get('amount'), 0.0)
+    pay_method = request.form.get('payment_method', 'CASH').upper()
     notes = request.form.get('notes', '').strip() or 'Over-the-counter Misc Service'
     reg_cust_id = request.form.get('registered_customer_id')
     custom_name = request.form.get('custom_customer_name', '').strip()
 
     if amount <= 0:
         flash("Amount must be greater than zero.", "error")
+        return redirect(url_for('cashier_terminal'))
+    if pay_method not in {'CASH', 'GCASH'}:
+        flash('Misc sales support Cash or GCash only.', 'error')
         return redirect(url_for('cashier_terminal'))
 
     cust_id = None
@@ -1025,6 +1350,10 @@ def cashier_misc_sale():
     if reg_cust_id:
         cust = Customer.query.get(reg_cust_id)
         if cust:
+            issue = customer_access_issue(cust)
+            if issue:
+                flash(issue, 'error')
+                return redirect(url_for('cashier_terminal'))
             cust_id = cust.id
             customer_name = cust.name
             contact = cust.contact
@@ -1071,7 +1400,7 @@ def cashier_misc_sale():
 @require_cashier
 def cashier_record_change_fund():
     title = request.form.get('fund_title', 'Opening Petty/Change Fund').strip()
-    amount = float(request.form.get('amount') or 0.0)
+    amount = parse_float(request.form.get('amount'), 0.0)
     notes = request.form.get('notes', 'Ulam / Register Drawer Starting Cash').strip()
     staff_user = session.get('cashier_user') or session.get('admin_user') or 'Cashier'
 
@@ -1089,90 +1418,112 @@ def cashier_record_change_fund():
 def cashier_create_collection():
     cust_type = request.form.get('customer_type', 'REGISTERED')
     item_choice_type = request.form.get('item_choice_type', 'PRODUCT')
-    product_id = request.form.get('product_id')
-    qty = int(request.form.get('quantity') or 1)
+    product_id = parse_int(request.form.get('product_id'), 0)
+    qty = parse_int(request.form.get('quantity'), 1)
     dining_opt = request.form.get('dining_option', 'TAKEOUT').upper()
     notes = request.form.get('notes', '').strip()
-    
-    prod_name = 'Custom Receivable Item'
-    unit_p = float(request.form.get('custom_amount') or 0.0)
 
-    if item_choice_type == 'PRODUCT' and product_id:
-        prod = Product.query.get(int(product_id))
-        if prod:
+    try:
+        lines = None
+        prod = None
+        if item_choice_type == 'PRODUCT':
+            lines = validate_and_lock_cart([{'product_id': product_id, 'quantity': qty}], require_available=True)
+            line = lines[0]
+            prod = line['product']
             prod_name = prod.name
-            unit_p = prod.price
-    else:
-        prod_name = request.form.get('custom_title', '').strip() or 'Custom Receivable Service'
+            unit_p = line['unit_price']
+            cost_p = line['cost_price']
+            amount = line['subtotal']
+        else:
+            if qty < 1:
+                raise OrderValidationError('Quantity must be at least 1.')
+            prod_name = request.form.get('custom_title', '').strip() or 'Custom Receivable Service'
+            unit_p = parse_float(request.form.get('custom_amount'), 0.0)
+            cost_p = 0.0
+            amount = unit_p * qty
+            if amount <= 0:
+                raise OrderValidationError('Amount must be greater than zero.')
 
-    amount = unit_p * qty
+        cust = None
+        cust_name = 'Walk-in Customer'
+        contact = 'N/A'
+        if cust_type == 'REGISTERED':
+            cust = db.session.get(Customer, parse_int(request.form.get('registered_customer_id'), 0))
+            if not cust:
+                raise OrderValidationError('Please select a registered member.')
+            issue = customer_access_issue(cust)
+            if issue:
+                raise OrderValidationError(issue)
+            if not cust.is_credit_eligible:
+                raise OrderValidationError('This member is not authorized for A/R credit.')
+            available = customer_available_credit(cust, include_pending=True)
+            if amount > available + 1e-9:
+                raise OrderValidationError(f'Credit limit exceeded. Available credit: ₱{available:,.2f}.')
+            cust_name = cust.name
+            contact = cust.contact
+            cust.outstanding_ar = (cust.outstanding_ar or 0.0) + amount
+        else:
+            cust_name = request.form.get('custom_customer_name', '').strip() or 'Custom Account'
+            contact = request.form.get('custom_contact', '').strip() or 'N/A'
 
-    if amount <= 0:
-        flash("Amount must be greater than zero.", "error")
-        return redirect(url_for('cashier_terminal'))
-
-    cust_id = None
-    cust_name = 'Walk-in Customer'
-    contact = 'N/A'
-
-    if cust_type == 'REGISTERED':
-        reg_id = request.form.get('registered_customer_id')
-        if reg_id:
-            cust = Customer.query.get(reg_id)
-            if cust:
-                cust_id = cust.id
-                cust_name = cust.name
-                contact = cust.contact
-                cust.outstanding_ar = (cust.outstanding_ar or 0.0) + amount
-    else:
-        cust_name = request.form.get('custom_customer_name', '').strip() or 'Custom Account'
-        contact = request.form.get('custom_contact', '').strip() or 'N/A'
-
-    order = Order(
-        order_type='COLLECTION',
-        dining_option=dining_opt,
-        customer_id=cust_id,
-        customer_name=cust_name,
-        contact_number=contact,
-        subtotal=amount,
-        delivery_fee=0.0,
-        total_amount=amount,
-        payment_method='UNPAID',
-        payment_verified=False,
-        status='UNPAID_COLLECTION',
-        is_unpaid=True,
-        collection_notes=notes,
-        notes=f"[{dining_opt}] Attributable Item: {prod_name} (x{qty})"
-    )
-    db.session.add(order)
-    db.session.flush()
-
-    db.session.add(OrderItem(
-        order_id=order.id,
-        product_id=int(product_id) if (item_choice_type == 'PRODUCT' and product_id) else None,
-        product_name=prod_name,
-        unit_price=unit_p,
-        cost_price=0.0,
-        quantity=qty,
-        subtotal=amount
-    ))
-
-    db.session.commit()
-    flash(f"For Collection ({dining_opt}) recorded for {cust_name}: {prod_name} x{qty} (₱{amount:,.2f})", "info")
+        order = Order(
+            order_type='COLLECTION',
+            dining_option=dining_opt if dining_opt in {'DINE-IN', 'TAKEOUT'} else 'TAKEOUT',
+            customer_id=cust.id if cust else None,
+            customer_name=cust_name,
+            contact_number=contact,
+            subtotal=amount,
+            delivery_fee=0.0,
+            total_amount=amount,
+            payment_method='UNPAID',
+            payment_verified=False,
+            status='UNPAID_COLLECTION',
+            is_unpaid=True,
+            collection_notes=notes,
+            notes=f'[{dining_opt}] Attributable Item: {prod_name} (x{qty})',
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add(OrderItem(
+            order_id=order.id,
+            product_id=prod.id if prod else None,
+            product_name=prod_name,
+            unit_price=unit_p,
+            cost_price=cost_p,
+            quantity=qty,
+            subtotal=amount,
+        ))
+        if lines:
+            reserve_cart_stock(lines)
+        db.session.commit()
+        flash(f'For Collection ({dining_opt}) recorded for {cust_name}: {prod_name} x{qty} (₱{amount:,.2f})', 'info')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('For Collection entry failed')
+        flash('For Collection entry failed due to a server error.', 'error')
     return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/settle-collection/<int:order_id>', methods=['POST'])
 @require_cashier
 def cashier_settle_collection(order_id):
     order = Order.query.get_or_404(order_id)
-    pay_method = request.form.get('payment_method', 'CASH')
+    pay_method = request.form.get('payment_method', 'CASH').upper()
+    if pay_method not in {'CASH', 'GCASH'}:
+        flash('Settlement payment must be Cash or GCash.', 'error')
+        return redirect(url_for('cashier_terminal'))
+    if not order.is_unpaid:
+        flash(f'Order #{order.id} has already been settled.', 'info')
+        return redirect(url_for('cashier_terminal'))
     
     order.is_unpaid = False
     order.status = 'COMPLETED'
     order.payment_method = pay_method
     order.payment_verified = True
 
-    is_same_day = (order.created_at.date() == datetime.utcnow().date())
+    is_same_day = (utc_naive_to_ph(order.created_at).date() == ph_today())
     earned = 0
 
     if order.customer_id:
@@ -1196,9 +1547,15 @@ def cashier_settle_collection(order_id):
 @require_cashier
 def cashier_settle_customer_credit(cust_id):
     cust = Customer.query.get_or_404(cust_id)
-    amount = float(request.form.get('amount') or cust.outstanding_ar)
+    amount = parse_float(request.form.get('amount'), cust.outstanding_ar or 0.0)
     pay_method = request.form.get('payment_method', 'CASH').upper()
 
+    if pay_method not in {'CASH', 'GCASH'}:
+        flash('Credit settlement payment must be Cash or GCash.', 'error')
+        return redirect(url_for('cashier_terminal'))
+    if (cust.outstanding_ar or 0.0) <= 0:
+        flash(f'{cust.name} has no outstanding credit balance.', 'info')
+        return redirect(url_for('cashier_terminal'))
     if amount <= 0:
         flash("Amount must be greater than zero.", "error")
         return redirect(url_for('cashier_terminal'))
@@ -1215,7 +1572,7 @@ def cashier_settle_customer_credit(cust_id):
 @require_cashier
 def cashier_record_expense():
     title = request.form.get('title', '').strip()
-    amount = float(request.form.get('amount') or 0.0)
+    amount = parse_float(request.form.get('amount'), 0.0)
     category = request.form.get('category', 'Supplies')
     staff_user = session.get('cashier_user') or session.get('admin_user') or 'Cashier'
 
@@ -1231,12 +1588,15 @@ def cashier_record_expense():
 @app.route('/pos/record-vault-drop', methods=['POST'])
 @require_cashier
 def cashier_record_vault_drop():
-    drop_num = int(request.form.get('drop_number') or 1)
-    amount = float(request.form.get('amount') or 0.0)
+    drop_num = parse_int(request.form.get('drop_number'), 1)
+    amount = parse_float(request.form.get('amount'), 0.0)
     notes = request.form.get('notes', '').strip()
     breakdown = request.form.get('cash_breakdown', '').strip()
     staff_user = session.get('cashier_user') or session.get('admin_user') or 'Cashier'
 
+    if drop_num < 1:
+        flash('Vault drop number must be at least 1.', 'error')
+        return redirect(url_for('cashier_terminal'))
     if amount <= 0:
         flash("Drop amount must be greater than zero.", "error")
         return redirect(url_for('cashier_terminal'))
@@ -1266,30 +1626,62 @@ def verify_order(order_id):
     order = Order.query.get_or_404(order_id)
     action = request.form.get('action')
 
+    if order.status != 'VERIFICATION':
+        flash(f'Order #{order.id} is already {order.status}.', 'info')
+        return redirect(url_for('cashier_terminal'))
+
     if action == 'ACCEPT':
-        order.payment_verified = True
-        order.status = "COMPLETED"
-
-        if order.customer_id and order.payment_method != "CREDIT":
-            cust = Customer.query.get(order.customer_id)
-            if cust:
-                cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
-                earned = int(order.total_amount // 30)
-                if earned > 0:
-                    cust.points_balance = (cust.points_balance or 0.0) + earned
-                    db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Purchase Order #{order.id}"))
-
+        if order.payment_method == 'CREDIT':
+            if not order.customer_id:
+                flash('Credit order has no registered customer and cannot be accepted.', 'error')
+                return redirect(url_for('cashier_terminal'))
+            cust = db.session.get(Customer, order.customer_id)
+            issue = customer_access_issue(cust)
+            if issue:
+                flash(issue, 'error')
+                return redirect(url_for('cashier_terminal'))
+            if not cust.is_credit_eligible:
+                flash('Customer is no longer authorized for credit.', 'error')
+                return redirect(url_for('cashier_terminal'))
+            available = max(0.0, parse_float(cust.credit_limit, 0.0) - parse_float(cust.outstanding_ar, 0.0))
+            if order.total_amount > available + 1e-9:
+                flash(f'Credit limit exceeded. Available credit is ₱{available:,.2f}.', 'error')
+                return redirect(url_for('cashier_terminal'))
+            cust.outstanding_ar = (cust.outstanding_ar or 0.0) + order.total_amount
+            order.is_unpaid = True
+            order.payment_verified = False
+            order.status = 'COMPLETED'
+        else:
+            order.payment_verified = True
+            order.status = 'COMPLETED'
+            if order.customer_id:
+                cust = db.session.get(Customer, order.customer_id)
+                if cust and not customer_access_issue(cust):
+                    cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
+                    earned = int(order.total_amount // 30)
+                    if earned > 0:
+                        cust.points_balance = (cust.points_balance or 0.0) + earned
+                        db.session.add(RewardLedger(
+                            customer_id=cust.id,
+                            points_change=earned,
+                            reason=f'Purchase Order #{order.id}',
+                        ))
         db.session.commit()
-        flash(f"Order #{order.id} accepted and completed. Details ready to print!", "success")
-    else:
+        if order.payment_method == 'CREDIT':
+            flash(f'Order #{order.id} accepted as A/R Credit and added to Member Credit AR.', 'success')
+        else:
+            flash(f'Order #{order.id} accepted and completed. Details ready to print!', 'success')
+    elif action == 'REJECT':
         for item in order.items:
             if item.product_id:
-                prod = Product.query.get(item.product_id)
+                prod = db.session.get(Product, item.product_id)
                 if prod:
-                    prod.stock += item.quantity
-        order.status = "CANCELLED"
+                    prod.stock = parse_int(prod.stock, 0) + item.quantity
+        order.status = 'CANCELLED'
         db.session.commit()
-        flash(f"Order #{order.id} cancelled.", "info")
+        flash(f'Order #{order.id} cancelled and reserved stock restored.', 'info')
+    else:
+        flash('Invalid verification action.', 'error')
 
     return redirect(url_for('cashier_terminal'))
 
@@ -1328,6 +1720,7 @@ def update_operating_hours():
         flash("Operating schedule updated.", "success")
     except Exception:
         db.session.rollback()
+        app.logger.exception('Could not save operating schedule')
         flash("Could not save the operating schedule.", "error")
 
     if session.get('cashier_user'):
@@ -1364,24 +1757,26 @@ def admin_dashboard():
         unique_visitors = SiteVisitor.query.count()
         total_accumulated_visits = db.session.query(db.func.coalesce(db.func.sum(SiteVisitor.visit_count), 0)).scalar() or unique_visitors
     except Exception:
-        unique_visitors = 1
-        total_accumulated_visits = 1
+        app.logger.exception('Admin visitor metrics query failed')
+        unique_visitors = 0
+        total_accumulated_visits = 0
 
-    today = date.today()
-    week_ago = datetime.utcnow() - timedelta(days=7)
-    month_ago = datetime.utcnow() - timedelta(days=30)
+    today = ph_today()
+    day_start, next_day = ph_day_utc_bounds(today)
+    week_ago = utc_now() - timedelta(days=7)
+    month_ago = utc_now() - timedelta(days=30)
 
-    daily_orders = Order.query.filter(db.func.date(Order.created_at) == today, Order.status == 'COMPLETED').all()
+    daily_orders = Order.query.filter(Order.created_at >= day_start, Order.created_at < next_day, Order.status == 'COMPLETED').all()
     weekly_orders = Order.query.filter(Order.created_at >= week_ago, Order.status == 'COMPLETED').all()
     monthly_orders = Order.query.filter(Order.created_at >= month_ago, Order.status == 'COMPLETED').all()
     all_completed = Order.query.filter_by(status='COMPLETED').all()
 
-    daily_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(db.func.date(Expense.created_at) == today).scalar() or 0.0
+    daily_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(Expense.created_at >= day_start, Expense.created_at < next_day).scalar() or 0.0
     weekly_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(Expense.created_at >= week_ago).scalar() or 0.0
     monthly_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(Expense.created_at >= month_ago).scalar() or 0.0
     total_exp_all = sum(e.amount for e in all_expenses)
 
-    daily_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(db.func.date(VaultDrop.created_at) == today).scalar() or 0.0
+    daily_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(VaultDrop.created_at >= day_start, VaultDrop.created_at < next_day).scalar() or 0.0
     weekly_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(VaultDrop.created_at >= week_ago).scalar() or 0.0
     monthly_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(VaultDrop.created_at >= month_ago).scalar() or 0.0
     all_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).scalar() or 0.0
@@ -1456,8 +1851,8 @@ def admin_allocate_vault_drop(drop_id):
     drop = VaultDrop.query.get_or_404(drop_id)
     cust_id = request.form.get('customer_id')
     product_id = request.form.get('product_id')
-    allocated_amount = float(request.form.get('amount') or 0.0)
-    qty = int(request.form.get('quantity') or 1)
+    allocated_amount = parse_float(request.form.get('amount'), 0.0)
+    qty = parse_int(request.form.get('quantity'), 1)
 
     if allocated_amount <= 0 or allocated_amount > drop.amount:
         flash("Allocated amount must be between ₱0.01 and the remaining drop balance.", "error")
@@ -1465,6 +1860,14 @@ def admin_allocate_vault_drop(drop_id):
 
     cust = Customer.query.get(int(cust_id)) if cust_id else None
     prod = Product.query.get(int(product_id)) if product_id else None
+    if cust:
+        issue = customer_access_issue(cust)
+        if issue:
+            flash(issue, 'error')
+            return redirect(url_for('admin_dashboard'))
+    if qty < 1:
+        flash('Quantity must be at least 1.', 'error')
+        return redirect(url_for('admin_dashboard'))
 
     drop.amount = max(0.0, drop.amount - allocated_amount)
 
@@ -1490,7 +1893,7 @@ def admin_allocate_vault_drop(drop_id):
         product_id=prod.id if prod else None,
         product_name=prod.name if prod else f"Ulam Sale (Drop #{drop.drop_number})",
         unit_price=allocated_amount / qty,
-        cost_price=0.0,
+        cost_price=max(0.0, parse_float(prod.cost, 0.0)) if prod else 0.0,
         quantity=qty,
         subtotal=allocated_amount
     ))
@@ -1521,6 +1924,10 @@ def admin_reassign_order(order_id):
         return redirect(url_for('admin_dashboard'))
 
     new_cust = Customer.query.get_or_404(int(new_cust_id))
+    issue = customer_access_issue(new_cust)
+    if issue:
+        flash(issue, 'error')
+        return redirect(url_for('admin_dashboard'))
     old_cust = Customer.query.get(order.customer_id) if order.customer_id else None
 
     if old_cust and order.status == 'COMPLETED':
@@ -1551,9 +1958,15 @@ def admin_reassign_order(order_id):
 @require_admin
 def admin_update_expense(expense_id):
     exp = Expense.query.get_or_404(expense_id)
-    exp.title = request.form.get('title', exp.title).strip()
-    exp.amount = float(request.form.get('amount') or exp.amount)
-    exp.category = request.form.get('category', exp.category).strip()
+    new_title = request.form.get('title', exp.title).strip()
+    new_amount = parse_float(request.form.get('amount'), exp.amount or 0.0)
+    new_category = request.form.get('category', exp.category).strip()
+    if not new_title or new_amount <= 0:
+        flash('Expense title and amount must be valid.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    exp.title = new_title
+    exp.amount = new_amount
+    exp.category = new_category
     db.session.commit()
     flash(f"Expense #{exp.id} updated successfully.", "success")
     return redirect(url_for('admin_dashboard'))
@@ -1661,9 +2074,10 @@ def admin_update_logo():
 @require_admin
 def admin_add_product():
     name = request.form.get('name', '').strip()
-    category_name = request.form.get('category_name', 'Meals')
-    price = float(request.form.get('price') or 0.0)
-    stock = int(request.form.get('stock') or 100)
+    category_name = request.form.get('category_name', 'Meals').strip() or 'Meals'
+    price = parse_float(request.form.get('price'), 0.0)
+    cost = parse_float(request.form.get('cost'), 0.0)
+    stock = parse_int(request.form.get('stock'), 100)
     image_url = request.form.get('image_url', '').strip()
     start_t = request.form.get('available_start_time', '').strip() or None
     end_t = request.form.get('available_end_time', '').strip() or None
@@ -1671,44 +2085,80 @@ def admin_add_product():
     is_top_seller = bool(request.form.get('is_top_seller'))
 
     if not name or price <= 0:
-        flash("Please enter a valid product name and price.", "error")
+        flash('Please enter a valid product name and selling price.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    if cost < 0 or stock < 0:
+        flash('Cost and stock cannot be negative.', 'error')
         return redirect(url_for('admin_dashboard'))
 
-    db.session.add(Product(name=name, category_name=category_name, price=price, cost=0.0, stock=stock, 
-                           image_url=image_url, available_start_time=start_t, available_end_time=end_t,
-                           is_featured=is_featured, is_top_seller=is_top_seller, is_active=True))
+    db.session.add(Product(
+        name=name,
+        category_name=category_name,
+        price=price,
+        cost=cost,
+        stock=stock,
+        image_url=image_url,
+        available_start_time=start_t,
+        available_end_time=end_t,
+        is_featured=is_featured,
+        is_top_seller=is_top_seller,
+        is_active=True,
+    ))
     db.session.commit()
-    flash(f"Product '{name}' added successfully!", "success")
+    flash(f"Product '{name}' added successfully with cost tracking enabled!", 'success')
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/batch-update-products', methods=['POST'])
 @require_admin
 def admin_batch_update_products():
-    for pid in request.form.getlist('product_id'):
-        prod = Product.query.get(pid)
-        if prod:
-            prod.price = float(request.form.get(f'price_{pid}') or prod.price)
-            prod.stock = int(request.form.get(f'stock_{pid}') or prod.stock)
+    try:
+        for pid_raw in request.form.getlist('product_id'):
+            pid = parse_int(pid_raw, 0)
+            prod = db.session.get(Product, pid)
+            if not prod:
+                continue
+            price = parse_float(request.form.get(f'price_{pid}'), prod.price)
+            cost = parse_float(request.form.get(f'cost_{pid}'), prod.cost or 0.0)
+            stock = parse_int(request.form.get(f'stock_{pid}'), prod.stock or 0)
+            if price <= 0 or cost < 0 or stock < 0:
+                raise OrderValidationError(f'Invalid price/cost/stock for {prod.name}.')
+            prod.price = price
+            prod.cost = cost
+            prod.stock = stock
             prod.image_url = request.form.get(f'image_url_{pid}', '').strip()
             prod.available_start_time = request.form.get(f'available_start_time_{pid}', '').strip() or None
             prod.available_end_time = request.form.get(f'available_end_time_{pid}', '').strip() or None
             prod.is_active = (f'is_active_{pid}' in request.form)
             prod.is_featured = (f'is_featured_{pid}' in request.form)
             prod.is_top_seller = (f'is_top_seller_{pid}' in request.form)
-    db.session.commit()
-    flash("Bulk product catalog updated.", "success")
+        db.session.commit()
+        flash('Bulk product catalog and product costs updated.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Bulk product update failed')
+        flash('Bulk product update failed due to a server error.', 'error')
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/toggle-credit/<int:cust_id>', methods=['POST'])
 @require_admin
 def admin_toggle_credit(cust_id):
     cust = Customer.query.get_or_404(cust_id)
-    cust.is_credit_eligible = not cust.is_credit_eligible
+    action = request.form.get('action', 'SET_LIMIT').upper()
+    if action == 'TOGGLE':
+        cust.is_credit_eligible = not cust.is_credit_eligible
     limit = request.form.get('credit_limit')
-    if limit:
-        cust.credit_limit = float(limit)
+    if limit not in (None, ''):
+        parsed_limit = parse_float(limit, -1)
+        if parsed_limit < 0:
+            flash('Credit limit cannot be negative.', 'error')
+            return redirect(url_for('admin_dashboard'))
+        cust.credit_limit = parsed_limit
     db.session.commit()
-    flash(f"Credit eligibility updated for {cust.name}.", "success")
+    state = 'enabled' if cust.is_credit_eligible else 'disabled'
+    flash(f'Credit for {cust.name} is {state}; limit ₱{(cust.credit_limit or 0.0):,.2f}.', 'success')
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/delivery-zones', methods=['POST'])
@@ -1731,17 +2181,55 @@ def admin_manage_delivery_zones():
     flash("Delivery zones updated.", "success")
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/renew-customer-card/<int:cust_id>', methods=['POST'])
+@require_admin
+def admin_renew_customer_card(cust_id):
+    cust = Customer.query.get_or_404(cust_id)
+    cust.card_status = 'ACTIVE'
+    cust.card_expires_at = ph_today() + timedelta(days=365)
+    db.session.commit()
+    flash(f"Rewards card for '{cust.name}' renewed for 1 year.", 'success')
+    return redirect(url_for('admin_dashboard'))
+
 @app.route('/admin/reset-customer-pin/<int:cust_id>', methods=['POST'])
 @require_admin
 def admin_reset_customer_pin(cust_id):
     cust = Customer.query.get_or_404(cust_id)
     new_pin = request.form.get('new_pin', '').strip()
-    if not new_pin or len(new_pin) < 4:
-        flash("PIN must be at least 4 digits.", "error")
+    if not is_valid_customer_pin(new_pin):
+        flash('Customer PIN must be exactly 4 digits.', 'error')
     else:
         cust.pin_hash = generate_password_hash(new_pin)
         db.session.commit()
-        flash(f"PIN for customer '{cust.name}' reset to {new_pin}.", "success")
+        flash(f"PIN for customer '{cust.name}' was reset successfully.", 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/reset-staff-pin/<int:staff_id>', methods=['POST'])
+@require_admin
+def admin_reset_staff_pin(staff_id):
+    staff = Staff.query.get_or_404(staff_id)
+    new_pin = request.form.get('new_pin', '').strip()
+    if not new_pin.isdigit() or not (4 <= len(new_pin) <= 8):
+        flash('Staff PIN must contain 4 to 8 digits.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    staff.pin_hash = generate_password_hash(new_pin)
+    db.session.commit()
+    flash(f"PIN for staff account '{staff.username}' was changed.", 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/update-promo-financials/<int:promo_id>', methods=['POST'])
+@require_admin
+def admin_update_promo_financials(promo_id):
+    promo = PromotionTracker.query.get_or_404(promo_id)
+    price = parse_float(request.form.get('promo_price'), promo.promo_price)
+    cost = parse_float(request.form.get('promo_cost'), promo.promo_cost or 0.0)
+    if price <= 0 or cost < 0:
+        flash('Promo price must be positive and promo cost cannot be negative.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    promo.promo_price = price
+    promo.promo_cost = cost
+    db.session.commit()
+    flash(f"Financials for '{promo.title}' updated.", 'success')
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/toggle-promo/<int:promo_id>', methods=['POST'])
@@ -1750,7 +2238,7 @@ def admin_toggle_promo(promo_id):
     promo = PromotionTracker.query.get_or_404(promo_id)
     promo.is_active = not promo.is_active
     if promo.is_active:
-        promo.created_at = datetime.utcnow()
+        promo.created_at = utc_now()
     db.session.commit()
     flash(f"Campaign '{promo.title}' status updated.", "success")
     return redirect(url_for('admin_dashboard'))
@@ -1773,28 +2261,32 @@ def customer_login():
         pin = request.form.get('pin', '').strip()
         cust = Customer.query.filter_by(contact=contact).first()
         if cust and check_password_hash(cust.pin_hash, pin):
-            session['customer_id'] = cust.id
-            today = date.today()
+            issue = customer_access_issue(cust)
+            if issue:
+                if cust.card_expires_at and ph_today() > cust.card_expires_at and (cust.card_status or 'ACTIVE').upper() == 'ACTIVE':
+                    cust.card_status = 'EXPIRED'
+                    db.session.commit()
+                flash(issue, 'error')
+                return render_template('customer_login.html')
 
+            session.clear()
+            session['customer_id'] = cust.id
+            session.permanent = True
+            today = ph_today()
             if cust.last_daily_login != today:
                 yesterday = today - timedelta(days=1)
-                if cust.last_daily_login == yesterday:
-                    cust.login_streak = (cust.login_streak or 0) + 1
-                else:
-                    cust.login_streak = 1
-                
+                cust.login_streak = (cust.login_streak or 0) + 1 if cust.last_daily_login == yesterday else 1
                 cust.points_balance = (cust.points_balance or 0.0) + 0.5
                 cust.last_daily_login = today
                 db.session.add(RewardLedger(
                     customer_id=cust.id,
                     points_change=0.5,
-                    reason=f"Daily Login Reward (Day {cust.login_streak})"
+                    reason=f'Daily Login Reward (Day {cust.login_streak})',
                 ))
-
-            cust.last_active_at = datetime.utcnow()
+            cust.last_active_at = utc_now()
             db.session.commit()
             return redirect(url_for('customer_dashboard'))
-        flash("Invalid Contact or PIN.", "error")
+        flash('Invalid Contact or PIN.', 'error')
     return render_template('customer_login.html')
 
 @app.route('/portal/register', methods=['GET', 'POST'])
@@ -1810,51 +2302,69 @@ def customer_register():
         landmark = request.form.get('default_landmark', '').strip()
         ref = request.form.get('referral_code', '').strip() or ref_code
 
+        if not name or not contact:
+            flash('Name and mobile number are required.', 'error')
+            return redirect(url_for('customer_register', ref=ref_code or None))
+        if not is_valid_customer_pin(pin):
+            flash('Security PIN must be exactly 4 digits.', 'error')
+            return redirect(url_for('customer_register', ref=ref_code or None))
         if Customer.query.filter_by(contact=contact).first():
-            flash("Contact number already registered.", "error")
+            flash('Contact number already registered.', 'error')
             return redirect(url_for('customer_register'))
 
-        new_cust = Customer(
-            name=name,
-            email=email,
-            contact=contact,
-            fb_messenger=messenger,
-            default_address=address,
-            default_landmark=landmark,
-            points_balance=0.5,
-            pin_hash=generate_password_hash(pin),
-            card_number=f"MFH-{random.randint(1, 100):04d}",
-            card_expires_at=date.today() + timedelta(days=365),
-            referred_by=ref if ref else None,
-            last_daily_login=date.today(),
-            login_streak=1,
-            wifi_minutes_left=10,
-            wifi_voucher_code="MFH-" + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6)),
-            last_active_at=datetime.utcnow()
-        )
-        db.session.add(new_cust)
-        db.session.flush()
+        today = ph_today()
+        try:
+            new_cust = Customer(
+                name=name,
+                email=email,
+                contact=contact,
+                fb_messenger=messenger,
+                default_address=address,
+                default_landmark=landmark,
+                points_balance=0.5,
+                pin_hash=generate_password_hash(pin),
+                card_number=None,
+                card_status='ACTIVE',
+                card_expires_at=today + timedelta(days=365),
+                referred_by=ref if ref else None,
+                last_daily_login=today,
+                login_streak=1,
+                wifi_minutes_left=10,
+                wifi_voucher_code='MFH-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6)),
+                last_active_at=utc_now(),
+            )
+            db.session.add(new_cust)
+            db.session.flush()
+            new_cust.card_number = generate_unique_card_number(new_cust.id)
 
-        db.session.add(RewardLedger(
-            customer_id=new_cust.id,
-            points_change=0.5,
-            reason="Welcome Login Bonus"
-        ))
+            db.session.add(RewardLedger(
+                customer_id=new_cust.id,
+                points_change=0.5,
+                reason='Welcome Login Bonus',
+            ))
 
-        if ref:
-            referrer = Customer.query.filter((Customer.card_number == ref) | (Customer.contact == ref)).first()
-            if referrer:
-                referrer.points_balance = (referrer.points_balance or 0.0) + 2.0
-                db.session.add(RewardLedger(
-                    customer_id=referrer.id,
-                    points_change=2.0,
-                    reason=f"Referral Bonus: Invited {name}"
-                ))
+            if ref:
+                referrer = get_customer_by_identifier(ref)
+                if referrer and referrer.id != new_cust.id and not customer_access_issue(referrer):
+                    referrer.points_balance = (referrer.points_balance or 0.0) + 2.0
+                    db.session.add(RewardLedger(
+                        customer_id=referrer.id,
+                        points_change=2.0,
+                        reason=f'Referral Bonus: Invited {name}',
+                    ))
 
-        db.session.commit()
-        session['customer_id'] = new_cust.id
-        flash("🎉 Welcome! You earned 0.5 points and 10 mins free Wi-Fi!", "success")
-        return redirect(url_for('customer_dashboard'))
+            db.session.commit()
+            session.clear()
+            session['customer_id'] = new_cust.id
+            session.permanent = True
+            flash('🎉 Welcome! You earned 0.5 points and 10 mins free Wi-Fi!', 'success')
+            return redirect(url_for('customer_dashboard'))
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Customer registration failed for contact=%s', contact)
+            flash('Registration could not be completed. Please try again or ask staff for help.', 'error')
+            return redirect(url_for('customer_register', ref=ref_code or None))
+
     return render_template('customer_register.html', ref_code=ref_code)
 
 @app.route('/portal/dashboard')
@@ -1866,6 +2376,12 @@ def customer_dashboard():
     if not cust:
         session.pop('customer_id', None)
         flash("Account session expired. Please log in again.", "info")
+        return redirect(url_for('customer_login'))
+
+    issue = customer_access_issue(cust)
+    if issue:
+        session.pop('customer_id', None)
+        flash(issue, 'error')
         return redirect(url_for('customer_login'))
     
     if getattr(cust, 'login_streak', None) is None:
@@ -1881,7 +2397,7 @@ def customer_dashboard():
                            orders=my_orders, 
                            promo_burger=promo_burger, 
                            promo_nachos=promo_nachos, 
-                           today=date.today())
+                           today=ph_today())
 
 @app.route('/portal/logout')
 def customer_logout():
@@ -1889,10 +2405,11 @@ def customer_logout():
         try:
             cust = Customer.query.get(session['customer_id'])
             if cust and hasattr(cust, 'last_active_at'):
-                cust.last_active_at = datetime.utcnow() - timedelta(hours=1)
+                cust.last_active_at = utc_now() - timedelta(hours=1)
                 db.session.commit()
         except Exception:
             db.session.rollback()
+            app.logger.exception('Could not mark customer offline during logout')
     session.pop('customer_id', None)
     flash("Successfully logged out.", "info")
     return redirect(url_for('store_catalog'))
@@ -1903,13 +2420,17 @@ def customer_reserve_promo_by_code(promo_code):
         return redirect(url_for('customer_login'))
     
     cust = Customer.query.get_or_404(session['customer_id'])
+    issue = customer_access_issue(cust)
+    if issue:
+        flash(issue, 'error')
+        return redirect(url_for('customer_login'))
     promo = PromotionTracker.query.filter_by(promo_code=promo_code).first()
 
     if not promo or not promo.is_active:
         flash("This promotion campaign is currently archived.", "info")
         return redirect(url_for('customer_dashboard'))
 
-    days_active = (datetime.utcnow() - promo.created_at).days
+    days_active = (utc_now() - promo.created_at).days
     if days_active > 3:
         promo.is_active = False
         db.session.commit()
@@ -1940,7 +2461,7 @@ def customer_reserve_promo_by_code(promo_code):
         product_id=None,
         product_name=f"[PROMO 3-DAY] {promo.title}",
         unit_price=promo.promo_price,
-        cost_price=0.0,
+        cost_price=max(0.0, parse_float(promo.promo_cost, 0.0)),
         quantity=1,
         subtotal=promo.promo_price
     ))
@@ -1974,12 +2495,15 @@ def staff_login():
         pin = request.form.get('pin', '').strip()
         staff = Staff.query.filter(db.func.lower(Staff.username) == user).first()
 
-        if staff and check_password_hash(staff.pin_hash, pin):
+        if staff and staff.active and check_password_hash(staff.pin_hash, pin):
+            session.clear()
+            session.permanent = False
+            session['_staff_last_activity'] = utc_now().isoformat()
             if staff.role == 'ADMIN':
                 session['admin_id'] = staff.id
                 session['admin_user'] = staff.username
                 return redirect(url_for('admin_dashboard'))
-            elif staff.role == 'CASHIER':
+            if staff.role == 'CASHIER':
                 session['cashier_id'] = staff.id
                 session['cashier_user'] = staff.username
                 return redirect(url_for('cashier_terminal'))
@@ -1988,13 +2512,30 @@ def staff_login():
 
 @app.route('/staff/logout')
 def staff_logout():
-    role = request.args.get('role')
-    if role == 'admin': session.pop('admin_id', None); session.pop('admin_user', None)
-    elif role == 'cashier': session.pop('cashier_id', None); session.pop('cashier_user', None)
-    else: session.clear()
+    clear_staff_session()
     flash('Logged out.', 'info')
     return redirect(url_for('staff_login'))
 
-if __name__ == '__main__':
+@app.route('/healthz')
+def healthz():
+    try:
+        db.session.execute(text('SELECT 1'))
+        return jsonify({'status': 'ok', 'time_ph': ph_now().isoformat()})
+    except Exception:
+        app.logger.exception('Health check failed')
+        return jsonify({'status': 'error'}), 500
+
+@app.errorhandler(500)
+def internal_server_error(error):
+    original = getattr(error, 'original_exception', None)
+    app.logger.error('Unhandled server error on %s %s', request.method, request.path, exc_info=True)
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'message': 'Server error. Please try again.'}), 500
+    return 'Macleen\'s Food House encountered a server error. Please try again.', 500
+
+# Run schema/setup during application import so Render/Gunicorn fails visibly at startup if the DB is incompatible.
+with app.app_context():
     run_db_setup()
+
+if __name__ == '__main__':
     app.run(debug=True, port=5000)
