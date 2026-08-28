@@ -1,6 +1,11 @@
 services:
   - type: web
+    # Keep the existing Render service name to avoid accidentally provisioning a second service.
     name: hedera-craft-shop
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
+    healthCheckPath: /healthz
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true

@@ -1,37 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Customer Loyalty Login</title>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Rewards Login</title>
   <style>
-    * { box-sizing: border-box; font-family: sans-serif; }
-    body { background: #fff5f7; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
-    .card { background: white; padding: 2rem; border-radius: 12px; border: 1px solid #fbcfe8; width: 100%; max-width: 380px; box-shadow: 0 4px 12px rgba(236,72,153,0.1); }
-    input { width: 100%; padding: 0.75rem; margin: 0.3rem 0 1rem 0; border: 1px solid #fbcfe8; border-radius: 6px; }
-    .btn { width: 100%; padding: 0.8rem; background: #ec4899; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; }
-    a { color: #be185d; text-decoration: none; font-size: 0.85rem; font-weight: bold; }
+    *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif} body{background:#fff5f7;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem}.card{background:#fff;padding:2rem;border-radius:16px;border:1.5px solid #fbcfe8;width:100%;max-width:390px;box-shadow:0 8px 24px rgba(236,72,153,.12)} input{width:100%;padding:.75rem;margin:.3rem 0 1rem;border:1px solid #fbcfe8;border-radius:8px}.btn{width:100%;padding:.8rem;background:#ec4899;color:#fff;border:none;border-radius:8px;font-weight:900;cursor:pointer}a{color:#be185d;text-decoration:none;font-size:.85rem;font-weight:800}.perk{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:12px 0}.perk div{background:#fdf2f8;border:1px solid #fbcfe8;border-radius:8px;padding:7px;text-align:center;font-size:.7rem;color:#831843;font-weight:800}
   </style>
 </head>
-<body>
-  <div class="card">
-    <h2 style="color: #831843; text-align: center; margin-bottom: 0.5rem;">🎁 Customer Rewards</h2>
-    <p style="text-align: center; color: #6b7280; font-size: 0.85rem; margin-bottom: 1.5rem;">Check points, claim daily Wi-Fi & vote for Ulam</p>
-    {% with msgs = get_flashed_messages() %}
-      {% if msgs %}<p style="color: red; font-size: 0.85rem; margin-bottom: 8px;">{{ msgs[0] }}</p>{% endif %}
-    {% endwith %}
-    <form method="POST">
-      <label style="font-size: 0.85rem; font-weight: bold;">Mobile Contact Number</label>
-      <input type="text" name="contact" placeholder="09xxxxxxxxx" required>
-      
-      <label style="font-size: 0.85rem; font-weight: bold;">Account PIN</label>
-      <input type="password" name="pin" placeholder="Enter PIN" required>
-      
-      <button class="btn" type="submit">Sign In</button>
-    </form>
-    <div style="text-align: center; margin-top: 1.2rem;">
-      <a href="/portal/register">No account yet? Register here</a>
-    </div>
-  </div>
-</body>
-</html>
+<body><div class="card">
+  <h2 style="color:#831843;text-align:center;">🎁 Macleen's Rewards</h2>
+  <p style="text-align:center;color:#6b7280;font-size:.82rem;margin-top:5px;">For walk-in customers too — no online order required.</p>
+  <div class="perk"><div>⭐ Earn Points</div><div>📶 Free Wi-Fi</div><div>🗳️ Vote & Earn</div><div>🔥 Member Deals</div></div>
+  {% with msgs=get_flashed_messages() %}{% if msgs %}<div style="background:#fee2e2;color:#991b1b;padding:8px;border-radius:7px;font-size:.78rem;margin-bottom:8px;">{{ msgs[0] }}</div>{% endif %}{% endwith %}
+  <form method="POST">
+    <input type="hidden" name="next" value="{{ next_section or '' }}">
+    <label style="font-size:.8rem;font-weight:800;">Mobile Contact Number</label>
+    <input type="text" name="contact" placeholder="09xxxxxxxxx" required>
+    <label style="font-size:.8rem;font-weight:800;">4-Digit PIN</label>
+    <input type="password" name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="4 digits" required>
+    <button class="btn" type="submit">Open My Benefits</button>
+  </form>
+  <div style="text-align:center;margin-top:1rem;"><a href="/portal/register{% if source and source != 'direct' %}?src={{ source }}{% if next_section %}&next={{ next_section }}{% endif %}{% endif %}">New member? Join in about 20 seconds</a></div>
+  <div style="text-align:center;margin-top:.7rem;"><a href="/" style="color:#64748b;">← Back to Menu</a></div>
+</div></body></html>

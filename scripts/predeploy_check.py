@@ -43,8 +43,15 @@ REQUIRED_DB_COLUMNS = {
         "id", "order_id", "product_id", "unit_price", "cost_price",
         "quantity", "subtotal",
     },
-    "promotion_tracker": {"id", "promo_code", "promo_price", "promo_cost", "is_visible"},
+    "promotion_tracker": {"id", "promo_code", "promo_price", "promo_cost", "is_visible", "portal_only", "description"},
     "vault_drop": {"id", "drop_number", "amount", "cash_breakdown", "created_at"},
+    "customer_wishlist": {"id", "customer_id", "product_id", "created_at"},
+    "menu_vote": {"id", "customer_id", "product_id", "period_key", "created_at"},
+    "engagement_claim": {"id", "customer_id", "action_code", "period_key", "points_awarded"},
+    "bonus_campaign": {"id", "title", "bonus_points", "points_multiplier", "min_spend", "is_active"},
+    "bonus_campaign_claim": {"id", "campaign_id", "customer_id", "order_id", "points_awarded"},
+    "referral_reward": {"id", "referrer_customer_id", "referred_customer_id", "first_order_id"},
+    "portal_event": {"id", "source", "event_type", "customer_id", "created_at"},
 }
 
 
@@ -140,6 +147,24 @@ def main() -> int:
     if "total_rev = order_rev + vault_drop_sales" not in source:
         fail("vault drops are no longer included in the configured gross-sales calculation")
     ok("vault drops remain included in gross sales by project policy")
+
+    engagement_markers = [
+        "@app.route('/portal/claim-wifi'",
+        "@app.route('/portal/wishlist/<int:product_id>'",
+        "@app.route('/portal/vote/<int:product_id>'",
+        "@app.route('/marketing/qr/<string:source>.svg'",
+        "class BonusCampaign(db.Model):",
+        "class ReferralReward(db.Model):",
+    ]
+    missing = [marker for marker in engagement_markers if marker not in source]
+    if missing:
+        fail("engagement update markers missing: " + ", ".join(missing))
+    ok("in-store rewards, voting, Wi-Fi, referral and QR features are present")
+
+    req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
+    if "qrcode" not in req.lower():
+        fail("requirements.txt is missing qrcode dependency used by the QR kit")
+    ok("QR dependency is declared")
 
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0

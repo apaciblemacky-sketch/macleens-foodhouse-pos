@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div class="page-header">
+    <h1 class="page-title">Hedera Sales & Order Monitoring</h1>
+    <p class="page-subtitle">Manage customer pickup orders at Macleen's Food House</p>
+  </div>
+
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+    <div style="background: #ffffff; padding: 1.2rem; border-radius: 8px; border: 1px solid #e2e8f0; text-align: center;">
+      <small style="color: #718096; font-weight: 600;">Total Orders</small>
+      <h2 style="margin: 0.4rem 0 0 0; color: #2d3748;">{{ metrics.total_orders }}</h2>
+    </div>
+    <div style="background: #ffffff; padding: 1.2rem; border-radius: 8px; border: 1px solid #e2e8f0; text-align: center;">
+      <small style="color: #718096; font-weight: 600;">Completed / Closed</small>
+      <h2 style="margin: 0.4rem 0 0 0; color: #2d5a27;">{{ metrics.completed_orders }}</h2>
+    </div>
+    <div style="background: #ffffff; padding: 1.2rem; border-radius: 8px; border: 1px solid #e2e8f0; text-align: center;">
+      <small style="color: #718096; font-weight: 600;">Est. Revenue</small>
+      <h2 style="margin: 0.4rem 0 0 0; color: #2d5a27;">${{ "%.2f"|format(metrics.total_revenue) }}</h2>
+    </div>
+    <div style="background: #ffffff; padding: 1.2rem; border-radius: 8px; border: 1px solid #e2e8f0; text-align: center;">
+      <small style="color: #718096; font-weight: 600;">Total Views</small>
+      <h2 style="margin: 0.4rem 0 0 0; color: #2d3748;">{{ metrics.total_views }}</h2>
+    </div>
+  </div>
+
+  <h3 style="margin-bottom: 1rem; color: #2d3748;">Pickup Orders</h3>
+  <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; overflow-x: auto;">
+    <table style="width: 100%; border-collapse: collapse; text-align: left;">
+      <thead>
+        <tr style="background: #2d5a27; color: #ffffff;">
+          <th style="padding: 12px;">Order ID</th>
+          <th style="padding: 12px;">Customer Details</th>
+          <th style="padding: 12px;">Item & Qty</th>
+          <th style="padding: 12px;">Total</th>
+          <th style="padding: 12px;">Status</th>
+          <th style="padding: 12px;">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for o in orders %}
+        <tr style="border-bottom: 1px solid #e2e8f0;">
+          <td style="padding: 12px; vertical-align: top;">#{{ o.id }}<br><small style="color: #a0aec0;">{{ o.created_at.strftime('%b %d') }}</small></td>
+          <td style="padding: 12px; vertical-align: top;">
+            <strong>{{ o.customer_name }}</strong><br>
+            📞 {{ o.contact_number }}<br>
+            ✉️ {{ o.email }}<br>
+            💬 FB: {{ o.fb_account }}
+          </td>
+          <td style="padding: 12px; vertical-align: top;">{{ o.craft_item.name }} (x{{ o.quantity }})</td>
+          <td style="padding: 12px; vertical-align: top; font-weight: bold; color: #2d5a27;">${{ "%.2f"|format(o.total_price) }}</td>
+          <td style="padding: 12px; vertical-align: top;">
+            <span class="badge {% if o.status == 'Pending' %}badge-pending{% elif o.status == 'Ready for Pickup' %}badge-ready{% else %}badge-completed{% endif %}">
+              {{ o.status }}
+            </span>
+          </td>
+          <td style="padding: 12px; vertical-align: top;">
+            <form action="{{ url_for('update_order_status', order_id=o.id) }}" method="POST" style="display: flex; gap: 6px;">
+              <select name="status" style="padding: 4px 6px; border: 1px solid #cbd5e0; border-radius: 4px;">
+                <option value="Pending" {% if o.status == 'Pending' %}selected{% endif %}>Pending</option>
+                <option value="Ready for Pickup" {% if o.status == 'Ready for Pickup' %}selected{% endif %}>Ready for Pickup</option>
+                <option value="Completed" {% if o.status == 'Completed' %}selected{% endif %}>Completed (Closed)</option>
+              </select>
+              <button type="submit" class="btn" style="width: auto; padding: 4px 10px; font-size: 0.8rem;">Update</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" style="padding: 24px; text-align: center; color: #a0aec0;">No orders placed yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

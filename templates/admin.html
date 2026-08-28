@@ -385,6 +385,100 @@
     <form id="delExp-{{ exp.id }}" action="/admin/delete-expense/{{ exp.id }}" method="POST" onsubmit="return confirm('Delete expense entry \'{{ exp.title }}\'?');" style="display:none;"></form>
   {% endfor %}
 
+  <!-- 📣 IN-STORE ENGAGEMENT & MARKETING ENGINE -->
+  <div class="card" style="border:2px solid #8b5cf6;">
+    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:10px; flex-wrap:wrap;">
+      <div>
+        <h3 style="color:#6d28d9; font-size:1.05rem;">📣 In-Store Engagement & Marketing Engine</h3>
+        <p style="font-size:0.75rem; color:#64748b;">Use the portal as a walk-in benefits hub: QR onboarding, Vote & Earn, free Wi-Fi, referrals, portal-only deals and timed bonus points.</p>
+      </div>
+      <a href="/admin/marketing/qr-kit" target="_blank" class="btn" style="background:#7c3aed; color:white; padding:6px 10px; font-size:0.75rem;">🖨️ Open Printable QR Kit</a>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin-bottom:14px;">
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">QR SCANS • 7D</div><div class="metric-val" style="color:#7c3aed;">{{ marketing_metrics.qr_scans_7d }}</div></div>
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">PORTAL LOGINS • 7D</div><div class="metric-val" style="color:#0284c7;">{{ marketing_metrics.portal_logins_7d }}</div></div>
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">NEW MEMBERS • 7D</div><div class="metric-val" style="color:#16a34a;">{{ marketing_metrics.registrations_7d }}</div></div>
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">COUNTER SIGNUPS • 7D</div><div class="metric-val" style="color:#059669;">{{ marketing_metrics.counter_registrations_7d }}</div></div>
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">WI-FI CLAIMS • 7D</div><div class="metric-val" style="color:#0284c7;">{{ marketing_metrics.wifi_claims_7d }}</div></div>
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">WEEKLY VOTES</div><div class="metric-val" style="color:#db2777;">{{ marketing_metrics.weekly_votes }}</div></div>
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">WISHLIST SAVES</div><div class="metric-val" style="color:#e11d48;">{{ marketing_metrics.wishlist_total }}</div></div>
+      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">REFERRALS REWARDED</div><div class="metric-val" style="color:#b45309;">{{ marketing_metrics.referral_rewards }}</div></div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px; align-items:start;">
+      <div style="border:1px solid #ddd6fe; border-radius:10px; padding:10px; background:#faf5ff;">
+        <h4 style="color:#6d28d9; margin-bottom:7px; font-size:0.88rem;">⭐ Create Timed / Slow-Hour Bonus</h4>
+        <form action="/admin/marketing/bonus-campaign/create" method="POST">
+          <div class="form-row">
+            <div class="form-group" style="min-width:180px;"><label>Campaign Name</label><input class="form-control" name="title" required placeholder="3–5 PM Double Points"></div>
+            <div class="form-group"><label>Fixed Bonus Pts</label><input class="form-control" type="number" step="0.5" min="0" name="bonus_points" value="0"></div>
+            <div class="form-group"><label>Points Multiplier</label><input class="form-control" type="number" step="0.1" min="1" name="points_multiplier" value="2.0"></div>
+            <div class="form-group"><label>Min Spend</label><input class="form-control" type="number" step="0.25" min="0" name="min_spend" value="0"></div>
+          </div>
+          <div class="form-row" style="margin-top:6px;">
+            <div class="form-group"><label>Start Date</label><input class="form-control" type="date" name="start_date"></div>
+            <div class="form-group"><label>End Date</label><input class="form-control" type="date" name="end_date"></div>
+            <div class="form-group"><label>Start Time</label><input class="form-control" type="time" name="start_time"></div>
+            <div class="form-group"><label>End Time</label><input class="form-control" type="time" name="end_time"></div>
+          </div>
+          <label style="display:block;font-size:.72rem;font-weight:700;margin-top:7px;">Days (leave all unchecked = every day)</label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;font-size:.7rem;margin:4px 0 7px;">
+            <label><input type="checkbox" name="weekdays" value="0"> Mon</label><label><input type="checkbox" name="weekdays" value="1"> Tue</label><label><input type="checkbox" name="weekdays" value="2"> Wed</label><label><input type="checkbox" name="weekdays" value="3"> Thu</label><label><input type="checkbox" name="weekdays" value="4"> Fri</label><label><input type="checkbox" name="weekdays" value="5"> Sat</label><label><input type="checkbox" name="weekdays" value="6"> Sun</label>
+          </div>
+          <textarea class="form-control" name="description" rows="2" placeholder="Shown to members in Today's Deals"></textarea>
+          <button class="btn" style="background:#7c3aed;color:white;margin-top:7px;padding:6px 10px;font-size:.75rem;" type="submit">Create Bonus Campaign</button>
+        </form>
+
+        {% if bonus_campaigns %}
+          <div style="margin-top:10px;max-height:210px;overflow:auto;">
+            {% for bc in bonus_campaigns %}
+              <div style="background:white;border:1px solid #ede9fe;border-radius:8px;padding:7px;margin-bottom:6px;font-size:.72rem;">
+                <div style="display:flex;justify-content:space-between;gap:6px;"><strong>{{ bc.title }}</strong><span style="color:{{ '#16a34a' if bc.is_active else '#dc2626' }};font-weight:900;">{{ 'ACTIVE' if bc.is_active else 'PAUSED' }}</span></div>
+                <div style="color:#64748b;margin:3px 0;">
+                  {% if bc.points_multiplier and bc.points_multiplier > 1 %}{{ "{:.1f}".format(bc.points_multiplier) }}× points{% endif %}
+                  {% if bc.bonus_points and bc.bonus_points > 0 %}{% if bc.points_multiplier and bc.points_multiplier > 1 %} + {% endif %}+{{ bc.bonus_points }} pts{% endif %}
+                  • Min ₱{{ "{:,.2f}".format(bc.min_spend or 0) }}
+                  {% if bc.start_time or bc.end_time %} • {{ bc.start_time or '00:00' }}–{{ bc.end_time or '23:59' }}{% endif %}
+                </div>
+                <div style="display:flex;gap:5px;">
+                  <form action="/admin/marketing/bonus-campaign/{{ bc.id }}/toggle" method="POST"><button class="btn" style="background:#0284c7;color:white;padding:3px 7px;font-size:.68rem;" type="submit">{{ 'Pause' if bc.is_active else 'Activate' }}</button></form>
+                  <form action="/admin/marketing/bonus-campaign/{{ bc.id }}/delete" method="POST" onsubmit="return confirm('Delete this bonus campaign and its claim tracking?');"><button class="btn" style="background:#ef4444;color:white;padding:3px 7px;font-size:.68rem;" type="submit">Delete</button></form>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+
+      <div style="border:1px solid #fbcfe8; border-radius:10px; padding:10px; background:#fff7fb;">
+        <h4 style="color:#be185d; margin-bottom:7px; font-size:0.88rem;">🔥 Create 3-Day Member Deal</h4>
+        <form action="/admin/marketing/promo/create" method="POST">
+          <div class="form-row">
+            <div class="form-group"><label>Promo Code</label><input class="form-control" name="promo_code" required placeholder="MERIENDA_69"></div>
+            <div class="form-group" style="min-width:180px;"><label>Title</label><input class="form-control" name="title" required placeholder="Merienda Combo"></div>
+            <div class="form-group"><label>Price</label><input class="form-control" type="number" step="0.01" min="0.01" name="promo_price" required></div>
+            <div class="form-group"><label>Cost</label><input class="form-control" type="number" step="0.01" min="0" name="promo_cost" value="0"></div>
+          </div>
+          <textarea class="form-control" name="description" rows="2" style="margin-top:6px;" placeholder="Short member-facing description"></textarea>
+          <label style="display:block;font-size:.72rem;font-weight:800;margin-top:6px;color:#831843;"><input type="checkbox" name="portal_only" checked> Portal-only member deal (hide from public storefront)</label>
+          <button class="btn btn-pink" style="margin-top:7px;padding:6px 10px;font-size:.75rem;" type="submit">Create 3-Day Deal</button>
+        </form>
+
+        <h4 style="color:#831843; margin:12px 0 6px; font-size:0.85rem;">🗳️ Weekly Vote Results • {{ week_key }}</h4>
+        <div style="max-height:240px;overflow:auto;">
+          <table>
+            <thead><tr><th>Category</th><th>Menu Item</th><th style="text-align:center;">Votes</th></tr></thead>
+            <tbody>
+              {% for row in vote_rows %}<tr><td>{{ row[0] }}</td><td><strong>{{ row[1] }}</strong></td><td style="text-align:center;font-weight:900;color:#7c3aed;">{{ row[3] }}</td></tr>{% endfor %}
+              {% if not vote_rows %}<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:12px;">No votes yet this week.</td></tr>{% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- PROMOTION METRICS & VISIBILITY TOGGLE (HIDE/UNHIDE) -->
   <div class="card" style="border: 2px solid #ec4899;">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
@@ -419,13 +513,11 @@
             <td>
               <strong>{{ pr.title }}</strong><br>
               <span style="font-size:0.7rem; color:#64748b; font-family:monospace;">CODE: {{ pr.promo_code }}</span>
+              {% if pr.portal_only %}<span class="badge" style="background:#f3e8ff;color:#6d28d9;margin-left:4px;">PORTAL ONLY</span>{% endif %}
             </td>
             <td>
-              {% if pr.is_visible %}
-                <span class="badge" style="background:#dcfce7; color:#15803d;">👁️ DISPLAYED (Active)</span>
-              {% else %}
-                <span class="badge" style="background:#fee2e2; color:#991b1b;">🚫 HIDDEN (Archived)</span>
-              {% endif %}
+              {% if pr.is_visible %}<span class="badge" style="background:#dcfce7; color:#15803d;">👁️ VISIBLE</span>{% else %}<span class="badge" style="background:#fee2e2; color:#991b1b;">🚫 HIDDEN</span>{% endif %}
+              {% if pr.is_active %}<span class="badge" style="background:#e0f2fe;color:#0369a1;margin-left:3px;">LIVE CYCLE</span>{% else %}<span class="badge" style="background:#f1f5f9;color:#64748b;margin-left:3px;">PAUSED/ENDED</span>{% endif %}
             </td>
             <td>
               <form action="/admin/update-promo-financials/{{ pr.id }}" method="POST" style="display:flex; gap:3px; align-items:center; flex-wrap:wrap;">
@@ -446,11 +538,14 @@
               ₱{{ "{:,.2f}".format(pr.total_revenue) }}
             </td>
             <td>
-              <form action="/admin/toggle-promo-visibility/{{ pr.id }}" method="POST">
-                <button type="submit" class="btn" style="background:#3b82f6; color:white; padding:3px 8px; font-size:0.7rem;">
-                  {{ '🚫 Hide from Users' if pr.is_visible else '👁️ Unhide & Display' }}
-                </button>
-              </form>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                <form action="/admin/toggle-promo-visibility/{{ pr.id }}" method="POST">
+                  <button type="submit" class="btn" style="background:#3b82f6; color:white; padding:3px 8px; font-size:0.7rem;">{{ '🚫 Hide' if pr.is_visible else '👁️ Show' }}</button>
+                </form>
+                <form action="/admin/toggle-promo/{{ pr.id }}" method="POST">
+                  <button type="submit" class="btn" style="background:#7c3aed; color:white; padding:3px 8px; font-size:0.7rem;">{{ '⏸ Pause Cycle' if pr.is_active else '▶ Restart 3-Day Cycle' }}</button>
+                </form>
+              </div>
             </td>
           </tr>
           {% endfor %}

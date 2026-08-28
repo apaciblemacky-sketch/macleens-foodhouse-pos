@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block content %}
+  <p style="margin-bottom: 1rem;"><a href="{{ url_for('item_detail', item_id=item.id) }}" style="color: #db2777; font-weight: 600; text-decoration: none; font-size: 0.9rem;">← Back to {{ item.name }}</a></p>
+
+  <div style="background: white; border: 1px solid #fbcfe8; border-radius: 16px; padding: 1.5rem; max-width: 500px; margin: 0 auto; box-shadow: 0 4px 10px rgba(219,39,119,0.05);">
+    <h2 style="color: #831843; font-size: 1.4rem; margin-bottom: 0.2rem;">
+      {% if item.availability_type == 'In Stock' %}Pickup Reservation{% else %}Pre-Order Reservation{% endif %}
+    </h2>
+    <p style="color: #6b7280; font-size: 0.85rem; margin-bottom: 1.2rem;">Pick up location: <strong>Macleen's Food House</strong></p>
+
+    {% if error %}
+      <div style="background: #fee2e2; color: #dc2626; padding: 0.7rem; border-radius: 8px; margin-bottom: 1rem; font-size: 0.85rem; font-weight: 600;">
+        {{ error }}
+      </div>
+    {% endif %}
+
+    <div style="display: flex; gap: 10px; align-items: center; background: #fff5f7; padding: 0.8rem; border-radius: 8px; margin-bottom: 1.2rem;">
+      <img src="{{ item.image_url }}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 6px;">
+      <div>
+        <strong style="font-size: 0.95rem;">{{ item.name }}</strong>
+        <div style="color: #db2777; font-weight: bold; font-size: 0.95rem;">₱{{ "{:,.2f}".format(item.price) }}</div>
+        {% if item.availability_type == 'In Stock' %}
+          <small style="color: #15803d; font-weight: 600; font-size: 0.75rem;">In Stock: {{ item.stock_quantity }} left</small>
+        {% else %}
+          <small style="color: #6d28d9; font-weight: 600; font-size: 0.75rem;">Pre-Order: Made to order</small>
+        {% endif %}
+      </div>
+    </div>
+
+    <form method="POST">
+      <label style="display:block; font-size: 0.85rem; font-weight: 600;">Full Name</label>
+      <input type="text" name="customer_name" required placeholder="e.g. Maria Santos" style="width: 100%; padding: 0.6rem; margin-top: 0.2rem; border: 1px solid #fbcfe8; border-radius: 6px; box-sizing: border-box; font-size: 0.95rem;">
+
+      <label style="display:block; margin-top: 0.8rem; font-size: 0.85rem; font-weight: 600;">Contact Number</label>
+      <input type="tel" name="contact_number" required placeholder="e.g. 09123456789" style="width: 100%; padding: 0.6rem; margin-top: 0.2rem; border: 1px solid #fbcfe8; border-radius: 6px; box-sizing: border-box; font-size: 0.95rem;">
+
+      <label style="display:block; margin-top: 0.8rem; font-size: 0.85rem; font-weight: 600;">Email Address</label>
+      <input type="email" name="email" required placeholder="e.g. maria@gmail.com" style="width: 100%; padding: 0.6rem; margin-top: 0.2rem; border: 1px solid #fbcfe8; border-radius: 6px; box-sizing: border-box; font-size: 0.95rem;">
+
+      <label style="display:block; margin-top: 0.8rem; font-size: 0.85rem; font-weight: 600;">Facebook Name / Profile Link</label>
+      <input type="text" name="fb_account" required placeholder="e.g. facebook.com/maria.santos" style="width: 100%; padding: 0.6rem; margin-top: 0.2rem; border: 1px solid #fbcfe8; border-radius: 6px; box-sizing: border-box; font-size: 0.95rem;">
+
+      <label style="display:block; margin-top: 0.8rem; font-size: 0.85rem; font-weight: 600;">Quantity</label>
+      <input type="number" name="quantity" value="1" min="1" {% if item.availability_type == 'In Stock' %}max="{{ item.stock_quantity }}"{% endif %} required style="width: 100%; padding: 0.6rem; margin-top: 0.2rem; border: 1px solid #fbcfe8; border-radius: 6px; box-sizing: border-box; font-size: 0.95rem;">
+
+      <button type="submit" class="btn" style="margin-top: 1.4rem; padding: 0.75rem;">Confirm Pickup Reservation</button>
+    </form>
+  </div>
+{% endblock %}

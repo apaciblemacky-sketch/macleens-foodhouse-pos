@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 2rem; max-width: 400px; margin: 3rem auto; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); text-align: center;">
+    <h2 style="color: #2d5a27; margin-bottom: 0.5rem;">🔒 Admin Access</h2>
+    <p style="color: #718096; font-size: 0.9rem; margin-bottom: 1.5rem;">Enter password to manage Hedera orders and products.</p>
+
+    {% if error %}
+      <div style="background: #fee2e2; color: #dc2626; padding: 0.6rem; border-radius: 6px; font-size: 0.85rem; margin-bottom: 1rem;">
+        {{ error }}
+      </div>
+    {% endif %}
+
+    <form method="POST">
+      <input type="password" name="password" required placeholder="Enter password" style="width: 100%; padding: 0.6rem; border: 1px solid #cbd5e0; border-radius: 6px; box-sizing: border-box; margin-bottom: 1rem;">
+      <button class="btn" type="submit">Unlock Dashboard</button>
+    </form>
+    <p style="margin-top: 1rem; font-size: 0.8rem; color: #a0aec0;">Default password: <code>hederaadmin</code></p>
+  </div>
+{% endblock %}

@@ -3,238 +3,215 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Customer Dashboard — Macleen's Food House</title>
+  <title>My Macleen's Rewards</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#ff69b4">
   <style>
-    :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-border: #fbcfe8; --hk-bg: #fff0f5; }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-    body { background: var(--hk-bg); color: #1e293b; padding: 1rem; display: flex; justify-content: center; }
-    .dashboard-container { max-width: 480px; width: 100%; }
-
-    .card { background: white; border-radius: 16px; border: 1.5px solid var(--hk-border); padding: 1.2rem; margin-bottom: 1rem; box-shadow: 0 4px 12px rgba(251, 207, 232, 0.4); }
-    .profile-header { display: flex; flex-direction: column; align-items: center; text-align: center; }
-    .profile-img { width: 90px; height: 90px; border-radius: 50%; border: 3px solid var(--hk-pink); object-fit: cover; margin-bottom: 8px; }
-    .member-name { font-size: 1.25rem; font-weight: 900; color: var(--hk-dark); }
-    .member-card-id { font-size: 0.8rem; color: #64748b; font-weight: bold; margin-bottom: 10px; }
-
-    .points-card { background: #fff5f7; border: 1.5px solid #fecdd3; border-radius: 12px; padding: 1rem; text-align: center; margin-top: 6px; }
-    .points-val { font-size: 2rem; font-weight: 900; color: var(--hk-pink); }
-    .points-sub { font-size: 0.75rem; color: #64748b; }
-
-    /* Streak & Referral Cards */
-    .streak-box {
-      background: #eff6ff;
-      border: 1.5px solid #bfdbfe;
-      border-radius: 12px;
-      padding: 10px;
-      margin-top: 10px;
-      text-align: center;
-    }
-    .referral-box {
-      background: #fdf2f8;
-      border: 1.5px dashed var(--hk-pink);
-      border-radius: 12px;
-      padding: 12px;
-      margin-top: 10px;
-    }
-
-    /* Promo Banners */
-    .promo-box {
-      background: linear-gradient(135deg, #fff1f2, #ffe4e6);
-      border: 2px dashed #f43f5e;
-      border-radius: 14px;
-      padding: 1.1rem;
-      text-align: center;
-      margin-bottom: 1rem;
-    }
-    .promo-badge {
-      display: inline-block;
-      background: #e11d48;
-      color: white;
-      padding: 3px 10px;
-      border-radius: 20px;
-      font-size: 0.7rem;
-      font-weight: 900;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-      margin-bottom: 6px;
-    }
-    .promo-title {
-      color: #9f1239;
-      font-size: 1.2rem;
-      font-weight: 900;
-      line-height: 1.2;
-      margin-bottom: 4px;
-    }
-    .promo-desc {
-      font-size: 0.78rem;
-      color: #475569;
-      margin-bottom: 10px;
-      line-height: 1.35;
-    }
-
-    .btn { display: block; width: 100%; padding: 10px; border-radius: 8px; font-weight: bold; border: none; cursor: pointer; text-align: center; text-decoration: none; font-size: 0.85rem; }
-    .btn-pink { background: var(--hk-pink); color: white; }
-    .btn-red { background: #e11d48; color: white; box-shadow: 0 4px 10px rgba(225, 29, 72, 0.25); }
-    .btn-amber { background: #d97706; color: white; box-shadow: 0 4px 10px rgba(217, 119, 6, 0.25); }
-    .btn-outline { background: transparent; border: 1.5px solid #cbd5e1; color: #64748b; margin-top: 6px; }
-    
-    .form-control { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.82rem; margin-bottom: 8px; }
-
-    /* Emphasized Order More CTA */
-    .btn-order-more {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: linear-gradient(135deg, #ff69b4, #ec4899);
-      color: white;
-      font-weight: 900;
-      font-size: 0.82rem;
-      padding: 7px 16px;
-      border-radius: 20px;
-      text-decoration: none;
-      box-shadow: 0 4px 12px rgba(236, 72, 153, 0.35);
-      border: 1.5px solid #fbcfe8;
-      transition: transform 0.15s ease-in-out;
-    }
-    .btn-order-more:hover { transform: scale(1.05); }
+    :root { --pink:#ff69b4; --dark:#831843; --border:#fbcfe8; --bg:#fff0f5; --muted:#64748b; }
+    * { box-sizing:border-box; margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+    html { scroll-behavior:smooth; }
+    body { background:var(--bg); color:#1e293b; padding:12px; }
+    .wrap { width:100%; max-width:680px; margin:0 auto; }
+    .card { background:#fff; border:1.5px solid var(--border); border-radius:16px; padding:16px; margin-bottom:12px; box-shadow:0 4px 12px rgba(251,207,232,.35); }
+    .profile { display:flex; gap:12px; align-items:center; }
+    .avatar { width:64px; height:64px; border-radius:50%; border:3px solid var(--pink); object-fit:cover; background:#ffe4e6; display:flex; align-items:center; justify-content:center; font-size:1.8rem; flex:none; }
+    .name { color:var(--dark); font-size:1.2rem; font-weight:900; }
+    .muted { color:var(--muted); font-size:.76rem; }
+    .flash { padding:10px 12px; border-radius:10px; margin-bottom:10px; font-size:.82rem; font-weight:700; }
+    .flash-success { background:#dcfce7; color:#166534; }
+    .flash-info { background:#e0f2fe; color:#075985; }
+    .flash-error { background:#fee2e2; color:#991b1b; }
+    .action-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:12px; }
+    .action { text-decoration:none; border:1.5px solid var(--border); border-radius:12px; padding:12px 8px; text-align:center; background:#fff7fb; color:var(--dark); font-weight:900; font-size:.82rem; }
+    .action span { display:block; font-size:1.5rem; margin-bottom:4px; }
+    .section-title { color:var(--dark); font-size:1rem; font-weight:900; margin-bottom:8px; }
+    .points { font-size:2rem; font-weight:900; color:var(--pink); }
+    .progress { height:12px; background:#fce7f3; border-radius:999px; overflow:hidden; margin:8px 0; }
+    .progress > div { height:100%; background:linear-gradient(90deg,#ff69b4,#ec4899); }
+    .btn { width:100%; display:block; border:none; border-radius:9px; padding:10px; text-align:center; text-decoration:none; font-weight:900; cursor:pointer; font-size:.82rem; }
+    .btn-pink { background:var(--pink); color:#fff; }
+    .btn-blue { background:#0284c7; color:#fff; }
+    .btn-red { background:#e11d48; color:#fff; }
+    .btn-amber { background:#d97706; color:#fff; }
+    .btn-outline { background:#fff; border:1.5px solid #cbd5e1; color:#475569; }
+    .btn-soft { background:#fdf2f8; border:1px solid var(--border); color:var(--dark); }
+    .deal { border:1.5px dashed #f43f5e; border-radius:12px; padding:12px; margin-top:8px; background:#fff1f2; }
+    .bonus { border:1.5px solid #fde68a; border-radius:12px; padding:12px; margin-top:8px; background:#fffbeb; }
+    .cat { margin-top:12px; }
+    .cat h4 { color:var(--dark); font-size:.82rem; margin-bottom:6px; text-transform:uppercase; letter-spacing:.3px; }
+    .menu-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }
+    .menu-item { border:1px solid #f3e8ff; border-radius:11px; padding:9px; background:#fff; }
+    .menu-name { font-weight:900; font-size:.8rem; min-height:34px; }
+    .menu-meta { font-size:.68rem; color:var(--muted); margin:3px 0 7px; }
+    .mini-actions { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+    .mini-actions button { padding:6px 4px; border-radius:7px; font-size:.68rem; font-weight:800; cursor:pointer; border:1px solid #cbd5e1; }
+    .active-vote { background:#ede9fe; color:#6d28d9; border-color:#8b5cf6 !important; }
+    .active-wish { background:#fce7f3; color:#be185d; border-color:#ec4899 !important; }
+    .row { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+    .history { max-height:190px; overflow-y:auto; }
+    .history-row { padding:7px 0; border-bottom:1px dashed #fce7f3; font-size:.75rem; }
+    .refbox { background:#fdf2f8; border:1.5px dashed var(--pink); border-radius:12px; padding:12px; }
+    .copy-row { display:flex; gap:5px; margin-top:7px; }
+    .copy-row input { flex:1; min-width:0; padding:8px; border:1px solid #cbd5e1; border-radius:7px; font-size:.7rem; }
+    .copy-row button { width:auto; padding:8px 10px; }
+    .secondary-order { background:#f8fafc; border-color:#e2e8f0; }
+    @media (max-width:420px){ .menu-grid{grid-template-columns:1fr;} }
   </style>
 </head>
 <body>
+<div class="wrap">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash flash-{{ category if category in ['success','info','error'] else 'info' }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
 
-  <div class="dashboard-container">
-    
-    <!-- Profile & Loyalty Points Card -->
-    <div class="card profile-header">
-      {% if cust.profile_image %}
-        <img src="{{ cust.profile_image }}" class="profile-img">
-      {% else %}
-        <div class="profile-img" style="background: #ffe4e6; display: flex; justify-content: center; align-items: center; font-size: 2.2rem;">🎀</div>
-      {% endif %}
-
-      <div class="member-name">{{ cust.name }}</div>
-      <div class="member-card-id">Member Card: <strong>{{ cust.card_number or 'MFH-0000' }}</strong></div>
-
-      <div class="points-card" style="width: 100%;">
-        <div style="font-size: 0.75rem; font-weight: bold; color: var(--hk-dark); text-transform: uppercase;">REWARD POINTS</div>
-        <div class="points-val">{{ "{:,.1f}".format(cust.points_balance or 0.0) }}</div>
-        <div class="points-sub">Earn 1 Point per ₱30 spend • 0.5 pts Daily Login</div>
-      </div>
-
-      <!-- 📅 Daily Login (+0.5 pts) & 7-Day Spin Streak -->
-      <div style="width: 100%;" class="streak-box">
-        <div style="font-size:0.8rem; font-weight:bold; color:#1e40af;">
-          🔥 Daily Login Streak: Day {{ cust.login_streak or 1 }}/7
-        </div>
-        {% if (cust.login_streak or 1) >= 7 %}
-          <div style="background:#fef3c7; color:#92400e; padding:6px; border-radius:6px; font-weight:900; font-size:0.75rem; margin-top:4px;">
-            🎉 7-Day Streak Complete! Show your phone to the cashier for your <strong>FREE SPIN WHEEL</strong> prize!
-          </div>
-        {% else %}
-          <div style="font-size:0.72rem; color:#64748b; margin-top:2px;">
-            +0.5 pts added today! Reach Day 7 to unlock your <strong>Free Spin</strong> at the cashier!
-          </div>
-        {% endif %}
-      </div>
-
-      <!-- 🎁 Invite & Referral Link (+2 pts) -->
-      <div style="width: 100%;" class="referral-box">
-        <div style="font-size:0.78rem; font-weight:bold; color:var(--hk-dark); margin-bottom:4px;">
-          🎁 Invite Friends & Earn +2 Points!
-        </div>
-        <p style="font-size:0.72rem; color:#64748b; margin-bottom:6px;">Share your link. When a friend signs up with your code, you receive 2 reward points.</p>
-        <div style="display:flex; gap:4px;">
-          <input type="text" id="refLinkInput" value="{{ request.url_root }}portal/register?ref={{ cust.card_number or cust.contact }}" readonly class="form-control" style="margin-bottom:0; font-size:0.72rem; background:#fff;">
-          <button onclick="copyInviteLink()" class="btn btn-pink" style="padding:4px 10px; font-size:0.72rem; width:auto; white-space:nowrap;">📋 Copy</button>
-        </div>
-      </div>
-
-      <!-- Member Wi-Fi Stack Notice -->
-      <div style="width: 100%; margin-top: 10px; background: #e0f2fe; color: #0369a1; padding: 8px; border-radius: 8px; font-size: 0.75rem; text-align: center;">
-        📶 <strong>Free Wi-Fi:</strong> {{ cust.wifi_minutes_left or 0 }} mins remaining.<br>
-        <span style="font-size:0.7rem; color:#0284c7;">Ask Cashier anytime to top up +10 mins (Stackable for Members).</span>
+  <div class="card">
+    <div class="profile">
+      {% if cust.profile_image %}<img src="{{ cust.profile_image }}" class="avatar">{% else %}<div class="avatar">🎀</div>{% endif %}
+      <div style="flex:1;">
+        <div class="name">{{ cust.name }}</div>
+        <div class="muted">Member {{ cust.card_number or 'MFH-0000' }} • {{ cust.card_status or 'ACTIVE' }}</div>
+        <div class="muted">🔥 Login streak: Day {{ cust.login_streak or 1 }}</div>
       </div>
     </div>
 
-    <!-- 🔥 3-DAY EXCLUSIVE MEMBER PROMO: BURGER + FRIES (₱50) 🔥 -->
-    {% if promo_burger and promo_burger.is_active and promo_burger.is_visible %}
-    <div class="promo-box">
-      <span class="promo-badge">👑 3-Day Limited Member Perk</span>
-      <h2 class="promo-title">🍔 1 Regular Burger + 🍟 Fries for only ₱50!</h2>
-      <p class="promo-desc">
-        Temporary 3-day deal. Tap below to reserve instantly and pay <strong>₱50.00</strong> at the counter upon claiming!
-      </p>
-      <form action="/portal/reserve-promo/BURGER_FRIES_50" method="POST" onsubmit="return confirm('Reserve 1 Regular Burger + Fries for ₱50.00?\n\nYour order slip will be queued at the cashier counter for pickup!');">
-        <button type="submit" class="btn btn-red" style="font-size:0.95rem; letter-spacing:0.5px;">
-          ⚡ Reserve Deal Now (Pay at Counter)
-        </button>
-      </form>
+    <div class="action-grid">
+      <a class="action" href="#rewards"><span>🎁</span>My Rewards</a>
+      <a class="action" href="#wifi"><span>📶</span>Free Wi-Fi</a>
+      <a class="action" href="#vote"><span>🗳️</span>Vote & Earn</a>
+      <a class="action" href="#deals"><span>🔥</span>Today's Deals</a>
     </div>
-    {% endif %}
-
-    <!-- 🔥 3-DAY EXCLUSIVE MEMBER PROMO: BEEFY NACHOS (₱75) 🔥 -->
-    {% if promo_nachos and promo_nachos.is_active and promo_nachos.is_visible %}
-    <div class="promo-box" style="border-color:#f59e0b; background:linear-gradient(135deg, #fffbeb, #fef3c7);">
-      <span class="promo-badge" style="background:#d97706;">🔥 All-New Member Drop</span>
-      <h2 class="promo-title" style="color:#92400e;">🧀 All-New Loaded Beefy Nachos for only ₱75!</h2>
-      <p class="promo-desc">
-        Crispy golden tortilla chips smothered in seasoned ground beef & warm melted cheese sauce. Pay <strong>₱75.00</strong> at the counter upon claiming!
-      </p>
-      <form action="/portal/reserve-promo/BEEFY_NACHOS_75" method="POST" onsubmit="return confirm('Reserve All-New Beefy Nachos for ₱75.00?\n\nYour order slip will be queued at the cashier counter for pickup!');">
-        <button type="submit" class="btn btn-amber" style="font-size:0.95rem; letter-spacing:0.5px;">
-          ⚡ Reserve Beefy Nachos Now (₱75.00)
-        </button>
-      </form>
-    </div>
-    {% endif %}
-
-    <!-- Order Live Monitoring & Emphasized Order More CTA -->
-    <div class="card">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h3 style="color: var(--hk-dark); font-size: 0.95rem;">📦 Live Orders & History</h3>
-        <a href="/" class="btn-order-more">🛍️ + ORDER MORE</a>
-      </div>
-
-      {% if orders %}
-        <div style="max-height: 200px; overflow-y: auto;">
-          {% for o in orders %}
-          <div style="border-bottom: 1px dashed #fce7f3; padding: 6px 0; font-size: 0.75rem;">
-            <div style="display: flex; justify-content: space-between; font-weight: bold;">
-              <span>#{{ o.id }} ({{ o.order_type }} • {{ o.dining_option or 'DINE-IN' }})</span>
-              <span style="color: var(--hk-pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</span>
-            </div>
-            <div style="color: #64748b;">Status: <strong>{{ o.status }}</strong></div>
-          </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p style="color: #94a3b8; font-size: 0.78rem; text-align: center; padding: 15px 0;">No active or past orders found.</p>
-      {% endif %}
-    </div>
-
-    <!-- Profile & Photo Settings -->
-    <div class="card">
-      <h3 style="color: var(--hk-dark); font-size: 0.95rem; margin-bottom: 8px;">⚙️ Profile & Photo Settings</h3>
-      <form action="/portal/update-profile-pic" method="POST">
-        <label style="font-size: 0.75rem; font-weight: bold; color: #475569;">Direct Image URL</label>
-        <input type="url" name="profile_image" class="form-control" placeholder="https://..." value="{{ cust.profile_image or '' }}">
-        <button type="submit" class="btn btn-pink">Save Photo URL</button>
-      </form>
-      <a href="/portal/logout" class="btn btn-outline">Log Out Account</a>
-    </div>
-
   </div>
 
-  <script>
-    function copyInviteLink() {
-      const copyText = document.getElementById("refLinkInput");
-      copyText.select();
-      copyText.setSelectionRange(0, 99999);
-      navigator.clipboard.writeText(copyText.value);
-      alert("🎉 Invite link copied to clipboard!");
-    }
-  </script>
+  <div class="card" id="rewards">
+    <div class="section-title">🎁 My Rewards</div>
+    <div class="row">
+      <div>
+        <div class="points">{{ "{:,.1f}".format(cust.points_balance or 0.0) }} pts</div>
+        <div class="muted">Earn 1 point per ₱30 spend • +0.5 daily login</div>
+      </div>
+      <div style="text-align:right; font-size:.75rem; font-weight:900; color:var(--dark);">
+        {% if points_to_reward > 0 %}{{ "{:.1f}".format(points_to_reward) }} pts to 20-point milestone{% else %}20-point milestone reached!{% endif %}
+      </div>
+    </div>
+    <div class="progress"><div style="width:{{ reward_progress_pct|round(1) }}%;"></div></div>
+    <div class="muted">Your walk-in purchases earn points too. Tell the cashier you're a member before payment.</div>
 
+    {% if recent_rewards %}
+      <div style="margin-top:12px; font-size:.78rem; font-weight:900; color:var(--dark);">Recent reward activity</div>
+      {% for r in recent_rewards %}
+        <div class="history-row row"><span>{{ r.reason }}</span><strong style="color:{{ '#16a34a' if r.points_change >= 0 else '#dc2626' }};">{{ '+' if r.points_change >= 0 else '' }}{{ "{:.1f}".format(r.points_change) }}</strong></div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <div class="card" id="wifi">
+    <div class="section-title">📶 Free Wi-Fi</div>
+    <div style="font-size:1.5rem; font-weight:900; color:#0284c7;">{{ cust.wifi_minutes_left or 0 }} minutes</div>
+    <div class="muted" style="margin-bottom:9px;">Members can claim +10 free minutes once per Philippine day. Cashier top-ups can still be added when needed.</div>
+    <form action="/portal/claim-wifi" method="POST"><button class="btn btn-blue" type="submit">📶 Claim Today's +10 Minutes</button></form>
+    <div class="muted" style="margin-top:8px;">Voucher: <strong>{{ cust.wifi_voucher_code or 'Ask cashier' }}</strong></div>
+  </div>
+
+  <div class="card" id="vote">
+    <div class="section-title">🗳️ Vote & Earn • Weekly Menu Wishlist</div>
+    <div class="muted">Tell us what you want Macleen's to prepare. Your first vote or wishlist action each week earns <strong>+2 points</strong>. You can still vote for more items after the bonus is claimed.</div>
+
+    {% for group in products|groupby('category_name') %}
+      <div class="cat">
+        <h4>{{ group.grouper }}</h4>
+        <div class="menu-grid">
+          {% for p in group.list %}
+            <div class="menu-item">
+              <div class="menu-name">{{ p.name }}</div>
+              <div class="menu-meta">₱{{ "{:,.2f}".format(p.price) }} • {{ vote_counts.get(p.id, 0) }} vote{{ '' if vote_counts.get(p.id, 0) == 1 else 's' }} this week</div>
+              <div class="mini-actions">
+                <form action="/portal/vote/{{ p.id }}" method="POST"><button class="{{ 'active-vote' if p.id in weekly_vote_ids else '' }}" type="submit">{{ '✓ Voted' if p.id in weekly_vote_ids else '🗳️ Vote' }}</button></form>
+                <form action="/portal/wishlist/{{ p.id }}" method="POST"><button class="{{ 'active-wish' if p.id in wishlist_ids else '' }}" type="submit">{{ '♥ Saved' if p.id in wishlist_ids else '♡ Wishlist' }}</button></form>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+    {% if not products %}<div class="muted" style="text-align:center; padding:12px;">No active menu items are available for voting right now.</div>{% endif %}
+  </div>
+
+  <div class="card" id="deals">
+    <div class="section-title">🔥 Today's Member Deals</div>
+
+    {% for campaign in bonus_campaigns %}
+      <div class="bonus">
+        <div style="font-weight:900; color:#92400e;">⭐ {{ campaign.title }}</div>
+        {% if campaign.description %}<div class="muted" style="margin-top:3px;">{{ campaign.description }}</div>{% endif %}
+        <div style="font-size:.76rem; margin-top:6px; font-weight:800; color:#b45309;">
+          {% if campaign.points_multiplier and campaign.points_multiplier > 1 %}{{ "{:.1f}".format(campaign.points_multiplier) }}× base points{% endif %}
+          {% if campaign.bonus_points and campaign.bonus_points > 0 %}{% if campaign.points_multiplier and campaign.points_multiplier > 1 %} + {% endif %}+{{ "{:.1f}".format(campaign.bonus_points) }} bonus pts{% endif %}
+          {% if campaign.min_spend and campaign.min_spend > 0 %} • Min ₱{{ "{:,.2f}".format(campaign.min_spend) }}{% endif %}
+          {% if campaign.start_time or campaign.end_time %} • {{ campaign.start_time or '00:00' }}–{{ campaign.end_time or '23:59' }}{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+
+    {% for promo in active_promos %}
+      <div class="deal">
+        <div style="font-size:.68rem; font-weight:900; color:#e11d48;">{{ 'PORTAL-ONLY MEMBER DEAL' if promo.portal_only else 'MEMBER DEAL' }}</div>
+        <div style="font-weight:900; color:#9f1239; margin-top:3px;">{{ promo.title }}</div>
+        {% if promo.description %}<div class="muted" style="margin-top:3px;">{{ promo.description }}</div>{% endif %}
+        <div style="font-size:1.25rem; font-weight:900; color:#e11d48; margin:7px 0;">₱{{ "{:,.2f}".format(promo.promo_price) }}</div>
+        <form action="/portal/reserve-promo/{{ promo.promo_code }}" method="POST" onsubmit="return confirm('Reserve this member deal and queue it at the cashier?');"><button type="submit" class="btn btn-red">⚡ Reserve • Pay at Counter</button></form>
+      </div>
+    {% endfor %}
+
+    {% if not active_promos and not bonus_campaigns %}<div class="muted" style="text-align:center; padding:12px;">No member deal is active right now. Check again later.</div>{% endif %}
+  </div>
+
+  <div class="card">
+    <div class="section-title">🎁 Invite a Friend</div>
+    <div class="refbox">
+      <div style="font-size:.8rem; font-weight:900; color:var(--dark);">Both get rewarded after the first real purchase</div>
+      <div class="muted" style="margin-top:4px;">Share your personal link. When your friend registers and completes their first paid purchase, both accounts receive +2 points. Successful referral rewards: <strong>{{ referral_rewards_count }}</strong>.</div>
+      <div class="copy-row">
+        <input id="refLinkInput" value="{{ request.url_root }}portal/register?ref={{ cust.card_number or cust.contact }}" readonly>
+        <button class="btn btn-pink" type="button" onclick="copyInviteLink()">📋 Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card secondary-order">
+    <div class="row" style="margin-bottom:9px;">
+      <div class="section-title" style="margin:0;">📦 Purchases & Orders</div>
+      <a class="btn btn-pink" style="width:auto; padding:7px 11px;" href="/">Order Online</a>
+    </div>
+    <div class="muted" style="margin-bottom:8px;">Online ordering is optional. Your walk-in purchases still count when the cashier links your member account.</div>
+    {% if orders %}
+      <div class="history">
+        {% for o in orders %}
+          <div class="history-row">
+            <div class="row"><strong>#{{ o.id }} • {{ o.order_type }}</strong><strong style="color:var(--pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</strong></div>
+            <div class="muted">{{ o.status }} • {{ o.dining_option or 'DINE-IN' }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}<div class="muted" style="text-align:center; padding:10px;">No purchases linked to this member yet.</div>{% endif %}
+  </div>
+
+  <div class="card">
+    <div class="section-title">⚙️ Account</div>
+    <form action="/portal/update-profile-pic" method="POST">
+      <input type="url" name="profile_image" value="{{ cust.profile_image or '' }}" placeholder="Optional profile image URL" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:7px; margin-bottom:7px;">
+      <button class="btn btn-soft" type="submit">Save Profile Photo URL</button>
+    </form>
+    <a href="/portal/logout" class="btn btn-outline" style="margin-top:7px;">Log Out</a>
+  </div>
+</div>
+<script>
+  function copyInviteLink(){
+    const el=document.getElementById('refLinkInput');
+    el.select(); el.setSelectionRange(0,99999);
+    navigator.clipboard.writeText(el.value).then(()=>alert('Invite link copied!'));
+  }
+</script>
 </body>
 </html>

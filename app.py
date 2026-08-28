@@ -1,3 +1,4 @@
+import io
 import logging
 import os
 import random
@@ -8,10 +9,14 @@ from datetime import datetime, date, timedelta, time, timezone
 from functools import wraps
 from zoneinfo import ZoneInfo
 
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory, Response
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect, text, UniqueConstraint
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+import qrcode
+import qrcode.image.svg
 
 logging.basicConfig(
     level=os.environ.get('LOG_LEVEL', 'INFO').upper(),
@@ -19,6 +24,8 @@ logging.basicConfig(
 )
 
 app = Flask(__name__)
+# Trust Render's single reverse-proxy hop so generated QR URLs use the public HTTPS host.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 IS_PRODUCTION = bool(os.environ.get('RENDER') or os.environ.get('FLASK_ENV') == 'production')
 _secret_key = os.environ.get('SECRET_KEY')
 if not _secret_key:
@@ -252,6 +259,7 @@ class PromotionTracker(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     promo_code = db.Column(db.String(50), unique=True, nullable=False)
     title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text, nullable=True)
     promo_price = db.Column(db.Float, nullable=False)
     promo_cost = db.Column(db.Float, default=0.0, nullable=True)
     page_views = db.Column(db.Integer, default=0)
@@ -259,6 +267,79 @@ class PromotionTracker(db.Model):
     total_revenue = db.Column(db.Float, default=0.0)
     is_active = db.Column(db.Boolean, default=True)
     is_visible = db.Column(db.Boolean, default=True)
+    portal_only = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class CustomerWishlist(db.Model):
+    __tablename__ = 'customer_wishlist'
+    __table_args__ = (UniqueConstraint('customer_id', 'product_id', name='uq_customer_wishlist_product'),)
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='CASCADE'), nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class MenuVote(db.Model):
+    __tablename__ = 'menu_vote'
+    __table_args__ = (UniqueConstraint('customer_id', 'product_id', 'period_key', name='uq_menu_vote_period'),)
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='CASCADE'), nullable=False)
+    period_key = db.Column(db.String(20), nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class EngagementClaim(db.Model):
+    __tablename__ = 'engagement_claim'
+    __table_args__ = (UniqueConstraint('customer_id', 'action_code', 'period_key', name='uq_engagement_claim_period'),)
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    action_code = db.Column(db.String(50), nullable=False)
+    period_key = db.Column(db.String(30), nullable=False)
+    points_awarded = db.Column(db.Float, default=0.0, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class BonusCampaign(db.Model):
+    __tablename__ = 'bonus_campaign'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    bonus_points = db.Column(db.Float, nullable=False, default=0.0)
+    points_multiplier = db.Column(db.Float, nullable=False, default=1.0)
+    min_spend = db.Column(db.Float, nullable=False, default=0.0)
+    start_date = db.Column(db.Date, nullable=True)
+    end_date = db.Column(db.Date, nullable=True)
+    start_time = db.Column(db.String(5), nullable=True)
+    end_time = db.Column(db.String(5), nullable=True)
+    weekdays = db.Column(db.String(30), nullable=True)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class BonusCampaignClaim(db.Model):
+    __tablename__ = 'bonus_campaign_claim'
+    __table_args__ = (UniqueConstraint('campaign_id', 'order_id', name='uq_bonus_campaign_order'),)
+    id = db.Column(db.Integer, primary_key=True)
+    campaign_id = db.Column(db.Integer, db.ForeignKey('bonus_campaign.id', ondelete='CASCADE'), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='CASCADE'), nullable=False)
+    points_awarded = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class ReferralReward(db.Model):
+    __tablename__ = 'referral_reward'
+    __table_args__ = (UniqueConstraint('referred_customer_id', name='uq_referral_referred_customer'),)
+    id = db.Column(db.Integer, primary_key=True)
+    referrer_customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    referred_customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    first_order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='SET NULL'), nullable=True)
+    referrer_points = db.Column(db.Float, default=0.0, nullable=False)
+    referred_points = db.Column(db.Float, default=0.0, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class PortalEvent(db.Model):
+    __tablename__ = 'portal_event'
+    id = db.Column(db.Integer, primary_key=True)
+    source = db.Column(db.String(30), nullable=True)
+    event_type = db.Column(db.String(50), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
 # ==================== PWA ROOT ROUTES ====================
@@ -315,6 +396,8 @@ def run_schema_migrations():
         'promotion_tracker': [
             ('promo_cost', 'FLOAT DEFAULT 0.0'),
             ('is_visible', 'BOOLEAN DEFAULT TRUE'),
+            ('portal_only', 'BOOLEAN DEFAULT FALSE'),
+            ('description', 'TEXT'),
         ],
         'product': [
             ('cost', 'FLOAT DEFAULT 0.0'),
@@ -343,6 +426,7 @@ def run_schema_migrations():
             conn.execute(text("UPDATE customer SET login_streak = 1 WHERE login_streak IS NULL"))
         if 'promotion_tracker' in tables:
             conn.execute(text("UPDATE promotion_tracker SET is_visible = TRUE WHERE is_visible IS NULL"))
+            conn.execute(text("UPDATE promotion_tracker SET portal_only = FALSE WHERE portal_only IS NULL"))
 
 def run_db_setup():
     global _DB_INITIALIZED
@@ -654,6 +738,212 @@ def ph_datetime_filter(value, fmt='%b %d, %Y - %I:%M %p'):
     local_value = utc_naive_to_ph(value)
     return local_value.strftime(fmt) if local_value else ''
 
+def current_week_key(day=None):
+    day = day or ph_today()
+    iso = day.isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+def track_portal_event(event_type, source=None, customer_id=None):
+    """Best-effort portal/QR analytics. Never block a customer action if tracking fails."""
+    try:
+        db.session.add(PortalEvent(
+            source=(source or session.get('portal_source') or 'direct')[:30],
+            event_type=str(event_type)[:50],
+            customer_id=customer_id,
+        ))
+    except Exception:
+        app.logger.exception('Could not queue portal event %s', event_type)
+
+def award_engagement_once(cust, action_code, period_key, points, reason):
+    existing = EngagementClaim.query.filter_by(
+        customer_id=cust.id,
+        action_code=action_code,
+        period_key=period_key,
+    ).first()
+    if existing:
+        return 0.0
+    points = max(0.0, float(points or 0.0))
+    db.session.add(EngagementClaim(
+        customer_id=cust.id,
+        action_code=action_code,
+        period_key=period_key,
+        points_awarded=points,
+    ))
+    if points > 0:
+        cust.points_balance = (cust.points_balance or 0.0) + points
+        db.session.add(RewardLedger(customer_id=cust.id, points_change=points, reason=reason))
+    return points
+
+def _parse_campaign_time(value):
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, '%H:%M').time()
+    except (TypeError, ValueError):
+        return None
+
+def bonus_campaign_applies(campaign, order=None, moment=None):
+    if not campaign.is_active:
+        return False
+    if order and order.created_at:
+        local_dt = utc_naive_to_ph(order.created_at)
+    else:
+        local_dt = moment or ph_now()
+    day = local_dt.date()
+    local_time = local_dt.time().replace(tzinfo=None)
+
+    if campaign.start_date and day < campaign.start_date:
+        return False
+    if campaign.end_date and day > campaign.end_date:
+        return False
+
+    if campaign.weekdays:
+        allowed = {x.strip() for x in campaign.weekdays.split(',') if x.strip()}
+        if allowed and str(local_dt.weekday()) not in allowed:
+            return False
+
+    start = _parse_campaign_time(campaign.start_time)
+    end = _parse_campaign_time(campaign.end_time)
+    if start and end:
+        if start <= end:
+            if not (start <= local_time <= end):
+                return False
+        elif not (local_time >= start or local_time <= end):
+            return False
+    elif start and local_time < start:
+        return False
+    elif end and local_time > end:
+        return False
+
+    if order and (order.total_amount or 0.0) + 1e-9 < (campaign.min_spend or 0.0):
+        return False
+    return True
+
+def get_active_bonus_campaigns(moment=None):
+    campaigns = BonusCampaign.query.filter_by(is_active=True).order_by(BonusCampaign.created_at.desc()).all()
+    return [c for c in campaigns if bonus_campaign_applies(c, moment=moment or ph_now())]
+
+def award_active_bonus_campaigns(cust, order):
+    if not cust or not order or order.id is None or order.status != 'COMPLETED':
+        return 0.0
+    total_bonus = 0.0
+    campaigns = BonusCampaign.query.filter_by(is_active=True).all()
+    for campaign in campaigns:
+        if not bonus_campaign_applies(campaign, order=order):
+            continue
+        existing = BonusCampaignClaim.query.filter_by(campaign_id=campaign.id, order_id=order.id).first()
+        if existing:
+            continue
+        fixed_bonus = max(0.0, float(campaign.bonus_points or 0.0))
+        multiplier = max(1.0, float(campaign.points_multiplier or 1.0))
+        base_points = max(0, int((order.total_amount or 0.0) // 30))
+        multiplier_bonus = max(0.0, (multiplier - 1.0) * base_points)
+        bonus = fixed_bonus + multiplier_bonus
+        if bonus <= 0:
+            continue
+        cust.points_balance = (cust.points_balance or 0.0) + bonus
+        db.session.add(BonusCampaignClaim(
+            campaign_id=campaign.id,
+            customer_id=cust.id,
+            order_id=order.id,
+            points_awarded=bonus,
+        ))
+        db.session.add(RewardLedger(
+            customer_id=cust.id,
+            points_change=bonus,
+            reason=f"Bonus Campaign: {campaign.title} / Order #{order.id}",
+        ))
+        total_bonus += bonus
+    return total_bonus
+
+def award_referral_first_purchase(cust, order):
+    """Reward a valid referral only after the referred member completes a paid purchase."""
+    if not cust or not order or not cust.referred_by or order.status != 'COMPLETED' or not order.payment_verified:
+        return 0.0, 0.0
+    if ReferralReward.query.filter_by(referred_customer_id=cust.id).first():
+        return 0.0, 0.0
+
+    referrer = get_customer_by_identifier(cust.referred_by)
+    if not referrer or referrer.id == cust.id or customer_access_issue(referrer):
+        return 0.0, 0.0
+
+    # Older versions awarded the referrer +2 immediately on signup. Detect that ledger entry
+    # so existing accounts are never rewarded twice after this upgrade.
+    legacy_reason = f"Referral Bonus: Invited {cust.name}"
+    already_paid_referrer = RewardLedger.query.filter_by(customer_id=referrer.id, reason=legacy_reason).first() is not None
+    referrer_points = 0.0 if already_paid_referrer else 2.0
+    referred_points = 2.0
+
+    if referrer_points:
+        referrer.points_balance = (referrer.points_balance or 0.0) + referrer_points
+        db.session.add(RewardLedger(
+            customer_id=referrer.id,
+            points_change=referrer_points,
+            reason=f"Referral First-Purchase Bonus: {cust.name}",
+        ))
+    cust.points_balance = (cust.points_balance or 0.0) + referred_points
+    db.session.add(RewardLedger(
+        customer_id=cust.id,
+        points_change=referred_points,
+        reason=f"Referral Welcome Purchase Bonus / Order #{order.id}",
+    ))
+    db.session.add(ReferralReward(
+        referrer_customer_id=referrer.id,
+        referred_customer_id=cust.id,
+        first_order_id=order.id,
+        referrer_points=referrer_points,
+        referred_points=referred_points,
+    ))
+    return referrer_points, referred_points
+
+def apply_member_marketing_rewards(cust, order):
+    """Apply non-base marketing rewards to a completed, paid member transaction."""
+    if not cust or not order or order.status != 'COMPLETED' or not order.payment_verified:
+        return {'bonus_points': 0.0, 'referral_member_points': 0.0, 'referrer_points': 0.0}
+    bonus = award_active_bonus_campaigns(cust, order)
+    referrer_pts, referred_pts = award_referral_first_purchase(cust, order)
+    return {
+        'bonus_points': bonus,
+        'referral_member_points': referred_pts,
+        'referrer_points': referrer_pts,
+    }
+
+def reverse_member_marketing_rewards_for_order(order):
+    """Reverse bonus/referral points tied to a completed order before reassign/delete."""
+    if not order or order.id is None:
+        return
+
+    for claim in BonusCampaignClaim.query.filter_by(order_id=order.id).all():
+        cust = db.session.get(Customer, claim.customer_id)
+        if cust and claim.points_awarded:
+            cust.points_balance = max(0.0, (cust.points_balance or 0.0) - claim.points_awarded)
+            db.session.add(RewardLedger(
+                customer_id=cust.id,
+                points_change=-claim.points_awarded,
+                reason=f"Reversed Bonus Campaign / Order #{order.id}",
+            ))
+        db.session.delete(claim)
+
+    referral = ReferralReward.query.filter_by(first_order_id=order.id).first()
+    if referral:
+        referred = db.session.get(Customer, referral.referred_customer_id)
+        referrer = db.session.get(Customer, referral.referrer_customer_id)
+        if referred and referral.referred_points:
+            referred.points_balance = max(0.0, (referred.points_balance or 0.0) - referral.referred_points)
+            db.session.add(RewardLedger(
+                customer_id=referred.id,
+                points_change=-referral.referred_points,
+                reason=f"Reversed Referral Purchase Bonus / Order #{order.id}",
+            ))
+        if referrer and referral.referrer_points:
+            referrer.points_balance = max(0.0, (referrer.points_balance or 0.0) - referral.referrer_points)
+            db.session.add(RewardLedger(
+                customer_id=referrer.id,
+                points_change=-referral.referrer_points,
+                reason=f"Reversed Referral Bonus / Order #{order.id}",
+            ))
+        db.session.delete(referral)
+
 @app.context_processor
 def inject_globals():
     try:
@@ -735,7 +1025,8 @@ def store_catalog():
     liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=get_client_ip()).all()}
     delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()
     status = check_operating_status()
-    active_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True).all()
+    active_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True, portal_only=False).all()
+    active_promos = [p for p in active_promos if not p.created_at or (utc_now() - p.created_at).days <= 3]
 
     try:
         top_customers = Customer.query.order_by(Customer.points_balance.desc()).limit(10).all()
@@ -1055,6 +1346,7 @@ def cashier_terminal():
     today_drops = VaultDrop.query.filter(VaultDrop.created_at >= start_today, VaultDrop.created_at < next_day).order_by(VaultDrop.drop_number.asc()).all()
     today_change_funds = ChangeFund.query.filter(ChangeFund.created_at >= start_today, ChangeFund.created_at < next_day).order_by(ChangeFund.created_at.desc()).all()
     next_drop_num = len(today_drops) + 1
+    active_bonus_campaigns = get_active_bonus_campaigns()
 
     return render_template(
         'cashier_pos.html',
@@ -1071,6 +1363,7 @@ def cashier_terminal():
         today_drops=today_drops,
         today_change_funds=today_change_funds,
         next_drop_num=next_drop_num,
+        active_bonus_campaigns=active_bonus_campaigns,
     )
 
 @app.route('/pos/topup-member-wifi', methods=['POST'])
@@ -1165,8 +1458,17 @@ def cashier_direct_sale():
                 subtotal=line['subtotal'],
             ))
         reserve_cart_stock(lines)
+        marketing = apply_member_marketing_rewards(cust, order) if cust else {'bonus_points': 0.0, 'referral_member_points': 0.0, 'referrer_points': 0.0}
         db.session.commit()
-        return jsonify({'success': True, 'order_id': order.id, 'total': subtotal, 'points_earned': points_earned})
+        return jsonify({
+            'success': True,
+            'order_id': order.id,
+            'total': subtotal,
+            'points_earned': points_earned,
+            'bonus_points': marketing['bonus_points'],
+            'referral_points': marketing['referral_member_points'],
+            'member_balance': (cust.points_balance or 0.0) if cust else None,
+        })
     except OrderValidationError as exc:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(exc)}), 400
@@ -1248,6 +1550,8 @@ def cashier_claim_promo():
 
     promo.claims_count = (promo.claims_count or 0) + 1
     promo.total_revenue = (promo.total_revenue or 0.0) + promo.promo_price
+    if reg_id and cust_id:
+        apply_member_marketing_rewards(cust, order)
 
     db.session.commit()
     flash(f"🎉 Promo Deal '{promo.title}' recorded ({dining_opt}) for {cust_name} (₱{promo.promo_price:,.2f})!", "success")
@@ -1391,6 +1695,8 @@ def cashier_misc_sale():
         quantity=1,
         subtotal=amount
     ))
+    if reg_cust_id and cust_id:
+        apply_member_marketing_rewards(cust, order)
 
     db.session.commit()
     flash(f"Misc Sale recorded: {service_name} for {customer_name} (₱{amount:,.2f})", "success")
@@ -1537,6 +1843,9 @@ def cashier_settle_collection(order_id):
                 if earned > 0:
                     cust.points_balance = (cust.points_balance or 0.0) + earned
                     db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Same-Day Settled Credit #{order.id}"))
+            # Referral and scheduled campaign rewards are tied to the original purchase,
+            # so they can be released once the credit order is actually paid.
+            apply_member_marketing_rewards(cust, order)
 
     db.session.commit()
     bonus_msg = f" (+{earned} pts earned for Same-Day payment!)" if earned > 0 else " (No points: paid after order date)"
@@ -1666,6 +1975,7 @@ def verify_order(order_id):
                             points_change=earned,
                             reason=f'Purchase Order #{order.id}',
                         ))
+                    apply_member_marketing_rewards(cust, order)
         db.session.commit()
         if order.payment_method == 'CREDIT':
             flash(f'Order #{order.id} accepted as A/R Credit and added to Member Credit AR.', 'success')
@@ -1823,6 +2133,28 @@ def admin_dashboard():
     food_revenue_total += all_vault
     total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
 
+    bonus_campaigns = BonusCampaign.query.order_by(BonusCampaign.created_at.desc()).all()
+    week_key = current_week_key()
+    vote_rows = (
+        db.session.query(Product.category_name, Product.name, Product.id, db.func.count(MenuVote.id).label('votes'))
+        .join(MenuVote, MenuVote.product_id == Product.id)
+        .filter(MenuVote.period_key == week_key)
+        .group_by(Product.category_name, Product.name, Product.id)
+        .order_by(Product.category_name.asc(), db.func.count(MenuVote.id).desc(), Product.name.asc())
+        .all()
+    )
+    seven_days_ago = utc_now() - timedelta(days=7)
+    marketing_metrics = {
+        'qr_scans_7d': PortalEvent.query.filter(PortalEvent.event_type == 'QR_SCAN', PortalEvent.created_at >= seven_days_ago).count(),
+        'portal_logins_7d': PortalEvent.query.filter(PortalEvent.event_type == 'LOGIN', PortalEvent.created_at >= seven_days_ago).count(),
+        'registrations_7d': PortalEvent.query.filter(PortalEvent.event_type == 'REGISTER', PortalEvent.created_at >= seven_days_ago).count(),
+        'counter_registrations_7d': PortalEvent.query.filter(PortalEvent.event_type == 'REGISTER', PortalEvent.source == 'counter', PortalEvent.created_at >= seven_days_ago).count(),
+        'wifi_claims_7d': PortalEvent.query.filter(PortalEvent.event_type == 'WIFI_CLAIM', PortalEvent.created_at >= seven_days_ago).count(),
+        'wishlist_total': CustomerWishlist.query.count(),
+        'weekly_votes': MenuVote.query.filter_by(period_key=week_key).count(),
+        'referral_rewards': ReferralReward.query.count(),
+    }
+
     return render_template('admin.html', 
                            products=products, 
                            categories=categories, 
@@ -1843,7 +2175,11 @@ def admin_dashboard():
                            fin_monthly=fin_monthly, 
                            fin_all=fin_all, 
                            total_ar=total_ar, 
-                           current_sort=sort_by)
+                           current_sort=sort_by,
+                           bonus_campaigns=bonus_campaigns,
+                           vote_rows=vote_rows,
+                           marketing_metrics=marketing_metrics,
+                           week_key=week_key)
 
 @app.route('/admin/allocate-vault-drop/<int:drop_id>', methods=['POST'])
 @require_admin
@@ -1908,6 +2244,7 @@ def admin_allocate_vault_drop(drop_id):
                 points_change=earned,
                 reason=f"Allocated Sale from Drop #{drop.drop_number}"
             ))
+        apply_member_marketing_rewards(cust, order)
 
     db.session.commit()
     flash(f"Allocated ₱{allocated_amount:,.2f} from Drop #{drop.drop_number} into a dedicated Order #{order.id}!", "success")
@@ -1930,16 +2267,17 @@ def admin_reassign_order(order_id):
         return redirect(url_for('admin_dashboard'))
     old_cust = Customer.query.get(order.customer_id) if order.customer_id else None
 
-    if old_cust and order.status == 'COMPLETED':
+    if old_cust and order.status == 'COMPLETED' and order.payment_verified:
         earned = int(order.total_amount // 30)
         old_cust.points_balance = max(0.0, (old_cust.points_balance or 0.0) - earned)
         old_cust.accumulated_spend = max(0.0, (old_cust.accumulated_spend or 0.0) - order.total_amount)
+        reverse_member_marketing_rewards_for_order(order)
 
     order.customer_id = new_cust.id
     order.customer_name = new_cust.name
     order.contact_number = new_cust.contact
 
-    if order.status == 'COMPLETED':
+    if order.status == 'COMPLETED' and order.payment_verified:
         earned_new = int(order.total_amount // 30)
         new_cust.accumulated_spend = (new_cust.accumulated_spend or 0.0) + order.total_amount
         if earned_new > 0:
@@ -1949,6 +2287,7 @@ def admin_reassign_order(order_id):
                 points_change=earned_new,
                 reason=f"Admin Reassigned Order #{order.id}"
             ))
+        apply_member_marketing_rewards(new_cust, order)
 
     db.session.commit()
     flash(f"Transaction #{order.id} reassigned to '{new_cust.name}'.", "success")
@@ -2006,17 +2345,19 @@ def admin_revert_order(order_id):
             if p:
                 p.stock += item.quantity
 
-    if order.customer_id and order.status == 'COMPLETED':
+    if order.customer_id and order.status == 'COMPLETED' and order.payment_verified:
         cust = Customer.query.get(order.customer_id)
         if cust:
             earned = int(order.total_amount // 30)
             cust.points_balance = max(0.0, (cust.points_balance or 0.0) - earned)
             cust.accumulated_spend = max(0.0, (cust.accumulated_spend or 0.0) - order.total_amount)
-            db.session.add(RewardLedger(
-                customer_id=cust.id,
-                points_change=-earned,
-                reason=f"Admin Reverted Sale #{order.id}"
-            ))
+            if earned > 0:
+                db.session.add(RewardLedger(
+                    customer_id=cust.id,
+                    points_change=-earned,
+                    reason=f"Admin Reverted Sale #{order.id}"
+                ))
+        reverse_member_marketing_rewards_for_order(order)
 
     if order.is_unpaid and order.customer_id:
         cust = Customer.query.get(order.customer_id)
@@ -2252,13 +2593,149 @@ def admin_toggle_promo_visibility(promo_id):
     flash(f"Promo '{promo.title}' visibility updated.", "info")
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/marketing/bonus-campaign/create', methods=['POST'])
+@require_admin
+def admin_create_bonus_campaign():
+    title = request.form.get('title', '').strip()
+    description = request.form.get('description', '').strip()
+    bonus_points = parse_float(request.form.get('bonus_points'), 0.0)
+    points_multiplier = parse_float(request.form.get('points_multiplier'), 1.0)
+    min_spend = parse_float(request.form.get('min_spend'), 0.0)
+    start_date_raw = request.form.get('start_date', '').strip()
+    end_date_raw = request.form.get('end_date', '').strip()
+    start_time = request.form.get('start_time', '').strip() or None
+    end_time = request.form.get('end_time', '').strip() or None
+    weekdays = ','.join(request.form.getlist('weekdays')) or None
+
+    if not title or (bonus_points <= 0 and points_multiplier <= 1.0) or min_spend < 0 or points_multiplier < 1.0:
+        flash('Campaign needs a title and either fixed bonus points or a points multiplier above 1×.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    try:
+        start_date = datetime.strptime(start_date_raw, '%Y-%m-%d').date() if start_date_raw else None
+        end_date = datetime.strptime(end_date_raw, '%Y-%m-%d').date() if end_date_raw else None
+        if start_date and end_date and end_date < start_date:
+            raise ValueError('End date must not be before start date.')
+        if start_time:
+            datetime.strptime(start_time, '%H:%M')
+        if end_time:
+            datetime.strptime(end_time, '%H:%M')
+    except ValueError as exc:
+        flash(f'Invalid campaign schedule: {exc}', 'error')
+        return redirect(url_for('admin_dashboard'))
+
+    db.session.add(BonusCampaign(
+        title=title,
+        description=description,
+        bonus_points=bonus_points,
+        points_multiplier=points_multiplier,
+        min_spend=min_spend,
+        start_date=start_date,
+        end_date=end_date,
+        start_time=start_time,
+        end_time=end_time,
+        weekdays=weekdays,
+        is_active=True,
+    ))
+    db.session.commit()
+    flash(f"Bonus campaign '{title}' created.", 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/marketing/bonus-campaign/<int:campaign_id>/toggle', methods=['POST'])
+@require_admin
+def admin_toggle_bonus_campaign(campaign_id):
+    campaign = BonusCampaign.query.get_or_404(campaign_id)
+    campaign.is_active = not campaign.is_active
+    db.session.commit()
+    flash(f"Bonus campaign '{campaign.title}' {'activated' if campaign.is_active else 'paused'}.", 'info')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/marketing/bonus-campaign/<int:campaign_id>/delete', methods=['POST'])
+@require_admin
+def admin_delete_bonus_campaign(campaign_id):
+    campaign = BonusCampaign.query.get_or_404(campaign_id)
+    BonusCampaignClaim.query.filter_by(campaign_id=campaign.id).delete(synchronize_session=False)
+    db.session.delete(campaign)
+    db.session.commit()
+    flash(f"Bonus campaign '{campaign.title}' deleted.", 'info')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/marketing/promo/create', methods=['POST'])
+@require_admin
+def admin_create_member_promo():
+    promo_code = re.sub(r'[^A-Z0-9_]+', '_', request.form.get('promo_code', '').strip().upper()).strip('_')
+    title = request.form.get('title', '').strip()
+    description = request.form.get('description', '').strip()
+    price = parse_float(request.form.get('promo_price'), 0.0)
+    cost = parse_float(request.form.get('promo_cost'), 0.0)
+    portal_only = request.form.get('portal_only') == 'on'
+    if not promo_code or not title or price <= 0 or cost < 0:
+        flash('Promo code, title, positive price, and valid cost are required.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    if PromotionTracker.query.filter_by(promo_code=promo_code).first():
+        flash('That promo code already exists.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    db.session.add(PromotionTracker(
+        promo_code=promo_code,
+        title=title,
+        description=description,
+        promo_price=price,
+        promo_cost=cost,
+        is_active=True,
+        is_visible=True,
+        portal_only=portal_only,
+    ))
+    db.session.commit()
+    flash(f"Promo '{title}' created and is live for its 3-day cycle.", 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/marketing/qr-kit')
+@require_admin
+def admin_qr_kit():
+    qr_sources = [
+        ('counter', 'Counter Registration', 'Scan to join rewards before or after a walk-in purchase.'),
+        ('table', 'Table Vote & Earn', 'Scan while waiting to vote for menu items and check rewards.'),
+        ('receipt', 'Receipt Rewards Check', 'Scan after purchase to check points and member benefits.'),
+        ('facebook', 'Facebook / Social', 'Use this QR on printed social promotions and posters.'),
+        ('wifi', 'Free Wi-Fi', 'Scan to log in and claim today’s free Wi-Fi minutes.'),
+    ]
+    return render_template('qr_kit.html', qr_sources=qr_sources)
+
+@app.route('/marketing/qr/<string:source>.svg')
+def marketing_qr_svg(source):
+    allowed = {'counter', 'table', 'receipt', 'facebook', 'wifi'}
+    if source not in allowed:
+        return Response('Unknown QR source', status=404, mimetype='text/plain')
+    target = url_for('portal_start', source=source, _external=True)
+    image = qrcode.make(target, image_factory=qrcode.image.svg.SvgPathImage)
+    buffer = io.BytesIO()
+    image.save(buffer)
+    return Response(buffer.getvalue(), mimetype='image/svg+xml', headers={'Cache-Control': 'no-store'})
+
 # ==================== CUSTOMER PORTAL ====================
+
+@app.route('/portal/start/<string:source>')
+def portal_start(source):
+    allowed = {'counter', 'table', 'receipt', 'facebook', 'wifi'}
+    if source not in allowed:
+        source = 'direct'
+    session['portal_source'] = source
+    track_portal_event('QR_SCAN', source=source, customer_id=session.get('customer_id'))
+    db.session.commit()
+    section = {'table': 'vote', 'wifi': 'wifi', 'counter': 'rewards', 'receipt': 'rewards', 'facebook': 'deals'}.get(source, 'rewards')
+    if session.get('customer_id'):
+        return redirect(url_for('customer_dashboard') + f'#{section}')
+    return redirect(url_for('customer_login', src=source, next=section))
 
 @app.route('/portal/login', methods=['GET', 'POST'])
 def customer_login():
+    source = request.args.get('src', '').strip() or session.get('portal_source') or 'direct'
+    next_section = request.args.get('next', '').strip()
+    if source:
+        session['portal_source'] = source[:30]
     if request.method == 'POST':
         contact = request.form.get('contact', '').strip()
         pin = request.form.get('pin', '').strip()
+        next_section = request.form.get('next', '').strip() or next_section
         cust = Customer.query.filter_by(contact=contact).first()
         if cust and check_password_hash(cust.pin_hash, pin):
             issue = customer_access_issue(cust)
@@ -2267,10 +2744,12 @@ def customer_login():
                     cust.card_status = 'EXPIRED'
                     db.session.commit()
                 flash(issue, 'error')
-                return render_template('customer_login.html')
+                return render_template('customer_login.html', source=source, next_section=next_section)
 
+            portal_source = session.get('portal_source', source)
             session.clear()
             session['customer_id'] = cust.id
+            session['portal_source'] = portal_source
             session.permanent = True
             today = ph_today()
             if cust.last_daily_login != today:
@@ -2284,14 +2763,20 @@ def customer_login():
                     reason=f'Daily Login Reward (Day {cust.login_streak})',
                 ))
             cust.last_active_at = utc_now()
+            track_portal_event('LOGIN', source=portal_source, customer_id=cust.id)
             db.session.commit()
-            return redirect(url_for('customer_dashboard'))
+            target = url_for('customer_dashboard')
+            return redirect(target + (f'#{next_section}' if next_section else ''))
         flash('Invalid Contact or PIN.', 'error')
-    return render_template('customer_login.html')
+    return render_template('customer_login.html', source=source, next_section=next_section)
 
 @app.route('/portal/register', methods=['GET', 'POST'])
 def customer_register():
     ref_code = request.args.get('ref', '').strip()
+    source = request.args.get('src', '').strip() or session.get('portal_source') or 'direct'
+    next_section = request.args.get('next', '').strip()
+    if source:
+        session['portal_source'] = source[:30]
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
         email = request.form.get('email', '').strip()
@@ -2301,16 +2786,18 @@ def customer_register():
         address = request.form.get('default_address', '').strip()
         landmark = request.form.get('default_landmark', '').strip()
         ref = request.form.get('referral_code', '').strip() or ref_code
+        source = request.form.get('source', '').strip() or source
+        next_section = request.form.get('next', '').strip() or next_section
 
         if not name or not contact:
             flash('Name and mobile number are required.', 'error')
-            return redirect(url_for('customer_register', ref=ref_code or None))
+            return redirect(url_for('customer_register', ref=ref_code or None, src=source, next=next_section or None))
         if not is_valid_customer_pin(pin):
             flash('Security PIN must be exactly 4 digits.', 'error')
-            return redirect(url_for('customer_register', ref=ref_code or None))
+            return redirect(url_for('customer_register', ref=ref_code or None, src=source, next=next_section or None))
         if Customer.query.filter_by(contact=contact).first():
             flash('Contact number already registered.', 'error')
-            return redirect(url_for('customer_register'))
+            return redirect(url_for('customer_login', src=source, next=next_section or None))
 
         today = ph_today()
         try:
@@ -2342,40 +2829,47 @@ def customer_register():
                 points_change=0.5,
                 reason='Welcome Login Bonus',
             ))
+            # The 10 welcome Wi-Fi minutes are today's free allocation, so registration
+            # cannot immediately claim another 10 minutes on the same Philippine day.
+            db.session.add(EngagementClaim(
+                customer_id=new_cust.id,
+                action_code='DAILY_WIFI',
+                period_key=today.isoformat(),
+                points_awarded=0.0,
+            ))
 
-            if ref:
-                referrer = get_customer_by_identifier(ref)
-                if referrer and referrer.id != new_cust.id and not customer_access_issue(referrer):
-                    referrer.points_balance = (referrer.points_balance or 0.0) + 2.0
-                    db.session.add(RewardLedger(
-                        customer_id=referrer.id,
-                        points_change=2.0,
-                        reason=f'Referral Bonus: Invited {name}',
-                    ))
-
+            # Referral rewards are intentionally held until the new member completes a paid purchase.
+            # This prevents fake registrations and rewards both sides for an actual new customer.
+            track_portal_event('REGISTER', source=source, customer_id=new_cust.id)
             db.session.commit()
+            portal_source = source
             session.clear()
             session['customer_id'] = new_cust.id
+            session['portal_source'] = portal_source
             session.permanent = True
-            flash('🎉 Welcome! You earned 0.5 points and 10 mins free Wi-Fi!', 'success')
-            return redirect(url_for('customer_dashboard'))
+            if ref:
+                flash('🎉 Welcome! +0.5 pt and 10 free Wi-Fi minutes added. Complete your first paid purchase to unlock the referral bonus for both of you!', 'success')
+            else:
+                flash('🎉 Welcome! You earned 0.5 points and 10 mins free Wi-Fi!', 'success')
+            target = url_for('customer_dashboard')
+            return redirect(target + (f'#{next_section}' if next_section else ''))
         except Exception:
             db.session.rollback()
             app.logger.exception('Customer registration failed for contact=%s', contact)
             flash('Registration could not be completed. Please try again or ask staff for help.', 'error')
-            return redirect(url_for('customer_register', ref=ref_code or None))
+            return redirect(url_for('customer_register', ref=ref_code or None, src=source, next=next_section or None))
 
-    return render_template('customer_register.html', ref_code=ref_code)
+    return render_template('customer_register.html', ref_code=ref_code, source=source, next_section=next_section)
 
 @app.route('/portal/dashboard')
 def customer_dashboard():
     if 'customer_id' not in session:
         return redirect(url_for('customer_login'))
-    
+
     cust = Customer.query.get(session['customer_id'])
     if not cust:
         session.pop('customer_id', None)
-        flash("Account session expired. Please log in again.", "info")
+        flash('Account session expired. Please log in again.', 'info')
         return redirect(url_for('customer_login'))
 
     issue = customer_access_issue(cust)
@@ -2383,21 +2877,137 @@ def customer_dashboard():
         session.pop('customer_id', None)
         flash(issue, 'error')
         return redirect(url_for('customer_login'))
-    
+
     if getattr(cust, 'login_streak', None) is None:
         cust.login_streak = 1
         db.session.commit()
 
-    my_orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).all()
-    promo_burger = PromotionTracker.query.filter_by(promo_code='BURGER_FRIES_50', is_visible=True).first()
-    promo_nachos = PromotionTracker.query.filter_by(promo_code='BEEFY_NACHOS_75', is_visible=True).first()
-    
-    return render_template('customer_dashboard.html', 
-                           cust=cust, 
-                           orders=my_orders, 
-                           promo_burger=promo_burger, 
-                           promo_nachos=promo_nachos, 
-                           today=ph_today())
+    my_orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).limit(30).all()
+    active_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True).order_by(PromotionTracker.created_at.desc()).all()
+    # Preserve the existing 3-day promo cycle automatically.
+    active_promos = [p for p in active_promos if (utc_now() - p.created_at).days <= 3]
+    bonus_campaigns = get_active_bonus_campaigns()
+
+    products = Product.query.filter_by(is_active=True).order_by(Product.category_name.asc(), Product.name.asc()).all()
+    products = [p for p in products if is_product_available_now(p)]
+    wishlist_ids = {row.product_id for row in CustomerWishlist.query.filter_by(customer_id=cust.id).all()}
+    week_key = current_week_key()
+    weekly_vote_ids = {row.product_id for row in MenuVote.query.filter_by(customer_id=cust.id, period_key=week_key).all()}
+    vote_counts = dict(
+        db.session.query(MenuVote.product_id, db.func.count(MenuVote.id))
+        .filter(MenuVote.period_key == week_key)
+        .group_by(MenuVote.product_id)
+        .all()
+    )
+    reward_target = 20.0
+    balance = float(cust.points_balance or 0.0)
+    points_to_reward = max(0.0, reward_target - balance)
+    reward_progress_pct = min(100.0, (balance / reward_target * 100.0) if reward_target else 100.0)
+    recent_rewards = RewardLedger.query.filter_by(customer_id=cust.id).order_by(RewardLedger.created_at.desc()).limit(8).all()
+    referral_rewards_count = ReferralReward.query.filter_by(referrer_customer_id=cust.id).count()
+
+    return render_template(
+        'customer_dashboard.html',
+        cust=cust,
+        orders=my_orders,
+        active_promos=active_promos,
+        bonus_campaigns=bonus_campaigns,
+        products=products,
+        wishlist_ids=wishlist_ids,
+        weekly_vote_ids=weekly_vote_ids,
+        vote_counts=vote_counts,
+        week_key=week_key,
+        reward_target=reward_target,
+        points_to_reward=points_to_reward,
+        reward_progress_pct=reward_progress_pct,
+        recent_rewards=recent_rewards,
+        referral_rewards_count=referral_rewards_count,
+        today=ph_today(),
+    )
+
+@app.route('/portal/claim-wifi', methods=['POST'])
+def customer_claim_wifi():
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login', next='wifi'))
+    cust = Customer.query.get_or_404(session['customer_id'])
+    issue = customer_access_issue(cust)
+    if issue:
+        flash(issue, 'error')
+        return redirect(url_for('customer_login'))
+
+    day_key = ph_today().isoformat()
+    existing = EngagementClaim.query.filter_by(customer_id=cust.id, action_code='DAILY_WIFI', period_key=day_key).first()
+    if existing:
+        flash('📶 You already claimed today’s free 10 Wi-Fi minutes. Ask the cashier if you need an additional top-up.', 'info')
+        return redirect(url_for('customer_dashboard') + '#wifi')
+
+    db.session.add(EngagementClaim(customer_id=cust.id, action_code='DAILY_WIFI', period_key=day_key, points_awarded=0.0))
+    cust.wifi_minutes_left = (cust.wifi_minutes_left or 0) + 10
+    if not cust.wifi_voucher_code:
+        cust.wifi_voucher_code = 'MFH-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    track_portal_event('WIFI_CLAIM', customer_id=cust.id)
+    db.session.commit()
+    flash(f'📶 +10 free Wi-Fi minutes claimed! You now have {cust.wifi_minutes_left} minutes.', 'success')
+    return redirect(url_for('customer_dashboard') + '#wifi')
+
+@app.route('/portal/wishlist/<int:product_id>', methods=['POST'])
+def customer_toggle_wishlist(product_id):
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login', next='vote'))
+    cust = Customer.query.get_or_404(session['customer_id'])
+    prod = Product.query.get_or_404(product_id)
+    issue = customer_access_issue(cust)
+    if issue or not prod.is_active:
+        flash(issue or 'That menu item is not active.', 'error')
+        return redirect(url_for('customer_dashboard') + '#vote')
+
+    existing = CustomerWishlist.query.filter_by(customer_id=cust.id, product_id=prod.id).first()
+    awarded = 0.0
+    if existing:
+        db.session.delete(existing)
+        message = f'💔 {prod.name} removed from your wishlist.'
+        track_portal_event('WISHLIST_REMOVE', customer_id=cust.id)
+    else:
+        db.session.add(CustomerWishlist(customer_id=cust.id, product_id=prod.id))
+        awarded = award_engagement_once(
+            cust, 'VOTE_OR_WISHLIST', current_week_key(), 2.0,
+            f'Weekly Vote/Wishlist Engagement: {prod.name}',
+        )
+        message = f'❤️ {prod.name} added to your wishlist.' + (' +2 points earned this week!' if awarded else '')
+        track_portal_event('WISHLIST_ADD', customer_id=cust.id)
+    db.session.commit()
+    flash(message, 'success' if not existing else 'info')
+    return redirect(url_for('customer_dashboard') + '#vote')
+
+@app.route('/portal/vote/<int:product_id>', methods=['POST'])
+def customer_toggle_vote(product_id):
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login', next='vote'))
+    cust = Customer.query.get_or_404(session['customer_id'])
+    prod = Product.query.get_or_404(product_id)
+    issue = customer_access_issue(cust)
+    if issue or not prod.is_active:
+        flash(issue or 'That menu item is not active.', 'error')
+        return redirect(url_for('customer_dashboard') + '#vote')
+
+    week_key = current_week_key()
+    existing = MenuVote.query.filter_by(customer_id=cust.id, product_id=prod.id, period_key=week_key).first()
+    awarded = 0.0
+    if existing:
+        db.session.delete(existing)
+        message = f'🗳️ Your vote for {prod.name} was removed.'
+        track_portal_event('VOTE_REMOVE', customer_id=cust.id)
+    else:
+        db.session.add(MenuVote(customer_id=cust.id, product_id=prod.id, period_key=week_key))
+        awarded = award_engagement_once(
+            cust, 'VOTE_OR_WISHLIST', week_key, 2.0,
+            f'Weekly Vote/Wishlist Engagement: {prod.name}',
+        )
+        message = f'🗳️ Vote counted for {prod.name}!' + (' +2 points earned this week!' if awarded else '')
+        track_portal_event('VOTE_ADD', customer_id=cust.id)
+    db.session.commit()
+    flash(message, 'success' if not existing else 'info')
+    return redirect(url_for('customer_dashboard') + '#vote')
 
 @app.route('/portal/logout')
 def customer_logout():
@@ -2411,14 +3021,14 @@ def customer_logout():
             db.session.rollback()
             app.logger.exception('Could not mark customer offline during logout')
     session.pop('customer_id', None)
-    flash("Successfully logged out.", "info")
+    flash('Successfully logged out.', 'info')
     return redirect(url_for('store_catalog'))
 
 @app.route('/portal/reserve-promo/<string:promo_code>', methods=['POST'])
 def customer_reserve_promo_by_code(promo_code):
     if 'customer_id' not in session:
-        return redirect(url_for('customer_login'))
-    
+        return redirect(url_for('customer_login', next='deals'))
+
     cust = Customer.query.get_or_404(session['customer_id'])
     issue = customer_access_issue(cust)
     if issue:
@@ -2426,22 +3036,22 @@ def customer_reserve_promo_by_code(promo_code):
         return redirect(url_for('customer_login'))
     promo = PromotionTracker.query.filter_by(promo_code=promo_code).first()
 
-    if not promo or not promo.is_active:
-        flash("This promotion campaign is currently archived.", "info")
-        return redirect(url_for('customer_dashboard'))
+    if not promo or not promo.is_active or not promo.is_visible:
+        flash('This promotion campaign is currently archived.', 'info')
+        return redirect(url_for('customer_dashboard') + '#deals')
 
     days_active = (utc_now() - promo.created_at).days
     if days_active > 3:
         promo.is_active = False
         db.session.commit()
-        flash("This 3-day promotion campaign has ended and is now archived.", "info")
-        return redirect(url_for('customer_dashboard'))
+        flash('This 3-day promotion campaign has ended and is now archived.', 'info')
+        return redirect(url_for('customer_dashboard') + '#deals')
 
     order = Order(
         order_type='PICKUP',
         dining_option='TAKEOUT',
         customer_id=cust.id,
-        customer_name=f"{cust.name} (Member Promo)",
+        customer_name=f'{cust.name} (Member Promo)',
         contact_number=cust.contact,
         pickup_time='Today / In-Store Claim',
         target_time='In-Store Counter Claim',
@@ -2451,7 +3061,7 @@ def customer_reserve_promo_by_code(promo_code):
         payment_method='CASH',
         payment_verified=False,
         status='VERIFICATION',
-        notes=f"[3-DAY PROMO CLAIM] {promo.title} (₱{promo.promo_price:,.2f} Deal)"
+        notes=f'[3-DAY PROMO CLAIM] {promo.title} (₱{promo.promo_price:,.2f} Deal)'
     )
     db.session.add(order)
     db.session.flush()
@@ -2459,7 +3069,7 @@ def customer_reserve_promo_by_code(promo_code):
     db.session.add(OrderItem(
         order_id=order.id,
         product_id=None,
-        product_name=f"[PROMO 3-DAY] {promo.title}",
+        product_name=f'[PROMO 3-DAY] {promo.title}',
         unit_price=promo.promo_price,
         cost_price=max(0.0, parse_float(promo.promo_cost, 0.0)),
         quantity=1,
@@ -2468,10 +3078,10 @@ def customer_reserve_promo_by_code(promo_code):
 
     promo.claims_count = (promo.claims_count or 0) + 1
     promo.total_revenue = (promo.total_revenue or 0.0) + promo.promo_price
-
+    track_portal_event('PROMO_RESERVE', customer_id=cust.id)
     db.session.commit()
-    flash(f"🎉 Deal reserved! Order #{order.id} queued at Cashier counter.", "success")
-    return redirect(url_for('customer_dashboard'))
+    flash(f'🎉 Deal reserved! Order #{order.id} queued at Cashier counter.', 'success')
+    return redirect(url_for('customer_dashboard') + '#deals')
 
 @app.route('/portal/update-profile-pic', methods=['POST'])
 def update_profile_pic():
@@ -2482,7 +3092,7 @@ def update_profile_pic():
     if img_url:
         cust.profile_image = img_url
         db.session.commit()
-        flash("Profile picture updated!", "success")
+        flash('Profile picture updated!', 'success')
     return redirect(url_for('customer_dashboard'))
 
 # ==================== INDEPENDENT STAFF AUTH ====================

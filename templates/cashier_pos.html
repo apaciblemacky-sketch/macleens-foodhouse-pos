@@ -54,6 +54,7 @@
       <button onclick="openModal('miscModal')" style="background:#8b5cf6; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🖨️ Misc / Printing</button>
       <button onclick="openModal('expenseModal')" style="background:#f59e0b; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💸 Expense</button>
       <button onclick="openModal('vaultModal')" style="background:#10b981; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🏦 Vault Drop (#{{ next_drop_num }})</button>
+      <button onclick="openModal('memberQrModal')" style="background:#db2777; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🎁 New Member QR</button>
       <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
       <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Logout</a>
     </div>
@@ -131,6 +132,15 @@
         <button onclick="clearPosCart()" style="background:#ef4444; color:white; border:none; padding:2px 6px; border-radius:4px; font-size:0.7rem; cursor:pointer;">Clear</button>
       </div>
 
+      {% if active_bonus_campaigns %}
+      <div style="background:#422006; border:1px solid #f59e0b; border-radius:6px; padding:6px; margin-bottom:6px; font-size:0.68rem; color:#fde68a;">
+        <strong>⭐ MEMBER BONUS LIVE:</strong>
+        {% for bc in active_bonus_campaigns %}
+          {{ bc.title }}{% if bc.points_multiplier and bc.points_multiplier > 1 %} ({{ "{:.1f}".format(bc.points_multiplier) }}×){% endif %}{% if bc.bonus_points and bc.bonus_points > 0 %} (+{{ bc.bonus_points }} pts){% endif %}{% if not loop.last %} • {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+
       <div style="background:#0f172a; padding:6px; border-radius:6px; border:1px solid #334155; margin-bottom:6px;">
         <div style="display:flex; gap:4px; margin-bottom:4px;">
           <div style="flex:1;">
@@ -150,12 +160,13 @@
         </div>
 
         <div id="posRegCustWrap" style="display:none; margin-bottom:4px;">
-          <select id="posRegCustSelect" class="form-input" style="margin-bottom:0; padding:3px; color:#38bdf8; font-size:0.75rem;">
+          <select id="posRegCustSelect" class="form-input" style="margin-bottom:0; padding:3px; color:#38bdf8; font-size:0.75rem;" onchange="updateMemberQuickInfo()">
             <option value="">-- Select Registered Member --</option>
             {% for c in customers_list %}
-              <option value="{{ c.id }}">{{ c.name }} ({{ c.contact }}) - {{ (c.points_balance or 0)|int }} pts</option>
+              <option value="{{ c.id }}" data-points="{{ c.points_balance or 0 }}" data-card="{{ c.card_number or '' }}" data-wifi="{{ c.wifi_minutes_left or 0 }}">{{ c.name }} • {{ c.card_number or 'No Card' }} • {{ c.contact }} • {{ "{:.1f}".format(c.points_balance or 0) }} pts</option>
             {% endfor %}
           </select>
+          <div id="memberQuickInfo" style="font-size:0.68rem; color:#f9a8d4; margin-top:3px; min-height:14px;"></div>
         </div>
 
         <input type="text" id="posCustomName" placeholder="Customer Name / Remarks" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;">
@@ -654,6 +665,20 @@
     </div>
   </div>
 
+  <!-- MEMBER REGISTRATION / BENEFITS QR MODAL -->
+  <div id="memberQrModal" class="modal-backdrop">
+    <div class="modal-box" style="max-width:420px; text-align:center; border-color:#ec4899;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h3 style="color:#f472b6; font-size:1rem;">🎁 Scan & Get Rewarded</h3>
+        <button onclick="closeModal('memberQrModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <img src="/marketing/qr/counter.svg" alt="Counter member registration QR" style="width:240px; height:240px; background:white; padding:8px; border-radius:12px;">
+      <div style="font-size:0.82rem; font-weight:900; margin-top:8px;">New customer? Scan before payment.</div>
+      <div style="font-size:0.72rem; color:#cbd5e1; margin-top:4px; line-height:1.4;">Join in about 20 seconds • Earn walk-in points • Free Wi-Fi • Vote & Earn • Member-only deals.</div>
+      <div style="font-size:0.68rem; color:#94a3b8; margin-top:8px;">After registration, refresh the Cashier page and select the new member before recording the sale.</div>
+    </div>
+  </div>
+
   <!-- 8. SETTINGS MODAL -->
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal-box">
@@ -770,6 +795,19 @@
     function togglePosCustSelect() {
       const type = document.getElementById('posCustType').value;
       document.getElementById('posRegCustWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      updateMemberQuickInfo();
+    }
+
+    function updateMemberQuickInfo() {
+      const sel = document.getElementById('posRegCustSelect');
+      const info = document.getElementById('memberQuickInfo');
+      if (!sel || !info || !sel.value) { if (info) info.innerText = ''; return; }
+      const opt = sel.options[sel.selectedIndex];
+      const pts = parseFloat(opt.dataset.points || '0');
+      const wifi = parseInt(opt.dataset.wifi || '0');
+      const card = opt.dataset.card || 'No card';
+      const left = Math.max(0, 20 - pts);
+      info.innerText = `🎁 ${card} • ${pts.toFixed(1)} pts • ${left.toFixed(1)} pts to 20-point milestone • 📶 ${wifi}m`;
     }
 
     function filterCat(cat, btn) {
@@ -894,7 +932,14 @@
         });
         const data = await res.json();
         if (data.success) {
-          alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\nPoints Earned: ${data.points_earned || 0} pts`);
+          const basePts = Number(data.points_earned || 0);
+          const bonusPts = Number(data.bonus_points || 0);
+          const referralPts = Number(data.referral_points || 0);
+          let rewardLine = `Base Points: ${basePts.toFixed(1)} pts`;
+          if (bonusPts > 0) rewardLine += `\nCampaign Bonus: +${bonusPts.toFixed(1)} pts`;
+          if (referralPts > 0) rewardLine += `\nFirst-Purchase Referral Bonus: +${referralPts.toFixed(1)} pts`;
+          if (data.member_balance !== null && data.member_balance !== undefined) rewardLine += `\nNew Balance: ${Number(data.member_balance).toFixed(1)} pts`;
+          alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\n${rewardLine}`);
           clearPosCart();
           document.getElementById('posCashBill').value = '';
           window.location.reload();
@@ -971,6 +1016,11 @@
         </div>
         <div class="divider"></div>
         <div class="footer bold">* PASS TO KITCHEN / SERVING *</div>
+        <div class="center" style="margin-top:8px;">
+          <img src="${window.location.origin}/marketing/qr/receipt.svg" style="width:88px;height:88px;" alt="Rewards QR">
+          <div style="font-size:9px;font-weight:bold;">SCAN TO CHECK REWARDS</div>
+          <div style="font-size:8px;">Walk-in purchases earn points too.</div>
+        </div>
       `;
 
       triggerThermalPrint(receipt);

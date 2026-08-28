@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <!-- Viewport meta tag with dynamic desktop override capability -->
+  <meta name="viewport" id="viewportMeta" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Macleen's Crafts by Macleen's Food House</title>
+  
+  <style>
+    :root {
+      --pink-primary: #ec4899;
+      --pink-dark: #be185d;
+      --pink-deep: #831843;
+      --pink-light: #fff5f7;
+      --pink-border: #fbcfe8;
+      --pink-accent: #f472b6;
+      --text-main: #1f2937;
+      --text-muted: #6b7280;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--pink-light);
+      color: var(--text-main);
+      line-height: 1.5;
+      -webkit-tap-highlight-color: transparent;
+      padding-bottom: 70px; /* Space for view switcher toggle */
+    }
+
+    /* Force Desktop Mode Override Styles */
+    body.force-desktop {
+      min-width: 1100px !important;
+      overflow-x: auto !important;
+    }
+    body.force-desktop .container {
+      width: 1100px !important;
+      max-width: 1100px !important;
+    }
+    body.force-desktop .product-grid {
+      grid-template-columns: repeat(4, 1fr) !important;
+    }
+
+    /* Navigation */
+    header {
+      background: #ffffff;
+      border-bottom: 2px solid var(--pink-accent);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 4px 6px -1px rgba(244, 114, 182, 0.1);
+    }
+    .navbar {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.75rem 1rem;
+    }
+    .brand-container {
+      display: flex;
+      flex-direction: column;
+      text-decoration: none;
+    }
+    .brand-title {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #db2777;
+      line-height: 1.1;
+    }
+    .brand-sub {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--pink-dark);
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+    .nav-links {
+      display: flex;
+      gap: 0.6rem;
+      align-items: center;
+    }
+    .nav-link {
+      color: #4b5563;
+      text-decoration: none;
+      font-weight: 600;
+      padding: 0.4rem 0.7rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+    .nav-link:hover {
+      background: #fdf2f8;
+      color: #db2777;
+    }
+    .admin-link {
+      color: #be185d;
+      font-size: 0.8rem;
+      border: 1px solid var(--pink-border);
+      background: #fff;
+    }
+
+    /* Main Container */
+    .container {
+      max-width: 1100px;
+      margin: 1.2rem auto;
+      padding: 0 1rem;
+    }
+
+    /* Product Grid Layout */
+    .product-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 1.2rem;
+    }
+    @media (max-width: 600px) {
+      .product-grid {
+        grid-template-columns: repeat(2, 1fr); /* 2 items per row on mobile */
+        gap: 0.8rem;
+      }
+    }
+
+    /* Product Cards */
+    .product-card {
+      background: #ffffff;
+      border: 1px solid var(--pink-border);
+      border-radius: 14px;
+      overflow: hidden;
+      box-shadow: 0 4px 8px rgba(219, 39, 119, 0.04);
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .product-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 16px rgba(219, 39, 119, 0.1);
+    }
+    .product-image {
+      width: 100%;
+      height: 180px;
+      object-fit: cover;
+    }
+    @media (max-width: 600px) {
+      .product-image {
+        height: 140px;
+      }
+    }
+    .product-body {
+      padding: 0.9rem;
+      display: flex;
+      flex-direction: column;
+      flex-grow: 1;
+    }
+    .product-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 0.2rem;
+      line-height: 1.3;
+    }
+    @media (max-width: 600px) {
+      .product-title {
+        font-size: 0.95rem;
+      }
+    }
+    .product-price {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #db2777;
+      margin-bottom: 0.5rem;
+    }
+    .product-stats {
+      display: flex;
+      gap: 0.8rem;
+      color: #9ca3af;
+      font-size: 0.8rem;
+      margin-bottom: 0.8rem;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-block;
+      width: 100%;
+      text-align: center;
+      background: var(--pink-primary);
+      color: #ffffff;
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      text-decoration: none;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      font-size: 0.9rem;
+      touch-action: manipulation;
+      transition: background 0.2s;
+    }
+    .btn:hover { background: var(--pink-dark); }
+    .btn-outline { background: transparent; border: 1px solid var(--pink-primary); color: var(--pink-primary); }
+    .btn-outline:hover { background: #fdf2f8; }
+    .btn-delete { background: #f43f5e; color: #fff; padding: 6px 10px; font-size: 0.8rem; border: none; border-radius: 6px; cursor: pointer; }
+    .btn-edit { background: #8b5cf6; color: #fff; padding: 6px 10px; font-size: 0.8rem; text-decoration: none; border-radius: 6px; }
+
+    /* Badges */
+    .badge { padding: 3px 6px; border-radius: 5px; font-size: 0.75rem; font-weight: 700; display: inline-block; }
+    .badge-pending { background: #fef3c7; color: #d97706; }
+    .badge-ready { background: #e0e7ff; color: #4338ca; }
+    .badge-completed { background: #dcfce7; color: #15803d; }
+
+    /* Bottom Fixed Switcher Bar for Mobile / PC Toggle */
+    .view-mode-bar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: #ffffff;
+      border-top: 1px solid var(--pink-border);
+      padding: 8px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      z-index: 1000;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+      font-size: 0.85rem;
+    }
+    .toggle-pill-container {
+      display: flex;
+      background: #f3f4f6;
+      border-radius: 20px;
+      padding: 2px;
+      border: 1px solid #e5e7eb;
+    }
+    .toggle-pill-btn {
+      border: none;
+      background: transparent;
+      padding: 4px 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: 16px;
+      cursor: pointer;
+      color: #6b7280;
+      transition: all 0.2s;
+    }
+    .toggle-pill-btn.active {
+      background: var(--pink-primary);
+      color: #ffffff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="navbar">
+      <a href="/" class="brand-container">
+        <span class="brand-title">🎀 Macleen's Crafts</span>
+        <span class="brand-sub">by Macleen's Food House</span>
+      </a>
+      <nav class="nav-links">
+        <a href="/" class="nav-link">Catalog</a>
+        <a href="/admin" class="nav-link admin-link">🔒 Admin</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Mobile / PC View Switcher Bottom Bar -->
+  <div class="view-mode-bar">
+    <span style="color: var(--text-muted); font-size: 0.8rem;">📱 Display View:</span>
+    <div class="toggle-pill-container">
+      <button class="toggle-pill-btn" id="btnMobileView" onclick="setViewMode('mobile')">📱 Mobile</button>
+      <button class="toggle-pill-btn" id="btnDesktopView" onclick="setViewMode('desktop')">💻 PC / Desktop</button>
+    </div>
+  </div>
+
+  <script>
+    // View Switcher Functionality
+    function setViewMode(mode) {
+      localStorage.setItem('site_view_mode', mode);
+      applyViewMode(mode);
+    }
+
+    function applyViewMode(mode) {
+      const viewport = document.getElementById('viewportMeta');
+      const body = document.body;
+      const btnMobile = document.getElementById('btnMobileView');
+      const btnDesktop = document.getElementById('btnDesktopView');
+
+      if (mode === 'desktop') {
+        // Enforce 1100px desktop viewport scale
+        viewport.setAttribute('content', 'width=1100, initial-scale=0.35, user-scalable=yes');
+        body.classList.add('force-desktop');
+        btnDesktop.classList.add('active');
+        btnMobile.classList.remove('active');
+      } else {
+        // Enforce responsive dynamic mobile viewport
+        viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+        body.classList.remove('force-desktop');
+        btnMobile.classList.add('active');
+        btnDesktop.classList.remove('active');
+      }
+    }
+
+    // Auto-detect saved mode or screen size on load
+    document.addEventListener('DOMContentLoaded', () => {
+      const savedMode = localStorage.getItem('site_view_mode');
+      if (savedMode) {
+        applyViewMode(savedMode);
+      } else {
+        if (window.innerWidth <= 768) {
+          applyViewMode('mobile');
+        } else {
+          applyViewMode('desktop');
+        }
+      }
+    });
+  </script>
+</body>
+</html>
