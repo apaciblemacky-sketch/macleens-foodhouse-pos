@@ -117,9 +117,13 @@
 
       <div class="dish-grid">
         {% for p in products %}
-        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick="addPosCartItem({{ p.id }}, '{{ p.name }}', {{ p.price }})">
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addPosCartItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }})'>
           <div style="font-size:0.75rem; font-weight:bold; line-height:1.2;">{{ p.name }}</div>
           <div style="font-size:0.85rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
+        </div>
+        {% else %}
+        <div style="grid-column:1/-1; padding:24px; text-align:center; color:#94a3b8; font-size:0.8rem;">
+          No active products found. Add or reactivate products from Admin.
         </div>
         {% endfor %}
       </div>

@@ -1305,8 +1305,9 @@ def api_tablet_checkout():
 @require_cashier
 def cashier_terminal():
     categories = Category.query.all()
-    all_active_products = Product.query.filter_by(is_active=True).all()
-    products = [p for p in all_active_products if is_product_available_now(p)]
+    # Cashier is an internal staff terminal, so show every active product even
+    # when its public/tablet availability window is currently closed.
+    products = Product.query.filter_by(is_active=True).order_by(Product.id.asc()).all()
 
     # These are core cashier queries. Do not hide database/schema failures behind empty panels.
     pending_orders = Order.query.filter_by(status='VERIFICATION').order_by(Order.created_at.asc()).all()
@@ -1329,6 +1330,7 @@ def cashier_terminal():
     return render_template(
         'cashier_pos.html',
         categories=categories,
+        products=products,
         pending_orders=pending_orders,
         completed_orders=completed_orders,
         unpaid_collections=unpaid_collections,
@@ -1361,7 +1363,7 @@ def cashier_direct_sale():
         return jsonify({'success': False, 'message': 'Direct paid sales support Cash or GCash.'}), 400
 
     try:
-        lines = validate_and_lock_cart(data.get('items', []), require_available=True)
+        lines = validate_and_lock_cart(data.get('items', []), require_available=False)
         subtotal = cart_subtotal(lines)
         if pay_method == 'CASH' and change_for and change_for < subtotal:
             raise OrderValidationError('Cash bill cannot be less than the sale total.')
