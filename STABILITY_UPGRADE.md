@@ -49,3 +49,11 @@ Old transactions retain the `cost_price` that was actually stored when they were
 ## PWA/fallback logo
 
 The canonical ZIP referenced `/static/logo.png` but did not include it. A square `static/logo.png` has now been created from the Macleen's Food House logo already present in the uploaded Food House artwork, so the manifest and fallback image paths no longer point to a missing file.
+
+## Cashier Specific Amounts
+- Admin can enable **Specific Amt** per product and set that product's **Minimum Order Amount**.
+- In Cashier POS, enabled products open an amount entry box before being added to the cart.
+- Cashier may enter any amount at or above the configured minimum; the regular product price remains the default.
+- The backend re-checks the minimum and ignores/rejects unauthorized custom pricing, so browser-side edits cannot bypass the rule.
+- Public storefront and tablet ordering continue to use the regular product price.
+

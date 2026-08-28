@@ -142,6 +142,8 @@ class Product(db.Model):
     category_name = db.Column(db.String(80), nullable=False)
     price = db.Column(db.Float, nullable=False)
     cost = db.Column(db.Float, default=0.0, nullable=True)
+    allow_custom_amount = db.Column(db.Boolean, default=False)
+    minimum_order_amount = db.Column(db.Float, nullable=True)
     stock = db.Column(db.Integer, default=100)
     image_url = db.Column(db.Text, nullable=True)
     is_featured = db.Column(db.Boolean, default=False)
@@ -411,6 +413,8 @@ def run_schema_migrations():
         ],
         'product': [
             ('cost', 'FLOAT DEFAULT 0.0'),
+            ('allow_custom_amount', 'BOOLEAN DEFAULT FALSE'),
+            ('minimum_order_amount', 'FLOAT'),
             ('available_start_time', 'VARCHAR(10)'),
             ('available_end_time', 'VARCHAR(10)'),
         ],
@@ -437,6 +441,8 @@ def run_schema_migrations():
         if 'promotion_tracker' in tables:
             conn.execute(text("UPDATE promotion_tracker SET is_visible = TRUE WHERE is_visible IS NULL"))
             conn.execute(text("UPDATE promotion_tracker SET portal_only = FALSE WHERE portal_only IS NULL"))
+        if 'product' in tables:
+            conn.execute(text("UPDATE product SET allow_custom_amount = FALSE WHERE allow_custom_amount IS NULL"))
 
 def run_db_setup():
     global _DB_INITIALIZED
@@ -573,11 +579,12 @@ def customer_available_credit(cust, include_pending=True):
         used += float(pending)
     return max(0.0, limit - used)
 
-def validate_and_lock_cart(raw_items, require_available=True):
-    """Validate quantities/products/stock and return DB-priced line snapshots.
+def validate_and_lock_cart(raw_items, require_available=True, allow_cashier_custom_amount=False):
+    """Validate quantities/products/stock and return server-approved line snapshots.
 
-    Duplicate product IDs are consolidated. Product rows are locked on PostgreSQL so two
-    simultaneous checkouts cannot both consume the same final stock.
+    Public/storefront carts always use the database selling price. The cashier may submit
+    a specific unit amount only for products explicitly configured for flexible cashier
+    amounts, and never below that product's minimum order amount.
     """
     if not isinstance(raw_items, list) or not raw_items:
         raise OrderValidationError('No items were selected.')
@@ -594,10 +601,29 @@ def validate_and_lock_cart(raw_items, require_available=True):
             raise OrderValidationError('Item quantity must be at least 1.')
         if quantity > 999:
             raise OrderValidationError('Item quantity is too large.')
-        requested[product_id] = requested.get(product_id, 0) + quantity
+
+        requested_price = None
+        if allow_cashier_custom_amount and raw.get('unit_price') not in (None, ''):
+            requested_price = round(parse_float(raw.get('unit_price'), -1.0), 2)
+            if requested_price <= 0:
+                raise OrderValidationError('Specific amount must be greater than ₱0.00.')
+
+        existing = requested.get(product_id)
+        if existing:
+            # One product can only have one cashier amount in a single cart. This keeps
+            # stock, cost and receipt lines deterministic.
+            old_price = existing.get('requested_price')
+            if requested_price is not None and old_price is not None and abs(requested_price - old_price) > 0.004:
+                raise OrderValidationError('Use one specific amount per product in a single sale.')
+            if old_price is None and requested_price is not None:
+                existing['requested_price'] = requested_price
+            existing['quantity'] += quantity
+        else:
+            requested[product_id] = {'quantity': quantity, 'requested_price': requested_price}
 
     lines = []
-    for product_id, quantity in requested.items():
+    for product_id, req in requested.items():
+        quantity = req['quantity']
         stmt = db.select(Product).where(Product.id == product_id)
         if db.engine.dialect.name != 'sqlite':
             stmt = stmt.with_for_update()
@@ -613,9 +639,26 @@ def validate_and_lock_cart(raw_items, require_available=True):
         if stock < quantity:
             raise OrderValidationError(f'Not enough stock for {prod.name}. Available: {stock}.')
 
-        unit_price = max(0.0, parse_float(prod.price, 0.0))
-        if unit_price <= 0:
+        base_price = round(max(0.0, parse_float(prod.price, 0.0)), 2)
+        if base_price <= 0:
             raise OrderValidationError(f'{prod.name} has an invalid selling price.')
+        unit_price = base_price
+
+        requested_price = req.get('requested_price')
+        if requested_price is not None:
+            if not allow_cashier_custom_amount:
+                raise OrderValidationError('Specific amounts are only available at the Cashier POS.')
+            if not bool(getattr(prod, 'allow_custom_amount', False)):
+                raise OrderValidationError(f'{prod.name} does not allow a specific cashier amount.')
+            min_amount = round(parse_float(getattr(prod, 'minimum_order_amount', None), base_price), 2)
+            if min_amount <= 0:
+                min_amount = base_price
+            if requested_price + 0.004 < min_amount:
+                raise OrderValidationError(
+                    f'{prod.name} cannot be sold below its ₱{min_amount:,.2f} minimum order amount.'
+                )
+            unit_price = requested_price
+
         cost_price = max(0.0, parse_float(prod.cost, 0.0))
         lines.append({
             'product': prod,
@@ -1363,7 +1406,7 @@ def cashier_direct_sale():
         return jsonify({'success': False, 'message': 'Direct paid sales support Cash or GCash.'}), 400
 
     try:
-        lines = validate_and_lock_cart(data.get('items', []), require_available=False)
+        lines = validate_and_lock_cart(data.get('items', []), require_available=False, allow_cashier_custom_amount=True)
         subtotal = cart_subtotal(lines)
         if pay_method == 'CASH' and change_for and change_for < subtotal:
             raise OrderValidationError('Cash bill cannot be less than the sale total.')
@@ -2399,6 +2442,8 @@ def admin_add_product():
     category_name = request.form.get('category_name', 'Meals').strip() or 'Meals'
     price = parse_float(request.form.get('price'), 0.0)
     cost = parse_float(request.form.get('cost'), 0.0)
+    allow_custom_amount = bool(request.form.get('allow_custom_amount'))
+    minimum_order_amount = parse_float(request.form.get('minimum_order_amount'), 0.0)
     stock = parse_int(request.form.get('stock'), 100)
     image_url = request.form.get('image_url', '').strip()
     start_t = request.form.get('available_start_time', '').strip() or None
@@ -2412,12 +2457,22 @@ def admin_add_product():
     if cost < 0 or stock < 0:
         flash('Cost and stock cannot be negative.', 'error')
         return redirect(url_for('admin_dashboard'))
+    if allow_custom_amount:
+        if minimum_order_amount <= 0:
+            minimum_order_amount = price
+        if minimum_order_amount > price:
+            flash('Minimum order amount cannot be higher than the regular product price.', 'error')
+            return redirect(url_for('admin_dashboard'))
+    else:
+        minimum_order_amount = None
 
     db.session.add(Product(
         name=name,
         category_name=category_name,
         price=price,
         cost=cost,
+        allow_custom_amount=allow_custom_amount,
+        minimum_order_amount=minimum_order_amount,
         stock=stock,
         image_url=image_url,
         available_start_time=start_t,
@@ -2442,10 +2497,21 @@ def admin_batch_update_products():
             price = parse_float(request.form.get(f'price_{pid}'), prod.price)
             cost = parse_float(request.form.get(f'cost_{pid}'), prod.cost or 0.0)
             stock = parse_int(request.form.get(f'stock_{pid}'), prod.stock or 0)
+            allow_custom_amount = (f'allow_custom_amount_{pid}' in request.form)
+            minimum_order_amount = parse_float(request.form.get(f'minimum_order_amount_{pid}'), 0.0)
             if price <= 0 or cost < 0 or stock < 0:
                 raise OrderValidationError(f'Invalid price/cost/stock for {prod.name}.')
+            if allow_custom_amount:
+                if minimum_order_amount <= 0:
+                    minimum_order_amount = price
+                if minimum_order_amount > price:
+                    raise OrderValidationError(f'Minimum order amount for {prod.name} cannot exceed its regular price.')
+            else:
+                minimum_order_amount = None
             prod.price = price
             prod.cost = cost
+            prod.allow_custom_amount = allow_custom_amount
+            prod.minimum_order_amount = minimum_order_amount
             prod.stock = stock
             prod.image_url = request.form.get(f'image_url_{pid}', '').strip()
             prod.available_start_time = request.form.get(f'available_start_time_{pid}', '').strip() or None
@@ -2870,7 +2936,6 @@ def customer_dashboard():
         orders=my_orders,
         active_promos=active_promos,
         bonus_campaigns=bonus_campaigns,
-        products=products,
         reward_target=reward_target,
         points_to_reward=points_to_reward,
         reward_progress_pct=reward_progress_pct,

@@ -117,9 +117,14 @@
 
       <div class="dish-grid">
         {% for p in products %}
-        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addPosCartItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }})'>
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addPosCartItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ 'true' if p.allow_custom_amount else 'false' }}, {{ p.minimum_order_amount if p.minimum_order_amount else p.price }})'>
           <div style="font-size:0.75rem; font-weight:bold; line-height:1.2;">{{ p.name }}</div>
-          <div style="font-size:0.85rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
+          <div>
+            <div style="font-size:0.85rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
+            {% if p.allow_custom_amount %}
+              <div style="font-size:0.60rem; color:#38bdf8; font-weight:800; margin-top:1px;">Specific ≥ ₱{{ "{:,.2f}".format(p.minimum_order_amount or p.price) }}</div>
+            {% endif %}
+          </div>
         </div>
         {% else %}
         <div style="grid-column:1/-1; padding:24px; text-align:center; color:#94a3b8; font-size:0.8rem;">
@@ -654,6 +659,29 @@
   </div>
 
   <!-- MEMBER REGISTRATION / BENEFITS QR MODAL -->
+  <!-- CASHIER SPECIFIC AMOUNT MODAL -->
+  <div id="customAmountModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#38bdf8; max-width:390px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <div>
+          <h3 style="color:#38bdf8; font-size:1rem;">💵 Specific Product Amount</h3>
+          <div id="customAmountProductName" style="font-size:0.75rem; color:#cbd5e1; margin-top:2px;"></div>
+        </div>
+        <button type="button" onclick="closeModal('customAmountModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <div style="background:#0f172a; border:1px solid #334155; border-radius:8px; padding:10px; margin-bottom:10px;">
+        <div style="font-size:0.7rem; color:#94a3b8;">Regular Price</div>
+        <div id="customAmountRegularPrice" style="font-size:1rem; font-weight:900; color:#f472b6;">₱0.00</div>
+        <div style="font-size:0.7rem; color:#94a3b8; margin-top:5px;">Minimum Order Amount</div>
+        <div id="customAmountMinimum" style="font-size:1rem; font-weight:900; color:#34d399;">₱0.00</div>
+      </div>
+      <label style="font-size:0.75rem; color:#cbd5e1; font-weight:bold;">Enter Specific Amount (₱)</label>
+      <input type="number" id="customAmountInput" min="0.01" step="0.01" class="form-input" style="font-size:1.1rem; font-weight:900; padding:10px; margin-top:4px;" onkeydown="if(event.key==='Enter'){ event.preventDefault(); confirmCustomAmount(); }">
+      <div id="customAmountError" style="min-height:18px; font-size:0.72rem; color:#fca5a5; font-weight:bold; margin-bottom:6px;"></div>
+      <button type="button" onclick="confirmCustomAmount()" style="width:100%; background:#0284c7; color:white; border:none; padding:10px; border-radius:6px; font-weight:900; cursor:pointer;">ADD WITH THIS AMOUNT</button>
+    </div>
+  </div>
+
   <div id="memberQrModal" class="modal-backdrop">
     <div class="modal-box" style="max-width:420px; text-align:center; border-color:#ec4899;">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
@@ -805,14 +833,88 @@
       });
     }
 
-    function addPosCartItem(id, name, price) {
+    let pendingCustomAmountProduct = null;
+    let customAmountEditOnly = false;
+
+    function addPosCartItem(id, name, price, allowCustomAmount=false, minimumAmount=null) {
       id = String(id);
+      const regularPrice = parseFloat(price);
+      const minAmount = parseFloat(minimumAmount || regularPrice);
+
+      if (allowCustomAmount) {
+        pendingCustomAmountProduct = { id, name, regularPrice, minAmount };
+        customAmountEditOnly = false;
+        document.getElementById('customAmountProductName').innerText = name;
+        document.getElementById('customAmountRegularPrice').innerText = `₱${regularPrice.toFixed(2)}`;
+        document.getElementById('customAmountMinimum').innerText = `₱${minAmount.toFixed(2)}`;
+        const existing = posCart[id];
+        document.getElementById('customAmountInput').value = (existing ? existing.price : regularPrice).toFixed(2);
+        document.getElementById('customAmountInput').min = minAmount.toFixed(2);
+        document.getElementById('customAmountError').innerText = '';
+        document.querySelector('#customAmountModal button[onclick="confirmCustomAmount()"]').innerText = 'ADD WITH THIS AMOUNT';
+        openModal('customAmountModal');
+        setTimeout(() => document.getElementById('customAmountInput').select(), 50);
+        return;
+      }
+
       if (posCart[id]) {
         posCart[id].qty += 1;
       } else {
-        posCart[id] = { name: name, price: parseFloat(price), qty: 1 };
+        posCart[id] = { productId: parseInt(id), name: name, price: regularPrice, qty: 1, customAmount: false, minAmount: regularPrice };
       }
       renderPosCart();
+    }
+
+    function confirmCustomAmount() {
+      if (!pendingCustomAmountProduct) return;
+      const input = document.getElementById('customAmountInput');
+      const error = document.getElementById('customAmountError');
+      const amount = parseFloat(input.value);
+      const p = pendingCustomAmountProduct;
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        error.innerText = 'Enter a valid amount.';
+        input.focus();
+        return;
+      }
+      if (amount + 0.004 < p.minAmount) {
+        error.innerText = `Minimum for ${p.name} is ₱${p.minAmount.toFixed(2)}.`;
+        input.focus();
+        input.select();
+        return;
+      }
+
+      if (posCart[p.id]) {
+        posCart[p.id].price = amount;
+        posCart[p.id].regularPrice = p.regularPrice;
+        posCart[p.id].customAmount = true;
+        posCart[p.id].minAmount = p.minAmount;
+        if (!customAmountEditOnly) posCart[p.id].qty += 1;
+      } else {
+        posCart[p.id] = { productId: parseInt(p.id), name: p.name, price: amount, regularPrice: p.regularPrice, qty: 1, customAmount: true, minAmount: p.minAmount };
+      }
+
+      closeModal('customAmountModal');
+      pendingCustomAmountProduct = null;
+      customAmountEditOnly = false;
+      renderPosCart();
+    }
+
+    function editPosCustomAmount(id) {
+      id = String(id);
+      const item = posCart[id];
+      if (!item || !item.customAmount) return;
+      pendingCustomAmountProduct = { id, name: item.name, regularPrice: item.regularPrice || item.price, minAmount: item.minAmount };
+      customAmountEditOnly = true;
+      document.getElementById('customAmountProductName').innerText = item.name;
+      document.getElementById('customAmountRegularPrice').innerText = `₱${(item.regularPrice || item.price).toFixed(2)}`;
+      document.getElementById('customAmountMinimum').innerText = `₱${item.minAmount.toFixed(2)}`;
+      document.getElementById('customAmountInput').value = item.price.toFixed(2);
+      document.getElementById('customAmountInput').min = item.minAmount.toFixed(2);
+      document.getElementById('customAmountError').innerText = '';
+      document.querySelector('#customAmountModal button[onclick="confirmCustomAmount()"]').innerText = 'UPDATE AMOUNT';
+      openModal('customAmountModal');
+      setTimeout(() => document.getElementById('customAmountInput').select(), 50);
     }
 
     function updatePosQty(id, delta) {
@@ -851,9 +953,10 @@
           <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px dashed #334155; font-size:0.75rem;">
             <div>
               <div style="font-weight:bold;">${item.name}</div>
-              <div style="color:#94a3b8; font-size:0.68rem;">₱${item.price.toFixed(2)}</div>
+              <div style="color:#94a3b8; font-size:0.68rem;">₱${item.price.toFixed(2)}${item.customAmount ? ` • Specific (min ₱${item.minAmount.toFixed(2)})` : ''}</div>
             </div>
             <div style="display:flex; align-items:center; gap:3px;">
+              ${item.customAmount ? `<button onclick="editPosCustomAmount('${id}')" style="padding:1px 5px; background:#0284c7; color:white; border:none; border-radius:3px; font-weight:bold; cursor:pointer;" title="Edit specific amount">✎</button>` : ''}
               <button onclick="updatePosQty('${id}', -1)" style="padding:1px 5px; background:#334155; color:white; border:none; border-radius:3px; font-weight:bold; cursor:pointer;">-</button>
               <strong style="min-width:14px; text-align:center;">${item.qty}</strong>
               <button onclick="updatePosQty('${id}', 1)" style="padding:1px 5px; background:#334155; color:white; border:none; border-radius:3px; font-weight:bold; cursor:pointer;">+</button>
@@ -901,7 +1004,11 @@
       }
 
       const payload = {
-        items: keys.map(id => ({ product_id: parseInt(id), quantity: posCart[id].qty })),
+        items: keys.map(id => ({
+          product_id: parseInt(id),
+          quantity: posCart[id].qty,
+          ...(posCart[id].customAmount ? { unit_price: Number(posCart[id].price.toFixed(2)) } : {})
+        })),
         dining_option: diningOpt,
         customer_type: custType,
         registered_customer_id: regCustId ? parseInt(regCustId) : null,

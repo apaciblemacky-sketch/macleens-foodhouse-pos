@@ -31,8 +31,8 @@ REQUIRED_DB_COLUMNS = {
         "login_streak", "last_active_at",
     },
     "product": {
-        "id", "name", "category_name", "price", "cost", "stock",
-        "is_active", "available_start_time", "available_end_time",
+        "id", "name", "category_name", "price", "cost", "allow_custom_amount",
+        "minimum_order_amount", "stock", "is_active", "available_start_time", "available_end_time",
     },
     "order": {
         "id", "order_type", "dining_option", "customer_id", "subtotal",
@@ -181,6 +181,33 @@ def main() -> int:
     if "sortCatalogTable()" not in admin_template:
         fail("client-side admin product sorting is missing")
     ok("admin catalog sorting is client-side and preserves page/filter state")
+
+    flexible_amount_markers = [
+        "allow_custom_amount = db.Column",
+        "minimum_order_amount = db.Column",
+        "allow_cashier_custom_amount=True",
+        "cannot be sold below its",
+    ]
+    missing_flexible = [marker for marker in flexible_amount_markers if marker not in source]
+    if missing_flexible:
+        fail("cashier specific-amount safeguards are missing: " + ", ".join(missing_flexible))
+    cashier_template = (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")
+    if "Specific Product Amount" not in cashier_template or "minimumAmount" not in cashier_template:
+        fail("cashier specific-amount UI is missing")
+    ok("cashier specific amounts are product-controlled and minimum-enforced")
+
+    # Guard against the portal/dashboard crash caused by passing an undefined local
+    # variable (products=products) to Jinja after the old vote/wishlist UI was removed.
+    dashboard_match = re.search(
+        r"def customer_dashboard\(\):([\s\S]*?)(?=\n@app\.route|\nif __name__)",
+        source,
+    )
+    if not dashboard_match:
+        fail("customer_dashboard route could not be located")
+    dashboard_source = dashboard_match.group(1)
+    if re.search(r"\bproducts\s*=\s*products\b", dashboard_source):
+        fail("customer_dashboard still passes an undefined products variable")
+    ok("customer dashboard does not reference the retired undefined products context")
 
     req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     if "qrcode" not in req.lower():

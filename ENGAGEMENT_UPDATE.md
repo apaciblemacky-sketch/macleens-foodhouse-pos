@@ -58,3 +58,16 @@ The checker now verifies that:
 - the public VIP leaderboard is absent,
 - Admin sorting is client-side,
 - Vault Drop remains included in gross sales.
+
+## Cashier Specific Amounts
+- Admin can enable **Specific Amt** per product and set that product's **Minimum Order Amount**.
+- In Cashier POS, enabled products open an amount entry box before being added to the cart.
+- Cashier may enter any amount at or above the configured minimum; the regular product price remains the default.
+- The backend re-checks the minimum and ignores/rejects unauthorized custom pricing, so browser-side edits cannot bypass the rule.
+- Public storefront and tablet ordering continue to use the regular product price.
+
+
+## Follow-up: Cashier specific amounts + dashboard repair
+- Products can now be individually configured to accept a Cashier-entered specific amount with a product-level minimum.
+- Specific amounts are enforced server-side and cannot go below the configured minimum.
+- Fixed the customer dashboard 500 error caused by a retired/undefined `products` context variable.
