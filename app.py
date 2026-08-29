@@ -527,9 +527,12 @@ def parse_int(value, default=0):
 def parse_product_option_schema(schema, strict=False):
     """Parse a compact product-option definition.
 
-    Admin syntax example:
-        Sauce: Hot|Sweet; Flavor: Ube|Chocolate|Vanilla
+    Admin syntax examples:
+        Sauce[]: Hot|Sweet; Flavor: Ube|Chocolate|Vanilla
+        Sauce: Hot|Sweet
 
+    A group name ending in [] is a checkbox group and allows one or more choices.
+    A normal group is a single-choice group and is shown as radio buttons.
     Every configured group is required when the product is ordered. Choices do not
     change price; they only describe the selected preparation/flavor.
     """
@@ -555,7 +558,12 @@ def parse_product_option_schema(schema, strict=False):
                 )
             continue
 
-        label = re.sub(r'\s+', ' ', label.strip())[:40]
+        label = re.sub(r'\s+', ' ', label.strip())
+        multiple = False
+        if label.endswith('[]'):
+            multiple = True
+            label = label[:-2].strip()
+        label = label[:40]
         if not label:
             if strict:
                 raise OrderValidationError('Every product option group needs a name.')
@@ -583,15 +591,18 @@ def parse_product_option_schema(schema, strict=False):
             continue
         if len(choices) > 20:
             raise OrderValidationError(f"{label} can have at most 20 choices.")
-        groups.append({'name': label, 'choices': choices})
+        groups.append({'name': label, 'choices': choices, 'multiple': multiple})
 
     if strict and raw and not groups:
-        raise OrderValidationError('Product options could not be read. Example: Sauce: Hot|Sweet')
+        raise OrderValidationError('Product options could not be read. Example: Sauce[]: Hot|Sweet; Flavor: Ube|Chocolate')
     return groups
 
 def normalize_product_option_schema(schema):
     groups = parse_product_option_schema(schema, strict=bool(str(schema or '').strip()))
-    return '; '.join(f"{g['name']}: {'|'.join(g['choices'])}" for g in groups) or None
+    return '; '.join(
+        f"{g['name']}{'[]' if g.get('multiple') else ''}: {'|'.join(g['choices'])}"
+        for g in groups
+    ) or None
 
 def validate_product_options(prod, raw_options):
     groups = parse_product_option_schema(getattr(prod, 'option_schema', None), strict=False)
@@ -622,13 +633,38 @@ def validate_product_options(prod, raw_options):
     for group in groups:
         label = group['name']
         value = provided.get(label.casefold())
-        value_text = re.sub(r'\s+', ' ', str(value or '').strip())
-        if not value_text:
-            raise OrderValidationError(f'Please choose {label} for {prod.name}.')
-        canonical = next((c for c in group['choices'] if c.casefold() == value_text.casefold()), None)
-        if canonical is None:
-            raise OrderValidationError(f'Invalid {label} choice for {prod.name}.')
-        selected[label] = canonical
+        is_multiple = bool(group.get('multiple'))
+
+        if is_multiple:
+            values = value if isinstance(value, list) else ([value] if value not in (None, '') else [])
+            canonical_values = []
+            seen = set()
+            for raw_value in values:
+                value_text = re.sub(r'\s+', ' ', str(raw_value or '').strip())
+                if not value_text:
+                    continue
+                canonical = next((c for c in group['choices'] if c.casefold() == value_text.casefold()), None)
+                if canonical is None:
+                    raise OrderValidationError(f'Invalid {label} choice for {prod.name}.')
+                key = canonical.casefold()
+                if key not in seen:
+                    seen.add(key)
+                    canonical_values.append(canonical)
+            if not canonical_values:
+                raise OrderValidationError(f'Please choose at least one {label} for {prod.name}.')
+            selected[label] = canonical_values
+        else:
+            if isinstance(value, list):
+                if len(value) != 1:
+                    raise OrderValidationError(f'Please choose exactly one {label} for {prod.name}.')
+                value = value[0]
+            value_text = re.sub(r'\s+', ' ', str(value or '').strip())
+            if not value_text:
+                raise OrderValidationError(f'Please choose {label} for {prod.name}.')
+            canonical = next((c for c in group['choices'] if c.casefold() == value_text.casefold()), None)
+            if canonical is None:
+                raise OrderValidationError(f'Invalid {label} choice for {prod.name}.')
+            selected[label] = canonical
     return selected
 
 def serialize_selected_options(options):
@@ -644,7 +680,11 @@ def option_summary(raw):
         except (TypeError, ValueError):
             return raw
     if isinstance(data, dict):
-        return ' • '.join(f'{k}: {v}' for k, v in data.items())
+        def fmt(v):
+            if isinstance(v, list):
+                return ' + '.join(str(x) for x in v)
+            return str(v)
+        return ' • '.join(f'{k}: {fmt(v)}' for k, v in data.items())
     return str(data)
 
 app.jinja_env.filters['option_summary'] = option_summary

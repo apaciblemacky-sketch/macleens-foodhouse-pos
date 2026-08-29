@@ -145,30 +145,102 @@
       }
     }
 
+    function escapeOptionHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+    }
+
+    function ensureProductOptionsPicker() {
+      if (document.getElementById('productOptionsPicker')) return;
+      const style = document.createElement('style');
+      style.textContent = `
+        .po-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.72);z-index:20000;align-items:center;justify-content:center;padding:14px}
+        .po-card{width:min(520px,96vw);max-height:88vh;overflow:auto;background:#fff;color:#1e293b;border-radius:14px;padding:16px;border:2px solid #ff69b4;box-shadow:0 18px 45px rgba(0,0,0,.35)}
+        .po-group{border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin:10px 0;background:#f8fafc}
+        .po-group-title{font-weight:900;color:#831843;margin-bottom:6px}
+        .po-help{font-size:.72rem;color:#64748b;margin-bottom:7px}
+        .po-choice{display:flex;align-items:center;gap:9px;padding:8px 9px;margin:5px 0;background:#fff;border:1px solid #cbd5e1;border-radius:8px;cursor:pointer;font-weight:700}
+        .po-choice input{width:18px;height:18px;accent-color:#ec4899;flex:0 0 auto}
+        .po-actions{display:flex;gap:8px;margin-top:12px}
+        .po-actions button{flex:1;border:none;border-radius:8px;padding:10px;font-weight:900;cursor:pointer}
+        .po-confirm{background:#ec4899;color:#fff}.po-cancel{background:#e2e8f0;color:#334155}
+        .po-error{min-height:18px;color:#dc2626;font-size:.78rem;font-weight:800;margin-top:6px}
+      `;
+      document.head.appendChild(style);
+      const overlay = document.createElement('div');
+      overlay.id = 'productOptionsPicker';
+      overlay.className = 'po-overlay';
+      overlay.innerHTML = `
+        <div class="po-card" role="dialog" aria-modal="true" aria-labelledby="poTitle">
+          <h3 id="poTitle" style="color:#831843;margin-bottom:4px;">Choose options</h3>
+          <div id="poProductName" style="font-size:.8rem;color:#64748b;margin-bottom:8px;"></div>
+          <div id="poGroups"></div>
+          <div id="poError" class="po-error"></div>
+          <div class="po-actions">
+            <button type="button" id="poCancel" class="po-cancel">CANCEL</button>
+            <button type="button" id="poConfirm" class="po-confirm">ADD / CONFIRM</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+    }
+
     function collectProductOptions(productName, groups) {
       groups = Array.isArray(groups) ? groups : [];
-      if (!groups.length) return {};
-      const selected = {};
-      for (const group of groups) {
-        const choices = Array.isArray(group.choices) ? group.choices : [];
-        const menu = choices.map((choice, idx) => `${idx + 1}. ${choice}`).join('\n');
-        while (true) {
-          const answer = window.prompt(`${productName}\nChoose ${group.name}:\n\n${menu}\n\nEnter number or exact choice:`);
-          if (answer === null) return null;
-          const trimmed = answer.trim();
-          const n = parseInt(trimmed, 10);
-          let chosen = null;
-          if (String(n) === trimmed && n >= 1 && n <= choices.length) chosen = choices[n - 1];
-          else chosen = choices.find(c => c.toLowerCase() === trimmed.toLowerCase()) || null;
-          if (chosen) { selected[group.name] = chosen; break; }
-          alert(`Please choose a valid ${group.name}.`);
-        }
-      }
-      return selected;
+      if (!groups.length) return Promise.resolve({});
+      ensureProductOptionsPicker();
+
+      return new Promise(resolve => {
+        const overlay = document.getElementById('productOptionsPicker');
+        const body = document.getElementById('poGroups');
+        const error = document.getElementById('poError');
+        document.getElementById('poProductName').textContent = productName;
+        error.textContent = '';
+
+        body.innerHTML = groups.map((group, gi) => {
+          const choices = Array.isArray(group.choices) ? group.choices : [];
+          const multiple = !!group.multiple;
+          const type = multiple ? 'checkbox' : 'radio';
+          const helper = multiple ? 'Select one or more.' : 'Select one.';
+          const inputs = choices.map((choice, ci) => `
+            <label class="po-choice">
+              <input type="${type}" name="po_group_${gi}" data-choice-index="${ci}">
+              <span>${escapeOptionHtml(choice)}</span>
+            </label>`).join('');
+          return `<div class="po-group" data-group-index="${gi}">
+            <div class="po-group-title">${escapeOptionHtml(group.name)}</div>
+            <div class="po-help">${helper}</div>${inputs}</div>`;
+        }).join('');
+
+        const finish = value => {
+          overlay.style.display = 'none';
+          document.getElementById('poConfirm').onclick = null;
+          document.getElementById('poCancel').onclick = null;
+          resolve(value);
+        };
+
+        document.getElementById('poCancel').onclick = () => finish(null);
+        document.getElementById('poConfirm').onclick = () => {
+          const selected = {};
+          for (let gi = 0; gi < groups.length; gi++) {
+            const group = groups[gi];
+            const choices = Array.isArray(group.choices) ? group.choices : [];
+            const checked = [...body.querySelectorAll(`input[name="po_group_${gi}"]:checked`)];
+            if (!checked.length) {
+              error.textContent = `Please choose ${group.multiple ? 'at least one' : 'one'} ${group.name}.`;
+              return;
+            }
+            const values = checked.map(el => choices[parseInt(el.dataset.choiceIndex, 10)]).filter(Boolean);
+            selected[group.name] = group.multiple ? values : values[0];
+          }
+          finish(selected);
+        };
+
+        overlay.style.display = 'flex';
+      });
     }
 
     function optionSummary(options) {
-      return options && typeof options === 'object' ? Object.entries(options).map(([k,v]) => `${k}: ${v}`).join(' • ') : '';
+      if (!options || typeof options !== 'object') return '';
+      return Object.entries(options).map(([k,v]) => `${k}: ${Array.isArray(v) ? v.join(' + ') : v}`).join(' • ');
     }
 
     function cartKeyFor(productId, options) {
@@ -176,8 +248,8 @@
       return pairs.length ? `${productId}::${encodeURIComponent(JSON.stringify(Object.fromEntries(pairs)))}` : String(productId);
     }
 
-    function addItem(id, name, price, optionGroups=[]) {
-      const options = collectProductOptions(name, optionGroups);
+    async function addItem(id, name, price, optionGroups=[]) {
+      const options = await collectProductOptions(name, optionGroups);
       if (options === null) return;
       const key = cartKeyFor(id, options);
       if (kCart[key]) kCart[key].qty += 1;

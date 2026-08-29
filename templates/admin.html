@@ -737,8 +737,8 @@
       </div>
       <div class="form-group" style="min-width:240px; flex:2;">
         <label>Choices / Sub-options</label>
-        <input type="text" name="option_schema" class="form-control" placeholder="Sauce: Hot|Sweet; Flavor: Ube|Chocolate" title="Optional. Format: Group: Choice1|Choice2; Another Group: Choice1|Choice2">
-        <small style="font-size:0.62rem; color:#64748b;">Example: Sauce: Hot|Sweet; Flavor: Ube|Chocolate</small>
+        <input type="text" name="option_schema" class="form-control" placeholder="Sauce[]: Hot|Sweet; Flavor: Ube|Chocolate" title="Use [] for checkboxes/multiple choices. Example: Sauce[]: Hot|Sweet; Flavor: Ube|Chocolate">
+        <small style="font-size:0.62rem; color:#64748b;">Checkbox example: Sauce[]: Hot|Sweet • Single-choice example: Flavor: Ube|Chocolate</small>
       </div>
       <div class="form-group" style="max-width:70px;">
         <label>Stock</label>
@@ -847,7 +847,7 @@
               <td><input type="number" min="0" step="0.01" name="cost_{{ p.id }}" value="{{ p.cost or 0.0 }}" class="form-control" style="padding:2px;"></td>
               <td style="text-align:center;"><input type="checkbox" name="allow_custom_amount_{{ p.id }}" {% if p.allow_custom_amount %}checked{% endif %} title="Cashier can enter a specific amount"></td>
               <td><input type="number" min="0.01" step="0.01" name="minimum_order_amount_{{ p.id }}" value="{{ p.minimum_order_amount or '' }}" placeholder="{{ '%.2f'|format(p.price) }}" class="form-control" style="padding:2px;" title="Lowest custom Cashier amount"></td>
-              <td><input type="text" name="option_schema_{{ p.id }}" value="{{ p.option_schema or '' }}" placeholder="Sauce: Hot|Sweet" class="form-control" style="padding:2px; min-width:205px;" title="Group: Choice1|Choice2; Flavor: Ube|Chocolate"></td>
+              <td><input type="text" name="option_schema_{{ p.id }}" value="{{ p.option_schema or '' }}" placeholder="Sauce[]: Hot|Sweet" class="form-control" style="padding:2px; min-width:205px;" title="Checkbox/multi: Sauce[]: Hot|Sweet; Single: Flavor: Ube|Chocolate"></td>
               <td><input type="number" min="0" name="stock_{{ p.id }}" value="{{ p.stock }}" class="form-control" style="padding:2px;"></td>
               <td><input type="url" name="image_url_{{ p.id }}" value="{{ p.image_url or '' }}" placeholder="https://..." class="form-control" style="padding:2px;"></td>
               <td><input type="time" name="available_start_time_{{ p.id }}" value="{{ p.available_start_time or '' }}" class="form-control" style="padding:2px; font-size:0.7rem;"></td>
