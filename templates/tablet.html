@@ -53,9 +53,12 @@
 
       <div class="dish-grid">
         {% for p in products %}
-        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick="addItem({{ p.id }}, '{{ p.name }}', {{ p.price }})">
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_option_groups(p.option_schema)|tojson }})' >
           <div style="font-size:0.8rem; font-weight:900; line-height:1.2;">{{ p.name }}</div>
-          <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
+          <div>
+            <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
+            {% if p.option_schema %}<div style="font-size:0.58rem; color:#d97706; font-weight:800;">Choices available</div>{% endif %}
+          </div>
         </div>
         {% endfor %}
       </div>
@@ -142,9 +145,43 @@
       }
     }
 
-    function addItem(id, name, price) {
-      if (kCart[id]) kCart[id].qty += 1;
-      else kCart[id] = { name, price: parseFloat(price), qty: 1 };
+    function collectProductOptions(productName, groups) {
+      groups = Array.isArray(groups) ? groups : [];
+      if (!groups.length) return {};
+      const selected = {};
+      for (const group of groups) {
+        const choices = Array.isArray(group.choices) ? group.choices : [];
+        const menu = choices.map((choice, idx) => `${idx + 1}. ${choice}`).join('\n');
+        while (true) {
+          const answer = window.prompt(`${productName}\nChoose ${group.name}:\n\n${menu}\n\nEnter number or exact choice:`);
+          if (answer === null) return null;
+          const trimmed = answer.trim();
+          const n = parseInt(trimmed, 10);
+          let chosen = null;
+          if (String(n) === trimmed && n >= 1 && n <= choices.length) chosen = choices[n - 1];
+          else chosen = choices.find(c => c.toLowerCase() === trimmed.toLowerCase()) || null;
+          if (chosen) { selected[group.name] = chosen; break; }
+          alert(`Please choose a valid ${group.name}.`);
+        }
+      }
+      return selected;
+    }
+
+    function optionSummary(options) {
+      return options && typeof options === 'object' ? Object.entries(options).map(([k,v]) => `${k}: ${v}`).join(' • ') : '';
+    }
+
+    function cartKeyFor(productId, options) {
+      const pairs = Object.entries(options || {}).sort((a,b) => a[0].localeCompare(b[0]));
+      return pairs.length ? `${productId}::${encodeURIComponent(JSON.stringify(Object.fromEntries(pairs)))}` : String(productId);
+    }
+
+    function addItem(id, name, price, optionGroups=[]) {
+      const options = collectProductOptions(name, optionGroups);
+      if (options === null) return;
+      const key = cartKeyFor(id, options);
+      if (kCart[key]) kCart[key].qty += 1;
+      else kCart[key] = { productId: parseInt(id), name, price: parseFloat(price), qty: 1, options };
       renderKiosk();
     }
 
@@ -180,6 +217,7 @@
           <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #cbd5e1; font-size:0.82rem;">
             <div>
               <strong>${item.name}</strong>
+              ${optionSummary(item.options) ? `<div style="font-size:0.70rem; color:#b45309;">${optionSummary(item.options)}</div>` : ''}
               <div style="font-size:0.75rem; color:#64748b;">₱${item.price.toFixed(2)}</div>
             </div>
             <div style="display:flex; align-items:center; gap:4px;">
@@ -214,7 +252,7 @@
       }
 
       const payload = {
-        items: keys.map(id => ({ product_id: parseInt(id), quantity: kCart[id].qty })),
+        items: keys.map(id => ({ product_id: kCart[id].productId || parseInt(id), quantity: kCart[id].qty, options: kCart[id].options || {} })),
         payment_method: 'CASH',
         member_identifier: memberIdentifier,
         member_pin: memberPin,

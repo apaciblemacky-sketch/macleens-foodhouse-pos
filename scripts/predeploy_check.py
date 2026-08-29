@@ -32,7 +32,7 @@ REQUIRED_DB_COLUMNS = {
     },
     "product": {
         "id", "name", "category_name", "price", "cost", "allow_custom_amount",
-        "minimum_order_amount", "stock", "is_active", "available_start_time", "available_end_time",
+        "minimum_order_amount", "option_schema", "stock", "is_active", "available_start_time", "available_end_time",
     },
     "order": {
         "id", "order_type", "dining_option", "customer_id", "subtotal",
@@ -41,7 +41,7 @@ REQUIRED_DB_COLUMNS = {
     },
     "order_item": {
         "id", "order_id", "product_id", "unit_price", "cost_price",
-        "quantity", "subtotal",
+        "quantity", "subtotal", "selected_options",
     },
     "promotion_tracker": {"id", "promo_code", "promo_price", "promo_cost", "is_visible", "portal_only", "description"},
     "vault_drop": {"id", "drop_number", "amount", "cash_breakdown", "created_at"},
@@ -195,6 +195,34 @@ def main() -> int:
     if "Specific Product Amount" not in cashier_template or "minimumAmount" not in cashier_template:
         fail("cashier specific-amount UI is missing")
     ok("cashier specific amounts are product-controlled and minimum-enforced")
+
+    option_markers = [
+        "option_schema = db.Column",
+        "selected_options = db.Column",
+        "validate_product_options",
+        "selected_options=line.get('selected_options_json')",
+    ]
+    missing_options = [marker for marker in option_markers if marker not in source]
+    if missing_options:
+        fail("product sub-option safeguards are missing: " + ", ".join(missing_options))
+    required_option_ui = ["Choices / Sub-options", "collectProductOptions", "options: posCart[id].options || {}"]
+    missing_option_ui = [marker for marker in required_option_ui if marker not in admin_template + cashier_template]
+    if missing_option_ui:
+        fail("product sub-option UI is incomplete: " + ", ".join(missing_option_ui))
+    ok("product sauce/flavor sub-options are configurable and server-validated")
+
+    adjustment_markers = [
+        "@app.route('/pos/adjust-order/<int:order_id>'",
+        "[Cashier Add-on]",
+        "Only cashier-added charge lines can be removed here.",
+        "cash received/change-for is only",
+    ]
+    missing_adjustments = [marker for marker in adjustment_markers if marker not in source]
+    if missing_adjustments:
+        fail("pending-order cashier adjustment safeguards are missing: " + ", ".join(missing_adjustments))
+    if "openOrderAdjustModal" not in cashier_template or "＋₱ ADJUST" not in cashier_template:
+        fail("cashier pending-order adjustment UI is missing")
+    ok("cashier can add/remove controlled extra fees before accepting pending orders")
 
     # Guard against the portal/dashboard crash caused by passing an undefined local
     # variable (products=products) to Jinja after the old vote/wishlist UI was removed.

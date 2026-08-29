@@ -83,11 +83,31 @@
           {% if o.delivery_address %}📍 {{ o.delivery_address }}<br>{% endif %}
           {% if o.landmark %}🚩 Landmark: <strong>{{ o.landmark }}</strong><br>{% endif %}
           📝 Notes: <strong>{{ o.notes }}</strong>
+          {% if o.change_for and o.payment_method == 'CASH' and o.change_for < o.total_amount %}
+            <div style="margin-top:5px; background:#7f1d1d; color:#fecaca; padding:4px 6px; border-radius:4px; font-weight:900;">
+              ⚠ Cash received/change-for ₱{{ "{:,.2f}".format(o.change_for) }} is below the adjusted total. Update before accepting.
+            </div>
+          {% endif %}
         </div>
 
         <div class="order-items-box" style="background:#1e293b; padding:5px; border-radius:4px; margin-bottom:6px; font-size:0.72rem;">
           {% for it in o.items %}
-            <div class="order-item-line">• {{ it.product_name }} x{{ it.quantity }}</div>
+            {% set is_cashier_addon = (not it.product_id) and it.product_name.startswith('[Cashier Add-on] ') %}
+            <div class="order-item-line" style="display:flex; justify-content:space-between; gap:5px; align-items:center; margin-bottom:2px;">
+              <span>
+                • {{ it.product_name.replace('[Cashier Add-on] ', '') if is_cashier_addon else it.product_name }} x{{ it.quantity }}
+                {% if it.selected_options %} — {{ it.selected_options|option_summary }}{% endif %}
+                <strong style="color:#f8fafc;"> — ₱{{ "{:,.2f}".format(it.subtotal) }}</strong>
+                {% if is_cashier_addon %}<span style="background:#d97706; color:white; border-radius:8px; padding:1px 5px; font-size:0.60rem; font-weight:900;">CASHIER ADD-ON</span>{% endif %}
+              </span>
+              {% if is_cashier_addon %}
+              <form action="/pos/adjust-order/{{ o.id }}" method="POST" onsubmit="return confirm('Remove this cashier-added charge?');">
+                <input type="hidden" name="action" value="REMOVE_LINE">
+                <input type="hidden" name="item_id" value="{{ it.id }}">
+                <button type="submit" title="Remove added charge" style="background:#7f1d1d; color:#fecaca; border:1px solid #ef4444; border-radius:3px; font-size:0.62rem; padding:1px 4px; cursor:pointer;">✕</button>
+              </form>
+              {% endif %}
+            </div>
           {% endfor %}
         </div>
 
@@ -96,6 +116,7 @@
             <input type="hidden" name="action" value="ACCEPT">
             <button type="submit" class="btn-act" style="background:#16a34a; color:white; width:100%;">✓ ACCEPT & COMPLETE</button>
           </form>
+          <button type="button" onclick='openOrderAdjustModal({{ o.id }}, {{ o.notes|tojson }}, {{ o.total_amount }}, {{ o.payment_method|tojson }}, {{ o.change_for if o.change_for else "null" }})' class="btn-act" style="background:#d97706; color:white;" title="Add item/service fee">＋₱ ADJUST</button>
           <button type="button" onclick="printQueueSlip({{ o.id }}, '{{ o.order_type }}', {{ o.total_amount }})" class="btn-act" style="background:#0284c7; color:white;" title="Print Slip">🖨️</button>
           <form action="/pos/verify/{{ o.id }}" method="POST">
             <input type="hidden" name="action" value="REJECT">
@@ -117,12 +138,15 @@
 
       <div class="dish-grid">
         {% for p in products %}
-        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addPosCartItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ 'true' if p.allow_custom_amount else 'false' }}, {{ p.minimum_order_amount if p.minimum_order_amount else p.price }})'>
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addPosCartItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ 'true' if p.allow_custom_amount else 'false' }}, {{ p.minimum_order_amount if p.minimum_order_amount else p.price }}, {{ product_option_groups(p.option_schema)|tojson }})'>
           <div style="font-size:0.75rem; font-weight:bold; line-height:1.2;">{{ p.name }}</div>
           <div>
             <div style="font-size:0.85rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
             {% if p.allow_custom_amount %}
               <div style="font-size:0.60rem; color:#38bdf8; font-weight:800; margin-top:1px;">Specific ≥ ₱{{ "{:,.2f}".format(p.minimum_order_amount or p.price) }}</div>
+            {% endif %}
+            {% if p.option_schema %}
+              <div style="font-size:0.58rem; color:#fbbf24; font-weight:800; margin-top:1px;">Choices available</div>
             {% endif %}
           </div>
         </div>
@@ -349,7 +373,7 @@
         <h3 style="color:#38bdf8; font-size:1rem;">📌 Reserve Dish for Customer</h3>
         <button onclick="closeModal('reservationModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
-      <form action="/pos/create-reservation" method="POST">
+      <form action="/pos/create-reservation" method="POST" id="reservationForm" onsubmit="return prepareReservationOptions()">
         <div style="display:flex; gap:8px;">
           <div style="flex:1;">
             <label style="font-size:0.75rem; color:#cbd5e1;">Customer Type</label>
@@ -390,9 +414,11 @@
             <select name="product_id" id="resProductSelect" class="form-input" onchange="updateResAmount()" required>
               <option value="">-- Choose Dish --</option>
               {% for p in products %}
-                <option value="{{ p.id }}" data-price="{{ p.price }}">{{ p.name }} (₱{{ "{:,.2f}".format(p.price) }})</option>
+                <option value="{{ p.id }}" data-price="{{ p.price }}" data-name="{{ p.name|e }}" data-options='{{ product_option_groups(p.option_schema)|tojson }}'>{{ p.name }} (₱{{ "{:,.2f}".format(p.price) }}){% if p.option_schema %} • choices{% endif %}</option>
               {% endfor %}
             </select>
+            <input type="hidden" name="selected_options" id="resSelectedOptions">
+            <div id="resOptionPreview" style="font-size:0.66rem; color:#fbbf24; margin-top:-5px; margin-bottom:5px;"></div>
           </div>
           <div style="flex:1;">
             <label style="font-size:0.75rem; color:#cbd5e1;">Quantity *</label>
@@ -481,7 +507,7 @@
         <h3 style="color:#fb7185; font-size:1rem;">📋 Put Sale For Collection (Attributable)</h3>
         <button onclick="closeModal('collectionModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
-      <form action="/pos/create-collection" method="POST">
+      <form action="/pos/create-collection" method="POST" id="collectionForm" onsubmit="return prepareCollectionOptions()">
         <div style="display:flex; gap:8px;">
           <div style="flex:1;">
             <label style="font-size:0.75rem; color:#cbd5e1;">Customer Type</label>
@@ -526,9 +552,11 @@
           <select name="product_id" id="colProductSelect" class="form-input" onchange="updateColProductAmount()">
             <option value="">-- Choose Menu Item --</option>
             {% for p in products %}
-              <option value="{{ p.id }}" data-price="{{ p.price }}">{{ p.name }} (₱{{ "{:,.2f}".format(p.price) }})</option>
+              <option value="{{ p.id }}" data-price="{{ p.price }}" data-name="{{ p.name|e }}" data-options='{{ product_option_groups(p.option_schema)|tojson }}'>{{ p.name }} (₱{{ "{:,.2f}".format(p.price) }}){% if p.option_schema %} • choices{% endif %}</option>
             {% endfor %}
           </select>
+          <input type="hidden" name="selected_options" id="colSelectedOptions">
+          <div id="colOptionPreview" style="font-size:0.66rem; color:#fbbf24; margin-top:-5px; margin-bottom:5px;"></div>
 
           <label style="font-size:0.75rem; color:#cbd5e1;">Quantity</label>
           <input type="number" name="quantity" id="colProductQty" class="form-input" value="1" min="1" oninput="updateColProductAmount()">
@@ -695,6 +723,56 @@
     </div>
   </div>
 
+  <!-- PENDING ORDER ADJUSTMENT MODAL -->
+  <div id="orderAdjustModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#f59e0b; max-width:560px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+        <div>
+          <h3 id="orderAdjustTitle" style="color:#fbbf24; font-size:1rem;">＋₱ Adjust Pending Order</h3>
+          <div id="orderAdjustTotal" style="font-size:0.75rem; color:#cbd5e1; margin-top:2px;"></div>
+        </div>
+        <button type="button" onclick="closeModal('orderAdjustModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+
+      <div style="background:#0f172a; border:1px solid #475569; border-radius:6px; padding:8px; margin-bottom:10px;">
+        <div style="font-size:0.68rem; color:#94a3b8; font-weight:900; margin-bottom:3px;">CUSTOMER NOTE</div>
+        <div id="orderAdjustNote" style="font-size:0.78rem; color:#f8fafc; white-space:pre-wrap;"></div>
+      </div>
+
+      <p style="font-size:0.72rem; color:#cbd5e1; margin-bottom:10px; line-height:1.4;">
+        Use this when the customer's note requests an additional item or service that was not included in the original total.
+        The added fee becomes a separate order line and is included in the final sale before acceptance.
+      </p>
+
+      <form id="orderAdjustForm" method="POST">
+        <input type="hidden" name="action" value="ADD_CHARGE">
+
+        <label style="font-size:0.72rem; color:#cbd5e1; font-weight:bold;">Additional Item / Service *</label>
+        <input type="text" name="description" class="form-input" maxlength="100" placeholder="e.g. Extra rice / rush service / special packaging" required>
+
+        <div style="display:flex; gap:8px;">
+          <div style="width:110px;">
+            <label style="font-size:0.72rem; color:#cbd5e1; font-weight:bold;">Qty</label>
+            <input type="number" name="quantity" class="form-input" min="1" max="99" step="1" value="1" required>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.72rem; color:#cbd5e1; font-weight:bold;">Fee per Unit (₱) *</label>
+            <input type="number" name="unit_fee" class="form-input" min="0.01" step="0.01" placeholder="0.00" required>
+          </div>
+        </div>
+
+        <div id="orderAdjustCashWrap" style="display:none;">
+          <label style="font-size:0.72rem; color:#cbd5e1; font-weight:bold;">Cash Received / Change For (₱) <span style="font-weight:normal; color:#94a3b8;">(optional)</span></label>
+          <input type="number" id="orderAdjustCash" name="cash_received" class="form-input" min="0" step="0.01" placeholder="Update if added fee changes customer's cash bill">
+        </div>
+
+        <div id="orderAdjustPaymentWarning" style="font-size:0.70rem; background:#422006; color:#fde68a; padding:6px; border-radius:5px; margin-bottom:8px; display:none;"></div>
+
+        <button type="submit" style="background:#d97706; color:white; border:none; padding:9px; border-radius:6px; width:100%; font-weight:900; cursor:pointer;">＋ ADD CHARGE & UPDATE ORDER</button>
+      </form>
+    </div>
+  </div>
+
   <!-- 8. SETTINGS MODAL -->
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal-box">
@@ -734,6 +812,35 @@
 
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    function openOrderAdjustModal(orderId, note, total, paymentMethod, changeFor) {
+      const form = document.getElementById('orderAdjustForm');
+      form.action = `/pos/adjust-order/${orderId}`;
+      form.reset();
+      form.querySelector('[name="quantity"]').value = '1';
+
+      document.getElementById('orderAdjustTitle').innerText = `＋₱ Adjust Order #${orderId}`;
+      document.getElementById('orderAdjustTotal').innerText = `Current total: ₱${Number(total || 0).toFixed(2)} • ${paymentMethod}`;
+      document.getElementById('orderAdjustNote').innerText = (note && String(note).trim()) ? note : 'No customer note.';
+
+      const cashWrap = document.getElementById('orderAdjustCashWrap');
+      const cashInput = document.getElementById('orderAdjustCash');
+      const warning = document.getElementById('orderAdjustPaymentWarning');
+      if (paymentMethod === 'CASH') {
+        cashWrap.style.display = 'block';
+        if (changeFor !== null && changeFor !== undefined) cashInput.value = Number(changeFor).toFixed(2);
+        warning.style.display = 'none';
+        warning.innerText = '';
+      } else {
+        cashWrap.style.display = 'none';
+        cashInput.value = '';
+        warning.style.display = 'block';
+        warning.innerText = paymentMethod === 'GCASH'
+          ? 'GCash order: collect/confirm the additional amount before clicking Accept & Complete.'
+          : 'Confirm how the additional charge will be collected before accepting the order.';
+      }
+      openModal('orderAdjustModal');
+    }
 
     function openPromoModal(code, title, price) {
       document.getElementById('promoModalCode').value = code;
@@ -833,21 +940,64 @@
       });
     }
 
+    function collectProductOptions(productName, groups) {
+      groups = Array.isArray(groups) ? groups : [];
+      if (!groups.length) return {};
+      const selected = {};
+      for (const group of groups) {
+        const choices = Array.isArray(group.choices) ? group.choices : [];
+        if (!choices.length) continue;
+        const menu = choices.map((choice, idx) => `${idx + 1}. ${choice}`).join('\n');
+        while (true) {
+          const answer = window.prompt(`${productName}\nChoose ${group.name}:\n\n${menu}\n\nEnter number or exact choice:`);
+          if (answer === null) return null;
+          const trimmed = answer.trim();
+          const numeric = parseInt(trimmed, 10);
+          let chosen = null;
+          if (String(numeric) === trimmed && numeric >= 1 && numeric <= choices.length) {
+            chosen = choices[numeric - 1];
+          } else {
+            chosen = choices.find(c => c.toLowerCase() === trimmed.toLowerCase()) || null;
+          }
+          if (chosen) {
+            selected[group.name] = chosen;
+            break;
+          }
+          alert(`Please choose a valid ${group.name}.`);
+        }
+      }
+      return selected;
+    }
+
+    function optionSummary(options) {
+      if (!options || typeof options !== 'object') return '';
+      return Object.entries(options).map(([k, v]) => `${k}: ${v}`).join(' • ');
+    }
+
+    function cartKeyFor(productId, options) {
+      const pairs = Object.entries(options || {}).sort((a,b) => a[0].localeCompare(b[0]));
+      if (!pairs.length) return String(productId);
+      return `${productId}::${encodeURIComponent(JSON.stringify(Object.fromEntries(pairs)))}`;
+    }
+
     let pendingCustomAmountProduct = null;
     let customAmountEditOnly = false;
 
-    function addPosCartItem(id, name, price, allowCustomAmount=false, minimumAmount=null) {
+    function addPosCartItem(id, name, price, allowCustomAmount=false, minimumAmount=null, optionGroups=[]) {
       id = String(id);
       const regularPrice = parseFloat(price);
       const minAmount = parseFloat(minimumAmount || regularPrice);
+      const options = collectProductOptions(name, optionGroups);
+      if (options === null) return;
+      const cartKey = cartKeyFor(id, options);
 
       if (allowCustomAmount) {
-        pendingCustomAmountProduct = { id, name, regularPrice, minAmount };
+        pendingCustomAmountProduct = { id, cartKey, name, regularPrice, minAmount, options };
         customAmountEditOnly = false;
-        document.getElementById('customAmountProductName').innerText = name;
+        document.getElementById('customAmountProductName').innerText = name + (optionSummary(options) ? ` — ${optionSummary(options)}` : '');
         document.getElementById('customAmountRegularPrice').innerText = `₱${regularPrice.toFixed(2)}`;
         document.getElementById('customAmountMinimum').innerText = `₱${minAmount.toFixed(2)}`;
-        const existing = posCart[id];
+        const existing = posCart[cartKey];
         document.getElementById('customAmountInput').value = (existing ? existing.price : regularPrice).toFixed(2);
         document.getElementById('customAmountInput').min = minAmount.toFixed(2);
         document.getElementById('customAmountError').innerText = '';
@@ -857,10 +1007,10 @@
         return;
       }
 
-      if (posCart[id]) {
-        posCart[id].qty += 1;
+      if (posCart[cartKey]) {
+        posCart[cartKey].qty += 1;
       } else {
-        posCart[id] = { productId: parseInt(id), name: name, price: regularPrice, qty: 1, customAmount: false, minAmount: regularPrice };
+        posCart[cartKey] = { productId: parseInt(id), name, price: regularPrice, qty: 1, customAmount: false, minAmount: regularPrice, options };
       }
       renderPosCart();
     }
@@ -884,14 +1034,15 @@
         return;
       }
 
-      if (posCart[p.id]) {
-        posCart[p.id].price = amount;
-        posCart[p.id].regularPrice = p.regularPrice;
-        posCart[p.id].customAmount = true;
-        posCart[p.id].minAmount = p.minAmount;
-        if (!customAmountEditOnly) posCart[p.id].qty += 1;
+      if (posCart[p.cartKey]) {
+        posCart[p.cartKey].price = amount;
+        posCart[p.cartKey].regularPrice = p.regularPrice;
+        posCart[p.cartKey].customAmount = true;
+        posCart[p.cartKey].minAmount = p.minAmount;
+        posCart[p.cartKey].options = p.options || {};
+        if (!customAmountEditOnly) posCart[p.cartKey].qty += 1;
       } else {
-        posCart[p.id] = { productId: parseInt(p.id), name: p.name, price: amount, regularPrice: p.regularPrice, qty: 1, customAmount: true, minAmount: p.minAmount };
+        posCart[p.cartKey] = { productId: parseInt(p.id), name: p.name, price: amount, regularPrice: p.regularPrice, qty: 1, customAmount: true, minAmount: p.minAmount, options: p.options || {} };
       }
 
       closeModal('customAmountModal');
@@ -904,9 +1055,9 @@
       id = String(id);
       const item = posCart[id];
       if (!item || !item.customAmount) return;
-      pendingCustomAmountProduct = { id, name: item.name, regularPrice: item.regularPrice || item.price, minAmount: item.minAmount };
+      pendingCustomAmountProduct = { id: String(item.productId), cartKey: id, name: item.name, regularPrice: item.regularPrice || item.price, minAmount: item.minAmount, options: item.options || {} };
       customAmountEditOnly = true;
-      document.getElementById('customAmountProductName').innerText = item.name;
+      document.getElementById('customAmountProductName').innerText = item.name + (optionSummary(item.options) ? ` — ${optionSummary(item.options)}` : '');
       document.getElementById('customAmountRegularPrice').innerText = `₱${(item.regularPrice || item.price).toFixed(2)}`;
       document.getElementById('customAmountMinimum').innerText = `₱${item.minAmount.toFixed(2)}`;
       document.getElementById('customAmountInput').value = item.price.toFixed(2);
@@ -953,6 +1104,7 @@
           <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px dashed #334155; font-size:0.75rem;">
             <div>
               <div style="font-weight:bold;">${item.name}</div>
+              ${optionSummary(item.options) ? `<div style="color:#fbbf24; font-size:0.66rem;">${optionSummary(item.options)}</div>` : ''}
               <div style="color:#94a3b8; font-size:0.68rem;">₱${item.price.toFixed(2)}${item.customAmount ? ` • Specific (min ₱${item.minAmount.toFixed(2)})` : ''}</div>
             </div>
             <div style="display:flex; align-items:center; gap:3px;">
@@ -988,6 +1140,34 @@
       }
     }
 
+    function prepareReservationOptions() {
+      const select = document.getElementById('resProductSelect');
+      if (!select || !select.value) return true;
+      const opt = select.selectedOptions[0];
+      let groups = [];
+      try { groups = JSON.parse(opt.dataset.options || '[]'); } catch(e) { groups = []; }
+      const chosen = collectProductOptions(opt.dataset.name || opt.textContent, groups);
+      if (chosen === null) return false;
+      document.getElementById('resSelectedOptions').value = JSON.stringify(chosen);
+      document.getElementById('resOptionPreview').innerText = optionSummary(chosen);
+      return true;
+    }
+
+    function prepareCollectionOptions() {
+      const type = document.getElementById('colItemChoiceType');
+      if (type && type.value !== 'PRODUCT') return true;
+      const select = document.getElementById('colProductSelect');
+      if (!select || !select.value) return true;
+      const opt = select.selectedOptions[0];
+      let groups = [];
+      try { groups = JSON.parse(opt.dataset.options || '[]'); } catch(e) { groups = []; }
+      const chosen = collectProductOptions(opt.dataset.name || opt.textContent, groups);
+      if (chosen === null) return false;
+      document.getElementById('colSelectedOptions').value = JSON.stringify(chosen);
+      document.getElementById('colOptionPreview').innerText = optionSummary(chosen);
+      return true;
+    }
+
     async function submitPosCartSale() {
       const keys = Object.keys(posCart);
       if (keys.length === 0) return alert("Cart is empty. Tap items to add first.");
@@ -1005,8 +1185,9 @@
 
       const payload = {
         items: keys.map(id => ({
-          product_id: parseInt(id),
+          product_id: posCart[id].productId,
           quantity: posCart[id].qty,
+          options: posCart[id].options || {},
           ...(posCart[id].customAmount ? { unit_price: Number(posCart[id].price.toFixed(2)) } : {})
         })),
         dining_option: diningOpt,

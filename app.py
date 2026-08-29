@@ -1,4 +1,5 @@
 import io
+import json
 import logging
 import os
 import re
@@ -144,6 +145,7 @@ class Product(db.Model):
     cost = db.Column(db.Float, default=0.0, nullable=True)
     allow_custom_amount = db.Column(db.Boolean, default=False)
     minimum_order_amount = db.Column(db.Float, nullable=True)
+    option_schema = db.Column(db.Text, nullable=True)
     stock = db.Column(db.Integer, default=100)
     image_url = db.Column(db.Text, nullable=True)
     is_featured = db.Column(db.Boolean, default=False)
@@ -210,6 +212,7 @@ class OrderItem(db.Model):
     cost_price = db.Column(db.Float, default=0.0, nullable=True)
     quantity = db.Column(db.Integer, nullable=False)
     subtotal = db.Column(db.Float, nullable=False)
+    selected_options = db.Column(db.Text, nullable=True)
 
 class Expense(db.Model):
     __tablename__ = 'expense'
@@ -415,11 +418,13 @@ def run_schema_migrations():
             ('cost', 'FLOAT DEFAULT 0.0'),
             ('allow_custom_amount', 'BOOLEAN DEFAULT FALSE'),
             ('minimum_order_amount', 'FLOAT'),
+            ('option_schema', 'TEXT'),
             ('available_start_time', 'VARCHAR(10)'),
             ('available_end_time', 'VARCHAR(10)'),
         ],
         'order_item': [
             ('cost_price', 'FLOAT DEFAULT 0.0'),
+            ('selected_options', 'TEXT'),
         ],
         'vault_drop': [
             ('cash_breakdown', 'TEXT'),
@@ -519,6 +524,131 @@ def parse_int(value, default=0):
     except (TypeError, ValueError):
         return int(default)
 
+def parse_product_option_schema(schema, strict=False):
+    """Parse a compact product-option definition.
+
+    Admin syntax example:
+        Sauce: Hot|Sweet; Flavor: Ube|Chocolate|Vanilla
+
+    Every configured group is required when the product is ordered. Choices do not
+    change price; they only describe the selected preparation/flavor.
+    """
+    raw = str(schema or '').strip()
+    if not raw:
+        return []
+
+    groups = []
+    seen_groups = set()
+    segments = [x.strip() for x in re.split(r'[;\n]+', raw) if x.strip()]
+    if len(segments) > 6:
+        raise OrderValidationError('A product can have at most 6 option groups.')
+
+    for segment in segments:
+        if ':' in segment:
+            label, choices_raw = segment.split(':', 1)
+        elif '=' in segment:
+            label, choices_raw = segment.split('=', 1)
+        else:
+            if strict:
+                raise OrderValidationError(
+                    f"Invalid product option '{segment}'. Use Group: Choice1|Choice2."
+                )
+            continue
+
+        label = re.sub(r'\s+', ' ', label.strip())[:40]
+        if not label:
+            if strict:
+                raise OrderValidationError('Every product option group needs a name.')
+            continue
+        key = label.casefold()
+        if key in seen_groups:
+            raise OrderValidationError(f"Duplicate product option group: {label}.")
+        seen_groups.add(key)
+
+        # Prefer | as the separator; allow commas as a convenient fallback.
+        splitter = '|' if '|' in choices_raw else ','
+        choices = []
+        seen_choices = set()
+        for value in choices_raw.split(splitter):
+            value = re.sub(r'\s+', ' ', value.strip())[:60]
+            if not value:
+                continue
+            vkey = value.casefold()
+            if vkey not in seen_choices:
+                seen_choices.add(vkey)
+                choices.append(value)
+        if len(choices) < 2:
+            if strict:
+                raise OrderValidationError(f"{label} needs at least 2 choices.")
+            continue
+        if len(choices) > 20:
+            raise OrderValidationError(f"{label} can have at most 20 choices.")
+        groups.append({'name': label, 'choices': choices})
+
+    if strict and raw and not groups:
+        raise OrderValidationError('Product options could not be read. Example: Sauce: Hot|Sweet')
+    return groups
+
+def normalize_product_option_schema(schema):
+    groups = parse_product_option_schema(schema, strict=bool(str(schema or '').strip()))
+    return '; '.join(f"{g['name']}: {'|'.join(g['choices'])}" for g in groups) or None
+
+def validate_product_options(prod, raw_options):
+    groups = parse_product_option_schema(getattr(prod, 'option_schema', None), strict=False)
+    if not groups:
+        if raw_options not in (None, '', {}, []):
+            raise OrderValidationError(f'{prod.name} does not have selectable options.')
+        return {}
+
+    if isinstance(raw_options, str):
+        raw_options = raw_options.strip()
+        if not raw_options:
+            raw_options = {}
+        else:
+            try:
+                raw_options = json.loads(raw_options)
+            except (TypeError, ValueError):
+                raise OrderValidationError(f'Invalid option selection for {prod.name}.')
+    if not isinstance(raw_options, dict):
+        raise OrderValidationError(f'Please choose the required options for {prod.name}.')
+
+    provided = {str(k).strip().casefold(): v for k, v in raw_options.items()}
+    selected = {}
+    allowed_group_keys = {g['name'].casefold() for g in groups}
+    extras = set(provided) - allowed_group_keys
+    if extras:
+        raise OrderValidationError(f'Invalid option group submitted for {prod.name}.')
+
+    for group in groups:
+        label = group['name']
+        value = provided.get(label.casefold())
+        value_text = re.sub(r'\s+', ' ', str(value or '').strip())
+        if not value_text:
+            raise OrderValidationError(f'Please choose {label} for {prod.name}.')
+        canonical = next((c for c in group['choices'] if c.casefold() == value_text.casefold()), None)
+        if canonical is None:
+            raise OrderValidationError(f'Invalid {label} choice for {prod.name}.')
+        selected[label] = canonical
+    return selected
+
+def serialize_selected_options(options):
+    return json.dumps(options or {}, ensure_ascii=False, separators=(',', ':')) if options else None
+
+def option_summary(raw):
+    if not raw:
+        return ''
+    data = raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            return raw
+    if isinstance(data, dict):
+        return ' • '.join(f'{k}: {v}' for k, v in data.items())
+    return str(data)
+
+app.jinja_env.filters['option_summary'] = option_summary
+
 def is_valid_customer_pin(pin):
     return bool(pin) and len(pin) == 4 and pin.isdigit()
 
@@ -580,16 +710,15 @@ def customer_available_credit(cust, include_pending=True):
     return max(0.0, limit - used)
 
 def validate_and_lock_cart(raw_items, require_available=True, allow_cashier_custom_amount=False):
-    """Validate quantities/products/stock and return server-approved line snapshots.
+    """Validate quantities, options, products and stock using server-side truth.
 
-    Public/storefront carts always use the database selling price. The cashier may submit
-    a specific unit amount only for products explicitly configured for flexible cashier
-    amounts, and never below that product's minimum order amount.
+    Products may define required sub-options such as Sauce (Hot/Sweet) or Flavor.
+    The same base product can appear as multiple cart lines when option choices differ.
     """
     if not isinstance(raw_items, list) or not raw_items:
         raise OrderValidationError('No items were selected.')
 
-    requested = {}
+    raw_entries = []
     for raw in raw_items:
         if not isinstance(raw, dict):
             raise OrderValidationError('Invalid cart item.')
@@ -608,43 +737,40 @@ def validate_and_lock_cart(raw_items, require_available=True, allow_cashier_cust
             if requested_price <= 0:
                 raise OrderValidationError('Specific amount must be greater than ₱0.00.')
 
-        existing = requested.get(product_id)
-        if existing:
-            # One product can only have one cashier amount in a single cart. This keeps
-            # stock, cost and receipt lines deterministic.
-            old_price = existing.get('requested_price')
-            if requested_price is not None and old_price is not None and abs(requested_price - old_price) > 0.004:
-                raise OrderValidationError('Use one specific amount per product in a single sale.')
-            if old_price is None and requested_price is not None:
-                existing['requested_price'] = requested_price
-            existing['quantity'] += quantity
-        else:
-            requested[product_id] = {'quantity': quantity, 'requested_price': requested_price}
+        raw_entries.append({
+            'product_id': product_id,
+            'quantity': quantity,
+            'requested_price': requested_price,
+            'raw_options': raw.get('options', {}),
+        })
 
-    lines = []
-    for product_id, req in requested.items():
-        quantity = req['quantity']
-        stmt = db.select(Product).where(Product.id == product_id)
-        if db.engine.dialect.name != 'sqlite':
-            stmt = stmt.with_for_update()
-        prod = db.session.execute(stmt).scalar_one_or_none()
-        if not prod:
-            raise OrderValidationError(f'Product #{product_id} no longer exists.')
+    product_cache = {}
+    combined = {}
+    aggregate_qty = {}
+
+    for entry in raw_entries:
+        product_id = entry['product_id']
+        prod = product_cache.get(product_id)
+        if prod is None:
+            stmt = db.select(Product).where(Product.id == product_id)
+            if db.engine.dialect.name != 'sqlite':
+                stmt = stmt.with_for_update()
+            prod = db.session.execute(stmt).scalar_one_or_none()
+            if not prod:
+                raise OrderValidationError(f'Product #{product_id} no longer exists.')
+            product_cache[product_id] = prod
+
         if not prod.is_active:
             raise OrderValidationError(f'{prod.name} is currently inactive.')
         if require_available and not is_product_available_now(prod):
             raise OrderValidationError(f'{prod.name} is not available at this time.')
-
-        stock = max(0, parse_int(prod.stock, 0))
-        if stock < quantity:
-            raise OrderValidationError(f'Not enough stock for {prod.name}. Available: {stock}.')
 
         base_price = round(max(0.0, parse_float(prod.price, 0.0)), 2)
         if base_price <= 0:
             raise OrderValidationError(f'{prod.name} has an invalid selling price.')
         unit_price = base_price
 
-        requested_price = req.get('requested_price')
+        requested_price = entry['requested_price']
         if requested_price is not None:
             if not allow_cashier_custom_amount:
                 raise OrderValidationError('Specific amounts are only available at the Cashier POS.')
@@ -659,15 +785,32 @@ def validate_and_lock_cart(raw_items, require_available=True, allow_cashier_cust
                 )
             unit_price = requested_price
 
-        cost_price = max(0.0, parse_float(prod.cost, 0.0))
-        lines.append({
-            'product': prod,
-            'quantity': quantity,
-            'unit_price': unit_price,
-            'cost_price': cost_price,
-            'subtotal': unit_price * quantity,
-        })
-    return lines
+        selected_options = validate_product_options(prod, entry['raw_options'])
+        selected_json = serialize_selected_options(selected_options)
+        identity = (product_id, round(unit_price, 2), selected_json or '')
+        if identity in combined:
+            combined[identity]['quantity'] += entry['quantity']
+            combined[identity]['subtotal'] = combined[identity]['unit_price'] * combined[identity]['quantity']
+        else:
+            cost_price = max(0.0, parse_float(prod.cost, 0.0))
+            combined[identity] = {
+                'product': prod,
+                'quantity': entry['quantity'],
+                'unit_price': unit_price,
+                'cost_price': cost_price,
+                'subtotal': unit_price * entry['quantity'],
+                'selected_options': selected_options,
+                'selected_options_json': selected_json,
+            }
+        aggregate_qty[product_id] = aggregate_qty.get(product_id, 0) + entry['quantity']
+
+    for product_id, total_qty in aggregate_qty.items():
+        prod = product_cache[product_id]
+        stock = max(0, parse_int(prod.stock, 0))
+        if stock < total_qty:
+            raise OrderValidationError(f'Not enough stock for {prod.name}. Available: {stock}.')
+
+    return list(combined.values())
 
 def reserve_cart_stock(lines):
     for line in lines:
@@ -981,7 +1124,7 @@ def inject_globals():
         app.logger.exception('Logo setting query failed; using /static/logo.png fallback')
         logo = '/static/logo.png'
     status = check_operating_status()
-    return dict(store_logo=logo, status=status, mask_card_number=mask_card_number)
+    return dict(store_logo=logo, status=status, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema)
 
 def _staff_auth_failure(target, message):
     """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
@@ -1248,6 +1391,7 @@ def api_storefront_checkout():
                 cost_price=line['cost_price'],
                 quantity=line['quantity'],
                 subtotal=line['subtotal'],
+                selected_options=line.get('selected_options_json'),
             ))
         reserve_cart_stock(lines)
         db.session.commit()
@@ -1325,6 +1469,7 @@ def api_tablet_checkout():
                 cost_price=line['cost_price'],
                 quantity=line['quantity'],
                 subtotal=line['subtotal'],
+                selected_options=line.get('selected_options_json'),
             ))
         reserve_cart_stock(lines)
         db.session.commit()
@@ -1461,6 +1606,7 @@ def cashier_direct_sale():
                 cost_price=line['cost_price'],
                 quantity=line['quantity'],
                 subtotal=line['subtotal'],
+                selected_options=line.get('selected_options_json'),
             ))
         reserve_cart_stock(lines)
         marketing = apply_member_marketing_rewards(cust, order) if cust else {'bonus_points': 0.0, 'referral_member_points': 0.0, 'referrer_points': 0.0}
@@ -1575,7 +1721,7 @@ def cashier_create_reservation():
     notes = request.form.get('notes', '').strip() or 'In-Store Reservation'
 
     try:
-        lines = validate_and_lock_cart([{'product_id': product_id, 'quantity': qty}], require_available=True)
+        lines = validate_and_lock_cart([{'product_id': product_id, 'quantity': qty, 'options': request.form.get('selected_options', '')}], require_available=True)
         line = lines[0]
         prod = line['product']
         subtotal = line['subtotal']
@@ -1622,6 +1768,7 @@ def cashier_create_reservation():
             cost_price=line['cost_price'],
             quantity=qty,
             subtotal=subtotal,
+            selected_options=line.get('selected_options_json'),
         ))
         reserve_cart_stock(lines)
         db.session.commit()
@@ -1738,7 +1885,7 @@ def cashier_create_collection():
         lines = None
         prod = None
         if item_choice_type == 'PRODUCT':
-            lines = validate_and_lock_cart([{'product_id': product_id, 'quantity': qty}], require_available=True)
+            lines = validate_and_lock_cart([{'product_id': product_id, 'quantity': qty, 'options': request.form.get('selected_options', '')}], require_available=True)
             line = lines[0]
             prod = line['product']
             prod_name = prod.name
@@ -1803,6 +1950,7 @@ def cashier_create_collection():
             cost_price=cost_p,
             quantity=qty,
             subtotal=amount,
+            selected_options=line.get('selected_options_json') if lines else None,
         ))
         if lines:
             reserve_cart_stock(lines)
@@ -1920,6 +2068,125 @@ def cashier_record_vault_drop():
     flash(f"Vault Cash Drop #{drop_num} recorded: ₱{amount:,.2f}", "success")
     return redirect(url_for('cashier_terminal'))
 
+def _apply_pending_order_total_delta(order, delta):
+    """Apply a cashier adjustment without disturbing existing delivery/discount math."""
+    delta = round(parse_float(delta, 0.0), 2)
+    order.subtotal = max(0.0, round(parse_float(order.subtotal, 0.0) + delta, 2))
+    order.total_amount = max(0.0, round(parse_float(order.total_amount, 0.0) + delta, 2))
+
+
+def _append_order_adjustment_audit(order, message):
+    stamp = ph_now().strftime('%Y-%m-%d %I:%M %p')
+    staff_user = session.get('cashier_user') or session.get('admin_user') or 'Cashier'
+    entry = f'[{stamp} PH] {staff_user}: {message}'
+    existing = (order.collection_notes or '').strip()
+    order.collection_notes = (existing + (' | ' if existing else '') + entry)[-250:]
+
+
+@app.route('/pos/adjust-order/<int:order_id>', methods=['POST'])
+@require_cashier
+def cashier_adjust_pending_order(order_id):
+    """Add/remove cashier-approved extra charges before a queued order is accepted.
+
+    This is intentionally restricted to VERIFICATION orders. Original product lines
+    cannot be deleted here; only lines created by this adjustment route can be removed.
+    """
+    order = Order.query.get_or_404(order_id)
+    if order.status != 'VERIFICATION':
+        flash(f'Order #{order.id} can no longer be adjusted because it is {order.status}.', 'error')
+        return redirect(url_for('cashier_terminal'))
+
+    action = str(request.form.get('action', 'ADD_CHARGE')).upper()
+    try:
+        if action == 'ADD_CHARGE':
+            description = re.sub(r'\s+', ' ', str(request.form.get('description', '')).strip())[:100]
+            qty = parse_int(request.form.get('quantity'), 1)
+            unit_fee = round(parse_float(request.form.get('unit_fee'), 0.0), 2)
+
+            if not description:
+                raise OrderValidationError('Please describe the additional item or service.')
+            if qty < 1 or qty > 99:
+                raise OrderValidationError('Additional charge quantity must be between 1 and 99.')
+            if unit_fee <= 0 or unit_fee > 100000:
+                raise OrderValidationError('Additional fee must be greater than ₱0.00.')
+
+            line_total = round(unit_fee * qty, 2)
+            item = OrderItem(
+                order_id=order.id,
+                product_id=None,
+                product_name=f'[Cashier Add-on] {description}',
+                unit_price=unit_fee,
+                cost_price=0.0,
+                quantity=qty,
+                subtotal=line_total,
+                selected_options=None,
+            )
+            db.session.add(item)
+            db.session.flush()
+            _apply_pending_order_total_delta(order, line_total)
+
+            cash_received_raw = str(request.form.get('cash_received', '')).strip()
+            if order.payment_method == 'CASH' and cash_received_raw:
+                cash_received = round(parse_float(cash_received_raw, -1), 2)
+                if cash_received < 0:
+                    raise OrderValidationError('Cash received/change-for amount is invalid.')
+                order.change_for = cash_received or None
+
+            _append_order_adjustment_audit(
+                order,
+                f'Added {description} x{qty} @ ₱{unit_fee:,.2f} (+₱{line_total:,.2f}). New total ₱{order.total_amount:,.2f}.'
+            )
+            db.session.commit()
+            extra = ''
+            if order.payment_method == 'GCASH':
+                extra = ' Confirm the additional GCash/payment amount before accepting.'
+            elif order.payment_method == 'CASH' and order.change_for and order.change_for + 1e-9 < order.total_amount:
+                extra = ' Cash received/change-for is below the new total; update it before accepting.'
+            flash(f'Order #{order.id} updated: +₱{line_total:,.2f}. New total ₱{order.total_amount:,.2f}.{extra}', 'success')
+
+        elif action == 'REMOVE_LINE':
+            item_id = parse_int(request.form.get('item_id'), 0)
+            item = db.session.get(OrderItem, item_id)
+            if not item or item.order_id != order.id:
+                raise OrderValidationError('Adjustment line was not found.')
+            if item.product_id is not None or not str(item.product_name or '').startswith('[Cashier Add-on] '):
+                raise OrderValidationError('Only cashier-added charge lines can be removed here.')
+
+            removed_total = parse_float(item.subtotal, 0.0)
+            removed_name = str(item.product_name).replace('[Cashier Add-on] ', '', 1)
+            db.session.delete(item)
+            _apply_pending_order_total_delta(order, -removed_total)
+            _append_order_adjustment_audit(
+                order,
+                f'Removed cashier add-on {removed_name} (-₱{removed_total:,.2f}). New total ₱{order.total_amount:,.2f}.'
+            )
+            db.session.commit()
+            flash(f'Cashier add-on removed from Order #{order.id}. New total ₱{order.total_amount:,.2f}.', 'info')
+
+        elif action == 'UPDATE_CASH':
+            if order.payment_method != 'CASH':
+                raise OrderValidationError('Cash received can only be updated for CASH orders.')
+            cash_received = round(parse_float(request.form.get('cash_received'), -1), 2)
+            if cash_received < order.total_amount:
+                raise OrderValidationError(f'Cash received cannot be below the order total of ₱{order.total_amount:,.2f}.')
+            order.change_for = cash_received
+            _append_order_adjustment_audit(order, f'Updated cash received/change-for to ₱{cash_received:,.2f}.')
+            db.session.commit()
+            flash(f'Cash received for Order #{order.id} updated to ₱{cash_received:,.2f}.', 'success')
+        else:
+            raise OrderValidationError('Invalid order adjustment action.')
+
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Failed to adjust pending Order #%s', order_id)
+        flash('Unable to adjust this order. Please check the server log.', 'error')
+
+    return redirect(url_for('cashier_terminal'))
+
+
 @app.route('/pos/verify/<int:order_id>', methods=['POST'])
 @require_cashier
 def verify_order(order_id):
@@ -1931,6 +2198,14 @@ def verify_order(order_id):
         return redirect(url_for('cashier_terminal'))
 
     if action == 'ACCEPT':
+        if order.payment_method == 'CASH' and order.change_for and order.change_for + 1e-9 < order.total_amount:
+            flash(
+                f'Order #{order.id} total is ₱{order.total_amount:,.2f}, but cash received/change-for is only ₱{order.change_for:,.2f}. '
+                'Use Adjust to update the cash amount before accepting.',
+                'error'
+            )
+            return redirect(url_for('cashier_terminal'))
+
         if order.payment_method == 'CREDIT':
             if not order.customer_id:
                 flash('Credit order has no registered customer and cannot be accepted.', 'error')
@@ -2444,6 +2719,7 @@ def admin_add_product():
     cost = parse_float(request.form.get('cost'), 0.0)
     allow_custom_amount = bool(request.form.get('allow_custom_amount'))
     minimum_order_amount = parse_float(request.form.get('minimum_order_amount'), 0.0)
+    option_schema_raw = request.form.get('option_schema', '').strip()
     stock = parse_int(request.form.get('stock'), 100)
     image_url = request.form.get('image_url', '').strip()
     start_t = request.form.get('available_start_time', '').strip() or None
@@ -2466,6 +2742,12 @@ def admin_add_product():
     else:
         minimum_order_amount = None
 
+    try:
+        option_schema = normalize_product_option_schema(option_schema_raw)
+    except OrderValidationError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('admin_dashboard'))
+
     db.session.add(Product(
         name=name,
         category_name=category_name,
@@ -2473,6 +2755,7 @@ def admin_add_product():
         cost=cost,
         allow_custom_amount=allow_custom_amount,
         minimum_order_amount=minimum_order_amount,
+        option_schema=option_schema,
         stock=stock,
         image_url=image_url,
         available_start_time=start_t,
@@ -2499,6 +2782,7 @@ def admin_batch_update_products():
             stock = parse_int(request.form.get(f'stock_{pid}'), prod.stock or 0)
             allow_custom_amount = (f'allow_custom_amount_{pid}' in request.form)
             minimum_order_amount = parse_float(request.form.get(f'minimum_order_amount_{pid}'), 0.0)
+            option_schema = normalize_product_option_schema(request.form.get(f'option_schema_{pid}', '').strip())
             if price <= 0 or cost < 0 or stock < 0:
                 raise OrderValidationError(f'Invalid price/cost/stock for {prod.name}.')
             if allow_custom_amount:
@@ -2512,6 +2796,7 @@ def admin_batch_update_products():
             prod.cost = cost
             prod.allow_custom_amount = allow_custom_amount
             prod.minimum_order_amount = minimum_order_amount
+            prod.option_schema = option_schema
             prod.stock = stock
             prod.image_url = request.form.get(f'image_url_{pid}', '').strip()
             prod.available_start_time = request.form.get(f'available_start_time_{pid}', '').strip() or None
