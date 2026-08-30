@@ -386,6 +386,20 @@ def main() -> int:
     product_detail_html = (TEMPLATES / "product_detail.html").read_text(encoding="utf-8")
     if "shareFoodProduct" not in product_detail_html:
         fail("Food House product detail sharing control is missing")
+    share_helper = (ROOT / "static" / "share-helper.js").read_text(encoding="utf-8")
+    if 'data-share="whatsapp"' in share_helper or 'data-share="telegram"' in share_helper:
+        fail("Share dialog still exposes WhatsApp or Telegram buttons")
+    if "wa.me/" in share_helper or "t.me/share" in share_helper:
+        fail("Share helper still contains WhatsApp or Telegram share handlers")
+    if "mfhFacebookShare" not in share_helper or "window.location.href = url" in share_helper:
+        fail("Facebook sharing may still replace the Food House/Craft page instead of using a popup")
+    if "mail.google.com/mail/?view=cm&fs=1" not in share_helper or "mfhEmailShare" not in share_helper:
+        fail("Email sharing is not wired to the working Gmail compose popup")
+    for rel in ["store_catalog.html", "product_detail.html", "craft/base.html"]:
+        content = (TEMPLATES / rel).read_text(encoding="utf-8")
+        if "share-helper.js') }}?v=4" not in content:
+            fail(f"{rel} does not load the latest share helper cache version")
+    ok("Share menu uses Facebook popup + Gmail email, without WhatsApp/Telegram")
     header_section = admin_template[:5000]
     if "url_for('craft_admin_dashboard')" in header_section:
         fail("master admin header still exposes a Craft Shop admin shortcut; Craft Admin should be direct-link only")

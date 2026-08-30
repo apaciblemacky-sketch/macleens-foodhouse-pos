@@ -41,9 +41,24 @@
       (window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 900);
   }
 
-  function popup(url) {
-    var win = window.open(url, '_blank', 'noopener,noreferrer,width=720,height=680');
-    if (!win) window.location.href = url;
+  async function popup(url, windowName) {
+    // Open a separate browser popup and NEVER replace the Food House/Craft page.
+    // Opening the blank window synchronously inside the click handler also makes
+    // browser popup blockers less likely to reject Facebook/Gmail sharing.
+    var win = window.open('', windowName || 'mfhSharePopup', 'width=720,height=680,resizable=yes,scrollbars=yes');
+    if (!win) {
+      var copied = await copyText(current.url || window.location.href);
+      if (copied) {
+        window.alert('The share popup was blocked. The page link was copied instead.');
+      } else {
+        window.prompt('The share popup was blocked. Copy this link:', current.url || window.location.href);
+      }
+      return false;
+    }
+    try { win.opener = null; } catch (_) {}
+    win.location.href = url;
+    try { win.focus(); } catch (_) {}
+    return true;
   }
 
   function ensureDialog() {
@@ -76,8 +91,6 @@
         </div>
         <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:10px 18px 18px;">
           <button type="button" data-share="facebook" style="padding:11px;border:1px solid #dbeafe;border-radius:10px;background:#eff6ff;color:#1d4ed8;font-weight:800;cursor:pointer;">Facebook</button>
-          <button type="button" data-share="whatsapp" style="padding:11px;border:1px solid #dcfce7;border-radius:10px;background:#f0fdf4;color:#15803d;font-weight:800;cursor:pointer;">WhatsApp</button>
-          <button type="button" data-share="telegram" style="padding:11px;border:1px solid #e0f2fe;border-radius:10px;background:#f0f9ff;color:#0369a1;font-weight:800;cursor:pointer;">Telegram</button>
           <button type="button" data-share="email" style="padding:11px;border:1px solid #f3e8ff;border-radius:10px;background:#faf5ff;color:#7e22ce;font-weight:800;cursor:pointer;">Email</button>
           <button type="button" data-share="copy" style="grid-column:1/-1;padding:12px;border:1px solid #fbcfe8;border-radius:10px;background:#fdf2f8;color:#be185d;font-weight:900;cursor:pointer;">🔗 Copy Link</button>
           <button type="button" data-share="native" style="display:none;grid-column:1/-1;padding:12px;border:0;border-radius:10px;background:#ec4899;color:#fff;font-weight:900;cursor:pointer;">More Apps…</button>
@@ -121,16 +134,18 @@
     overlay.setAttribute('aria-hidden', 'false');
 
     overlay.querySelector('[data-share="facebook"]').onclick = function () {
-      popup('https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(current.url));
-    };
-    overlay.querySelector('[data-share="whatsapp"]').onclick = function () {
-      popup('https://wa.me/?text=' + encodeURIComponent(current.title + '\n' + current.url));
-    };
-    overlay.querySelector('[data-share="telegram"]').onclick = function () {
-      popup('https://t.me/share/url?url=' + encodeURIComponent(current.url) + '&text=' + encodeURIComponent(current.title));
+      var shareUrl = 'https://www.facebook.com/sharer/sharer.php?u=' + encodeURIComponent(current.url);
+      close();
+      popup(shareUrl, 'mfhFacebookShare');
     };
     overlay.querySelector('[data-share="email"]').onclick = function () {
-      window.location.href = 'mailto:?subject=' + encodeURIComponent(current.title) + '&body=' + encodeURIComponent(current.title + '\n\n' + current.url);
+      // Use Gmail web compose so Email still has an action even when Windows has
+      // no default desktop mail application configured.
+      var gmailUrl = 'https://mail.google.com/mail/?view=cm&fs=1' +
+        '&su=' + encodeURIComponent(current.title) +
+        '&body=' + encodeURIComponent(current.title + '\n\n' + current.url);
+      close();
+      popup(gmailUrl, 'mfhEmailShare');
     };
     copyBtn.onclick = async function () {
       var ok = await copyText(current.url);
