@@ -242,6 +242,26 @@ def main() -> int:
         fail("requirements.txt is missing qrcode dependency used by the QR kit")
     ok("QR dependency is declared")
 
+    cashflow_markers = [
+        "class CashFlowPlan(db.Model):",
+        "CASH_FLOW_COGS_RATE = 0.60",
+        "@app.route('/admin/cash-flow')",
+        "@app.route('/admin/cash-flow/plan/save', methods=['POST'])",
+        "cashflow_occurrence_dates",
+        "total_rev = order_rev + vault_drop_sales",
+    ]
+    missing_cashflow = [marker for marker in cashflow_markers if marker not in source]
+    if missing_cashflow:
+        fail("2-year cash-flow portal safeguards are missing: " + ", ".join(missing_cashflow))
+    cashflow_template = TEMPLATES / "cash_flow_portal.html"
+    if not cashflow_template.exists():
+        fail("templates/cash_flow_portal.html is missing")
+    cashflow_html = cashflow_template.read_text(encoding="utf-8")
+    for marker in ["24-Month Cash-Flow Summary", "COGS @ 60%", "Additional Income", "Duration / Occurrences"]:
+        if marker not in cashflow_html:
+            fail(f"cash-flow portal UI is missing: {marker}")
+    ok("2-year cash-flow portal and 60% COGS rule are present")
+
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0
 

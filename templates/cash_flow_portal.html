@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Food House — 2-Year Cash Flow</title>
+  <style>
+    :root {
+      --pink:#ff69b4; --dark:#831843; --border:#fbcfe8; --bg:#fff5f9;
+      --green:#15803d; --red:#dc2626; --blue:#0369a1; --purple:#7e22ce;
+      --muted:#64748b; --soft:#f8fafc;
+    }
+    *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+    body{margin:0;background:var(--bg);color:#1e293b;padding:18px}
+    .wrap{max-width:1500px;margin:0 auto}
+    .header{display:flex;justify-content:space-between;align-items:center;gap:14px;background:#fff;border:2px solid var(--border);border-radius:14px;padding:16px 18px;margin-bottom:16px;flex-wrap:wrap}
+    .header h1{font-size:1.3rem;color:var(--dark);margin:0 0 4px}
+    .header p{margin:0;color:var(--muted);font-size:.82rem}
+    .btn{border:0;border-radius:8px;padding:9px 13px;font-weight:800;cursor:pointer;text-decoration:none;display:inline-block;font-size:.82rem}
+    .btn-dark{background:#1e293b;color:#fff}.btn-pink{background:var(--pink);color:#fff}.btn-blue{background:#e0f2fe;color:#075985}.btn-red{background:#fee2e2;color:#991b1b}.btn-green{background:#dcfce7;color:#166534}
+    .card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:0 2px 10px rgba(131,24,67,.03)}
+    .notice{background:#fff7ed;border:1px solid #fdba74;border-radius:10px;padding:11px 13px;font-size:.8rem;color:#9a3412;margin-bottom:16px}
+    .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:16px}
+    .metric{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:13px}
+    .metric .label{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;font-weight:800;color:var(--muted)}
+    .metric .value{font-size:1.25rem;font-weight:900;margin-top:4px}
+    .grid-2{display:grid;grid-template-columns:minmax(300px,.85fr) minmax(500px,1.6fr);gap:16px;align-items:start}
+    .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .field label{display:block;font-size:.73rem;font-weight:800;margin-bottom:4px;color:#334155}
+    .control{width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:.86rem}
+    textarea.control{min-height:72px;resize:vertical}
+    .full{grid-column:1/-1}
+    .small{font-size:.72rem;color:var(--muted);margin-top:4px}
+    table{width:100%;border-collapse:collapse;font-size:.79rem}
+    th{background:#fdf2f8;color:var(--dark);padding:8px;border:1px solid var(--border);text-align:right;position:sticky;top:0;z-index:1}
+    td{padding:8px;border:1px solid #fce7f3;text-align:right;white-space:nowrap}
+    th:first-child,td:first-child{text-align:left}
+    .table-wrap{overflow:auto;max-height:610px;border-radius:10px;border:1px solid #f1f5f9}
+    .pill{display:inline-block;border-radius:999px;padding:3px 7px;font-size:.68rem;font-weight:800}
+    .expense{background:#fee2e2;color:#991b1b}.income{background:#dcfce7;color:#166534}.paused{background:#e2e8f0;color:#475569}
+    .positive{color:var(--green);font-weight:900}.negative{color:var(--red);font-weight:900}.muted{color:var(--muted)}
+    .section-title{display:flex;justify-content:space-between;align-items:end;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+    .section-title h2{font-size:1rem;margin:0;color:var(--dark)}
+    .section-title p{font-size:.73rem;color:var(--muted);margin:3px 0 0}
+    .inline-form{display:flex;gap:7px;align-items:end;flex-wrap:wrap}
+    .plan-table td,.plan-table th{text-align:left;white-space:normal}
+    .plan-table td.amount{text-align:right;white-space:nowrap;font-weight:900}
+    .actions{display:flex;gap:5px;flex-wrap:wrap}
+    .flash{padding:10px 12px;border-radius:8px;margin-bottom:10px;background:#f1f5f9;border:1px solid #cbd5e1;font-size:.82rem}
+    .formula{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:7px;margin-top:10px}
+    .formula div{background:#f8fafc;padding:8px;border-radius:8px;font-size:.72rem;color:#475569;text-align:center}
+    @media(max-width:980px){.grid-2{grid-template-columns:1fr}.form-grid{grid-template-columns:1fr}.full{grid-column:auto}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="header">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <img src="{{ store_logo }}" alt="Logo" style="width:50px;height:50px;border-radius:50%;object-fit:cover;border:2px solid var(--pink);">
+      <div>
+        <h1>💵 2-Year Cash Flow Manager</h1>
+        <p>{{ period_start.strftime('%b %Y') }} to {{ period_last_day.strftime('%b %Y') }} · 24 calendar months</p>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <a class="btn btn-blue" href="/pos/cashier">🛒 Cashier</a>
+      <a class="btn btn-dark" href="/admin">← Back to Admin</a>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="flash"><strong>{{ category|upper }}:</strong> {{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <div class="notice">
+    <strong>How this portal calculates cash flow:</strong> Sales are pulled automatically from completed daily sales and, following the current Macleen's accounting rule, Vault Drops are included in sales. COGS is fixed at <strong>60% of sales</strong> for this cash-flow view. Additional income and expenses are generated from the recurring schedules you create below. Future sales remain ₱0 until actual sales are recorded.
+  </div>
+
+  <div class="card">
+    <div class="section-title">
+      <div>
+        <h2>📆 Cash-Flow Window</h2>
+        <p>Choose the first month. The portal always displays the next 24 months.</p>
+      </div>
+      <form method="get" class="inline-form">
+        <div class="field">
+          <label>Start Month</label>
+          <input class="control" type="month" name="start" value="{{ period_start.strftime('%Y-%m') }}">
+        </div>
+        <button class="btn btn-pink" type="submit">Load 2 Years</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="summary">
+    <div class="metric"><div class="label">Sales</div><div class="value" style="color:var(--green);">₱{{ "{:,.2f}".format(totals.sales) }}</div></div>
+    <div class="metric"><div class="label">COGS @ 60%</div><div class="value" style="color:var(--red);">₱{{ "{:,.2f}".format(totals.cogs) }}</div></div>
+    <div class="metric"><div class="label">Gross Profit</div><div class="value" style="color:var(--blue);">₱{{ "{:,.2f}".format(totals.gross_profit) }}</div></div>
+    <div class="metric"><div class="label">Additional Income</div><div class="value" style="color:var(--green);">₱{{ "{:,.2f}".format(totals.income) }}</div></div>
+    <div class="metric"><div class="label">Scheduled Expenses</div><div class="value" style="color:#ea580c;">₱{{ "{:,.2f}".format(totals.expenses) }}</div></div>
+    <div class="metric"><div class="label">Net Cash Flow</div><div class="value" style="color:{% if totals.net >= 0 %}var(--purple){% else %}var(--red){% endif %};">₱{{ "{:,.2f}".format(totals.net) }}</div></div>
+  </div>
+
+  <div class="grid-2">
+    <div>
+      <div class="card" id="entry-form" style="border:2px solid var(--pink);">
+        <div class="section-title">
+          <div>
+            <h2>{% if edit_plan %}✏️ Edit Cash-Flow Schedule{% else %}➕ Add Cash-Flow Schedule{% endif %}</h2>
+            <p>Duration means number of occurrences: 30 daily = 30 days, 8 weekly = 8 weeks, 12 monthly = 12 months.</p>
+          </div>
+          {% if edit_plan %}<a href="{{ url_for('cash_flow_portal') }}#entry-form" class="btn btn-blue">Cancel Edit</a>{% endif %}
+        </div>
+        <form method="post" action="{{ url_for('cash_flow_plan_save') }}">
+          <input type="hidden" name="plan_id" value="{{ edit_plan.id if edit_plan else '' }}">
+          <input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}">
+          <div class="form-grid">
+            <div class="field">
+              <label>Type</label>
+              <select class="control" name="entry_type" required>
+                <option value="EXPENSE" {% if not edit_plan or edit_plan.entry_type == 'EXPENSE' %}selected{% endif %}>Expense</option>
+                <option value="INCOME" {% if edit_plan and edit_plan.entry_type == 'INCOME' %}selected{% endif %}>Additional Income</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Amount per Occurrence (₱)</label>
+              <input class="control" type="number" name="amount" min="0.01" step="0.01" required value="{{ '%.2f'|format(edit_plan.amount) if edit_plan else '' }}" placeholder="e.g. 500.00">
+            </div>
+            <div class="field full">
+              <label>Title / Description</label>
+              <input class="control" type="text" name="title" maxlength="150" required value="{{ edit_plan.title if edit_plan else '' }}" placeholder="e.g. Store Rent, Internet, Printing Income">
+            </div>
+            <div class="field">
+              <label>Frequency</label>
+              <select class="control" id="frequency" name="frequency" onchange="updateDurationHelp()" required>
+                {% set chosen_freq = edit_plan.frequency if edit_plan else 'MONTHLY' %}
+                <option value="DAILY" {% if chosen_freq == 'DAILY' %}selected{% endif %}>Daily</option>
+                <option value="WEEKLY" {% if chosen_freq == 'WEEKLY' %}selected{% endif %}>Weekly</option>
+                <option value="MONTHLY" {% if chosen_freq == 'MONTHLY' %}selected{% endif %}>Monthly</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Duration / Occurrences</label>
+              <input class="control" id="duration_count" type="number" name="duration_count" min="1" required value="{{ edit_plan.duration_count if edit_plan else 12 }}">
+              <div id="durationHelp" class="small"></div>
+            </div>
+            <div class="field">
+              <label>Start Date</label>
+              <input class="control" type="date" name="start_date" required value="{{ edit_plan.start_date.isoformat() if edit_plan else period_start.isoformat() }}">
+            </div>
+            <div class="field">
+              <label>Category (optional)</label>
+              <input class="control" type="text" name="category" maxlength="80" value="{{ edit_plan.category if edit_plan and edit_plan.category else '' }}" placeholder="Rent / Utilities / Other">
+            </div>
+            <div class="field full">
+              <label>Notes (optional)</label>
+              <textarea class="control" name="notes" maxlength="255" placeholder="Any reminder or details">{{ edit_plan.notes if edit_plan and edit_plan.notes else '' }}</textarea>
+            </div>
+          </div>
+          <button class="btn btn-pink" type="submit" style="margin-top:10px;width:100%;">{% if edit_plan %}Save Changes{% else %}Add Schedule{% endif %}</button>
+        </form>
+        <div class="formula">
+          <div>Daily: max {{ max_duration.DAILY }} days</div>
+          <div>Weekly: max {{ max_duration.WEEKLY }} weeks</div>
+          <div>Monthly: max {{ max_duration.MONTHLY }} months</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2>🧾 Recurring Income & Expense Rules</h2>
+            <p>Pause a rule without deleting it, or edit the amount/frequency/duration.</p>
+          </div>
+        </div>
+        <div style="font-size:.76rem;margin-bottom:10px;color:var(--muted);">
+          Active scheduled commitments: <strong style="color:var(--green)">+₱{{ "{:,.2f}".format(active_income_total) }}</strong> income · <strong style="color:var(--red)">−₱{{ "{:,.2f}".format(active_expense_total) }}</strong> expenses
+        </div>
+        <div class="table-wrap" style="max-height:500px;">
+          <table class="plan-table">
+            <thead><tr><th>Rule</th><th>Schedule</th><th>Amount</th><th>Actions</th></tr></thead>
+            <tbody>
+              {% for p in plans %}
+              <tr style="opacity:{% if p.is_active %}1{% else %}.58{% endif %};">
+                <td>
+                  <span class="pill {{ 'income' if p.entry_type == 'INCOME' else 'expense' }}">{{ 'INCOME' if p.entry_type == 'INCOME' else 'EXPENSE' }}</span>
+                  {% if not p.is_active %}<span class="pill paused">PAUSED</span>{% endif %}
+                  <div style="font-weight:900;margin-top:4px;">{{ p.title }}</div>
+                  {% if p.category %}<div class="small">{{ p.category }}</div>{% endif %}
+                  {% if p.notes %}<div class="small">{{ p.notes }}</div>{% endif %}
+                </td>
+                <td>
+                  <strong>{{ p.frequency.title() }}</strong> × {{ p.duration_count }}<br>
+                  <span class="small">{{ p.start_date.strftime('%d %b %Y') }} → {{ plan_end_date(p).strftime('%d %b %Y') }}</span>
+                </td>
+                <td class="amount">₱{{ "{:,.2f}".format(p.amount) }}<br><span class="small">Total ₱{{ "{:,.2f}".format(p.amount * p.duration_count) }}</span></td>
+                <td>
+                  <div class="actions">
+                    <a class="btn btn-blue" href="{{ url_for('cash_flow_portal', start=period_start.strftime('%Y-%m'), edit=p.id) }}#entry-form">Edit</a>
+                    <form method="post" action="{{ url_for('cash_flow_plan_toggle', plan_id=p.id) }}"><input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}"><button class="btn {{ 'btn-red' if p.is_active else 'btn-green' }}" type="submit">{{ 'Pause' if p.is_active else 'Resume' }}</button></form>
+                    <form method="post" action="{{ url_for('cash_flow_plan_delete', plan_id=p.id) }}" onsubmit="return confirm('Delete this cash-flow schedule?');"><input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}"><button class="btn btn-red" type="submit">Delete</button></form>
+                  </div>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted);">No recurring income or expense schedules yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="card">
+        <div class="section-title">
+          <div>
+            <h2>📊 24-Month Cash-Flow Summary</h2>
+            <p>Net = Sales + Additional Income − 60% COGS − Scheduled Expenses.</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Month</th><th>Sales</th><th>COGS 60%</th><th>Gross Profit</th><th>Add'l Income</th><th>Expenses</th><th>Net Flow</th><th>Running Net</th></tr>
+            </thead>
+            <tbody>
+              {% for row in monthly_rows %}
+              <tr>
+                <td><a href="{{ url_for('cash_flow_portal', start=period_start.strftime('%Y-%m'), month=row.month_key) }}#daily-detail" style="color:var(--dark);font-weight:900;text-decoration:none;">{{ row.month_label }}</a></td>
+                <td class="positive">₱{{ "{:,.2f}".format(row.sales) }}</td>
+                <td style="color:var(--red);">₱{{ "{:,.2f}".format(row.cogs) }}</td>
+                <td style="color:var(--blue);font-weight:800;">₱{{ "{:,.2f}".format(row.gross_profit) }}</td>
+                <td class="positive">₱{{ "{:,.2f}".format(row.income) }}</td>
+                <td style="color:#ea580c;">₱{{ "{:,.2f}".format(row.expenses) }}</td>
+                <td class="{{ 'positive' if row.net >= 0 else 'negative' }}">₱{{ "{:,.2f}".format(row.net) }}</td>
+                <td class="{{ 'positive' if row.running_net >= 0 else 'negative' }}">₱{{ "{:,.2f}".format(row.running_net) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card" id="daily-detail">
+        <div class="section-title">
+          <div>
+            <h2>📅 Daily Sales & Cash Flow — {{ detail_month.strftime('%B %Y') }}</h2>
+            <p>Daily sales are summarized automatically from your completed transactions.</p>
+          </div>
+          <form method="get" class="inline-form">
+            <input type="hidden" name="start" value="{{ period_start.strftime('%Y-%m') }}">
+            <div class="field">
+              <label>View Month</label>
+              <select class="control" name="month" onchange="this.form.submit()">
+                {% for row in monthly_rows %}<option value="{{ row.month_key }}" {% if row.month_start == detail_month %}selected{% endif %}>{{ row.month_label }}</option>{% endfor %}
+              </select>
+            </div>
+            <noscript><button class="btn btn-pink" type="submit">Load</button></noscript>
+          </form>
+        </div>
+        <div class="table-wrap" style="max-height:520px;">
+          <table>
+            <thead><tr><th>Date</th><th>POS Sales</th><th>Vault Sales</th><th>Total Sales</th><th>COGS 60%</th><th>Add'l Income</th><th>Expenses</th><th>Net Flow</th></tr></thead>
+            <tbody>
+              {% for row in daily_rows %}
+              <tr>
+                <td>{{ row.date.strftime('%a, %d %b') }}</td>
+                <td>₱{{ "{:,.2f}".format(row.order_sales) }}</td>
+                <td>₱{{ "{:,.2f}".format(row.vault_sales) }}</td>
+                <td class="positive">₱{{ "{:,.2f}".format(row.sales) }}</td>
+                <td style="color:var(--red);">₱{{ "{:,.2f}".format(row.cogs) }}</td>
+                <td class="positive">₱{{ "{:,.2f}".format(row.income) }}</td>
+                <td style="color:#ea580c;">₱{{ "{:,.2f}".format(row.expenses) }}</td>
+                <td class="{{ 'positive' if row.net >= 0 else 'negative' }}">₱{{ "{:,.2f}".format(row.net) }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  const maxDurations = { DAILY: {{ max_duration.DAILY }}, WEEKLY: {{ max_duration.WEEKLY }}, MONTHLY: {{ max_duration.MONTHLY }} };
+  function updateDurationHelp(){
+    const frequency = document.getElementById('frequency').value;
+    const input = document.getElementById('duration_count');
+    const max = maxDurations[frequency];
+    const unit = frequency === 'DAILY' ? 'days' : (frequency === 'WEEKLY' ? 'weeks' : 'months');
+    input.max = max;
+    if (Number(input.value) > max) input.value = max;
+    const periodName = frequency === 'DAILY' ? 'day' : (frequency === 'WEEKLY' ? 'week' : 'month');
+    document.getElementById('durationHelp').textContent = `1–${max} ${unit} (one charge/income entry each ${periodName})`;
+  }
+  updateDurationHelp();
+</script>
+</body>
+</html>

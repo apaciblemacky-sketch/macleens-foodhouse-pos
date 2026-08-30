@@ -1,5 +1,6 @@
 import io
 import json
+import calendar
 import logging
 import os
 import re
@@ -220,6 +221,21 @@ class Expense(db.Model):
     title = db.Column(db.String(150), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(50), default='General')
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class CashFlowPlan(db.Model):
+    __tablename__ = 'cash_flow_plan'
+    id = db.Column(db.Integer, primary_key=True)
+    entry_type = db.Column(db.String(20), nullable=False)  # EXPENSE or INCOME
+    title = db.Column(db.String(150), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    frequency = db.Column(db.String(20), nullable=False)  # DAILY, WEEKLY, MONTHLY
+    start_date = db.Column(db.Date, nullable=False)
+    duration_count = db.Column(db.Integer, nullable=False, default=1)
+    category = db.Column(db.String(80), nullable=True)
+    notes = db.Column(db.String(255), nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_by = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
@@ -523,6 +539,63 @@ def parse_int(value, default=0):
         return int(value)
     except (TypeError, ValueError):
         return int(default)
+
+CASH_FLOW_FREQUENCIES = ('DAILY', 'WEEKLY', 'MONTHLY')
+CASH_FLOW_ENTRY_TYPES = ('EXPENSE', 'INCOME')
+CASH_FLOW_MAX_DURATION = {'DAILY': 730, 'WEEKLY': 104, 'MONTHLY': 24}
+CASH_FLOW_COGS_RATE = 0.60
+
+
+def cashflow_month_start(value):
+    return date(value.year, value.month, 1)
+
+
+def cashflow_add_months(value, months):
+    """Add whole calendar months, clamping to the last valid day."""
+    month_index = (value.year * 12 + (value.month - 1)) + int(months)
+    year, month_zero = divmod(month_index, 12)
+    month = month_zero + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return date(year, month, day)
+
+
+def cashflow_plan_end_date(plan):
+    count = max(1, parse_int(getattr(plan, 'duration_count', 1), 1))
+    start = plan.start_date
+    if plan.frequency == 'DAILY':
+        return start + timedelta(days=count - 1)
+    if plan.frequency == 'WEEKLY':
+        return start + timedelta(weeks=count - 1)
+    return cashflow_add_months(start, count - 1)
+
+
+def cashflow_occurrence_dates(plan, window_start, window_end_exclusive):
+    """Yield scheduled dates for a recurring cash-flow plan inside a date window."""
+    count = max(0, parse_int(getattr(plan, 'duration_count', 0), 0))
+    if count <= 0 or plan.frequency not in CASH_FLOW_FREQUENCIES:
+        return
+
+    for index in range(count):
+        if plan.frequency == 'DAILY':
+            occurrence = plan.start_date + timedelta(days=index)
+        elif plan.frequency == 'WEEKLY':
+            occurrence = plan.start_date + timedelta(weeks=index)
+        else:
+            occurrence = cashflow_add_months(plan.start_date, index)
+
+        if occurrence >= window_end_exclusive:
+            break
+        if occurrence >= window_start:
+            yield occurrence
+
+
+def cashflow_utc_bounds(start_day, end_day_exclusive):
+    start_local = datetime.combine(start_day, time.min, tzinfo=MANILA_TZ)
+    end_local = datetime.combine(end_day_exclusive, time.min, tzinfo=MANILA_TZ)
+    return (
+        start_local.astimezone(timezone.utc).replace(tzinfo=None),
+        end_local.astimezone(timezone.utc).replace(tzinfo=None),
+    )
 
 def parse_product_option_schema(schema, strict=False):
     """Parse a compact product-option definition.
@@ -2342,6 +2415,257 @@ def update_operating_hours():
     if session.get('cashier_user'):
         return redirect(url_for('cashier_terminal'))
     return redirect(url_for('admin_dashboard'))
+
+# ==================== 2-YEAR CASH FLOW PORTAL ====================
+
+@app.route('/admin/cash-flow')
+@require_admin
+def cash_flow_portal():
+    today = ph_today()
+    start_raw = request.args.get('start', '').strip()
+    try:
+        if start_raw:
+            parts = start_raw.split('-')
+            period_start = date(int(parts[0]), int(parts[1]), 1)
+        else:
+            period_start = date(today.year, today.month, 1)
+    except (ValueError, IndexError):
+        period_start = date(today.year, today.month, 1)
+
+    period_end = cashflow_add_months(period_start, 24)
+    utc_start, utc_end = cashflow_utc_bounds(period_start, period_end)
+
+    # Sales follow Macleen's existing accounting rule: completed POS orders plus Vault Drops.
+    # This cash-flow portal intentionally uses a planning COGS rate of 60% of sales instead
+    # of the recorded per-product costs used elsewhere in the accounting dashboard.
+    completed_orders = Order.query.filter(
+        Order.status == 'COMPLETED',
+        Order.created_at >= utc_start,
+        Order.created_at < utc_end,
+    ).all()
+    vault_drops = VaultDrop.query.filter(
+        VaultDrop.created_at >= utc_start,
+        VaultDrop.created_at < utc_end,
+    ).all()
+
+    daily_sales = {}
+    daily_order_sales = {}
+    daily_vault_sales = {}
+    for order in completed_orders:
+        day = utc_naive_to_ph(order.created_at).date()
+        amount = max(0.0, parse_float(order.total_amount, 0.0))
+        daily_order_sales[day] = daily_order_sales.get(day, 0.0) + amount
+        daily_sales[day] = daily_sales.get(day, 0.0) + amount
+    for drop in vault_drops:
+        day = utc_naive_to_ph(drop.created_at).date()
+        amount = max(0.0, parse_float(drop.amount, 0.0))
+        daily_vault_sales[day] = daily_vault_sales.get(day, 0.0) + amount
+        daily_sales[day] = daily_sales.get(day, 0.0) + amount
+
+    plans = CashFlowPlan.query.order_by(CashFlowPlan.entry_type.asc(), CashFlowPlan.start_date.asc(), CashFlowPlan.id.asc()).all()
+    daily_income = {}
+    daily_expenses = {}
+    for plan in plans:
+        if not plan.is_active:
+            continue
+        amount = max(0.0, parse_float(plan.amount, 0.0))
+        target = daily_income if plan.entry_type == 'INCOME' else daily_expenses
+        for occurrence in cashflow_occurrence_dates(plan, period_start, period_end):
+            target[occurrence] = target.get(occurrence, 0.0) + amount
+
+    monthly_rows = []
+    running_net = 0.0
+    totals = {
+        'sales': 0.0,
+        'cogs': 0.0,
+        'gross_profit': 0.0,
+        'income': 0.0,
+        'expenses': 0.0,
+        'net': 0.0,
+    }
+
+    for month_index in range(24):
+        month_start = cashflow_add_months(period_start, month_index)
+        next_month = cashflow_add_months(month_start, 1)
+        cursor = month_start
+        sales = extra_income = expenses = 0.0
+        while cursor < next_month:
+            sales += daily_sales.get(cursor, 0.0)
+            extra_income += daily_income.get(cursor, 0.0)
+            expenses += daily_expenses.get(cursor, 0.0)
+            cursor += timedelta(days=1)
+
+        cogs = sales * CASH_FLOW_COGS_RATE
+        gross_profit = sales - cogs
+        net = sales + extra_income - cogs - expenses
+        running_net += net
+        monthly_rows.append({
+            'month_start': month_start,
+            'month_key': month_start.strftime('%Y-%m'),
+            'month_label': month_start.strftime('%B %Y'),
+            'sales': sales,
+            'cogs': cogs,
+            'gross_profit': gross_profit,
+            'income': extra_income,
+            'expenses': expenses,
+            'net': net,
+            'running_net': running_net,
+        })
+        totals['sales'] += sales
+        totals['cogs'] += cogs
+        totals['gross_profit'] += gross_profit
+        totals['income'] += extra_income
+        totals['expenses'] += expenses
+        totals['net'] += net
+
+    detail_raw = request.args.get('month', '').strip()
+    detail_month = None
+    if detail_raw:
+        try:
+            y, m = [int(x) for x in detail_raw.split('-', 1)]
+            candidate = date(y, m, 1)
+            if period_start <= candidate < period_end:
+                detail_month = candidate
+        except (ValueError, TypeError):
+            detail_month = None
+    if detail_month is None:
+        current_month = date(today.year, today.month, 1)
+        detail_month = current_month if period_start <= current_month < period_end else period_start
+
+    daily_rows = []
+    cursor = detail_month
+    detail_end = cashflow_add_months(detail_month, 1)
+    while cursor < detail_end:
+        sales = daily_sales.get(cursor, 0.0)
+        cogs = sales * CASH_FLOW_COGS_RATE
+        extra_income = daily_income.get(cursor, 0.0)
+        expenses = daily_expenses.get(cursor, 0.0)
+        daily_rows.append({
+            'date': cursor,
+            'order_sales': daily_order_sales.get(cursor, 0.0),
+            'vault_sales': daily_vault_sales.get(cursor, 0.0),
+            'sales': sales,
+            'cogs': cogs,
+            'income': extra_income,
+            'expenses': expenses,
+            'net': sales + extra_income - cogs - expenses,
+        })
+        cursor += timedelta(days=1)
+
+    edit_plan = None
+    edit_id = parse_int(request.args.get('edit'), 0)
+    if edit_id:
+        edit_plan = CashFlowPlan.query.get(edit_id)
+
+    active_expense_total = sum(
+        max(0.0, parse_float(p.amount, 0.0)) * max(0, parse_int(p.duration_count, 0))
+        for p in plans if p.is_active and p.entry_type == 'EXPENSE'
+    )
+    active_income_total = sum(
+        max(0.0, parse_float(p.amount, 0.0)) * max(0, parse_int(p.duration_count, 0))
+        for p in plans if p.is_active and p.entry_type == 'INCOME'
+    )
+
+    return render_template(
+        'cash_flow_portal.html',
+        period_start=period_start,
+        period_end=period_end,
+        period_last_day=period_end - timedelta(days=1),
+        monthly_rows=monthly_rows,
+        daily_rows=daily_rows,
+        detail_month=detail_month,
+        totals=totals,
+        plans=plans,
+        edit_plan=edit_plan,
+        cogs_rate=CASH_FLOW_COGS_RATE,
+        max_duration=CASH_FLOW_MAX_DURATION,
+        active_expense_total=active_expense_total,
+        active_income_total=active_income_total,
+        plan_end_date=cashflow_plan_end_date,
+    )
+
+
+@app.route('/admin/cash-flow/plan/save', methods=['POST'])
+@require_admin
+def cash_flow_plan_save():
+    plan_id = parse_int(request.form.get('plan_id'), 0)
+    entry_type = request.form.get('entry_type', '').strip().upper()
+    title = request.form.get('title', '').strip()
+    amount = parse_float(request.form.get('amount'), 0.0)
+    frequency = request.form.get('frequency', '').strip().upper()
+    duration_count = parse_int(request.form.get('duration_count'), 0)
+    category = request.form.get('category', '').strip()[:80]
+    notes = request.form.get('notes', '').strip()[:255]
+    start_raw = request.form.get('start_date', '').strip()
+
+    if entry_type not in CASH_FLOW_ENTRY_TYPES:
+        flash('Choose Expense or Additional Income.', 'error')
+        return redirect(url_for('cash_flow_portal'))
+    if not title:
+        flash('Please enter a title/description.', 'error')
+        return redirect(url_for('cash_flow_portal'))
+    if amount <= 0:
+        flash('Amount must be greater than ₱0.00.', 'error')
+        return redirect(url_for('cash_flow_portal'))
+    if frequency not in CASH_FLOW_FREQUENCIES:
+        flash('Frequency must be Daily, Weekly, or Monthly.', 'error')
+        return redirect(url_for('cash_flow_portal'))
+    max_count = CASH_FLOW_MAX_DURATION[frequency]
+    if duration_count < 1 or duration_count > max_count:
+        unit = {'DAILY': 'days', 'WEEKLY': 'weeks', 'MONTHLY': 'months'}[frequency]
+        flash(f'Duration must be between 1 and {max_count} {unit}.', 'error')
+        return redirect(url_for('cash_flow_portal'))
+    try:
+        start_date = date.fromisoformat(start_raw)
+    except ValueError:
+        flash('Please choose a valid start date.', 'error')
+        return redirect(url_for('cash_flow_portal'))
+
+    if plan_id:
+        plan = CashFlowPlan.query.get_or_404(plan_id)
+    else:
+        plan = CashFlowPlan(created_by=session.get('admin_user'))
+        db.session.add(plan)
+
+    plan.entry_type = entry_type
+    plan.title = title[:150]
+    plan.amount = amount
+    plan.frequency = frequency
+    plan.start_date = start_date
+    plan.duration_count = duration_count
+    plan.category = category or None
+    plan.notes = notes or None
+    plan.is_active = True if not plan_id else plan.is_active
+    db.session.commit()
+
+    action = 'updated' if plan_id else 'added'
+    flash(f'Cash-flow {entry_type.lower()} schedule {action}.', 'success')
+    view_start = request.form.get('view_start', '').strip()
+    return redirect(url_for('cash_flow_portal', start=view_start) if view_start else url_for('cash_flow_portal'))
+
+
+@app.route('/admin/cash-flow/plan/<int:plan_id>/toggle', methods=['POST'])
+@require_admin
+def cash_flow_plan_toggle(plan_id):
+    plan = CashFlowPlan.query.get_or_404(plan_id)
+    plan.is_active = not bool(plan.is_active)
+    db.session.commit()
+    flash(f"'{plan.title}' is now {'active' if plan.is_active else 'paused'}.", 'success')
+    view_start = request.form.get('view_start', '').strip()
+    return redirect(url_for('cash_flow_portal', start=view_start) if view_start else url_for('cash_flow_portal'))
+
+
+@app.route('/admin/cash-flow/plan/<int:plan_id>/delete', methods=['POST'])
+@require_admin
+def cash_flow_plan_delete(plan_id):
+    plan = CashFlowPlan.query.get_or_404(plan_id)
+    label = plan.title
+    db.session.delete(plan)
+    db.session.commit()
+    flash(f"Cash-flow schedule '{label}' deleted.", 'info')
+    view_start = request.form.get('view_start', '').strip()
+    return redirect(url_for('cash_flow_portal', start=view_start) if view_start else url_for('cash_flow_portal'))
+
 
 # ==================== MASTER ADMIN, CONTROLS & SETTINGS ====================
 
