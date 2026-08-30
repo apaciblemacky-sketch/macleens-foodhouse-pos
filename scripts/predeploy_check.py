@@ -278,14 +278,18 @@ def main() -> int:
         "cashflow_projection_mode",
         "cashflow_average_window",
         "cashflow_manual_daily_sales",
+        "cashflow_manual_start_date",
+        "manual_start_date",
     ]
     missing_projection = [marker for marker in projection_markers if marker not in source]
     if missing_projection:
         fail("cash-flow average-sales projection is missing: " + ", ".join(missing_projection))
-    for marker in ["Blank-Day Sales Projection", "Use Specific Daily Sales Amount", "3-Day Average", "7-Day Average", "15-Day Average", "30-Day Average", "Lifetime Average", "Use Average Again", "Actual / Projected"]:
+    for marker in ["Blank-Day Sales Projection", "Use Specific Daily Sales Amount", "Specific Amount Starting Date", "3-Day Average", "7-Day Average", "15-Day Average", "30-Day Average", "Lifetime Average", "Use Average Again", "Actual / Projected"]:
         if marker not in cashflow_html:
             fail(f"cash-flow projection controls UI is missing: {marker}")
-    ok("cash-flow projection supports manual daily sales and 3/7/15/30/lifetime actual-sales averages")
+    if "day >= manual_start_date" not in source or "average is used before the start date" not in cashflow_html:
+        fail("cash-flow manual projection start-date behavior is missing")
+    ok("cash-flow projection supports a manual start date plus 3/7/15/30/lifetime actual-sales averages")
 
     # Guard against accidentally copying monthly-only fields into the daily table.
     daily_marker = "{% for row in daily_rows %}"

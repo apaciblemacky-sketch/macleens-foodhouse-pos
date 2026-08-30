@@ -2497,6 +2497,7 @@ def cash_flow_portal():
     projection_mode_setting = StoreSetting.query.filter_by(key='cashflow_projection_mode').first()
     average_window_setting = StoreSetting.query.filter_by(key='cashflow_average_window').first()
     manual_sales_setting = StoreSetting.query.filter_by(key='cashflow_manual_daily_sales').first()
+    manual_start_setting = StoreSetting.query.filter_by(key='cashflow_manual_start_date').first()
 
     projection_mode = (projection_mode_setting.value if projection_mode_setting else 'AVERAGE').strip().upper()
     if projection_mode not in ('AVERAGE', 'MANUAL'):
@@ -2505,6 +2506,14 @@ def cash_flow_portal():
     if average_window not in ('3', '7', '15', '30', 'LIFETIME'):
         average_window = 'LIFETIME'
     manual_daily_sales = max(0.0, parse_float(manual_sales_setting.value if manual_sales_setting else 0.0, 0.0))
+    manual_start_raw = (manual_start_setting.value if manual_start_setting else '').strip()
+    try:
+        manual_start_date = datetime.strptime(manual_start_raw, '%Y-%m-%d').date() if manual_start_raw else period_start
+    except (TypeError, ValueError):
+        # Backward compatibility for installs that used manual projection before this
+        # start-date control existed: preserve the old behavior by starting at the
+        # beginning of the currently viewed 24-month cash-flow period.
+        manual_start_date = period_start
 
     actual_sales_entries = sorted(
         ((day, amount) for day, amount in historical_daily_sales.items() if amount > 0),
@@ -2523,7 +2532,8 @@ def cash_flow_portal():
     average_daily_sales = (sum(actual_sales_days) / len(actual_sales_days)) if actual_sales_days else 0.0
     projection_daily_sales = manual_daily_sales if projection_mode == 'MANUAL' else average_daily_sales
     projection_source_label = (
-        'Specific Daily Sales Amount' if projection_mode == 'MANUAL'
+        f'Specific Daily Sales Amount from {manual_start_date.strftime("%b %d, %Y")}'
+        if projection_mode == 'MANUAL'
         else f'{average_window_label} Average'
     )
     projection_badge = 'SPECIFIC PROJECTION' if projection_mode == 'MANUAL' else 'AVG PROJECTION'
@@ -2531,8 +2541,13 @@ def cash_flow_portal():
     def cashflow_sales_for_day(day):
         actual = max(0.0, parse_float(daily_sales.get(day), 0.0))
         if actual > 0:
-            return actual, False
-        return projection_daily_sales, True
+            return actual, False, 'ACTUAL'
+        # A manually specified daily sales amount only takes effect on/after its
+        # chosen start date. Blank days before that date continue using the chosen
+        # actual-sales average so the two-year cash-flow remains fully populated.
+        if projection_mode == 'MANUAL' and day >= manual_start_date:
+            return manual_daily_sales, True, 'SPECIFIC PROJECTION'
+        return average_daily_sales, True, 'AVG PROJECTION'
 
     plans = CashFlowPlan.query.order_by(CashFlowPlan.entry_type.asc(), CashFlowPlan.start_date.asc(), CashFlowPlan.id.asc()).all()
     daily_income = {}
@@ -2564,7 +2579,7 @@ def cash_flow_portal():
         actual_sales_total = projected_sales_total = 0.0
         actual_days = projected_days = 0
         while cursor < next_month:
-            day_sales, is_projected = cashflow_sales_for_day(cursor)
+            day_sales, is_projected, _projection_kind = cashflow_sales_for_day(cursor)
             sales += day_sales
             if is_projected:
                 projected_sales_total += day_sales
@@ -2621,7 +2636,7 @@ def cash_flow_portal():
     cursor = detail_month
     detail_end = cashflow_add_months(detail_month, 1)
     while cursor < detail_end:
-        sales, is_projected = cashflow_sales_for_day(cursor)
+        sales, is_projected, projection_kind = cashflow_sales_for_day(cursor)
         cogs = sales * CASH_FLOW_COGS_RATE
         extra_income = daily_income.get(cursor, 0.0)
         expenses = daily_expenses.get(cursor, 0.0)
@@ -2631,6 +2646,7 @@ def cash_flow_portal():
             'vault_sales': daily_vault_sales.get(cursor, 0.0),
             'sales': sales,
             'is_projected': is_projected,
+            'projection_kind': projection_kind,
             'cogs': cogs,
             'income': extra_income,
             'expenses': expenses,
@@ -2671,6 +2687,7 @@ def cash_flow_portal():
         average_window_label=average_window_label,
         projection_mode=projection_mode,
         manual_daily_sales=manual_daily_sales,
+        manual_start_date=manual_start_date,
         projection_daily_sales=projection_daily_sales,
         projection_source_label=projection_source_label,
         projection_badge=projection_badge,
@@ -2687,6 +2704,7 @@ def cash_flow_projection_save():
     projection_mode = request.form.get('projection_mode', 'AVERAGE').strip().upper()
     average_window = request.form.get('average_window', 'LIFETIME').strip().upper()
     manual_daily_sales = parse_float(request.form.get('manual_daily_sales'), 0.0)
+    manual_start_raw = request.form.get('manual_start_date', '').strip()
     view_start = request.form.get('view_start', '').strip()
     view_month = request.form.get('view_month', '').strip()
 
@@ -2700,10 +2718,25 @@ def cash_flow_projection_save():
         flash('Specific daily sales amount must be between ₱0.00 and ₱100,000,000.00.', 'error')
         return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
 
+    existing_manual_start = StoreSetting.query.filter_by(key='cashflow_manual_start_date').first()
+    if projection_mode == 'MANUAL':
+        if not manual_start_raw:
+            flash('Choose the starting date for the specific daily sales amount.', 'error')
+            return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
+        try:
+            manual_start_date = datetime.strptime(manual_start_raw, '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            flash('Specific sales starting date is invalid.', 'error')
+            return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
+    else:
+        # Keep the last manual start date ready in case the user switches back later.
+        manual_start_raw = (existing_manual_start.value if existing_manual_start else manual_start_raw).strip()
+
     values = {
         'cashflow_projection_mode': projection_mode,
         'cashflow_average_window': average_window,
         'cashflow_manual_daily_sales': f'{manual_daily_sales:.2f}',
+        'cashflow_manual_start_date': manual_start_raw,
     }
     try:
         for key, value in values.items():
@@ -2714,7 +2747,11 @@ def cash_flow_projection_save():
                 db.session.add(StoreSetting(key=key, value=value))
         db.session.commit()
         if projection_mode == 'MANUAL':
-            flash(f'Cash-flow blank-day projection set to ₱{manual_daily_sales:,.2f} per day.', 'success')
+            flash(
+                f'Cash-flow blank-day projection set to ₱{manual_daily_sales:,.2f} per day '
+                f'starting {manual_start_date.strftime("%b %d, %Y")}.',
+                'success',
+            )
         else:
             label = 'Lifetime' if average_window == 'LIFETIME' else f'last {average_window} actual sales days'
             flash(f'Cash-flow blank-day projection switched back to the {label} average.', 'success')
