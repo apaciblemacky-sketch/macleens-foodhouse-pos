@@ -83,18 +83,10 @@
     </div>
   </div>
 
+  <script src="{{ url_for('static', filename='share-helper.js') }}?v=2"></script>
   <script>
-    async function shareFoodProduct(name, id) {
-      const url = new URL(`/product/${id}`, window.location.origin).href;
-      try {
-        if (navigator.share) { await navigator.share({ title: `${name} — Macleen's Food House`, url }); return; }
-        await navigator.clipboard.writeText(url);
-        alert(`Link copied: ${url}`);
-      } catch (err) {
-        if (err && err.name === 'AbortError') return;
-        try { await navigator.clipboard.writeText(url); alert(`Link copied: ${url}`); }
-        catch (_) { prompt('Copy this link:', url); }
-      }
+    function shareFoodProduct(name, id) {
+      return window.MacleensShare.open(`${name} — Macleen's Food House`, `/product/${id}`);
     }
 
     async function toggleLikeDetail(id) {

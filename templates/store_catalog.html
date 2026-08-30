@@ -6,7 +6,8 @@
   <title>Macleen's Food House</title>
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#ff69b4">
-  <script>
+  <script src="{{ url_for('static', filename='share-helper.js') }}?v=2"></script>
+<script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js');
     }
@@ -631,18 +632,7 @@
       calculateChangePreview();
     }
 
-    async function shareAnyLink(title, path) {
-      const url = new URL(path, window.location.origin).href;
-      try {
-        if (navigator.share) { await navigator.share({ title, url }); return; }
-        await navigator.clipboard.writeText(url);
-        alert(`Link copied: ${url}`);
-      } catch (err) {
-        if (err && err.name === 'AbortError') return;
-        try { await navigator.clipboard.writeText(url); alert(`Link copied: ${url}`); }
-        catch (_) { prompt('Copy this link:', url); }
-      }
-    }
+    function shareAnyLink(title, path) { return window.MacleensShare.open(title, path); }
 
     function shareStoreLink() { return shareAnyLink("Macleen's Food House", '/'); }
     function shareProductLink(name, id) { return shareAnyLink(name + " — Macleen's Food House", `/product/${id}`); }

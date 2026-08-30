@@ -23,8 +23,28 @@
 <header><div class="navbar"><a href="{{ url_for('craft_store') }}" class="brand-container"><span class="brand-title">🎀 Macleen's Crafts</span><span class="brand-sub">by Macleen's Food House</span></a><nav class="nav-links"><a href="{{ url_for('craft_store') }}" class="nav-link">Catalog</a><a href="{{ url_for('store_catalog') }}" class="nav-link">🍲 Food House</a><button type="button" class="share-nav" onclick="shareLink('Macleen\'s Crafts', '{{ url_for('craft_store') }}')">↗ Share Crafts</button></nav></div></header>
 <main class="container">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}{% endwith %}{% block content %}{% endblock %}</main>
 <div class="view-mode-bar"><span style="color:var(--text-muted);font-size:.8rem">📱 Display View:</span><div class="toggle-pill-container"><button class="toggle-pill-btn" id="btnMobileView" onclick="setViewMode('mobile')">📱 Mobile</button><button class="toggle-pill-btn" id="btnDesktopView" onclick="setViewMode('desktop')">💻 PC / Desktop</button></div></div>
+<script src="{{ url_for('static', filename='share-helper.js') }}?v=3"></script>
 <script>
-async function shareLink(title, path){const url=new URL(path||window.location.pathname,window.location.origin).href;try{if(navigator.share){await navigator.share({title:title,url:url});return;}await navigator.clipboard.writeText(url);alert('Link copied: '+url);}catch(err){if(err&&err.name==='AbortError')return;try{await navigator.clipboard.writeText(url);alert('Link copied: '+url);}catch(_){prompt('Copy this link:',url);}}}
+function shareLink(title, path){
+  if (!window.MacleensShare || typeof window.MacleensShare.open !== 'function') {
+    var url = new URL(path || window.location.href, window.location.origin).href;
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(function(){ alert('Link copied: ' + url); }).catch(function(){ window.prompt('Copy this link:', url); });
+    } else {
+      window.prompt('Copy this link:', url);
+    }
+    return;
+  }
+  return window.MacleensShare.open(title, path);
+}
+
+document.addEventListener('click', function(event){
+  var button = event.target.closest('.craft-share-btn');
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  shareLink(button.dataset.shareTitle || 'Macleen\'s Crafts', button.dataset.shareUrl || window.location.href);
+});
 function setViewMode(mode){localStorage.setItem('craft_site_view_mode',mode);applyViewMode(mode)}function applyViewMode(mode){const viewport=document.getElementById('viewportMeta'),body=document.body,m=document.getElementById('btnMobileView'),d=document.getElementById('btnDesktopView');if(mode==='desktop'){viewport.setAttribute('content','width=1100, initial-scale=0.35, user-scalable=yes');body.classList.add('force-desktop');d.classList.add('active');m.classList.remove('active')}else{viewport.setAttribute('content','width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');body.classList.remove('force-desktop');m.classList.add('active');d.classList.remove('active')}}document.addEventListener('DOMContentLoaded',()=>{const saved=localStorage.getItem('craft_site_view_mode');applyViewMode(saved||(window.innerWidth<=768?'mobile':'desktop'))});
 </script>
 </body></html>

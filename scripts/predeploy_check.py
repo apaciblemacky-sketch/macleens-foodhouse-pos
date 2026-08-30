@@ -371,6 +371,16 @@ def main() -> int:
         fail("Craft detail page does not explain/enforce unique-IP view/like behavior")
     if "shareLink" not in craft_base or "Share Craft Shop" not in craft_index:
         fail("Craft sharing controls are missing")
+    craft_card = (TEMPLATES / "craft/_product_card.html").read_text(encoding="utf-8")
+    if 'class="btn btn-outline craft-share-btn"' not in craft_card or 'data-share-title="{{ item.name|e }}"' not in craft_card:
+        fail("Craft product-card Share button is not using the safe delegated data-attribute handler")
+    if 'craft-share-btn' not in craft_detail or 'data-share-url=' not in craft_detail:
+        fail("Craft product-detail Share button is not using the safe delegated data-attribute handler")
+    if "event.target.closest('.craft-share-btn')" not in craft_base:
+        fail("Craft delegated Share click handler is missing")
+    if 'onclick="shareLink({{ item.name|tojson' in craft_card or 'onclick="shareLink({{ item.name|tojson' in craft_detail:
+        fail("Craft product Share still contains fragile inline JSON onclick quoting")
+    ok("Craft per-product Share buttons use the safe delegated click handler")
     if "shareStoreLink" not in storefront or "shareProductLink" not in storefront:
         fail("Food House storefront/product sharing controls are missing")
     product_detail_html = (TEMPLATES / "product_detail.html").read_text(encoding="utf-8")
