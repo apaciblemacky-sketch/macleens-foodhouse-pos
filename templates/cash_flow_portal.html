@@ -278,7 +278,6 @@
                 <td>{% if row.is_projected %}<span class="muted">—</span>{% else %}₱{{ "{:,.2f}".format(row.order_sales) }}{% endif %}</td>
                 <td>{% if row.is_projected %}<span class="muted">—</span>{% else %}₱{{ "{:,.2f}".format(row.vault_sales) }}{% endif %}</td>
                 <td class="positive">₱{{ "{:,.2f}".format(row.sales) }}</td>
-                <td><span style="color:var(--green);font-weight:800;">A ₱{{ "{:,.2f}".format(row.actual_sales) }}</span><br><span class="small">{{ row.actual_days }} actual day{{ '' if row.actual_days == 1 else 's' }}</span><br><span style="color:var(--purple);font-weight:800;">P ₱{{ "{:,.2f}".format(row.projected_sales) }}</span><br><span class="small">{{ row.projected_days }} projected day{{ '' if row.projected_days == 1 else 's' }}</span></td>
                 <td style="color:var(--red);">₱{{ "{:,.2f}".format(row.cogs) }}</td>
                 <td class="positive">₱{{ "{:,.2f}".format(row.income) }}</td>
                 <td style="color:#ea580c;">₱{{ "{:,.2f}".format(row.expenses) }}</td>

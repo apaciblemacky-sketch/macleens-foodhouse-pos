@@ -283,6 +283,24 @@ def main() -> int:
             fail(f"cash-flow average-sales projection UI is missing: {marker}")
     ok("blank cash-flow sales days are filled from the actual-sales daily average")
 
+    # Guard against accidentally copying monthly-only fields into the daily table.
+    daily_marker = "{% for row in daily_rows %}"
+    if daily_marker not in cashflow_html:
+        fail("cash-flow daily detail loop is missing")
+    daily_section = cashflow_html.split(daily_marker, 1)[1].split("{% endfor %}", 1)[0]
+    invalid_daily_fields = [
+        "row.actual_sales",
+        "row.actual_days",
+        "row.projected_sales",
+        "row.projected_days",
+    ]
+    leaked_fields = [field for field in invalid_daily_fields if field in daily_section]
+    if leaked_fields:
+        fail("cash-flow daily table references monthly-only fields: " + ", ".join(leaked_fields))
+    if daily_section.count("<td") != 9:
+        fail(f"cash-flow daily table should render 9 cells per row, found {daily_section.count('<td')}")
+    ok("cash-flow daily detail uses only valid daily-row fields")
+
     ok("2-year cash-flow portal and automatic 60% COGS rule are present")
 
     print("\nPRE-DEPLOY CHECK PASSED")
