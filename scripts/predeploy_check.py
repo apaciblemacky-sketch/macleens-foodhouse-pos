@@ -400,6 +400,24 @@ def main() -> int:
         if "share-helper.js') }}?v=4" not in content:
             fail(f"{rel} does not load the latest share helper cache version")
     ok("Share menu uses Facebook popup + Gmail email, without WhatsApp/Telegram")
+
+    # Social preview metadata: page-level shares must use branded header artwork,
+    # while individual product pages may use the product image. This prevents
+    # Facebook from guessing the first product card as the page thumbnail.
+    social_food = ROOT / "static" / "social" / "foodhouse-share-header.png"
+    social_craft = ROOT / "static" / "social" / "craft-share-header.png"
+    if not social_food.exists() or not social_craft.exists():
+        fail("branded social-share header images are missing")
+    if "social/foodhouse-share-header.png" not in storefront or 'property="og:image"' not in storefront:
+        fail("Food House page does not force the branded header as its social preview image")
+    if "social/craft-share-header.png" not in craft_base or 'property="og:image"' not in craft_base:
+        fail("Craft Shop page does not force the branded header as its social preview image")
+    if 'property="og:url"' not in storefront or 'property="og:url"' not in craft_base:
+        fail("page-level Open Graph canonical URLs are missing")
+    if 'property="og:type" content="product"' not in product_detail_html or 'property="og:type" content="product"' not in craft_detail:
+        fail("individual product pages are missing product-specific social metadata")
+    ok("page shares use branded header thumbnails; product shares keep product-specific previews")
+
     header_section = admin_template[:5000]
     if "url_for('craft_admin_dashboard')" in header_section:
         fail("master admin header still exposes a Craft Shop admin shortcut; Craft Admin should be direct-link only")

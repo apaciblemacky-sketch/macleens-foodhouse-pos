@@ -4,6 +4,24 @@
   <meta charset="UTF-8">
   <meta name="viewport" id="viewportMeta" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>{% block title %}Macleen's Crafts by Macleen's Food House{% endblock %}</title>
+  {% block social_meta %}
+  <meta name="description" content="Macleen's Crafts by Macleen's Food House — handcrafted gifts, custom prints, and made-to-order creations.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Macleen's Crafts">
+  <meta property="og:title" content="Macleen's Crafts by Macleen's Food House">
+  <meta property="og:description" content="Handcrafted gifts, custom prints, and made-to-order creations from Macleen's Crafts.">
+  <link rel="canonical" href="{{ url_for('craft_store', _external=True) }}">
+  <meta property="og:url" content="{{ url_for('craft_store', _external=True) }}">
+  <meta property="og:image" content="{{ url_for('static', filename='social/craft-share-header.png', _external=True) }}">
+  <meta property="og:image:secure_url" content="{{ url_for('static', filename='social/craft-share-header.png', _external=True) }}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Macleen's Crafts header">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Macleen's Crafts by Macleen's Food House">
+  <meta name="twitter:description" content="Handcrafted gifts, custom prints, and made-to-order creations.">
+  <meta name="twitter:image" content="{{ url_for('static', filename='social/craft-share-header.png', _external=True) }}">
+  {% endblock %}
   <style>
     :root{--pink-primary:#ec4899;--pink-dark:#be185d;--pink-deep:#831843;--pink-light:#fff5f7;--pink-border:#fbcfe8;--pink-accent:#f472b6;--purple:#9333ea;--green:#059669;--text-main:#1f2937;--text-muted:#6b7280}
     *{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--pink-light);color:var(--text-main);line-height:1.5;-webkit-tap-highlight-color:transparent;padding-bottom:70px}

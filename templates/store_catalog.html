@@ -4,6 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Macleen's Food House</title>
+  <meta name="description" content="Macleen's Food House — fresh meals, drinks, snacks, rewards, and convenient ordering.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Macleen's Food House">
+  <meta property="og:title" content="Macleen's Food House">
+  <meta property="og:description" content="Fresh meals, drinks, snacks, rewards, and convenient ordering from Macleen's Food House.">
+  <link rel="canonical" href="{{ url_for('store_catalog', _external=True) }}">
+  <meta property="og:url" content="{{ url_for('store_catalog', _external=True) }}">
+  <meta property="og:image" content="{{ url_for('static', filename='social/foodhouse-share-header.png', _external=True) }}">
+  <meta property="og:image:secure_url" content="{{ url_for('static', filename='social/foodhouse-share-header.png', _external=True) }}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Macleen's Food House header">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Macleen's Food House">
+  <meta name="twitter:description" content="Fresh meals, drinks, snacks, rewards, and convenient ordering.">
+  <meta name="twitter:image" content="{{ url_for('static', filename='social/foodhouse-share-header.png', _external=True) }}">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#ff69b4">
   <script src="{{ url_for('static', filename='share-helper.js') }}?v=4"></script>
