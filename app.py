@@ -2490,14 +2490,49 @@ def cash_flow_portal():
         amount = max(0.0, parse_float(drop.amount, 0.0))
         historical_daily_sales[day] = historical_daily_sales.get(day, 0.0) + amount
 
-    actual_sales_days = [amount for amount in historical_daily_sales.values() if amount > 0]
+    # Projection controls are stored as normal StoreSetting rows so this feature does not
+    # require another database migration. The averaging window always means the most
+    # recent N ACTUAL positive-sales days (blank/no-sale days are excluded), preserving
+    # the original projection policy while allowing 3/7/15/30-day or lifetime averages.
+    projection_mode_setting = StoreSetting.query.filter_by(key='cashflow_projection_mode').first()
+    average_window_setting = StoreSetting.query.filter_by(key='cashflow_average_window').first()
+    manual_sales_setting = StoreSetting.query.filter_by(key='cashflow_manual_daily_sales').first()
+
+    projection_mode = (projection_mode_setting.value if projection_mode_setting else 'AVERAGE').strip().upper()
+    if projection_mode not in ('AVERAGE', 'MANUAL'):
+        projection_mode = 'AVERAGE'
+    average_window = (average_window_setting.value if average_window_setting else 'LIFETIME').strip().upper()
+    if average_window not in ('3', '7', '15', '30', 'LIFETIME'):
+        average_window = 'LIFETIME'
+    manual_daily_sales = max(0.0, parse_float(manual_sales_setting.value if manual_sales_setting else 0.0, 0.0))
+
+    actual_sales_entries = sorted(
+        ((day, amount) for day, amount in historical_daily_sales.items() if amount > 0),
+        key=lambda item: item[0],
+    )
+    lifetime_actual_sales_day_count = len(actual_sales_entries)
+    if average_window == 'LIFETIME':
+        selected_average_entries = actual_sales_entries
+        average_window_label = 'Lifetime'
+    else:
+        average_limit = int(average_window)
+        selected_average_entries = actual_sales_entries[-average_limit:]
+        average_window_label = f'Last {average_limit} actual sales days'
+
+    actual_sales_days = [amount for _, amount in selected_average_entries]
     average_daily_sales = (sum(actual_sales_days) / len(actual_sales_days)) if actual_sales_days else 0.0
+    projection_daily_sales = manual_daily_sales if projection_mode == 'MANUAL' else average_daily_sales
+    projection_source_label = (
+        'Specific Daily Sales Amount' if projection_mode == 'MANUAL'
+        else f'{average_window_label} Average'
+    )
+    projection_badge = 'SPECIFIC PROJECTION' if projection_mode == 'MANUAL' else 'AVG PROJECTION'
 
     def cashflow_sales_for_day(day):
         actual = max(0.0, parse_float(daily_sales.get(day), 0.0))
         if actual > 0:
             return actual, False
-        return average_daily_sales, True
+        return projection_daily_sales, True
 
     plans = CashFlowPlan.query.order_by(CashFlowPlan.entry_type.asc(), CashFlowPlan.start_date.asc(), CashFlowPlan.id.asc()).all()
     daily_income = {}
@@ -2631,11 +2666,69 @@ def cash_flow_portal():
         cogs_rate=CASH_FLOW_COGS_RATE,
         average_daily_sales=average_daily_sales,
         average_sales_day_count=len(actual_sales_days),
+        lifetime_actual_sales_day_count=lifetime_actual_sales_day_count,
+        average_window=average_window,
+        average_window_label=average_window_label,
+        projection_mode=projection_mode,
+        manual_daily_sales=manual_daily_sales,
+        projection_daily_sales=projection_daily_sales,
+        projection_source_label=projection_source_label,
+        projection_badge=projection_badge,
         max_duration=CASH_FLOW_MAX_DURATION,
         active_expense_total=active_expense_total,
         active_income_total=active_income_total,
         plan_end_date=cashflow_plan_end_date,
     )
+
+
+@app.route('/admin/cash-flow/projection/save', methods=['POST'])
+@require_admin
+def cash_flow_projection_save():
+    projection_mode = request.form.get('projection_mode', 'AVERAGE').strip().upper()
+    average_window = request.form.get('average_window', 'LIFETIME').strip().upper()
+    manual_daily_sales = parse_float(request.form.get('manual_daily_sales'), 0.0)
+    view_start = request.form.get('view_start', '').strip()
+    view_month = request.form.get('view_month', '').strip()
+
+    if projection_mode not in ('AVERAGE', 'MANUAL'):
+        flash('Choose Actual Sales Average or Specific Daily Sales Amount.', 'error')
+        return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
+    if average_window not in ('3', '7', '15', '30', 'LIFETIME'):
+        flash('Average range must be 3, 7, 15, 30 actual sales days, or Lifetime.', 'error')
+        return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
+    if manual_daily_sales < 0 or manual_daily_sales > 100000000:
+        flash('Specific daily sales amount must be between ₱0.00 and ₱100,000,000.00.', 'error')
+        return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
+
+    values = {
+        'cashflow_projection_mode': projection_mode,
+        'cashflow_average_window': average_window,
+        'cashflow_manual_daily_sales': f'{manual_daily_sales:.2f}',
+    }
+    try:
+        for key, value in values.items():
+            setting = StoreSetting.query.filter_by(key=key).first()
+            if setting:
+                setting.value = value
+            else:
+                db.session.add(StoreSetting(key=key, value=value))
+        db.session.commit()
+        if projection_mode == 'MANUAL':
+            flash(f'Cash-flow blank-day projection set to ₱{manual_daily_sales:,.2f} per day.', 'success')
+        else:
+            label = 'Lifetime' if average_window == 'LIFETIME' else f'last {average_window} actual sales days'
+            flash(f'Cash-flow blank-day projection switched back to the {label} average.', 'success')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not save cash-flow sales projection settings')
+        flash('Could not save cash-flow projection settings.', 'error')
+
+    redirect_kwargs = {}
+    if view_start:
+        redirect_kwargs['start'] = view_start
+    if view_month:
+        redirect_kwargs['month'] = view_month
+    return redirect(url_for('cash_flow_portal', **redirect_kwargs))
 
 
 @app.route('/admin/cash-flow/plan/save', methods=['POST'])
