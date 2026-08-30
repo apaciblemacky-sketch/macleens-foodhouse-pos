@@ -2419,6 +2419,7 @@ def update_operating_hours():
 # ==================== 2-YEAR CASH FLOW PORTAL ====================
 
 @app.route('/admin/cash-flow')
+@app.route('/admin/cashflow')
 @require_admin
 def cash_flow_portal():
     today = ph_today()

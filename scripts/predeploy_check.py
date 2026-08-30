@@ -246,6 +246,7 @@ def main() -> int:
         "class CashFlowPlan(db.Model):",
         "CASH_FLOW_COGS_RATE = 0.60",
         "@app.route('/admin/cash-flow')",
+        "@app.route('/admin/cashflow')",
         "@app.route('/admin/cash-flow/plan/save', methods=['POST'])",
         "cashflow_occurrence_dates",
         "total_rev = order_rev + vault_drop_sales",
@@ -253,6 +254,10 @@ def main() -> int:
     missing_cashflow = [marker for marker in cashflow_markers if marker not in source]
     if missing_cashflow:
         fail("2-year cash-flow portal safeguards are missing: " + ", ".join(missing_cashflow))
+    if "cash_flow_portal" not in admin_template or "2-Year Cash Flow" not in admin_template:
+        fail("admin header is missing the 2-Year Cash Flow portal button")
+    ok("admin header links to the 2-year cash-flow portal")
+
     cashflow_template = TEMPLATES / "cash_flow_portal.html"
     if not cashflow_template.exists():
         fail("templates/cash_flow_portal.html is missing")
