@@ -1,0 +1,11 @@
+<div class="product">
+  <img src="{{ item.image_url or '/static/craft/default-craft.png' }}" alt="{{ item.name }}">
+  <div class="product-body">
+    <div class="muted">{{ item.category_name }}</div>
+    <strong>{{ item.name }}</strong>
+    <div class="price">₱{{ "{:,.2f}".format(item.price or 0) }}</div>
+    <div>{% if item.availability_type=='PREORDER' %}<span class="badge pre">Pre-order</span>{% elif item.stock_quantity>0 %}<span class="badge stock">{{ item.stock_quantity }} in stock</span>{% else %}<span class="badge sold">Sold out</span>{% endif %}</div>
+    <div class="muted">❤️ {{ item.likes }} · 👁️ {{ item.views }} · 🛍️ {{ item.orders_count }}</div>
+    <a class="btn btn-pink" style="text-align:center;margin-top:auto" href="{{ url_for('craft_item_detail', item_id=item.id) }}">View / Order</a>
+  </div>
+</div>

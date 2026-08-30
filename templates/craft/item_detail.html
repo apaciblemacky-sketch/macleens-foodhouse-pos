@@ -1,0 +1,12 @@
+{% extends 'craft/base.html' %}
+{% block title %}{{ item.name }} — Craft Shop{% endblock %}
+{% block content %}
+<div class="card" style="display:grid;grid-template-columns:minmax(220px,420px) 1fr;gap:18px">
+  <img src="{{ item.image_url or '/static/craft/default-craft.png' }}" style="width:100%;max-height:420px;object-fit:cover;border-radius:12px">
+  <div><div class="muted">{{ item.category_name }}</div><h1 style="color:var(--dark)">{{ item.name }}</h1><div class="price" style="font-size:1.7rem">₱{{ "{:,.2f}".format(item.price or 0) }}</div><p>{{ item.description }}</p>
+  {% if item.availability_type=='PREORDER' %}<span class="badge pre">Made to Order / Pre-order</span>{% elif item.stock_quantity>0 %}<span class="badge stock">{{ item.stock_quantity }} in stock</span>{% else %}<span class="badge sold">Sold out</span>{% endif %}
+  <div style="display:flex;gap:8px;margin-top:14px"><form method="post" action="{{ url_for('craft_like_item', item_id=item.id) }}"><button class="btn btn-light">❤️ Like ({{ item.likes }})</button></form>{% if item.availability_type=='PREORDER' or item.stock_quantity>0 %}<a class="btn btn-pink" href="{{ url_for('craft_order_item', item_id=item.id) }}">Order / Reserve</a>{% endif %}</div></div>
+</div>
+<div class="card"><h3 style="color:var(--dark)">💬 Comments</h3><form method="post" action="{{ url_for('craft_add_comment', item_id=item.id) }}" class="form-grid"><div><label>Name</label><input name="author" placeholder="Your name"></div><div><label>Comment</label><input name="content" required placeholder="Ask or leave feedback"></div><div style="align-self:end"><button class="btn btn-purple">Post</button></div></form><div style="margin-top:12px">{% for c in item.comments|sort(attribute='created_at', reverse=true) %}<div style="padding:8px 0;border-top:1px solid #fce7f3"><strong>{{ c.author }}</strong><div class="muted">{{ c.content }}</div></div>{% else %}<div class="muted">No comments yet.</div>{% endfor %}</div></div>
+<style>@media(max-width:700px){.card[style*="grid-template-columns"]{grid-template-columns:1fr!important}}</style>
+{% endblock %}

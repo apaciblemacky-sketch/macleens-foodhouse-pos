@@ -1,0 +1,13 @@
+{% extends 'craft/base.html' %}
+{% block title %}Macleen's Craft Shop{% endblock %}
+{% block content %}
+<div class="hero card" style="padding:26px">
+  <h1>Handmade, Customized & Creative</h1>
+  <p style="margin:0">Crafts, gifts, personalized items and made-to-order creations by Macleen's.</p>
+</div>
+{% if featured %}<h2 style="color:var(--dark)">✨ Featured Crafts</h2><div class="grid products">{% for item in featured %}{% include 'craft/_product_card.html' %}{% endfor %}</div>{% endif %}
+{% if top_sellers %}<h2 style="color:var(--dark)">⭐ Top Sellers</h2><div class="grid products">{% for item in top_sellers %}{% include 'craft/_product_card.html' %}{% endfor %}</div>{% endif %}
+<div class="card" style="margin-top:16px"><strong>Categories:</strong> <a class="btn btn-light" href="{{ url_for('craft_store') }}">All</a> {% for cat in categories %}<a class="btn {% if selected_category==cat.name %}btn-pink{% else %}btn-light{% endif %}" href="{{ url_for('craft_store', category=cat.name) }}">{{ cat.name }}</a>{% endfor %}</div>
+<h2 style="color:var(--dark)">{% if selected_category %}{{ selected_category }}{% else %}Craft Catalog{% endif %}</h2>
+<div class="grid products">{% for item in items %}{% include 'craft/_product_card.html' %}{% else %}<div class="card">No craft items are active in this category yet.</div>{% endfor %}</div>
+{% endblock %}

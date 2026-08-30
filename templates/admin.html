@@ -45,6 +45,7 @@
     <div style="display:flex; gap:8px;">
       <a href="/pos/cashier" class="btn btn-pink">🛒 POS Terminal</a>
       <a href="{{ url_for('cash_flow_portal') }}" class="btn" style="background:#dcfce7; color:#166534;">💵 Cash Flow Manager</a>
+      <a href="{{ url_for('craft_admin_dashboard') }}" class="btn" style="background:#ede9fe; color:#6d28d9;">🎨 Craft Shop</a>
       <a href="/staff/logout?role=admin" class="btn" style="background:#fee2e2; color:#991b1b;">Admin Logout</a>
     </div>
   </header>
@@ -121,7 +122,7 @@
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
       <div>
         <h3 style="color:#1e40af; font-size:1.05rem;">📈 Sales Breakdown & Category Running Totals</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Live sales tracked separately for food meals and printing/miscellaneous services. Product cost is snapshotted into each new sale so later cost changes do not rewrite history.</p>
+        <p style="font-size:0.75rem; color:#64748b;">Live sales tracked separately for food meals, printing/services, and the integrated Craft Shop. Product cost is snapshotted into each new sale so later cost changes do not rewrite history.</p>
       </div>
       <div style="display:flex; gap:4px;">
         <button onclick="switchReportTab('tabProducts')" id="btnTabProducts" class="btn btn-pink" style="padding:4px 8px; font-size:0.75rem;">📦 Per Product</button>
@@ -142,9 +143,14 @@
         <div class="metric-val" style="color:#7c3aed;">₱{{ "{:,.2f}".format(service_revenue_total or 0.0) }}</div>
         <div style="font-size:0.7rem; color:#64748b;">Document Printing, Scanning, Rush fees</div>
       </div>
+      <div class="metric-card" style="border-color:#c084fc;">
+        <div style="font-size:0.75rem; font-weight:bold; color:#6d28d9;">🎨 TOTAL CRAFT SHOP REVENUE</div>
+        <div class="metric-val" style="color:#7c3aed;">₱{{ "{:,.2f}".format(craft_revenue_total or 0.0) }}</div>
+        <div style="font-size:0.7rem; color:#64748b;">Completed craft sales & craft other income synced from Craft Shop</div>
+      </div>
       <div class="metric-card" style="border-color:#34d399;">
         <div style="font-size:0.75rem; font-weight:bold; color:#065f46;">💰 COMBINED TOTAL GROSS</div>
-        <div class="metric-val" style="color:#059669;">₱{{ "{:,.2f}".format((food_revenue_total or 0.0) + (service_revenue_total or 0.0)) }}</div>
+        <div class="metric-val" style="color:#059669;">₱{{ "{:,.2f}".format((food_revenue_total or 0.0) + (service_revenue_total or 0.0) + (craft_revenue_total or 0.0)) }}</div>
         <div style="font-size:0.7rem; color:#64748b;">All-time gross sales receipts</div>
       </div>
     </div>
@@ -167,7 +173,9 @@
           <tr>
             <td><strong>{{ pname }}</strong></td>
             <td style="text-align:center;">
-              {% if '[Service]' in pname or 'Printing' in pname %}
+              {% if pname.startswith('[Craft') %}
+                <span class="badge" style="background:#f3e8ff; color:#7e22ce;">Craft Shop</span>
+              {% elif '[Service]' in pname or 'Printing' in pname %}
                 <span class="badge" style="background:#ede9fe; color:#6d28d9;">Service / Print</span>
               {% else %}
                 <span class="badge" style="background:#fce7f3; color:#be185d;">Food / Drink</span>

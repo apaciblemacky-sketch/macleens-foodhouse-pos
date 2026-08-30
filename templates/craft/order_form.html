@@ -1,0 +1,15 @@
+{% extends 'craft/base.html' %}
+{% block title %}Order {{ item.name }}{% endblock %}
+{% block content %}
+<div class="card" style="max-width:680px;margin:auto">
+  <h2 style="color:var(--dark)">🛍️ Craft Order / Reservation</h2>
+  {% if error %}<div class="flash flash-error">{{ error }}</div>{% endif %}
+  <div style="display:flex;gap:12px;align-items:center;background:#fff7fb;padding:10px;border-radius:10px;margin-bottom:12px"><img src="{{ item.image_url or '/static/craft/default-craft.png' }}" style="width:74px;height:74px;object-fit:cover;border-radius:8px"><div><strong>{{ item.name }}</strong><div class="price">₱{{ "{:,.2f}".format(item.price or 0) }}</div><div class="muted">{% if item.availability_type=='PREORDER' %}Made to order{% else %}{{ item.stock_quantity }} available{% endif %}</div></div></div>
+  <form method="post">
+    <div class="form-grid"><div><label>Full Name *</label><input name="customer_name" required value="{{ cust.name if cust else '' }}"></div><div><label>Contact Number *</label><input name="contact_number" required value="{{ cust.contact if cust else '' }}"></div><div><label>Email</label><input type="email" name="email" value="{{ cust.email if cust else '' }}"></div><div><label>Facebook / Messenger</label><input name="fb_account" value="{{ cust.fb_messenger if cust else '' }}"></div><div><label>Quantity *</label><input type="number" name="quantity" min="1" {% if item.availability_type=='IN_STOCK' %}max="{{ item.stock_quantity }}"{% endif %} value="1" required></div><div><label>Payment Method *</label><select name="payment_method" id="craftPay" onchange="document.getElementById('gcashBox').style.display=this.value==='GCASH'?'block':'none'"><option value="CASH">Cash</option><option value="GCASH">GCash</option></select></div><div id="gcashBox" style="display:none"><label>GCash Reference (last 6+ digits)</label><input name="gcash_ref"></div></div>
+    <div style="margin-top:9px"><label>Customer Note / Customization Request</label><textarea name="notes" rows="4" placeholder="Color, size, name to print, deadline, packaging request, etc."></textarea></div>
+    <p class="muted">After submission, this order is sent to the main Macleen's Cashier verification queue. Final sale is recorded only when accepted/completed.</p>
+    <button class="btn btn-pink" style="width:100%;padding:11px">Submit Craft Order</button>
+  </form>
+</div>
+{% endblock %}

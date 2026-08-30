@@ -1,5 +1,6 @@
 import io
 import json
+import base64
 import calendar
 import logging
 import os
@@ -373,6 +374,91 @@ class ProductSuggestion(db.Model):
 
 SUGGESTION_STATUSES = ('NEW', 'CONSIDERING', 'PLANNED', 'AVAILABLE', 'ARCHIVED')
 
+
+# ==================== INTEGRATED MACLEEN'S CRAFT SHOP ====================
+
+class CraftCategory(db.Model):
+    __tablename__ = 'craft_category'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), unique=True, nullable=False)
+    image_url = db.Column(db.Text, nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class CraftItem(db.Model):
+    __tablename__ = 'craft_item'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text, nullable=False, default='')
+    category_name = db.Column(db.String(80), nullable=False, default='General')
+    price = db.Column(db.Float, nullable=False)
+    cost = db.Column(db.Float, nullable=False, default=0.0)
+    image_url = db.Column(db.Text, nullable=True)
+    availability_type = db.Column(db.String(20), default='IN_STOCK', nullable=False)  # IN_STOCK / PREORDER
+    stock_quantity = db.Column(db.Integer, default=0, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    is_top_seller = db.Column(db.Boolean, default=False, nullable=False)
+    is_featured = db.Column(db.Boolean, default=False, nullable=False)
+    likes = db.Column(db.Integer, default=0, nullable=False)
+    views = db.Column(db.Integer, default=0, nullable=False)
+    orders_count = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    comments = db.relationship('CraftComment', backref='craft_item', cascade='all, delete-orphan', lazy=True)
+    craft_orders = db.relationship('CraftOrder', backref='craft_item', lazy=True)
+
+class CraftComment(db.Model):
+    __tablename__ = 'craft_comment'
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('craft_item.id', ondelete='CASCADE'), nullable=False)
+    author = db.Column(db.String(80), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class CraftOrder(db.Model):
+    __tablename__ = 'craft_order'
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('craft_item.id'), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)
+    customer_name = db.Column(db.String(100), nullable=False)
+    contact_number = db.Column(db.String(50), nullable=False)
+    email = db.Column(db.String(120), nullable=True)
+    fb_account = db.Column(db.String(150), nullable=True)
+    quantity = db.Column(db.Integer, default=1, nullable=False)
+    unit_price = db.Column(db.Float, nullable=False)
+    unit_cost = db.Column(db.Float, nullable=False, default=0.0)
+    total_price = db.Column(db.Float, nullable=False)
+    total_cost = db.Column(db.Float, nullable=False, default=0.0)
+    payment_method = db.Column(db.String(20), nullable=False, default='CASH')
+    payment_status = db.Column(db.String(20), nullable=False, default='PENDING')
+    gcash_ref = db.Column(db.String(20), nullable=True)
+    status = db.Column(db.String(30), nullable=False, default='PENDING')
+    pickup_location = db.Column(db.String(150), default="Macleen's Food House")
+    notes = db.Column(db.Text, nullable=True)
+    main_order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='SET NULL'), nullable=True, unique=True)
+    stock_restored = db.Column(db.Boolean, default=False, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    customer = db.relationship('Customer', lazy=True)
+    main_order = db.relationship('Order', lazy=True, foreign_keys=[main_order_id])
+
+class CraftLedger(db.Model):
+    __tablename__ = 'craft_ledger'
+    id = db.Column(db.Integer, primary_key=True)
+    event_type = db.Column(db.String(30), nullable=False)  # SALE / EXPENSE / OTHER_INCOME / REFUND
+    title = db.Column(db.String(150), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    payment_method = db.Column(db.String(20), nullable=True)
+    craft_order_id = db.Column(db.Integer, db.ForeignKey('craft_order.id', ondelete='SET NULL'), nullable=True)
+    main_order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='SET NULL'), nullable=True)
+    expense_id = db.Column(db.Integer, db.ForeignKey('expense.id', ondelete='SET NULL'), nullable=True)
+    notes = db.Column(db.String(255), nullable=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+CRAFT_ORDER_STATUSES = ('PENDING', 'READY', 'COMPLETED', 'CANCELLED')
+CRAFT_PAYMENT_METHODS = ('CASH', 'GCASH')
+CRAFT_DEFAULT_IMAGE = '/static/craft/default-craft.png'
+
 # ==================== PWA ROOT ROUTES ====================
 
 @app.route('/manifest.json')
@@ -489,6 +575,8 @@ def run_db_setup():
                 ))
                 if not os.environ.get('DEFAULT_ADMIN_PIN' if role == 'ADMIN' else 'DEFAULT_CASHIER_PIN'):
                     app.logger.warning('Created bootstrap %s account %r using the built-in first-run PIN. Change it in Admin immediately.', role, username)
+        if not CraftCategory.query.filter(db.func.lower(CraftCategory.name) == 'general').first():
+            db.session.add(CraftCategory(name='General', image_url=CRAFT_DEFAULT_IMAGE, is_active=True))
         db.session.commit()
 
         ensure_default_promos()
@@ -1274,6 +1362,106 @@ def require_cashier(f):
             return _staff_auth_failure('cashier', 'Staff session expired. Please log in again.')
         return f(*args, **kwargs)
     return decorated
+
+
+# ==================== CRAFT SHOP HELPERS ====================
+
+def craft_image_from_request(file_key='image', url_key='image_url', existing=None):
+    """Persist small uploaded images in the database as data URLs so Render deploys do not erase them."""
+    image_url = (request.form.get(url_key) or '').strip()
+    upload = request.files.get(file_key)
+    if upload and upload.filename:
+        content_type = (upload.mimetype or '').lower()
+        if content_type not in ('image/png', 'image/jpeg', 'image/webp', 'image/gif'):
+            raise OrderValidationError('Craft image must be PNG, JPG, WEBP, or GIF.')
+        raw = upload.read(2_500_001)
+        if len(raw) > 2_500_000:
+            raise OrderValidationError('Craft image must be 2.5 MB or smaller.')
+        encoded = base64.b64encode(raw).decode('ascii')
+        return f'data:{content_type};base64,{encoded}'
+    return image_url or existing or CRAFT_DEFAULT_IMAGE
+
+
+def craft_restore_stock(craft_order):
+    if not craft_order or craft_order.stock_restored:
+        return
+    item = db.session.get(CraftItem, craft_order.item_id)
+    if item and item.availability_type == 'IN_STOCK':
+        item.stock_quantity = parse_int(item.stock_quantity, 0) + parse_int(craft_order.quantity, 0)
+    craft_order.stock_restored = True
+
+
+def craft_add_sale_ledger(craft_order):
+    if not craft_order:
+        return
+    existing = CraftLedger.query.filter_by(event_type='SALE', craft_order_id=craft_order.id).first()
+    if existing:
+        return
+    db.session.add(CraftLedger(
+        event_type='SALE',
+        title=f'Craft Sale - {craft_order.craft_item.name if craft_order.craft_item else "Craft Order"}',
+        amount=max(0.0, parse_float(craft_order.total_price, 0.0)),
+        payment_method=craft_order.payment_method,
+        craft_order_id=craft_order.id,
+        main_order_id=craft_order.main_order_id,
+        notes=f'Completed Craft Order #{craft_order.id}',
+        created_by=session.get('cashier_user') or session.get('admin_user') or 'system',
+    ))
+
+
+def sync_craft_order_after_main_verification(main_order, accepted):
+    if not main_order or not str(main_order.order_type or '').upper().startswith('CRAFT'):
+        return
+    craft_order = CraftOrder.query.filter_by(main_order_id=main_order.id).first()
+    if not craft_order:
+        return
+    if accepted:
+        craft_order.status = 'COMPLETED'
+        craft_order.payment_status = 'PAID' if main_order.payment_method != 'CREDIT' else 'CREDIT'
+        craft_order.total_price = max(0.0, parse_float(main_order.total_amount, craft_order.total_price))
+        craft_order.completed_at = utc_now()
+        craft_order.stock_restored = False
+        craft_add_sale_ledger(craft_order)
+    else:
+        craft_order.status = 'CANCELLED'
+        craft_order.payment_status = 'CANCELLED'
+        craft_restore_stock(craft_order)
+
+
+def create_main_craft_order(craft_order):
+    member = db.session.get(Customer, craft_order.customer_id) if craft_order.customer_id else None
+    main_order = Order(
+        order_type='CRAFT',
+        dining_option='TAKEOUT',
+        customer_id=member.id if member else None,
+        customer_name=craft_order.customer_name,
+        contact_number=craft_order.contact_number,
+        fb_messenger=craft_order.fb_account,
+        pickup_time='Craft Shop Pickup',
+        target_time='Craft Shop Pickup',
+        gcash_ref=craft_order.gcash_ref,
+        subtotal=craft_order.total_price,
+        delivery_fee=0.0,
+        total_amount=craft_order.total_price,
+        payment_method=craft_order.payment_method,
+        payment_verified=False,
+        status='VERIFICATION',
+        notes=f'[CRAFT SHOP] Craft Order #{craft_order.id}: {craft_order.notes or "No special note"}',
+    )
+    db.session.add(main_order)
+    db.session.flush()
+    db.session.add(OrderItem(
+        order_id=main_order.id,
+        product_id=None,
+        product_name=f'[Craft] {craft_order.craft_item.name}',
+        unit_price=craft_order.unit_price,
+        cost_price=craft_order.unit_cost,
+        quantity=craft_order.quantity,
+        subtotal=craft_order.total_price,
+        selected_options=None,
+    ))
+    craft_order.main_order_id = main_order.id
+    return main_order
 
 # ==================== REAL-TIME POLLING API ====================
 
@@ -2367,6 +2555,7 @@ def verify_order(order_id):
                             reason=f'Purchase Order #{order.id}',
                         ))
                     apply_member_marketing_rewards(cust, order)
+        sync_craft_order_after_main_verification(order, accepted=True)
         db.session.commit()
         if order.payment_method == 'CREDIT':
             flash(f'Order #{order.id} accepted as A/R Credit and added to Member Credit AR.', 'success')
@@ -2379,6 +2568,7 @@ def verify_order(order_id):
                 if prod:
                     prod.stock = parse_int(prod.stock, 0) + item.quantity
         order.status = 'CANCELLED'
+        sync_craft_order_after_main_verification(order, accepted=False)
         db.session.commit()
         flash(f'Order #{order.id} cancelled and reserved stock restored.', 'info')
     else:
@@ -2427,6 +2617,319 @@ def update_operating_hours():
     if session.get('cashier_user'):
         return redirect(url_for('cashier_terminal'))
     return redirect(url_for('admin_dashboard'))
+
+
+# ==================== INTEGRATED CRAFT SHOP ROUTES ====================
+
+@app.route('/craft')
+def craft_store():
+    selected_category = request.args.get('category', '').strip()
+    query = CraftItem.query.filter_by(is_active=True)
+    if selected_category:
+        query = query.filter_by(category_name=selected_category)
+    items = query.order_by(CraftItem.is_featured.desc(), CraftItem.is_top_seller.desc(), CraftItem.name.asc()).all()
+    categories = CraftCategory.query.filter_by(is_active=True).order_by(CraftCategory.name.asc()).all()
+    featured = CraftItem.query.filter_by(is_active=True, is_featured=True).order_by(CraftItem.name.asc()).limit(12).all()
+    top_sellers = CraftItem.query.filter_by(is_active=True, is_top_seller=True).order_by(CraftItem.orders_count.desc(), CraftItem.name.asc()).limit(12).all()
+    cust = db.session.get(Customer, session.get('customer_id')) if session.get('customer_id') else None
+    return render_template('craft/index.html', items=items, categories=categories, selected_category=selected_category,
+                           featured=featured, top_sellers=top_sellers, cust=cust)
+
+@app.route('/craft/item/<int:item_id>')
+def craft_item_detail(item_id):
+    item = CraftItem.query.filter_by(id=item_id, is_active=True).first_or_404()
+    item.views = parse_int(item.views, 0) + 1
+    db.session.commit()
+    return render_template('craft/item_detail.html', item=item)
+
+@app.route('/craft/item/<int:item_id>/like', methods=['POST'])
+def craft_like_item(item_id):
+    item = CraftItem.query.filter_by(id=item_id, is_active=True).first_or_404()
+    item.likes = parse_int(item.likes, 0) + 1
+    db.session.commit()
+    return redirect(url_for('craft_item_detail', item_id=item_id))
+
+@app.route('/craft/item/<int:item_id>/comment', methods=['POST'])
+def craft_add_comment(item_id):
+    item = CraftItem.query.filter_by(id=item_id, is_active=True).first_or_404()
+    author = request.form.get('author', '').strip()[:80] or 'Customer'
+    content = request.form.get('content', '').strip()[:1000]
+    if content:
+        db.session.add(CraftComment(item_id=item.id, author=author, content=content))
+        db.session.commit()
+    return redirect(url_for('craft_item_detail', item_id=item.id))
+
+@app.route('/craft/order/<int:item_id>', methods=['GET', 'POST'])
+def craft_order_item(item_id):
+    item = CraftItem.query.filter_by(id=item_id, is_active=True).first_or_404()
+    cust = db.session.get(Customer, session.get('customer_id')) if session.get('customer_id') else None
+    error = None
+    if request.method == 'POST':
+        name = request.form.get('customer_name', '').strip()[:100]
+        contact = request.form.get('contact_number', '').strip()[:50]
+        email = request.form.get('email', '').strip()[:120] or None
+        fb = request.form.get('fb_account', '').strip()[:150] or None
+        qty = parse_int(request.form.get('quantity'), 1)
+        payment_method = request.form.get('payment_method', 'CASH').strip().upper()
+        gcash_ref = request.form.get('gcash_ref', '').strip()[:20] or None
+        notes = request.form.get('notes', '').strip()[:1000] or None
+
+        if not name or not contact:
+            error = 'Name and contact number are required.'
+        elif qty <= 0 or qty > 100:
+            error = 'Quantity must be between 1 and 100.'
+        elif payment_method not in CRAFT_PAYMENT_METHODS:
+            error = 'Choose Cash or GCash.'
+        elif payment_method == 'GCASH' and (not gcash_ref or len(gcash_ref) < 6):
+            error = 'Please enter at least the last 6 digits of the GCash reference.'
+        elif item.availability_type == 'IN_STOCK' and qty > parse_int(item.stock_quantity, 0):
+            error = f'Sorry, only {item.stock_quantity} item(s) are currently in stock.'
+        else:
+            try:
+                if item.availability_type == 'IN_STOCK':
+                    item.stock_quantity = parse_int(item.stock_quantity, 0) - qty
+                member = Customer.query.filter_by(contact=contact).first()
+                craft_order = CraftOrder(
+                    item_id=item.id,
+                    customer_id=member.id if member else None,
+                    customer_name=name,
+                    contact_number=contact,
+                    email=email,
+                    fb_account=fb,
+                    quantity=qty,
+                    unit_price=max(0.0, parse_float(item.price, 0.0)),
+                    unit_cost=max(0.0, parse_float(item.cost, 0.0)),
+                    total_price=max(0.0, parse_float(item.price, 0.0)) * qty,
+                    total_cost=max(0.0, parse_float(item.cost, 0.0)) * qty,
+                    payment_method=payment_method,
+                    payment_status='PENDING',
+                    gcash_ref=gcash_ref,
+                    status='PENDING',
+                    notes=notes,
+                )
+                db.session.add(craft_order)
+                db.session.flush()
+                create_main_craft_order(craft_order)
+                item.orders_count = parse_int(item.orders_count, 0) + qty
+                db.session.commit()
+                return render_template('craft/order_success.html', order=craft_order, item=item)
+            except Exception:
+                db.session.rollback()
+                app.logger.exception('Craft order creation failed')
+                error = 'We could not place the craft order. Please try again.'
+    return render_template('craft/order_form.html', item=item, error=error, cust=cust)
+
+@app.route('/admin/craft')
+@require_admin
+def craft_admin_dashboard():
+    items = CraftItem.query.order_by(CraftItem.is_active.desc(), CraftItem.category_name.asc(), CraftItem.name.asc()).all()
+    categories = CraftCategory.query.order_by(CraftCategory.name.asc()).all()
+    orders = CraftOrder.query.order_by(CraftOrder.created_at.desc()).limit(200).all()
+    ledger = CraftLedger.query.order_by(CraftLedger.created_at.desc()).limit(200).all()
+    completed = [o for o in orders if o.status == 'COMPLETED']
+    sale_revenue = sum(max(0.0, parse_float(o.total_price, 0.0)) for o in completed)
+    sale_cost = sum(max(0.0, parse_float(o.total_cost, 0.0)) for o in completed)
+    manual_income = sum(max(0.0, parse_float(x.amount, 0.0)) for x in ledger if x.event_type == 'OTHER_INCOME')
+    expense_total = sum(max(0.0, parse_float(x.amount, 0.0)) for x in ledger if x.event_type in ('EXPENSE', 'REFUND'))
+    metrics = {
+        'completed_sales': sale_revenue,
+        'recorded_cogs': sale_cost,
+        'gross_profit': sale_revenue - sale_cost,
+        'other_income': manual_income,
+        'expenses_refunds': expense_total,
+        'net_cash': sale_revenue + manual_income - expense_total,
+        'pending_orders': sum(1 for o in orders if o.status in ('PENDING', 'READY')),
+        'low_stock': sum(1 for i in items if i.is_active and i.availability_type == 'IN_STOCK' and parse_int(i.stock_quantity, 0) <= 3),
+    }
+    return render_template('craft/admin.html', items=items, categories=categories, orders=orders, ledger=ledger, metrics=metrics)
+
+@app.route('/admin/craft/category/add', methods=['POST'])
+@require_admin
+def craft_add_category():
+    name = request.form.get('name', '').strip()[:80]
+    if not name:
+        flash('Craft category name is required.', 'error')
+        return redirect(url_for('craft_admin_dashboard'))
+    if CraftCategory.query.filter(db.func.lower(CraftCategory.name) == name.lower()).first():
+        flash('That craft category already exists.', 'info')
+        return redirect(url_for('craft_admin_dashboard'))
+    try:
+        image_url = craft_image_from_request(existing=CRAFT_DEFAULT_IMAGE)
+        db.session.add(CraftCategory(name=name, image_url=image_url, is_active=True))
+        db.session.commit()
+        flash(f'Craft category {name} added.', 'success')
+    except (OrderValidationError, Exception) as exc:
+        db.session.rollback()
+        if isinstance(exc, OrderValidationError):
+            flash(str(exc), 'error')
+        else:
+            app.logger.exception('Craft category creation failed')
+            flash('Could not add the craft category.', 'error')
+    return redirect(url_for('craft_admin_dashboard'))
+
+@app.route('/admin/craft/item/add', methods=['POST'])
+@require_admin
+def craft_add_item():
+    name = request.form.get('name', '').strip()[:120]
+    description = request.form.get('description', '').strip()[:3000]
+    category_name = request.form.get('category_name', 'General').strip()[:80] or 'General'
+    price = parse_float(request.form.get('price'), 0.0)
+    cost = parse_float(request.form.get('cost'), 0.0)
+    availability_type = request.form.get('availability_type', 'IN_STOCK').strip().upper()
+    stock = parse_int(request.form.get('stock_quantity'), 0)
+    if not name or price <= 0 or cost < 0 or stock < 0 or availability_type not in ('IN_STOCK', 'PREORDER'):
+        flash('Enter a valid craft name, price, cost, availability, and stock.', 'error')
+        return redirect(url_for('craft_admin_dashboard'))
+    try:
+        image_url = craft_image_from_request(existing=CRAFT_DEFAULT_IMAGE)
+        db.session.add(CraftItem(
+            name=name, description=description, category_name=category_name, price=price, cost=cost,
+            image_url=image_url, availability_type=availability_type,
+            stock_quantity=stock if availability_type == 'IN_STOCK' else 0,
+            is_active=True, is_featured=bool(request.form.get('is_featured')),
+            is_top_seller=bool(request.form.get('is_top_seller')),
+        ))
+        db.session.commit()
+        flash(f'Craft item {name} added.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback(); flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback(); app.logger.exception('Craft item creation failed'); flash('Could not add craft item.', 'error')
+    return redirect(url_for('craft_admin_dashboard'))
+
+@app.route('/admin/craft/item/<int:item_id>/update', methods=['POST'])
+@require_admin
+def craft_update_item(item_id):
+    item = CraftItem.query.get_or_404(item_id)
+    try:
+        price = parse_float(request.form.get('price'), item.price)
+        cost = parse_float(request.form.get('cost'), item.cost)
+        stock = parse_int(request.form.get('stock_quantity'), item.stock_quantity)
+        availability_type = request.form.get('availability_type', item.availability_type).strip().upper()
+        if price <= 0 or cost < 0 or stock < 0 or availability_type not in ('IN_STOCK', 'PREORDER'):
+            raise OrderValidationError('Invalid craft price, cost, stock, or availability.')
+        item.name = request.form.get('name', item.name).strip()[:120] or item.name
+        item.description = request.form.get('description', item.description or '').strip()[:3000]
+        item.category_name = request.form.get('category_name', item.category_name).strip()[:80] or 'General'
+        item.price = price
+        item.cost = cost
+        item.availability_type = availability_type
+        item.stock_quantity = stock if availability_type == 'IN_STOCK' else 0
+        item.is_active = bool(request.form.get('is_active'))
+        item.is_featured = bool(request.form.get('is_featured'))
+        item.is_top_seller = bool(request.form.get('is_top_seller'))
+        item.image_url = craft_image_from_request(existing=item.image_url or CRAFT_DEFAULT_IMAGE)
+        db.session.commit()
+        flash(f'{item.name} updated.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback(); flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback(); app.logger.exception('Craft item update failed'); flash('Could not update craft item.', 'error')
+    return redirect(url_for('craft_admin_dashboard'))
+
+@app.route('/admin/craft/item/<int:item_id>/duplicate', methods=['POST'])
+@require_admin
+def craft_duplicate_item(item_id):
+    item = CraftItem.query.get_or_404(item_id)
+    db.session.add(CraftItem(
+        name=f'{item.name} (Copy)', description=item.description, category_name=item.category_name,
+        price=item.price, cost=item.cost, image_url=item.image_url, availability_type=item.availability_type,
+        stock_quantity=item.stock_quantity, is_active=False, is_featured=False, is_top_seller=False,
+    ))
+    db.session.commit()
+    flash('Craft item duplicated as inactive.', 'success')
+    return redirect(url_for('craft_admin_dashboard'))
+
+@app.route('/admin/craft/item/<int:item_id>/delete', methods=['POST'])
+@require_admin
+def craft_delete_item(item_id):
+    item = CraftItem.query.get_or_404(item_id)
+    if CraftOrder.query.filter_by(item_id=item.id).first():
+        item.is_active = False
+        db.session.commit()
+        flash('Item has order history, so it was archived instead of deleted.', 'info')
+    else:
+        db.session.delete(item); db.session.commit(); flash('Craft item deleted.', 'success')
+    return redirect(url_for('craft_admin_dashboard'))
+
+@app.route('/admin/craft/order/<int:order_id>/status', methods=['POST'])
+@require_admin
+def craft_update_order_status(order_id):
+    craft_order = CraftOrder.query.get_or_404(order_id)
+    new_status = request.form.get('status', '').strip().upper()
+    if new_status not in ('PENDING', 'READY', 'CANCELLED'):
+        flash('Use the Cashier POS to complete/accept a craft sale. Craft Admin can mark Pending, Ready, or Cancelled.', 'error')
+        return redirect(url_for('craft_admin_dashboard'))
+    if craft_order.status == 'COMPLETED':
+        flash('Completed craft sales are locked. Use a Refund transaction instead of changing the sale.', 'error')
+        return redirect(url_for('craft_admin_dashboard'))
+    main_order = db.session.get(Order, craft_order.main_order_id) if craft_order.main_order_id else None
+    if new_status == 'CANCELLED':
+        craft_order.status = 'CANCELLED'
+        craft_order.payment_status = 'CANCELLED'
+        craft_restore_stock(craft_order)
+        if main_order and main_order.status == 'VERIFICATION':
+            main_order.status = 'CANCELLED'
+    else:
+        if craft_order.status == 'CANCELLED':
+            item = db.session.get(CraftItem, craft_order.item_id)
+            if item and item.availability_type == 'IN_STOCK':
+                if parse_int(item.stock_quantity, 0) < parse_int(craft_order.quantity, 0):
+                    flash('Not enough stock to reopen this cancelled craft order.', 'error')
+                    return redirect(url_for('craft_admin_dashboard'))
+                item.stock_quantity -= craft_order.quantity
+            craft_order.stock_restored = False
+            if main_order and main_order.status == 'CANCELLED':
+                main_order.status = 'VERIFICATION'
+        craft_order.status = new_status
+    db.session.commit()
+    flash(f'Craft Order #{craft_order.id} updated to {craft_order.status}.', 'success')
+    return redirect(url_for('craft_admin_dashboard'))
+
+@app.route('/admin/craft/transaction/add', methods=['POST'])
+@require_admin
+def craft_record_transaction():
+    event_type = request.form.get('event_type', '').strip().upper()
+    title = request.form.get('title', '').strip()[:150]
+    amount = parse_float(request.form.get('amount'), 0.0)
+    payment_method = request.form.get('payment_method', 'CASH').strip().upper()
+    notes = request.form.get('notes', '').strip()[:255] or None
+    if event_type not in ('EXPENSE', 'OTHER_INCOME', 'REFUND') or not title or amount <= 0:
+        flash('Choose Expense, Other Income, or Refund and enter a valid title and amount.', 'error')
+        return redirect(url_for('craft_admin_dashboard'))
+    if payment_method not in CRAFT_PAYMENT_METHODS:
+        payment_method = 'CASH'
+    try:
+        creator = session.get('admin_user') or 'admin'
+        main_order_id = expense_id = None
+        if event_type in ('EXPENSE', 'REFUND'):
+            exp = Expense(
+                title=f'[Craft {"Refund" if event_type == "REFUND" else "Expense"}] {title}',
+                amount=amount,
+                category='Craft Shop' if event_type == 'EXPENSE' else 'Craft Refund',
+                created_by=creator,
+            )
+            db.session.add(exp); db.session.flush(); expense_id = exp.id
+        else:
+            main_order = Order(
+                order_type='CRAFT/MISC', dining_option='TAKEOUT', customer_name='Craft Shop', contact_number='N/A',
+                subtotal=amount, delivery_fee=0.0, total_amount=amount, payment_method=payment_method,
+                payment_verified=True, status='COMPLETED', notes=f'[CRAFT OTHER INCOME] {title}: {notes or ""}',
+            )
+            db.session.add(main_order); db.session.flush(); main_order_id = main_order.id
+            db.session.add(OrderItem(
+                order_id=main_order.id, product_id=None, product_name=f'[Craft Income] {title}',
+                unit_price=amount, cost_price=0.0, quantity=1, subtotal=amount,
+            ))
+        db.session.add(CraftLedger(
+            event_type=event_type, title=title, amount=amount, payment_method=payment_method,
+            main_order_id=main_order_id, expense_id=expense_id, notes=notes, created_by=creator,
+        ))
+        db.session.commit()
+        flash(f'Craft {event_type.replace("_", " ").title()} recorded and synced to the main system.', 'success')
+    except Exception:
+        db.session.rollback(); app.logger.exception('Craft transaction sync failed'); flash('Could not record craft transaction.', 'error')
+    return redirect(url_for('craft_admin_dashboard'))
 
 # ==================== FLEXIBLE-HORIZON CASH FLOW PORTAL ====================
 
@@ -2970,6 +3473,7 @@ def admin_dashboard():
     product_sales_stats = {}
     food_revenue_total = 0.0
     service_revenue_total = 0.0
+    craft_revenue_total = 0.0
 
     for o in all_completed:
         for it in o.items:
@@ -2980,7 +3484,9 @@ def admin_dashboard():
             product_sales_stats[pname]['revenue'] += (it.subtotal or 0.0)
             product_sales_stats[pname]['cost'] += (getattr(it, 'cost_price', 0.0) or 0.0) * (it.quantity or 0)
 
-            if '[Service]' in pname or o.order_type == 'SERVICE/MISC' or 'Printing' in pname:
+            if str(o.order_type or '').upper().startswith('CRAFT') or pname.startswith('[Craft]'):
+                craft_revenue_total += (it.subtotal or 0.0)
+            elif '[Service]' in pname or o.order_type == 'SERVICE/MISC' or 'Printing' in pname:
                 service_revenue_total += (it.subtotal or 0.0)
             else:
                 food_revenue_total += (it.subtotal or 0.0)
@@ -3040,6 +3546,7 @@ def admin_dashboard():
                            product_sales_stats=product_sales_stats, 
                            food_revenue_total=food_revenue_total, 
                            service_revenue_total=service_revenue_total, 
+                           craft_revenue_total=craft_revenue_total, 
                            unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits, 
                            fin_daily=fin_daily, 

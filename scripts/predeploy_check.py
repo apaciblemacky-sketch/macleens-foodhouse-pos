@@ -326,6 +326,31 @@ def main() -> int:
 
     ok("flexible-horizon cash-flow portal and automatic 60% COGS rule are present")
 
+    craft_markers = [
+        "class CraftItem(db.Model):",
+        "class CraftOrder(db.Model):",
+        "class CraftLedger(db.Model):",
+        "@app.route('/craft')",
+        "@app.route('/admin/craft')",
+        "create_main_craft_order",
+        "sync_craft_order_after_main_verification",
+        "order_type='CRAFT'",
+        "category='Craft Shop'",
+    ]
+    missing_craft = [marker for marker in craft_markers if marker not in source]
+    if missing_craft:
+        fail("integrated Craft Shop markers are missing: " + ", ".join(missing_craft))
+    for rel in ["craft/base.html", "craft/index.html", "craft/item_detail.html", "craft/order_form.html", "craft/order_success.html", "craft/admin.html"]:
+        if not (TEMPLATES / rel).exists():
+            fail(f"integrated Craft Shop template is missing: {rel}")
+    if "craft_revenue_total" not in admin_template or "Craft Shop" not in admin_template:
+        fail("master admin does not show separate Craft Shop revenue")
+    if "craft_store" not in storefront:
+        fail("Food House storefront does not link to the integrated Craft Shop")
+    if "sync_craft_order_after_main_verification(order, accepted=True)" not in source or "sync_craft_order_after_main_verification(order, accepted=False)" not in source:
+        fail("cashier verification is not synchronized back to Craft Shop orders")
+    ok("Craft Shop is merged, cashier-synced, and financially connected to the master system")
+
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0
 
