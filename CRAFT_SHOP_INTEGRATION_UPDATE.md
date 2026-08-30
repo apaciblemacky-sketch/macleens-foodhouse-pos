@@ -79,3 +79,7 @@ git push origin main
 ```
 
 After Render is Live, open `/admin/craft` while logged in as ADMIN.
+
+## Live catalog import / link-only admin follow-up
+
+The current build now seeds the public catalog from the former standalone Craft Shop URL into the unified Craft Shop without overwriting existing matching items. The public Craft Shop and Master Admin navigation no longer expose a Craft Admin shortcut. Open `/admin/craft` directly; the normal main ADMIN session guard still protects the route.

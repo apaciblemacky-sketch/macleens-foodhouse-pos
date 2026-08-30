@@ -459,6 +459,196 @@ CRAFT_ORDER_STATUSES = ('PENDING', 'READY', 'COMPLETED', 'CANCELLED')
 CRAFT_PAYMENT_METHODS = ('CASH', 'GCASH')
 CRAFT_DEFAULT_IMAGE = '/static/craft/default-craft.png'
 
+# Catalog imported from the previous public Macleen's Crafts storefront.
+# This is intentionally an idempotent seed: existing items are not overwritten.
+LEGACY_CRAFT_SOURCE_URL = 'https://macleens-crafts.onrender.com/'
+LEGACY_CRAFT_CATALOG = (
+    {
+        'name': 'Flower Keychain - Yellow',
+        'description': 'Handknitted',
+        'category_name': 'Handknitted Crochet Keychains',
+        'price': 40.0,
+        'availability_type': 'IN_STOCK',
+        'stock_quantity': 2,
+        'likes': 0,
+        'is_featured': False,
+        'is_top_seller': False,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/744917655_122094499527400948_430343626372547796_n.jpg',
+    },
+    {
+        'name': 'Flower Keychain - Violet',
+        'description': 'Handknitted',
+        'category_name': 'Handknitted Crochet Keychains',
+        'price': 40.0,
+        'availability_type': 'IN_STOCK',
+        'stock_quantity': 1,
+        'likes': 0,
+        'is_featured': False,
+        'is_top_seller': False,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/782512923_122112516585400948_7338110726271509685_n.jpg',
+    },
+    {
+        'name': 'Flower Keychain - Blue',
+        'description': 'Handknitted',
+        'category_name': 'Handknitted Crochet Keychains',
+        'price': 40.0,
+        'availability_type': 'IN_STOCK',
+        'stock_quantity': 1,
+        'likes': 0,
+        'is_featured': False,
+        'is_top_seller': False,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/783256072_122112516717400948_1064296111081603629_n.jpg',
+    },
+    {
+        'name': 'Octopus Keychain - Yellow',
+        'description': 'Handknitted',
+        'category_name': 'Handknitted Crochet Keychains',
+        'price': 50.0,
+        'availability_type': 'IN_STOCK',
+        'stock_quantity': 1,
+        'likes': 0,
+        'is_featured': False,
+        'is_top_seller': False,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/745123653_122094499209400948_8154867140069997677_n.jpg',
+    },
+    {
+        'name': 'Octopus Keychain - Blue',
+        'description': 'Handknitted',
+        'category_name': 'Handknitted Crochet Keychains',
+        'price': 50.0,
+        'availability_type': 'IN_STOCK',
+        'stock_quantity': 1,
+        'likes': 0,
+        'is_featured': False,
+        'is_top_seller': False,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/744955113_122094499077400948_6511059889199350008_n.jpg',
+    },
+    {
+        'name': 'Strawberry Keychain - Red',
+        'description': 'Handknitted',
+        'category_name': 'Handknitted Crochet Keychains',
+        'price': 40.0,
+        'availability_type': 'IN_STOCK',
+        'stock_quantity': 3,
+        'likes': 0,
+        'is_featured': False,
+        'is_top_seller': False,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/782148124_122112516669400948_7137228521426484421_n.jpg',
+    },
+    {
+        'name': 'Strawberry Keychain - Yellow',
+        'description': 'Handknitted',
+        'category_name': 'Handknitted Crochet Keychains',
+        'price': 40.0,
+        'availability_type': 'IN_STOCK',
+        'stock_quantity': 2,
+        'likes': 0,
+        'is_featured': False,
+        'is_top_seller': False,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/783591753_122112516627400948_7432897152173266573_n.jpg',
+    },
+    {
+        'name': '1L Tumbler Holder - Violet',
+        'description': 'Handknitted',
+        'category_name': 'Tumbler Holder',
+        'price': 200.0,
+        'availability_type': 'PREORDER',
+        'stock_quantity': 0,
+        'likes': 0,
+        'is_featured': False,
+        'is_top_seller': False,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/743588778_122094498951400948_8539128599543056976_n_1.jpg',
+    },
+    {
+        'name': 'Strawhat by Luffy Keychain',
+        'description': 'Handknitted',
+        'category_name': 'Handknitted Crochet Keychains',
+        'price': 50.0,
+        'availability_type': 'IN_STOCK',
+        'stock_quantity': 2,
+        'likes': 22,
+        'is_featured': True,
+        'is_top_seller': False,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/745477083_122094499455400948_7413700848929646075_n.jpg',
+    },
+    {
+        'name': 'Flower Keychain - Pink',
+        'description': 'Handknitted',
+        'category_name': 'Handknitted Crochet Keychains',
+        'price': 40.0,
+        'availability_type': 'IN_STOCK',
+        'stock_quantity': 1,
+        'likes': 30,
+        'is_featured': False,
+        'is_top_seller': True,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/745503684_122094499635400948_5860449721293184690_n.jpg',
+    },
+    {
+        'name': 'Octopus Keychain - Pink',
+        'description': 'Handknitted',
+        'category_name': 'Handknitted Crochet Keychains',
+        'price': 50.0,
+        'availability_type': 'IN_STOCK',
+        'stock_quantity': 1,
+        'likes': 4,
+        'is_featured': False,
+        'is_top_seller': False,
+        'image_url': 'https://macleens-crafts.onrender.com/static/uploads/745556386_122094499143400948_8005875496749238542_n.jpg',
+    },
+)
+
+
+def ensure_legacy_craft_catalog():
+    """Seed the current Craft Shop with the catalog visible on the former standalone storefront.
+
+    Existing items are preserved. Newly seeded costs are 0 because the public source does not expose COGS.
+    """
+    category_names = sorted({entry['category_name'] for entry in LEGACY_CRAFT_CATALOG})
+    for category_name in category_names:
+        existing_category = CraftCategory.query.filter(db.func.lower(CraftCategory.name) == category_name.lower()).first()
+        if not existing_category:
+            first_image = next((x['image_url'] for x in LEGACY_CRAFT_CATALOG if x['category_name'] == category_name), CRAFT_DEFAULT_IMAGE)
+            db.session.add(CraftCategory(name=category_name, image_url=first_image, is_active=True))
+
+    imported = 0
+    for entry in LEGACY_CRAFT_CATALOG:
+        existing = CraftItem.query.filter(db.func.lower(CraftItem.name) == entry['name'].lower()).first()
+        if existing:
+            # Preserve live/current admin edits. Only repair obviously blank/default metadata and retain higher engagement counts.
+            if not (existing.image_url or '').strip() or existing.image_url == CRAFT_DEFAULT_IMAGE:
+                existing.image_url = entry['image_url']
+            if not (existing.description or '').strip():
+                existing.description = entry['description']
+            if not (existing.category_name or '').strip() or existing.category_name == 'General':
+                existing.category_name = entry['category_name']
+            existing.likes = max(parse_int(existing.likes, 0), parse_int(entry.get('likes'), 0))
+            existing.is_featured = bool(existing.is_featured or entry.get('is_featured'))
+            existing.is_top_seller = bool(existing.is_top_seller or entry.get('is_top_seller'))
+            continue
+
+        db.session.add(CraftItem(
+            name=entry['name'],
+            description=entry['description'],
+            category_name=entry['category_name'],
+            price=entry['price'],
+            cost=0.0,
+            image_url=entry['image_url'],
+            availability_type=entry['availability_type'],
+            stock_quantity=entry['stock_quantity'],
+            is_active=True,
+            is_top_seller=entry.get('is_top_seller', False),
+            is_featured=entry.get('is_featured', False),
+            likes=entry.get('likes', 0),
+            views=0,
+            orders_count=0,
+        ))
+        imported += 1
+
+    db.session.commit()
+    if imported:
+        app.logger.info('Imported %s legacy Craft Shop catalog item(s) into the unified system.', imported)
+
+
 # ==================== PWA ROOT ROUTES ====================
 
 @app.route('/manifest.json')
@@ -580,6 +770,7 @@ def run_db_setup():
         db.session.commit()
 
         ensure_default_promos()
+        ensure_legacy_craft_catalog()
         _DB_INITIALIZED = True
         app.logger.info('Database setup completed successfully.')
     except Exception:

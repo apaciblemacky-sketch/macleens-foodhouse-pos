@@ -28,7 +28,6 @@
   <div class="nav">
     <a class="btn-light" href="{{ url_for('craft_store') }}">Craft Catalog</a>
     <a class="btn-light" href="{{ url_for('store_catalog') }}">🍲 Food House</a>
-    {% if session.get('admin_user') %}<a class="btn-purple" href="{{ url_for('craft_admin_dashboard') }}">Craft Admin</a>{% else %}<a class="btn-light" href="{{ url_for('staff_login') }}">Staff</a>{% endif %}
   </div>
 </header>
 <div class="container">

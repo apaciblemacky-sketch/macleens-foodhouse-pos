@@ -349,7 +349,15 @@ def main() -> int:
         fail("Food House storefront does not link to the integrated Craft Shop")
     if "sync_craft_order_after_main_verification(order, accepted=True)" not in source or "sync_craft_order_after_main_verification(order, accepted=False)" not in source:
         fail("cashier verification is not synchronized back to Craft Shop orders")
-    ok("Craft Shop is merged, cashier-synced, and financially connected to the master system")
+    if "ensure_legacy_craft_catalog()" not in source or "LEGACY_CRAFT_CATALOG" not in source:
+        fail("former standalone Craft Shop catalog is not seeded into the unified Craft Shop")
+    craft_base = (TEMPLATES / "craft/base.html").read_text(encoding="utf-8")
+    if "Craft Admin" in craft_base or "url_for('staff_login')" in craft_base:
+        fail("public Craft Shop still exposes an admin/staff navigation button")
+    header_section = admin_template[:5000]
+    if "url_for('craft_admin_dashboard')" in header_section:
+        fail("master admin header still exposes a Craft Shop admin shortcut; Craft Admin should be direct-link only")
+    ok("Craft Shop is merged, cashier-synced, live-catalog seeded, and admin access is direct-link only")
 
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0
