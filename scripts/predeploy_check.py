@@ -423,6 +423,46 @@ def main() -> int:
         fail("master admin header still exposes a Craft Shop admin shortcut; Craft Admin should be direct-link only")
     ok("Craft Shop keeps legacy UI, per-IP views/likes/comments tracking, sharing, cashier sync, and direct-link-only admin access")
 
+
+    # AI Marketing agent: OpenAI-generated Page posts + Facebook Page API publishing,
+    # while joined Groups remain explicitly assisted/manual.
+    marketing_template = (TEMPLATES / "marketing_admin.html")
+    marketing_module = ROOT / "marketing_agent.py"
+    if not marketing_template.exists() or not marketing_module.exists():
+        fail("AI Marketing template/module is missing")
+    marketing_html = marketing_template.read_text(encoding="utf-8")
+    marketing_py = marketing_module.read_text(encoding="utf-8")
+    marketing_markers = [
+        "class MarketingFacebookPage(db.Model):",
+        "class MarketingGroup(db.Model):",
+        "class MarketingPost(db.Model):",
+        "@app.route('/admin/marketing')",
+        "@app.route('/admin/marketing/facebook/connect')",
+        "@app.route('/tasks/marketing/run'",
+        "generate_ai_marketing_decision",
+        "publish_page_link",
+        "MARKETING_CRON_TOKEN",
+        "GROUP_ASSIST",
+    ]
+    missing_marketing = [m for m in marketing_markers if m not in source]
+    if missing_marketing:
+        fail("AI Marketing integration markers are missing: " + ", ".join(missing_marketing))
+    if "url_for('marketing_admin')" not in admin_template:
+        fail("Master Admin does not link to AI Marketing")
+    for marker in ["Macleen's AI Marketing", "Connect Facebook Page", "Joined Facebook Groups — Assisted Posting", "Fully Automatic", "Generate AI Draft"]:
+        if marker not in marketing_html:
+            fail(f"AI Marketing UI is missing: {marker}")
+    if "pages_manage_posts" not in marketing_py or "pages_show_list" not in marketing_py:
+        fail("Meta Page OAuth permissions are missing")
+    if "https://api.openai.com/v1/responses" not in marketing_py or '"type": "json_schema"' not in marketing_py:
+        fail("OpenAI Responses API structured-output integration is missing")
+    if "Joined Facebook Groups use assisted posting only" not in source:
+        fail("Group posting safeguard is missing; groups must not auto-publish")
+    reqs = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
+    if "requests" not in reqs or "cryptography" not in reqs:
+        fail("AI Marketing runtime dependencies are missing from requirements.txt")
+    ok("AI Marketing supports autonomous Page drafting/publishing and assisted Facebook Group posting")
+
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0
 

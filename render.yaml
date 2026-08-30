@@ -1,7 +1,7 @@
 services:
   - type: web
     # Keep the existing Render service name to avoid accidentally provisioning a second service.
-    name: hedera-craft-shop
+    name: macleens-foodhouse-pos
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app
@@ -9,3 +9,17 @@ services:
     envVars:
       - key: SECRET_KEY
         generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MARKETING_MODEL
+        value: gpt-5.5
+      - key: META_APP_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_GRAPH_VERSION
+        value: v25.0
+      - key: MARKETING_CRON_TOKEN
+        generateValue: true
+      - key: PUBLIC_BASE_URL
+        value: https://macleens-foodhouse-pos.onrender.com

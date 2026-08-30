@@ -10,7 +10,7 @@ from datetime import datetime, date, timedelta, time, timezone
 from functools import wraps
 from zoneinfo import ZoneInfo
 
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory, Response
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory, Response, has_request_context
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text, UniqueConstraint
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -18,6 +18,12 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import qrcode
 import qrcode.image.svg
+
+from marketing_agent import (
+    decrypt_secret, encrypt_secret, exchange_meta_code, extract_peso_amounts,
+    generate_ai_marketing_decision, list_managed_pages, meta_configured, meta_login_url,
+    openai_configured, publish_page_link, test_page_token,
+)
 
 logging.basicConfig(
     level=os.environ.get('LOG_LEVEL', 'INFO').upper(),
@@ -479,6 +485,51 @@ class CraftLedger(db.Model):
     notes = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
+
+
+class MarketingFacebookPage(db.Model):
+    __tablename__ = 'marketing_facebook_page'
+    id = db.Column(db.Integer, primary_key=True)
+    page_id = db.Column(db.String(80), unique=True, nullable=False)
+    page_name = db.Column(db.String(150), nullable=False)
+    access_token_encrypted = db.Column(db.Text, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    connected_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    token_updated_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+class MarketingGroup(db.Model):
+    __tablename__ = 'marketing_group'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(150), nullable=False)
+    group_url = db.Column(db.Text, nullable=False)
+    business_scope = db.Column(db.String(20), default='BOTH', nullable=False)
+    post_types = db.Column(db.String(255), nullable=True)
+    cooldown_days = db.Column(db.Integer, default=7, nullable=False)
+    notes = db.Column(db.Text, nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    last_posted_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+class MarketingPost(db.Model):
+    __tablename__ = 'marketing_post'
+    id = db.Column(db.Integer, primary_key=True)
+    target_type = db.Column(db.String(30), nullable=False, default='FACEBOOK_PAGE')
+    business = db.Column(db.String(20), nullable=False)
+    post_type = db.Column(db.String(50), nullable=False)
+    source_kind = db.Column(db.String(30), nullable=False, default='PAGE')
+    source_id = db.Column(db.Integer, nullable=True)
+    caption = db.Column(db.Text, nullable=False)
+    reason = db.Column(db.Text, nullable=True)
+    link_url = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(30), nullable=False, default='DRAFT')
+    ai_model = db.Column(db.String(80), nullable=True)
+    facebook_post_id = db.Column(db.String(150), nullable=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('marketing_group.id', ondelete='SET NULL'), nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    published_at = db.Column(db.DateTime, nullable=True)
+    group = db.relationship('MarketingGroup', lazy=True)
 
 CRAFT_ORDER_STATUSES = ('PENDING', 'READY', 'COMPLETED', 'CANCELLED')
 CRAFT_PAYMENT_METHODS = ('CASH', 'GCASH')
@@ -1681,6 +1732,296 @@ def create_main_craft_order(craft_order):
     ))
     craft_order.main_order_id = main_order.id
     return main_order
+
+
+# ==================== AI MARKETING HELPERS ====================
+
+MARKETING_POST_TYPES = (
+    'PRODUCT_SPOTLIGHT', 'SLOW_SELLER', 'TOP_SELLER', 'NEW_OR_FEATURED',
+    'LOYALTY', 'ENGAGEMENT', 'BRAND_AWARENESS', 'RESTOCK_OR_AVAILABILITY',
+    'CRAFT_STORY', 'VALUE_REMINDER',
+)
+
+def marketing_setting(key, default=''):
+    row = StoreSetting.query.filter_by(key=key).first()
+    return row.value if row else default
+
+def save_marketing_setting(key, value):
+    value = str(value)
+    row = StoreSetting.query.filter_by(key=key).first()
+    if row:
+        row.value = value
+    else:
+        db.session.add(StoreSetting(key=key, value=value))
+
+def marketing_settings():
+    return {
+        'enabled': marketing_setting('marketing_enabled', 'false') == 'true',
+        'mode': marketing_setting('marketing_mode', 'REQUIRE_APPROVAL'),
+        'business_scope': marketing_setting('marketing_business_scope', 'BOTH'),
+        'posts_per_week': max(1, min(7, parse_int(marketing_setting('marketing_posts_per_week', '4'), 4))),
+        'start_hour': marketing_setting('marketing_start_hour', '08:00'),
+        'end_hour': marketing_setting('marketing_end_hour', '19:00'),
+        'repeat_cooldown_days': max(0, min(90, parse_int(marketing_setting('marketing_repeat_cooldown_days', '10'), 10))),
+        'max_posts_per_day': max(1, min(3, parse_int(marketing_setting('marketing_max_posts_per_day', '1'), 1))),
+    }
+
+def _marketing_public_base_url():
+    configured = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
+    if configured:
+        return configured
+    if has_request_context():
+        return request.url_root.rstrip('/')
+    return 'https://macleens-foodhouse-pos.onrender.com'
+
+def _marketing_source_link(source_kind, source_id, business):
+    base = _marketing_public_base_url()
+    if source_kind == 'PRODUCT' and source_id:
+        return f'{base}/product/{int(source_id)}'
+    if source_kind == 'CRAFT_ITEM' and source_id:
+        return f'{base}/craft/item/{int(source_id)}'
+    return f'{base}/craft' if business == 'CRAFT' else f'{base}/'
+
+def _product_marketing_rows():
+    cutoff = utc_now() - timedelta(days=30)
+    stats = {}
+    rows = (db.session.query(
+                OrderItem.product_id,
+                db.func.coalesce(db.func.sum(OrderItem.quantity), 0),
+                db.func.coalesce(db.func.sum(OrderItem.subtotal), 0.0),
+            )
+            .join(Order, Order.id == OrderItem.order_id)
+            .filter(Order.status == 'COMPLETED', Order.created_at >= cutoff, OrderItem.product_id.isnot(None))
+            .group_by(OrderItem.product_id).all())
+    for pid, qty, revenue in rows:
+        stats[int(pid)] = {'qty_30d': int(qty or 0), 'revenue_30d': round(float(revenue or 0.0), 2)}
+    result = []
+    for prod in Product.query.filter_by(is_active=True).order_by(Product.name.asc()).all():
+        stock = parse_int(prod.stock, 0)
+        if stock <= 0:
+            continue
+        stat = stats.get(prod.id, {'qty_30d': 0, 'revenue_30d': 0.0})
+        result.append({
+            'id': prod.id, 'name': prod.name, 'category': prod.category_name,
+            'price': round(float(prod.price or 0.0), 2), 'stock': stock,
+            'featured': bool(prod.is_featured), 'top_seller': bool(prod.is_top_seller),
+            'likes': parse_int(prod.total_likes, 0), **stat,
+        })
+    return result
+
+def _craft_marketing_rows():
+    result = []
+    for item in CraftItem.query.filter_by(is_active=True).order_by(CraftItem.name.asc()).all():
+        availability = (item.availability_type or 'IN_STOCK').upper()
+        if availability == 'IN_STOCK' and parse_int(item.stock_quantity, 0) <= 0:
+            continue
+        result.append({
+            'id': item.id, 'name': item.name, 'category': item.category_name,
+            'price': round(float(item.price or 0.0), 2),
+            'availability': availability, 'stock': parse_int(item.stock_quantity, 0),
+            'featured': bool(item.is_featured), 'top_seller': bool(item.is_top_seller),
+            'likes': parse_int(item.likes, 0), 'views': parse_int(item.views, 0),
+            'orders': parse_int(item.orders_count, 0),
+        })
+    return result
+
+def build_marketing_context():
+    recent = MarketingPost.query.order_by(MarketingPost.created_at.desc()).limit(25).all()
+    active_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True, portal_only=False).all()
+    active_promos = [p for p in active_promos if not p.created_at or (utc_now() - p.created_at).days <= 3]
+    return {
+        'foodhouse_products': _product_marketing_rows(),
+        'craft_items': _craft_marketing_rows(),
+        'active_promotions': [
+            {'title': p.title, 'price': round(float(p.promo_price or 0.0), 2), 'code': p.promo_code}
+            for p in active_promos
+        ],
+        'recent_posts': [
+            {
+                'business': p.business, 'post_type': p.post_type, 'source_kind': p.source_kind,
+                'source_id': p.source_id, 'status': p.status,
+                'created_at': p.created_at.isoformat() if p.created_at else None,
+            } for p in recent
+        ],
+        'settings': marketing_settings(),
+    }
+
+def validate_marketing_decision(decision):
+    business = str(decision.get('business') or '').upper()
+    source_kind = str(decision.get('source_kind') or 'PAGE').upper()
+    source_id = decision.get('source_id')
+    post_type = str(decision.get('post_type') or '').upper()
+    caption = str(decision.get('caption') or '').strip()
+    if business not in ('FOODHOUSE', 'CRAFT'):
+        raise OrderValidationError('AI returned an invalid business target.')
+    if post_type not in MARKETING_POST_TYPES:
+        raise OrderValidationError('AI returned an invalid marketing post type.')
+    if not caption:
+        raise OrderValidationError('AI returned an empty caption.')
+
+    public_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True, portal_only=False).all()
+    public_promos = [p for p in public_promos if not p.created_at or (utc_now() - p.created_at).days <= 3]
+    allowed_amounts = {round(float(p.promo_price or 0.0), 2) for p in public_promos}
+    if source_kind == 'PRODUCT':
+        prod = db.session.get(Product, parse_int(source_id, 0))
+        if not prod or not prod.is_active or parse_int(prod.stock, 0) <= 0:
+            raise OrderValidationError('AI selected an unavailable Food House product.')
+        if business != 'FOODHOUSE':
+            raise OrderValidationError('AI mixed a Food House product with the Craft business.')
+        source_id = prod.id
+        allowed_amounts.add(round(float(prod.price or 0.0), 2))
+    elif source_kind == 'CRAFT_ITEM':
+        item = db.session.get(CraftItem, parse_int(source_id, 0))
+        if not item or not item.is_active:
+            raise OrderValidationError('AI selected an unavailable Craft item.')
+        if (item.availability_type or 'IN_STOCK').upper() == 'IN_STOCK' and parse_int(item.stock_quantity, 0) <= 0:
+            raise OrderValidationError('AI selected an out-of-stock Craft item.')
+        if business != 'CRAFT':
+            raise OrderValidationError('AI mixed a Craft item with the Food House business.')
+        source_id = item.id
+        allowed_amounts.add(round(float(item.price or 0.0), 2))
+    elif source_kind == 'PAGE':
+        source_id = None
+    else:
+        raise OrderValidationError('AI returned an invalid source type.')
+
+    for amount in extract_peso_amounts(caption):
+        if amount not in allowed_amounts:
+            raise OrderValidationError(f'AI caption contained an unapproved price: ₱{amount:,.2f}.')
+
+    cooldown = marketing_settings()['repeat_cooldown_days']
+    if source_id and cooldown > 0:
+        cutoff = utc_now() - timedelta(days=cooldown)
+        repeated = MarketingPost.query.filter(
+            MarketingPost.source_kind == source_kind,
+            MarketingPost.source_id == source_id,
+            MarketingPost.created_at >= cutoff,
+            MarketingPost.status.in_(['APPROVED', 'POSTED']),
+        ).first()
+        if repeated:
+            raise OrderValidationError(f'This item was already promoted within the {cooldown}-day repeat cooldown.')
+
+    return {
+        'business': business, 'post_type': post_type, 'source_kind': source_kind,
+        'source_id': source_id, 'caption': caption,
+        'reason': str(decision.get('reason') or '').strip(),
+        'model': str(decision.get('model') or '').strip(),
+    }
+
+def create_ai_marketing_post(business_hint='AUTO', post_type_hint='AUTO', group=None):
+    context = build_marketing_context()
+    target_type = 'FACEBOOK_PAGE'
+    group_context = None
+    if group:
+        target_type = 'GROUP_ASSIST'
+        group_context = {
+            'name': group.name,
+            'url': group.group_url,
+            'business_scope': group.business_scope,
+            'allowed_post_types': group.post_types,
+            'notes_or_rules': group.notes,
+        }
+        if group.business_scope in ('FOODHOUSE', 'CRAFT'):
+            business_hint = group.business_scope
+    decision = generate_ai_marketing_decision(context, business_hint, post_type_hint, group_context)
+    if not decision.get('should_post'):
+        post = MarketingPost(
+            target_type=target_type,
+            business=str(decision.get('business') or 'FOODHOUSE').upper(),
+            post_type=str(decision.get('post_type') or 'BRAND_AWARENESS').upper(),
+            source_kind='PAGE',
+            source_id=None,
+            caption=str(decision.get('caption') or 'AI chose not to post today.'),
+            reason=str(decision.get('reason') or ''),
+            status='SKIPPED',
+            ai_model=decision.get('model'),
+            group_id=group.id if group else None,
+        )
+        db.session.add(post)
+        db.session.commit()
+        return post
+    safe = validate_marketing_decision(decision)
+    post = MarketingPost(
+        target_type=target_type,
+        business=safe['business'],
+        post_type=safe['post_type'],
+        source_kind=safe['source_kind'],
+        source_id=safe['source_id'],
+        caption=safe['caption'],
+        reason=safe['reason'],
+        link_url=_marketing_source_link(safe['source_kind'], safe['source_id'], safe['business']),
+        status='DRAFT',
+        ai_model=safe['model'],
+        group_id=group.id if group else None,
+    )
+    db.session.add(post)
+    db.session.commit()
+    return post
+
+def active_facebook_page():
+    return MarketingFacebookPage.query.filter_by(is_active=True).order_by(MarketingFacebookPage.connected_at.desc()).first()
+
+def publish_marketing_post(post):
+    if post.target_type != 'FACEBOOK_PAGE':
+        raise OrderValidationError('Joined Facebook Groups use assisted posting only.')
+    page = active_facebook_page()
+    if not page:
+        raise OrderValidationError('No Facebook Page is connected.')
+    token = decrypt_secret(page.access_token_encrypted, app.config['SECRET_KEY'])
+    if not token:
+        raise OrderValidationError('The stored Facebook Page token could not be decrypted.')
+    result = publish_page_link(page.page_id, token, post.caption, post.link_url or '')
+    post.facebook_post_id = result.get('id')
+    post.status = 'POSTED'
+    post.published_at = utc_now()
+    db.session.commit()
+    return result
+
+def marketing_agent_due_now():
+    cfg = marketing_settings()
+    if not cfg['enabled']:
+        return False, 'AI Marketing is paused.'
+    now = ph_now()
+    try:
+        start = datetime.strptime(cfg['start_hour'], '%H:%M').time()
+        end = datetime.strptime(cfg['end_hour'], '%H:%M').time()
+    except ValueError:
+        start, end = time(8, 0), time(19, 0)
+    if not (start <= now.time() <= end):
+        return False, 'Outside the allowed posting window.'
+    day_start, day_end = ph_day_utc_bounds(now.date())
+    today_decisions = MarketingPost.query.filter(
+        MarketingPost.target_type == 'FACEBOOK_PAGE',
+        MarketingPost.status.in_(['DRAFT', 'APPROVED', 'POSTED', 'SKIPPED']),
+        MarketingPost.created_at >= day_start,
+        MarketingPost.created_at < day_end,
+    ).count()
+    if today_decisions >= cfg['max_posts_per_day']:
+        return False, 'Daily AI marketing decision limit already reached.'
+    # Use the last Page decision, not only the last published post. This prevents an
+    # hourly UptimeRobot/cron check from generating duplicate approval drafts.
+    last = MarketingPost.query.filter(
+        MarketingPost.target_type == 'FACEBOOK_PAGE',
+        MarketingPost.status.in_(['DRAFT', 'APPROVED', 'POSTED', 'SKIPPED']),
+    ).order_by(MarketingPost.created_at.desc()).first()
+    min_gap_hours = max(20.0, (7.0 * 24.0) / float(cfg['posts_per_week']))
+    if last and last.created_at and (utc_now() - last.created_at).total_seconds() < min_gap_hours * 3600:
+        return False, 'Posting cadence is not due yet.'
+    return True, 'Due'
+
+def run_marketing_agent_once():
+    due, reason = marketing_agent_due_now()
+    if not due:
+        return {'ran': False, 'message': reason}
+    cfg = marketing_settings()
+    post = create_ai_marketing_post(business_hint=cfg['business_scope'])
+    if post.status == 'SKIPPED':
+        return {'ran': True, 'posted': False, 'post_id': post.id, 'message': post.reason or 'AI chose to skip.'}
+    if cfg['mode'] == 'AUTO_PUBLISH':
+        publish_marketing_post(post)
+        return {'ran': True, 'posted': True, 'post_id': post.id, 'message': 'AI post published to Facebook Page.'}
+    return {'ran': True, 'posted': False, 'post_id': post.id, 'message': 'AI draft created for approval.'}
+
 
 # ==================== REAL-TIME POLLING API ====================
 
@@ -3667,6 +4008,337 @@ def cash_flow_plan_delete(plan_id):
     if view_years:
         kwargs['years'] = view_years
     return redirect(url_for('cash_flow_portal', **kwargs))
+
+
+
+# ==================== AI MARKETING ADMIN ====================
+
+@app.route('/admin/marketing')
+@require_admin
+def marketing_admin():
+    cfg = marketing_settings()
+    page = active_facebook_page()
+    groups = MarketingGroup.query.order_by(MarketingGroup.is_active.desc(), MarketingGroup.name.asc()).all()
+    posts = MarketingPost.query.order_by(MarketingPost.created_at.desc()).limit(100).all()
+    pending_pages = session.get('_meta_pending_pages') or []
+    return render_template(
+        'marketing_admin.html',
+        settings=cfg,
+        facebook_page=page,
+        groups=groups,
+        posts=posts,
+        openai_ready=openai_configured(),
+        meta_ready=meta_configured(),
+        pending_pages=pending_pages,
+        cron_ready=bool(os.environ.get('MARKETING_CRON_TOKEN')),
+        post_types=MARKETING_POST_TYPES,
+        graph_version=os.environ.get('META_GRAPH_VERSION', 'v25.0'),
+    )
+
+@app.route('/admin/marketing/settings', methods=['POST'])
+@require_admin
+def marketing_save_settings():
+    mode = request.form.get('mode', 'REQUIRE_APPROVAL').upper()
+    if mode not in ('DRAFT_ONLY', 'REQUIRE_APPROVAL', 'AUTO_PUBLISH'):
+        mode = 'REQUIRE_APPROVAL'
+    scope = request.form.get('business_scope', 'BOTH').upper()
+    if scope not in ('FOODHOUSE', 'CRAFT', 'BOTH'):
+        scope = 'BOTH'
+    save_marketing_setting('marketing_enabled', 'true' if request.form.get('enabled') else 'false')
+    save_marketing_setting('marketing_mode', mode)
+    save_marketing_setting('marketing_business_scope', scope)
+    save_marketing_setting('marketing_posts_per_week', max(1, min(7, parse_int(request.form.get('posts_per_week'), 4))))
+    save_marketing_setting('marketing_start_hour', request.form.get('start_hour', '08:00'))
+    save_marketing_setting('marketing_end_hour', request.form.get('end_hour', '19:00'))
+    save_marketing_setting('marketing_repeat_cooldown_days', max(0, min(90, parse_int(request.form.get('repeat_cooldown_days'), 10))))
+    save_marketing_setting('marketing_max_posts_per_day', max(1, min(3, parse_int(request.form.get('max_posts_per_day'), 1))))
+    db.session.commit()
+    flash('AI Marketing settings saved.', 'success')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/run-agent', methods=['POST'])
+@require_admin
+def marketing_run_agent_now():
+    try:
+        result = run_marketing_agent_once()
+        flash(result.get('message') or 'AI Marketing agent finished.', 'success' if result.get('posted') else 'info')
+    except Exception as exc:
+        app.logger.exception('Manual AI marketing agent run failed')
+        flash(f'AI Marketing agent failed: {exc}', 'error')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/generate', methods=['POST'])
+@require_admin
+def marketing_generate():
+    try:
+        post = create_ai_marketing_post(
+            business_hint=request.form.get('business', 'AUTO').upper(),
+            post_type_hint=request.form.get('post_type', 'AUTO').upper(),
+        )
+        if post.status == 'SKIPPED':
+            flash(f'AI chose not to create a promotional post: {post.reason}', 'info')
+        else:
+            flash(f'AI draft #{post.id} created. Review it before publishing.', 'success')
+    except Exception as exc:
+        app.logger.exception('AI marketing draft generation failed')
+        flash(f'Could not generate AI post: {exc}', 'error')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/post/<int:post_id>/edit', methods=['POST'])
+@require_admin
+def marketing_edit_post(post_id):
+    post = MarketingPost.query.get_or_404(post_id)
+    if post.status == 'POSTED':
+        flash('A published post cannot be edited from this dashboard.', 'error')
+        return redirect(url_for('marketing_admin'))
+    caption = request.form.get('caption', '').strip()
+    if not caption:
+        flash('Caption cannot be blank.', 'error')
+    else:
+        post.caption = caption[:3000]
+        post.status = 'DRAFT'
+        db.session.commit()
+        flash(f'Draft #{post.id} updated.', 'success')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/post/<int:post_id>/approve', methods=['POST'])
+@require_admin
+def marketing_approve_post(post_id):
+    post = MarketingPost.query.get_or_404(post_id)
+    if post.target_type == 'GROUP_ASSIST':
+        flash('Group-assisted posts are copied/opened manually rather than approved for API publishing.', 'info')
+    elif post.status not in ('POSTED', 'SKIPPED'):
+        post.status = 'APPROVED'
+        post.approved_at = utc_now()
+        db.session.commit()
+        flash(f'Draft #{post.id} approved.', 'success')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/post/<int:post_id>/publish', methods=['POST'])
+@require_admin
+def marketing_publish_post(post_id):
+    post = MarketingPost.query.get_or_404(post_id)
+    try:
+        if post.status == 'POSTED':
+            flash('This post is already published.', 'info')
+        elif post.status == 'SKIPPED':
+            flash('A skipped AI decision cannot be published.', 'error')
+        else:
+            post.status = 'APPROVED'
+            post.approved_at = post.approved_at or utc_now()
+            db.session.commit()
+            publish_marketing_post(post)
+            flash(f'Post #{post.id} published to the connected Facebook Page.', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        post = db.session.get(MarketingPost, post_id)
+        if post:
+            post.status = 'FAILED'
+            post.error_message = str(exc)[:1000]
+            db.session.commit()
+        app.logger.exception('Facebook Page publish failed for marketing post %s', post_id)
+        flash(f'Facebook publish failed: {exc}', 'error')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/post/<int:post_id>/delete', methods=['POST'])
+@require_admin
+def marketing_delete_post(post_id):
+    post = MarketingPost.query.get_or_404(post_id)
+    if post.status == 'POSTED':
+        flash('Posted history is retained for marketing memory and cannot be deleted here.', 'error')
+    else:
+        db.session.delete(post)
+        db.session.commit()
+        flash('Marketing draft removed.', 'info')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/facebook/connect')
+@require_admin
+def marketing_facebook_connect():
+    if not meta_configured():
+        flash('Set META_APP_ID and META_APP_SECRET in Render before connecting Facebook.', 'error')
+        return redirect(url_for('marketing_admin'))
+    state = secrets.token_urlsafe(24)
+    session['_meta_oauth_state'] = state
+    callback = url_for('marketing_facebook_callback', _external=True, _scheme='https' if IS_PRODUCTION else request.scheme)
+    return redirect(meta_login_url(callback, state))
+
+@app.route('/admin/marketing/facebook/callback')
+@require_admin
+def marketing_facebook_callback():
+    if request.args.get('state') != session.pop('_meta_oauth_state', None):
+        flash('Facebook connection was rejected because the OAuth state did not match.', 'error')
+        return redirect(url_for('marketing_admin'))
+    if request.args.get('error'):
+        flash(f"Facebook authorization was cancelled: {request.args.get('error_description') or request.args.get('error')}", 'error')
+        return redirect(url_for('marketing_admin'))
+    code = request.args.get('code', '').strip()
+    if not code:
+        flash('Facebook did not return an authorization code.', 'error')
+        return redirect(url_for('marketing_admin'))
+    callback = url_for('marketing_facebook_callback', _external=True, _scheme='https' if IS_PRODUCTION else request.scheme)
+    try:
+        user_token, pages = exchange_meta_code(code, callback)
+        if not pages:
+            raise RuntimeError('No manageable Facebook Pages were returned for this account.')
+        session['_meta_pending_pages'] = [{'id': p.get('id'), 'name': p.get('name')} for p in pages if p.get('id')]
+        save_marketing_setting('meta_pending_user_token', encrypt_secret(user_token, app.config['SECRET_KEY']))
+        db.session.commit()
+        flash("Facebook connected. Choose which Page Macleen's should manage.", 'success')
+    except Exception as exc:
+        app.logger.exception('Facebook OAuth callback failed')
+        flash(f'Facebook connection failed: {exc}', 'error')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/facebook/select', methods=['POST'])
+@require_admin
+def marketing_facebook_select():
+    page_id = request.form.get('page_id', '').strip()
+    user_token = decrypt_secret(marketing_setting('meta_pending_user_token', ''), app.config['SECRET_KEY'])
+    if not page_id or not user_token:
+        flash('Facebook Page selection expired. Connect Facebook again.', 'error')
+        return redirect(url_for('marketing_admin'))
+    try:
+        pages = list_managed_pages(user_token)
+        chosen = next((p for p in pages if str(p.get('id')) == page_id), None)
+        if not chosen or not chosen.get('access_token'):
+            raise RuntimeError('Selected Page is not available to this Facebook login.')
+        MarketingFacebookPage.query.update({'is_active': False})
+        row = MarketingFacebookPage.query.filter_by(page_id=page_id).first()
+        encrypted = encrypt_secret(chosen['access_token'], app.config['SECRET_KEY'])
+        if row:
+            row.page_name = chosen.get('name') or page_id
+            row.access_token_encrypted = encrypted
+            row.is_active = True
+            row.token_updated_at = utc_now()
+        else:
+            db.session.add(MarketingFacebookPage(
+                page_id=page_id,
+                page_name=chosen.get('name') or page_id,
+                access_token_encrypted=encrypted,
+                is_active=True,
+            ))
+        save_marketing_setting('meta_pending_user_token', '')
+        db.session.commit()
+        session.pop('_meta_pending_pages', None)
+        flash(f"Facebook Page '{chosen.get('name') or page_id}' connected.", 'success')
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('Facebook Page selection failed')
+        flash(f'Could not connect Page: {exc}', 'error')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/facebook/test', methods=['POST'])
+@require_admin
+def marketing_facebook_test():
+    page = active_facebook_page()
+    if not page:
+        flash('No Facebook Page is connected.', 'error')
+        return redirect(url_for('marketing_admin'))
+    try:
+        token = decrypt_secret(page.access_token_encrypted, app.config['SECRET_KEY'])
+        result = test_page_token(page.page_id, token)
+        flash(f"Facebook connection works: {result.get('name') or page.page_name}.", 'success')
+    except Exception as exc:
+        flash(f'Facebook connection test failed: {exc}', 'error')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/facebook/disconnect', methods=['POST'])
+@require_admin
+def marketing_facebook_disconnect():
+    MarketingFacebookPage.query.update({'is_active': False})
+    db.session.commit()
+    session.pop('_meta_pending_pages', None)
+    flash('Facebook Page disconnected from automatic publishing.', 'info')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/group/add', methods=['POST'])
+@require_admin
+def marketing_group_add():
+    name = request.form.get('name', '').strip()
+    group_url = request.form.get('group_url', '').strip()
+    if not name or not group_url.startswith(('https://facebook.com/', 'https://www.facebook.com/', 'https://m.facebook.com/')):
+        flash('Enter a group name and a valid Facebook group URL.', 'error')
+        return redirect(url_for('marketing_admin'))
+    scope = request.form.get('business_scope', 'BOTH').upper()
+    if scope not in ('FOODHOUSE', 'CRAFT', 'BOTH'):
+        scope = 'BOTH'
+    group = MarketingGroup(
+        name=name[:150],
+        group_url=group_url,
+        business_scope=scope,
+        post_types=request.form.get('post_types', '').strip()[:255],
+        cooldown_days=max(0, min(90, parse_int(request.form.get('cooldown_days'), 7))),
+        notes=request.form.get('notes', '').strip()[:3000],
+        is_active=True,
+    )
+    db.session.add(group)
+    db.session.commit()
+    flash(f'Facebook group {name} added to the assisted queue.', 'success')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/group/<int:group_id>/toggle', methods=['POST'])
+@require_admin
+def marketing_group_toggle(group_id):
+    group = MarketingGroup.query.get_or_404(group_id)
+    group.is_active = not group.is_active
+    db.session.commit()
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/group/<int:group_id>/delete', methods=['POST'])
+@require_admin
+def marketing_group_delete(group_id):
+    group = MarketingGroup.query.get_or_404(group_id)
+    db.session.delete(group)
+    db.session.commit()
+    flash('Group removed from the assisted queue.', 'info')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/group/<int:group_id>/generate', methods=['POST'])
+@require_admin
+def marketing_group_generate(group_id):
+    group = MarketingGroup.query.get_or_404(group_id)
+    if group.last_posted_at and group.cooldown_days and utc_now() - group.last_posted_at < timedelta(days=group.cooldown_days):
+        flash(f'{group.name} is still inside its {group.cooldown_days}-day cooldown.', 'info')
+        return redirect(url_for('marketing_admin'))
+    try:
+        post = create_ai_marketing_post(group=group)
+        flash(f'Group-assisted draft #{post.id} created for {group.name}.', 'success' if post.status != 'SKIPPED' else 'info')
+    except Exception as exc:
+        app.logger.exception('Group-assisted marketing generation failed')
+        flash(f'Could not generate group post: {exc}', 'error')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/group-post/<int:post_id>/mark-posted', methods=['POST'])
+@require_admin
+def marketing_group_mark_posted(post_id):
+    post = MarketingPost.query.get_or_404(post_id)
+    if post.target_type != 'GROUP_ASSIST' or not post.group:
+        flash('This is not a group-assisted post.', 'error')
+    else:
+        post.status = 'POSTED'
+        post.published_at = utc_now()
+        post.group.last_posted_at = utc_now()
+        db.session.commit()
+        flash('Group post marked as posted.', 'success')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/tasks/marketing/run', methods=['GET', 'POST'])
+def marketing_cron_run():
+    configured = os.environ.get('MARKETING_CRON_TOKEN', '').strip()
+    supplied = request.headers.get('Authorization', '')
+    if supplied.lower().startswith('bearer '):
+        supplied = supplied[7:].strip()
+    if not supplied:
+        supplied = request.args.get('token', '').strip()
+    if not configured or not secrets.compare_digest(supplied, configured):
+        return jsonify({'ok': False, 'message': 'Unauthorized'}), 401
+    try:
+        result = run_marketing_agent_once()
+        return jsonify({'ok': True, **result})
+    except Exception as exc:
+        app.logger.exception('Scheduled AI marketing run failed')
+        return jsonify({'ok': False, 'message': str(exc)}), 500
 
 
 # ==================== MASTER ADMIN, CONTROLS & SETTINGS ====================
