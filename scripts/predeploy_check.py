@@ -328,6 +328,9 @@ def main() -> int:
 
     craft_markers = [
         "class CraftItem(db.Model):",
+        "class CraftSiteVisitor(db.Model):",
+        "class CraftItemView(db.Model):",
+        "class CraftItemLike(db.Model):",
         "class CraftOrder(db.Model):",
         "class CraftLedger(db.Model):",
         "@app.route('/craft')",
@@ -354,10 +357,29 @@ def main() -> int:
     craft_base = (TEMPLATES / "craft/base.html").read_text(encoding="utf-8")
     if "Craft Admin" in craft_base or "url_for('staff_login')" in craft_base:
         fail("public Craft Shop still exposes an admin/staff navigation button")
+    craft_detail = (TEMPLATES / "craft/item_detail.html").read_text(encoding="utf-8")
+    craft_index = (TEMPLATES / "craft/index.html").read_text(encoding="utf-8")
+    per_ip_markers = [
+        "uq_craft_item_view_ip", "uq_craft_item_like_ip",
+        "CraftItemLike.query.filter_by(item_id=item.id, ip_address=ip)",
+        "CraftComment(item_id=item.id, author=author, content=content, ip_address=ip)",
+    ]
+    missing_ip = [marker for marker in per_ip_markers if marker not in source]
+    if missing_ip:
+        fail("Craft per-IP engagement safeguards are missing: " + ", ".join(missing_ip))
+    if "One like per product per IP" not in craft_detail or "unique-IP views" not in craft_detail:
+        fail("Craft detail page does not explain/enforce unique-IP view/like behavior")
+    if "shareLink" not in craft_base or "Share Craft Shop" not in craft_index:
+        fail("Craft sharing controls are missing")
+    if "shareStoreLink" not in storefront or "shareProductLink" not in storefront:
+        fail("Food House storefront/product sharing controls are missing")
+    product_detail_html = (TEMPLATES / "product_detail.html").read_text(encoding="utf-8")
+    if "shareFoodProduct" not in product_detail_html:
+        fail("Food House product detail sharing control is missing")
     header_section = admin_template[:5000]
     if "url_for('craft_admin_dashboard')" in header_section:
         fail("master admin header still exposes a Craft Shop admin shortcut; Craft Admin should be direct-link only")
-    ok("Craft Shop is merged, cashier-synced, live-catalog seeded, and admin access is direct-link only")
+    ok("Craft Shop keeps legacy UI, per-IP views/likes/comments tracking, sharing, cashier sync, and direct-link-only admin access")
 
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0

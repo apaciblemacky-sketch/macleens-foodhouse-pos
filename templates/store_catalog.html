@@ -105,6 +105,7 @@
         <a href="/portal/login" class="nav-btn">Log In / Register</a>
       {% endif %}
       <a href="{{ url_for('craft_store') }}" class="nav-btn" style="background:#7c3aed;">🎨 Crafts</a>
+      <button type="button" class="nav-btn" style="border:none;cursor:pointer;background:#0f766e;color:white;" onclick="shareStoreLink()">↗ Share</button>
       <a href="/staff/login" class="nav-btn" style="background:#f1f5f9; color:#475569;">Staff</a>
     </div>
   </header>
@@ -227,6 +228,7 @@
             <a href="/product/{{ p.id }}" class="btn-review">
               💬 {{ p.comments|length }}
             </a>
+            <button type="button" class="btn-review" style="cursor:pointer" onclick='shareProductLink({{ p.name|tojson }}, {{ p.id }})'>↗</button>
           </div>
 
           <button class="btn-add" onclick='addToCart({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_option_groups(p.option_schema)|tojson }})'>+ Add to Basket</button>
@@ -628,6 +630,22 @@
       
       calculateChangePreview();
     }
+
+    async function shareAnyLink(title, path) {
+      const url = new URL(path, window.location.origin).href;
+      try {
+        if (navigator.share) { await navigator.share({ title, url }); return; }
+        await navigator.clipboard.writeText(url);
+        alert(`Link copied: ${url}`);
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+        try { await navigator.clipboard.writeText(url); alert(`Link copied: ${url}`); }
+        catch (_) { prompt('Copy this link:', url); }
+      }
+    }
+
+    function shareStoreLink() { return shareAnyLink("Macleen's Food House", '/'); }
+    function shareProductLink(name, id) { return shareAnyLink(name + " — Macleen's Food House", `/product/${id}`); }
 
     async function toggleLike(id) {
       const res = await fetch(`/api/toggle-like/${id}`, { method: 'POST' });

@@ -406,12 +406,37 @@ class CraftItem(db.Model):
     comments = db.relationship('CraftComment', backref='craft_item', cascade='all, delete-orphan', lazy=True)
     craft_orders = db.relationship('CraftOrder', backref='craft_item', lazy=True)
 
+class CraftSiteVisitor(db.Model):
+    __tablename__ = 'craft_site_visitor'
+    id = db.Column(db.Integer, primary_key=True)
+    ip_address = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    visit_count = db.Column(db.Integer, default=1, nullable=False)
+    first_seen_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    last_seen_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+class CraftItemView(db.Model):
+    __tablename__ = 'craft_item_view'
+    __table_args__ = (UniqueConstraint('item_id', 'ip_address', name='uq_craft_item_view_ip'),)
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('craft_item.id', ondelete='CASCADE'), nullable=False, index=True)
+    ip_address = db.Column(db.String(64), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
+class CraftItemLike(db.Model):
+    __tablename__ = 'craft_item_like'
+    __table_args__ = (UniqueConstraint('item_id', 'ip_address', name='uq_craft_item_like_ip'),)
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('craft_item.id', ondelete='CASCADE'), nullable=False, index=True)
+    ip_address = db.Column(db.String(64), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
 class CraftComment(db.Model):
     __tablename__ = 'craft_comment'
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('craft_item.id', ondelete='CASCADE'), nullable=False)
     author = db.Column(db.String(80), nullable=False)
     content = db.Column(db.Text, nullable=False)
+    ip_address = db.Column(db.String(64), nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
 class CraftOrder(db.Model):
@@ -720,6 +745,9 @@ def run_schema_migrations():
         ],
         'vault_drop': [
             ('cash_breakdown', 'TEXT'),
+        ],
+        'craft_comment': [
+            ('ip_address', 'VARCHAR(64)'),
         ],
     }
 
@@ -2814,6 +2842,19 @@ def update_operating_hours():
 
 @app.route('/craft')
 def craft_store():
+    ip = get_client_ip()[:64]
+    visitor = CraftSiteVisitor.query.filter_by(ip_address=ip).first()
+    if visitor:
+        visitor.visit_count = parse_int(visitor.visit_count, 0) + 1
+        visitor.last_seen_at = utc_now()
+    else:
+        db.session.add(CraftSiteVisitor(ip_address=ip, visit_count=1))
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not update Craft Shop visitor tracking for %s', ip)
+
     selected_category = request.args.get('category', '').strip()
     query = CraftItem.query.filter_by(is_active=True)
     if selected_category:
@@ -2823,30 +2864,65 @@ def craft_store():
     featured = CraftItem.query.filter_by(is_active=True, is_featured=True).order_by(CraftItem.name.asc()).limit(12).all()
     top_sellers = CraftItem.query.filter_by(is_active=True, is_top_seller=True).order_by(CraftItem.orders_count.desc(), CraftItem.name.asc()).limit(12).all()
     cust = db.session.get(Customer, session.get('customer_id')) if session.get('customer_id') else None
-    return render_template('craft/index.html', items=items, categories=categories, selected_category=selected_category,
-                           featured=featured, top_sellers=top_sellers, cust=cust)
+    liked_ids = {x.item_id for x in CraftItemLike.query.filter_by(ip_address=ip).all()}
+    unique_visitors = CraftSiteVisitor.query.count()
+    total_page_visits = db.session.query(db.func.coalesce(db.func.sum(CraftSiteVisitor.visit_count), 0)).scalar() or 0
+    return render_template(
+        'craft/index.html',
+        items=items,
+        categories=categories,
+        selected_category=selected_category,
+        featured=featured,
+        top_sellers=top_sellers,
+        cust=cust,
+        liked_ids=liked_ids,
+        site_visits=unique_visitors,
+        total_page_visits=total_page_visits,
+    )
 
 @app.route('/craft/item/<int:item_id>')
 def craft_item_detail(item_id):
     item = CraftItem.query.filter_by(id=item_id, is_active=True).first_or_404()
-    item.views = parse_int(item.views, 0) + 1
-    db.session.commit()
-    return render_template('craft/item_detail.html', item=item)
+    ip = get_client_ip()[:64]
+    viewed = CraftItemView.query.filter_by(item_id=item.id, ip_address=ip).first()
+    if not viewed:
+        try:
+            db.session.add(CraftItemView(item_id=item.id, ip_address=ip))
+            item.views = parse_int(item.views, 0) + 1
+            db.session.commit()
+        except Exception:
+            # A concurrent duplicate request from the same IP must not inflate the counter.
+            db.session.rollback()
+    liked = bool(CraftItemLike.query.filter_by(item_id=item.id, ip_address=ip).first())
+    return render_template('craft/item_detail.html', item=item, liked=liked)
 
 @app.route('/craft/item/<int:item_id>/like', methods=['POST'])
 def craft_like_item(item_id):
     item = CraftItem.query.filter_by(id=item_id, is_active=True).first_or_404()
-    item.likes = parse_int(item.likes, 0) + 1
-    db.session.commit()
-    return redirect(url_for('craft_item_detail', item_id=item_id))
+    ip = get_client_ip()[:64]
+    existing = CraftItemLike.query.filter_by(item_id=item.id, ip_address=ip).first()
+    if existing:
+        flash('You already liked this craft from this connection. One like per product per IP is allowed.', 'info')
+        return redirect(url_for('craft_item_detail', item_id=item.id))
+    try:
+        db.session.add(CraftItemLike(item_id=item.id, ip_address=ip))
+        item.likes = parse_int(item.likes, 0) + 1
+        db.session.commit()
+        flash('Thanks! Your like was counted.', 'success')
+    except Exception:
+        db.session.rollback()
+        flash('This craft has already been liked from this connection.', 'info')
+    return redirect(url_for('craft_item_detail', item_id=item.id))
 
 @app.route('/craft/item/<int:item_id>/comment', methods=['POST'])
 def craft_add_comment(item_id):
     item = CraftItem.query.filter_by(id=item_id, is_active=True).first_or_404()
+    ip = get_client_ip()[:64]
     author = request.form.get('author', '').strip()[:80] or 'Customer'
     content = request.form.get('content', '').strip()[:1000]
     if content:
-        db.session.add(CraftComment(item_id=item.id, author=author, content=content))
+        # Comments remain open, but every comment is attributable to its source IP for moderation.
+        db.session.add(CraftComment(item_id=item.id, author=author, content=content, ip_address=ip))
         db.session.commit()
     return redirect(url_for('craft_item_detail', item_id=item.id))
 
@@ -2923,6 +2999,12 @@ def craft_admin_dashboard():
     manual_income = sum(max(0.0, parse_float(x.amount, 0.0)) for x in ledger if x.event_type == 'OTHER_INCOME')
     expense_total = sum(max(0.0, parse_float(x.amount, 0.0)) for x in ledger if x.event_type in ('EXPENSE', 'REFUND'))
     metrics = {
+        'site_unique_visitors': CraftSiteVisitor.query.count(),
+        'site_total_visits': db.session.query(db.func.coalesce(db.func.sum(CraftSiteVisitor.visit_count), 0)).scalar() or 0,
+        'product_unique_views': sum(parse_int(i.views, 0) for i in items),
+        'total_likes': sum(parse_int(i.likes, 0) for i in items),
+        'total_comments': CraftComment.query.count(),
+        'total_orders': CraftOrder.query.count(),
         'completed_sales': sale_revenue,
         'recorded_cogs': sale_cost,
         'gross_profit': sale_revenue - sale_cost,
@@ -2931,6 +3013,7 @@ def craft_admin_dashboard():
         'net_cash': sale_revenue + manual_income - expense_total,
         'pending_orders': sum(1 for o in orders if o.status in ('PENDING', 'READY')),
         'low_stock': sum(1 for i in items if i.is_active and i.availability_type == 'IN_STOCK' and parse_int(i.stock_quantity, 0) <= 3),
+        'out_of_stock': sum(1 for i in items if i.is_active and i.availability_type == 'IN_STOCK' and parse_int(i.stock_quantity, 0) == 0),
     }
     return render_template('craft/admin.html', items=items, categories=categories, orders=orders, ledger=ledger, metrics=metrics)
 

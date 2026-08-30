@@ -51,6 +51,7 @@
         <button class="btn-like-lg" onclick="toggleLikeDetail({{ prod.id }})">
           ❤️ <span id="likeCounter">{{ prod.total_likes }}</span> Likes
         </button>
+        <button class="btn-like-lg" style="margin-left:6px;" onclick="shareFoodProduct({{ prod.name|tojson }}, {{ prod.id }})">↗ Share</button>
       </div>
     </div>
 
@@ -83,6 +84,19 @@
   </div>
 
   <script>
+    async function shareFoodProduct(name, id) {
+      const url = new URL(`/product/${id}`, window.location.origin).href;
+      try {
+        if (navigator.share) { await navigator.share({ title: `${name} — Macleen's Food House`, url }); return; }
+        await navigator.clipboard.writeText(url);
+        alert(`Link copied: ${url}`);
+      } catch (err) {
+        if (err && err.name === 'AbortError') return;
+        try { await navigator.clipboard.writeText(url); alert(`Link copied: ${url}`); }
+        catch (_) { prompt('Copy this link:', url); }
+      }
+    }
+
     async function toggleLikeDetail(id) {
       const res = await fetch(`/api/toggle-like/${id}`, { method: 'POST' });
       const data = await res.json();
