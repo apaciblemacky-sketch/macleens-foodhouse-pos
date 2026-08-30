@@ -265,7 +265,25 @@ def main() -> int:
     for marker in ["24-Month Cash-Flow Summary", "COGS @ 60%", "Additional Income", "Duration / Occurrences"]:
         if marker not in cashflow_html:
             fail(f"cash-flow portal UI is missing: {marker}")
-    ok("2-year cash-flow portal and 60% COGS rule are present")
+    if "BIWEEKLY" not in source or "Bi-weekly (Every 2 Weeks)" not in cashflow_html:
+        fail("cash-flow portal is missing Bi-weekly (every 2 weeks) recurrence")
+    ok("cash-flow Bi-weekly recurrence is present")
+
+    projection_markers = [
+        "average_daily_sales =",
+        "actual_sales_days",
+        "cashflow_sales_for_day",
+        "return average_daily_sales, True",
+    ]
+    missing_projection = [marker for marker in projection_markers if marker not in source]
+    if missing_projection:
+        fail("cash-flow average-sales projection is missing: " + ", ".join(missing_projection))
+    for marker in ["Average Daily Sales", "AVG PROJECTION", "Actual / Projected"]:
+        if marker not in cashflow_html:
+            fail(f"cash-flow average-sales projection UI is missing: {marker}")
+    ok("blank cash-flow sales days are filled from the actual-sales daily average")
+
+    ok("2-year cash-flow portal and automatic 60% COGS rule are present")
 
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0

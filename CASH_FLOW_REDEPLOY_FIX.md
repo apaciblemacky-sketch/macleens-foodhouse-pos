@@ -15,3 +15,7 @@ python scripts/predeploy_check.py
 ```
 
 If both pass, commit and push the same project folder that Render is connected to.
+
+
+## Bi-weekly recurrence
+Cash-flow schedules now support **Bi-weekly (Every 2 Weeks)**. Each occurrence is exactly 14 days after the previous one, with up to 52 occurrences in the two-year planning window.

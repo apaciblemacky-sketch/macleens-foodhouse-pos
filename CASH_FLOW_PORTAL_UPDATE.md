@@ -52,3 +52,13 @@ The portal includes:
 A new `cash_flow_plan` table is created automatically by `db.create_all()` during application startup. No destructive database migration is required.
 
 The update ZIP intentionally does not include `instance/foodhouse_pos.db`, so replacing project files will not overwrite an existing local database.
+
+
+## Bi-weekly recurrence
+Cash-flow schedules now support **Bi-weekly (Every 2 Weeks)**. Each occurrence is exactly 14 days after the previous one, with up to 52 occurrences in the two-year planning window.
+
+## Average daily sales projection
+- Blank sales days are automatically filled using the average of all recorded positive actual sales days up to today.
+- Actual days retain their recorded amount.
+- Projected days are visibly marked as AVG PROJECTION.
+- COGS is automatically 60% of both actual and projected sales values.

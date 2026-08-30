@@ -77,7 +77,7 @@
   {% endwith %}
 
   <div class="notice">
-    <strong>How this portal calculates cash flow:</strong> Sales are pulled automatically from completed daily sales and, following the current Macleen's accounting rule, Vault Drops are included in sales. COGS is fixed at <strong>60% of sales</strong> for this cash-flow view. Additional income and expenses are generated from the recurring schedules you create below. Future sales remain ₱0 until actual sales are recorded.
+    <strong>How this portal calculates cash flow:</strong> Recorded days use their <strong>actual completed daily sales</strong> and, following the current Macleen's accounting rule, Vault Drops are included in sales. Every blank day is automatically filled using the <strong>average daily sales from all recorded actual sales days</strong>. Projected days are clearly marked below. COGS is automatically fixed at <strong>60% of either actual or projected sales</strong>. Additional income and expenses come from the recurring schedules you create.
   </div>
 
   <div class="card">
@@ -97,7 +97,8 @@
   </div>
 
   <div class="summary">
-    <div class="metric"><div class="label">Sales</div><div class="value" style="color:var(--green);">₱{{ "{:,.2f}".format(totals.sales) }}</div></div>
+    <div class="metric"><div class="label">Average Daily Sales</div><div class="value" style="color:var(--purple);">₱{{ "{:,.2f}".format(average_daily_sales) }}</div><div class="small">Based on {{ average_sales_day_count }} actual sales day{{ '' if average_sales_day_count == 1 else 's' }}</div></div>
+    <div class="metric"><div class="label">2-Year Sales (Actual + Projected)</div><div class="value" style="color:var(--green);">₱{{ "{:,.2f}".format(totals.sales) }}</div></div>
     <div class="metric"><div class="label">COGS @ 60%</div><div class="value" style="color:var(--red);">₱{{ "{:,.2f}".format(totals.cogs) }}</div></div>
     <div class="metric"><div class="label">Gross Profit</div><div class="value" style="color:var(--blue);">₱{{ "{:,.2f}".format(totals.gross_profit) }}</div></div>
     <div class="metric"><div class="label">Additional Income</div><div class="value" style="color:var(--green);">₱{{ "{:,.2f}".format(totals.income) }}</div></div>
@@ -111,7 +112,7 @@
         <div class="section-title">
           <div>
             <h2>{% if edit_plan %}✏️ Edit Cash-Flow Schedule{% else %}➕ Add Cash-Flow Schedule{% endif %}</h2>
-            <p>Duration means number of occurrences: 30 daily = 30 days, 8 weekly = 8 weeks, 12 monthly = 12 months.</p>
+            <p>Duration means number of occurrences: 30 daily = 30 days, 8 weekly = 8 weeks, 6 bi-weekly = every 14 days for 6 occurrences, 12 monthly = 12 months.</p>
           </div>
           {% if edit_plan %}<a href="{{ url_for('cash_flow_portal') }}#entry-form" class="btn btn-blue">Cancel Edit</a>{% endif %}
         </div>
@@ -140,6 +141,7 @@
                 {% set chosen_freq = edit_plan.frequency if edit_plan else 'MONTHLY' %}
                 <option value="DAILY" {% if chosen_freq == 'DAILY' %}selected{% endif %}>Daily</option>
                 <option value="WEEKLY" {% if chosen_freq == 'WEEKLY' %}selected{% endif %}>Weekly</option>
+                <option value="BIWEEKLY" {% if chosen_freq == 'BIWEEKLY' %}selected{% endif %}>Bi-weekly (Every 2 Weeks)</option>
                 <option value="MONTHLY" {% if chosen_freq == 'MONTHLY' %}selected{% endif %}>Monthly</option>
               </select>
             </div>
@@ -166,6 +168,7 @@
         <div class="formula">
           <div>Daily: max {{ max_duration.DAILY }} days</div>
           <div>Weekly: max {{ max_duration.WEEKLY }} weeks</div>
+          <div>Bi-weekly: max {{ max_duration.BIWEEKLY }} occurrences (every 14 days)</div>
           <div>Monthly: max {{ max_duration.MONTHLY }} months</div>
         </div>
       </div>
@@ -194,7 +197,7 @@
                   {% if p.notes %}<div class="small">{{ p.notes }}</div>{% endif %}
                 </td>
                 <td>
-                  <strong>{{ p.frequency.title() }}</strong> × {{ p.duration_count }}<br>
+                  <strong>{{ 'Bi-weekly' if p.frequency == 'BIWEEKLY' else p.frequency.title() }}</strong> × {{ p.duration_count }}<br>
                   <span class="small">{{ p.start_date.strftime('%d %b %Y') }} → {{ plan_end_date(p).strftime('%d %b %Y') }}</span>
                 </td>
                 <td class="amount">₱{{ "{:,.2f}".format(p.amount) }}<br><span class="small">Total ₱{{ "{:,.2f}".format(p.amount * p.duration_count) }}</span></td>
@@ -220,19 +223,20 @@
         <div class="section-title">
           <div>
             <h2>📊 24-Month Cash-Flow Summary</h2>
-            <p>Net = Sales + Additional Income − 60% COGS − Scheduled Expenses.</p>
+            <p>Actual sales are preserved; blank days use the current actual-sales daily average. Net = Sales + Additional Income − 60% COGS − Scheduled Expenses.</p>
           </div>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Month</th><th>Sales</th><th>COGS 60%</th><th>Gross Profit</th><th>Add'l Income</th><th>Expenses</th><th>Net Flow</th><th>Running Net</th></tr>
+              <tr><th>Month</th><th>Sales</th><th>Actual / Projected</th><th>COGS 60%</th><th>Gross Profit</th><th>Add'l Income</th><th>Expenses</th><th>Net Flow</th><th>Running Net</th></tr>
             </thead>
             <tbody>
               {% for row in monthly_rows %}
               <tr>
                 <td><a href="{{ url_for('cash_flow_portal', start=period_start.strftime('%Y-%m'), month=row.month_key) }}#daily-detail" style="color:var(--dark);font-weight:900;text-decoration:none;">{{ row.month_label }}</a></td>
                 <td class="positive">₱{{ "{:,.2f}".format(row.sales) }}</td>
+                <td><span style="color:var(--green);font-weight:800;">A ₱{{ "{:,.2f}".format(row.actual_sales) }}</span><br><span class="small">{{ row.actual_days }} actual day{{ '' if row.actual_days == 1 else 's' }}</span><br><span style="color:var(--purple);font-weight:800;">P ₱{{ "{:,.2f}".format(row.projected_sales) }}</span><br><span class="small">{{ row.projected_days }} projected day{{ '' if row.projected_days == 1 else 's' }}</span></td>
                 <td style="color:var(--red);">₱{{ "{:,.2f}".format(row.cogs) }}</td>
                 <td style="color:var(--blue);font-weight:800;">₱{{ "{:,.2f}".format(row.gross_profit) }}</td>
                 <td class="positive">₱{{ "{:,.2f}".format(row.income) }}</td>
@@ -250,7 +254,7 @@
         <div class="section-title">
           <div>
             <h2>📅 Daily Sales & Cash Flow — {{ detail_month.strftime('%B %Y') }}</h2>
-            <p>Daily sales are summarized automatically from your completed transactions.</p>
+            <p>Actual transaction days stay actual. Blank days are filled automatically with the current average daily sales projection of ₱{{ "{:,.2f}".format(average_daily_sales) }}.</p>
           </div>
           <form method="get" class="inline-form">
             <input type="hidden" name="start" value="{{ period_start.strftime('%Y-%m') }}">
@@ -265,14 +269,16 @@
         </div>
         <div class="table-wrap" style="max-height:520px;">
           <table>
-            <thead><tr><th>Date</th><th>POS Sales</th><th>Vault Sales</th><th>Total Sales</th><th>COGS 60%</th><th>Add'l Income</th><th>Expenses</th><th>Net Flow</th></tr></thead>
+            <thead><tr><th>Date</th><th>Source</th><th>POS Sales</th><th>Vault Sales</th><th>Total Sales</th><th>COGS 60%</th><th>Add'l Income</th><th>Expenses</th><th>Net Flow</th></tr></thead>
             <tbody>
               {% for row in daily_rows %}
               <tr>
                 <td>{{ row.date.strftime('%a, %d %b') }}</td>
-                <td>₱{{ "{:,.2f}".format(row.order_sales) }}</td>
-                <td>₱{{ "{:,.2f}".format(row.vault_sales) }}</td>
+                <td>{% if row.is_projected %}<span class="pill" style="background:#f3e8ff;color:#6b21a8;">AVG PROJECTION</span>{% else %}<span class="pill income">ACTUAL</span>{% endif %}</td>
+                <td>{% if row.is_projected %}<span class="muted">—</span>{% else %}₱{{ "{:,.2f}".format(row.order_sales) }}{% endif %}</td>
+                <td>{% if row.is_projected %}<span class="muted">—</span>{% else %}₱{{ "{:,.2f}".format(row.vault_sales) }}{% endif %}</td>
                 <td class="positive">₱{{ "{:,.2f}".format(row.sales) }}</td>
+                <td><span style="color:var(--green);font-weight:800;">A ₱{{ "{:,.2f}".format(row.actual_sales) }}</span><br><span class="small">{{ row.actual_days }} actual day{{ '' if row.actual_days == 1 else 's' }}</span><br><span style="color:var(--purple);font-weight:800;">P ₱{{ "{:,.2f}".format(row.projected_sales) }}</span><br><span class="small">{{ row.projected_days }} projected day{{ '' if row.projected_days == 1 else 's' }}</span></td>
                 <td style="color:var(--red);">₱{{ "{:,.2f}".format(row.cogs) }}</td>
                 <td class="positive">₱{{ "{:,.2f}".format(row.income) }}</td>
                 <td style="color:#ea580c;">₱{{ "{:,.2f}".format(row.expenses) }}</td>
@@ -287,15 +293,15 @@
   </div>
 </div>
 <script>
-  const maxDurations = { DAILY: {{ max_duration.DAILY }}, WEEKLY: {{ max_duration.WEEKLY }}, MONTHLY: {{ max_duration.MONTHLY }} };
+  const maxDurations = { DAILY: {{ max_duration.DAILY }}, WEEKLY: {{ max_duration.WEEKLY }}, BIWEEKLY: {{ max_duration.BIWEEKLY }}, MONTHLY: {{ max_duration.MONTHLY }} };
   function updateDurationHelp(){
     const frequency = document.getElementById('frequency').value;
     const input = document.getElementById('duration_count');
     const max = maxDurations[frequency];
-    const unit = frequency === 'DAILY' ? 'days' : (frequency === 'WEEKLY' ? 'weeks' : 'months');
+    const unit = frequency === 'DAILY' ? 'days' : (frequency === 'WEEKLY' ? 'weeks' : (frequency === 'BIWEEKLY' ? 'bi-weekly occurrences' : 'months'));
     input.max = max;
     if (Number(input.value) > max) input.value = max;
-    const periodName = frequency === 'DAILY' ? 'day' : (frequency === 'WEEKLY' ? 'week' : 'month');
+    const periodName = frequency === 'DAILY' ? 'day' : (frequency === 'WEEKLY' ? 'week' : (frequency === 'BIWEEKLY' ? '2 weeks' : 'month'));
     document.getElementById('durationHelp').textContent = `1–${max} ${unit} (one charge/income entry each ${periodName})`;
   }
   updateDurationHelp();

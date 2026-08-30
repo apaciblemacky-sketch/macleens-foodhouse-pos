@@ -540,9 +540,9 @@ def parse_int(value, default=0):
     except (TypeError, ValueError):
         return int(default)
 
-CASH_FLOW_FREQUENCIES = ('DAILY', 'WEEKLY', 'MONTHLY')
+CASH_FLOW_FREQUENCIES = ('DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY')
 CASH_FLOW_ENTRY_TYPES = ('EXPENSE', 'INCOME')
-CASH_FLOW_MAX_DURATION = {'DAILY': 730, 'WEEKLY': 104, 'MONTHLY': 24}
+CASH_FLOW_MAX_DURATION = {'DAILY': 730, 'WEEKLY': 104, 'BIWEEKLY': 52, 'MONTHLY': 24}
 CASH_FLOW_COGS_RATE = 0.60
 
 
@@ -566,6 +566,8 @@ def cashflow_plan_end_date(plan):
         return start + timedelta(days=count - 1)
     if plan.frequency == 'WEEKLY':
         return start + timedelta(weeks=count - 1)
+    if plan.frequency == 'BIWEEKLY':
+        return start + timedelta(weeks=2 * (count - 1))
     return cashflow_add_months(start, count - 1)
 
 
@@ -580,6 +582,8 @@ def cashflow_occurrence_dates(plan, window_start, window_end_exclusive):
             occurrence = plan.start_date + timedelta(days=index)
         elif plan.frequency == 'WEEKLY':
             occurrence = plan.start_date + timedelta(weeks=index)
+        elif plan.frequency == 'BIWEEKLY':
+            occurrence = plan.start_date + timedelta(weeks=2 * index)
         else:
             occurrence = cashflow_add_months(plan.start_date, index)
 
@@ -2463,6 +2467,38 @@ def cash_flow_portal():
         daily_vault_sales[day] = daily_vault_sales.get(day, 0.0) + amount
         daily_sales[day] = daily_sales.get(day, 0.0) + amount
 
+    # Build the forecast average from every recorded ACTUAL sales day up to today.
+    # A day is counted in the average only when it has positive recorded sales; blank
+    # days are intentionally excluded because those are the days this projection fills.
+    # This keeps the projection based on real selling days instead of treating missing
+    # records as zero sales. Vault Drops remain part of actual sales by project policy.
+    _, history_end_utc = cashflow_utc_bounds(today, today + timedelta(days=1))
+    historical_orders = Order.query.filter(
+        Order.status == 'COMPLETED',
+        Order.created_at < history_end_utc,
+    ).all()
+    historical_vault_drops = VaultDrop.query.filter(
+        VaultDrop.created_at < history_end_utc,
+    ).all()
+    historical_daily_sales = {}
+    for order in historical_orders:
+        day = utc_naive_to_ph(order.created_at).date()
+        amount = max(0.0, parse_float(order.total_amount, 0.0))
+        historical_daily_sales[day] = historical_daily_sales.get(day, 0.0) + amount
+    for drop in historical_vault_drops:
+        day = utc_naive_to_ph(drop.created_at).date()
+        amount = max(0.0, parse_float(drop.amount, 0.0))
+        historical_daily_sales[day] = historical_daily_sales.get(day, 0.0) + amount
+
+    actual_sales_days = [amount for amount in historical_daily_sales.values() if amount > 0]
+    average_daily_sales = (sum(actual_sales_days) / len(actual_sales_days)) if actual_sales_days else 0.0
+
+    def cashflow_sales_for_day(day):
+        actual = max(0.0, parse_float(daily_sales.get(day), 0.0))
+        if actual > 0:
+            return actual, False
+        return average_daily_sales, True
+
     plans = CashFlowPlan.query.order_by(CashFlowPlan.entry_type.asc(), CashFlowPlan.start_date.asc(), CashFlowPlan.id.asc()).all()
     daily_income = {}
     daily_expenses = {}
@@ -2490,8 +2526,17 @@ def cash_flow_portal():
         next_month = cashflow_add_months(month_start, 1)
         cursor = month_start
         sales = extra_income = expenses = 0.0
+        actual_sales_total = projected_sales_total = 0.0
+        actual_days = projected_days = 0
         while cursor < next_month:
-            sales += daily_sales.get(cursor, 0.0)
+            day_sales, is_projected = cashflow_sales_for_day(cursor)
+            sales += day_sales
+            if is_projected:
+                projected_sales_total += day_sales
+                projected_days += 1
+            else:
+                actual_sales_total += day_sales
+                actual_days += 1
             extra_income += daily_income.get(cursor, 0.0)
             expenses += daily_expenses.get(cursor, 0.0)
             cursor += timedelta(days=1)
@@ -2505,6 +2550,10 @@ def cash_flow_portal():
             'month_key': month_start.strftime('%Y-%m'),
             'month_label': month_start.strftime('%B %Y'),
             'sales': sales,
+            'actual_sales': actual_sales_total,
+            'projected_sales': projected_sales_total,
+            'actual_days': actual_days,
+            'projected_days': projected_days,
             'cogs': cogs,
             'gross_profit': gross_profit,
             'income': extra_income,
@@ -2537,7 +2586,7 @@ def cash_flow_portal():
     cursor = detail_month
     detail_end = cashflow_add_months(detail_month, 1)
     while cursor < detail_end:
-        sales = daily_sales.get(cursor, 0.0)
+        sales, is_projected = cashflow_sales_for_day(cursor)
         cogs = sales * CASH_FLOW_COGS_RATE
         extra_income = daily_income.get(cursor, 0.0)
         expenses = daily_expenses.get(cursor, 0.0)
@@ -2546,6 +2595,7 @@ def cash_flow_portal():
             'order_sales': daily_order_sales.get(cursor, 0.0),
             'vault_sales': daily_vault_sales.get(cursor, 0.0),
             'sales': sales,
+            'is_projected': is_projected,
             'cogs': cogs,
             'income': extra_income,
             'expenses': expenses,
@@ -2579,6 +2629,8 @@ def cash_flow_portal():
         plans=plans,
         edit_plan=edit_plan,
         cogs_rate=CASH_FLOW_COGS_RATE,
+        average_daily_sales=average_daily_sales,
+        average_sales_day_count=len(actual_sales_days),
         max_duration=CASH_FLOW_MAX_DURATION,
         active_expense_total=active_expense_total,
         active_income_total=active_income_total,
@@ -2609,11 +2661,11 @@ def cash_flow_plan_save():
         flash('Amount must be greater than ₱0.00.', 'error')
         return redirect(url_for('cash_flow_portal'))
     if frequency not in CASH_FLOW_FREQUENCIES:
-        flash('Frequency must be Daily, Weekly, or Monthly.', 'error')
+        flash('Frequency must be Daily, Weekly, Bi-weekly, or Monthly.', 'error')
         return redirect(url_for('cash_flow_portal'))
     max_count = CASH_FLOW_MAX_DURATION[frequency]
     if duration_count < 1 or duration_count > max_count:
-        unit = {'DAILY': 'days', 'WEEKLY': 'weeks', 'MONTHLY': 'months'}[frequency]
+        unit = {'DAILY': 'days', 'WEEKLY': 'weeks', 'BIWEEKLY': 'bi-weekly periods', 'MONTHLY': 'months'}[frequency]
         flash(f'Duration must be between 1 and {max_count} {unit}.', 'error')
         return redirect(url_for('cash_flow_portal'))
     try:

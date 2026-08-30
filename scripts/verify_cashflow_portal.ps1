@@ -6,7 +6,9 @@ $checks = @(
     @{ Name = "Cash-flow alias"; Path = ".\app.py"; Pattern = "@app.route\('/admin/cashflow'\)" },
     @{ Name = "Cash-flow model"; Path = ".\app.py"; Pattern = "class CashFlowPlan" },
     @{ Name = "60% COGS rule"; Path = ".\app.py"; Pattern = "CASH_FLOW_COGS_RATE = 0.60" },
-    @{ Name = "Admin Cash Flow button"; Path = ".\templates\admin.html"; Pattern = "2-Year Cash Flow" }
+    @{ Name = "Admin Cash Flow button"; Path = ".\templates\admin.html"; Pattern = "2-Year Cash Flow" },
+    @{ Name = "Bi-weekly frequency backend"; Path = ".\app.py"; Pattern = "BIWEEKLY" },
+    @{ Name = "Bi-weekly frequency UI"; Path = ".\templates\cash_flow_portal.html"; Pattern = "Bi-weekly \(Every 2 Weeks\)" }
 )
 
 $failed = $false
