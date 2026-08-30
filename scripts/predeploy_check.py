@@ -253,21 +253,36 @@ def main() -> int:
     ]
     missing_cashflow = [marker for marker in cashflow_markers if marker not in source]
     if missing_cashflow:
-        fail("2-year cash-flow portal safeguards are missing: " + ", ".join(missing_cashflow))
-    if "cash_flow_portal" not in admin_template or "2-Year Cash Flow" not in admin_template:
-        fail("admin header is missing the 2-Year Cash Flow portal button")
-    ok("admin header links to the 2-year cash-flow portal")
+        fail("cash-flow portal safeguards are missing: " + ", ".join(missing_cashflow))
+    if "cash_flow_portal" not in admin_template or "Cash Flow Manager" not in admin_template:
+        fail("admin header is missing the Cash Flow Manager portal button")
+    ok("admin header links to the cash-flow portal")
 
     cashflow_template = TEMPLATES / "cash_flow_portal.html"
     if not cashflow_template.exists():
         fail("templates/cash_flow_portal.html is missing")
     cashflow_html = cashflow_template.read_text(encoding="utf-8")
-    for marker in ["24-Month Cash-Flow Summary", "COGS @ 60%", "Additional Income", "Duration / Occurrences"]:
+    for marker in ["horizon_months", "COGS @ 60%", "Additional Income", "Duration / Occurrences", "Planning Duration (Years)"]:
         if marker not in cashflow_html:
             fail(f"cash-flow portal UI is missing: {marker}")
     if "BIWEEKLY" not in source or "Bi-weekly (Every 2 Weeks)" not in cashflow_html:
         fail("cash-flow portal is missing Bi-weekly (every 2 weeks) recurrence")
     ok("cash-flow Bi-weekly recurrence is present")
+
+    horizon_markers = [
+        "CASH_FLOW_MAX_HORIZON_YEARS = 20",
+        "horizon_years =",
+        "horizon_months = horizon_years * 12",
+        "for month_index in range(horizon_months)",
+        "duration_count=0 means indefinite",
+    ]
+    missing_horizon = [marker for marker in horizon_markers if marker not in source]
+    if missing_horizon:
+        fail("cash-flow extended horizon/indefinite recurrence is missing: " + ", ".join(missing_horizon))
+    for marker in ["Indefinite / No End Date", "INDEFINITE", "No end date", "max_horizon_years"]:
+        if marker not in cashflow_html:
+            fail(f"cash-flow extended horizon/indefinite UI is missing: {marker}")
+    ok("cash-flow supports 1-20 year horizons and indefinite recurring income/expenses")
 
     projection_markers = [
         "average_daily_sales =",
@@ -309,7 +324,7 @@ def main() -> int:
         fail(f"cash-flow daily table should render 9 cells per row, found {daily_section.count('<td')}")
     ok("cash-flow daily detail uses only valid daily-row fields")
 
-    ok("2-year cash-flow portal and automatic 60% COGS rule are present")
+    ok("flexible-horizon cash-flow portal and automatic 60% COGS rule are present")
 
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0

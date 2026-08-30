@@ -1,6 +1,6 @@
 # Cash Flow Specific Sales Start Date Update
 
-The 2-Year Cash Flow portal now lets Admin choose a starting date whenever **Use Specific Daily Sales Amount** is selected.
+The Cash Flow portal now lets Admin choose a starting date whenever **Use Specific Daily Sales Amount** is selected.
 
 Behavior:
 - Actual recorded sales always override projections.

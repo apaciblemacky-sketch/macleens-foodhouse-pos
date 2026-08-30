@@ -1,6 +1,6 @@
 # Cash Flow Average Daily Sales Projection Update
 
-The 2-Year Cash Flow Manager now automatically fills every blank sales day with an average daily sales projection.
+The Cash Flow Manager now automatically fills every blank sales day with an average daily sales projection.
 
 ## Average basis
 - The average uses every recorded day with positive actual sales up to the current Philippine date.

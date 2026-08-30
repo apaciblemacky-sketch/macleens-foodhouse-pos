@@ -230,9 +230,9 @@ class CashFlowPlan(db.Model):
     entry_type = db.Column(db.String(20), nullable=False)  # EXPENSE or INCOME
     title = db.Column(db.String(150), nullable=False)
     amount = db.Column(db.Float, nullable=False)
-    frequency = db.Column(db.String(20), nullable=False)  # DAILY, WEEKLY, MONTHLY
+    frequency = db.Column(db.String(20), nullable=False)  # DAILY, WEEKLY, BIWEEKLY, MONTHLY
     start_date = db.Column(db.Date, nullable=False)
-    duration_count = db.Column(db.Integer, nullable=False, default=1)
+    duration_count = db.Column(db.Integer, nullable=False, default=1)  # 0 means indefinite recurrence
     category = db.Column(db.String(80), nullable=True)
     notes = db.Column(db.String(255), nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
@@ -542,7 +542,9 @@ def parse_int(value, default=0):
 
 CASH_FLOW_FREQUENCIES = ('DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY')
 CASH_FLOW_ENTRY_TYPES = ('EXPENSE', 'INCOME')
-CASH_FLOW_MAX_DURATION = {'DAILY': 730, 'WEEKLY': 104, 'BIWEEKLY': 52, 'MONTHLY': 24}
+CASH_FLOW_DEFAULT_HORIZON_YEARS = 2
+CASH_FLOW_MAX_HORIZON_YEARS = 20
+CASH_FLOW_MAX_DURATION = {'DAILY': 7320, 'WEEKLY': 1060, 'BIWEEKLY': 540, 'MONTHLY': 240}
 CASH_FLOW_COGS_RATE = 0.60
 
 
@@ -560,7 +562,10 @@ def cashflow_add_months(value, months):
 
 
 def cashflow_plan_end_date(plan):
-    count = max(1, parse_int(getattr(plan, 'duration_count', 1), 1))
+    count = parse_int(getattr(plan, 'duration_count', 1), 1)
+    if count == 0:
+        return None
+    count = max(1, count)
     start = plan.start_date
     if plan.frequency == 'DAILY':
         return start + timedelta(days=count - 1)
@@ -572,12 +577,14 @@ def cashflow_plan_end_date(plan):
 
 
 def cashflow_occurrence_dates(plan, window_start, window_end_exclusive):
-    """Yield scheduled dates for a recurring cash-flow plan inside a date window."""
-    count = max(0, parse_int(getattr(plan, 'duration_count', 0), 0))
-    if count <= 0 or plan.frequency not in CASH_FLOW_FREQUENCIES:
+    """Yield scheduled dates inside a window. duration_count=0 means indefinite."""
+    count = parse_int(getattr(plan, 'duration_count', 0), 0)
+    if count < 0 or plan.frequency not in CASH_FLOW_FREQUENCIES:
         return
 
-    for index in range(count):
+    indefinite = count == 0
+    index = 0
+    while indefinite or index < count:
         if plan.frequency == 'DAILY':
             occurrence = plan.start_date + timedelta(days=index)
         elif plan.frequency == 'WEEKLY':
@@ -591,6 +598,7 @@ def cashflow_occurrence_dates(plan, window_start, window_end_exclusive):
             break
         if occurrence >= window_start:
             yield occurrence
+        index += 1
 
 
 def cashflow_utc_bounds(start_day, end_day_exclusive):
@@ -2420,7 +2428,7 @@ def update_operating_hours():
         return redirect(url_for('cashier_terminal'))
     return redirect(url_for('admin_dashboard'))
 
-# ==================== 2-YEAR CASH FLOW PORTAL ====================
+# ==================== FLEXIBLE-HORIZON CASH FLOW PORTAL ====================
 
 @app.route('/admin/cash-flow')
 @app.route('/admin/cashflow')
@@ -2437,7 +2445,10 @@ def cash_flow_portal():
     except (ValueError, IndexError):
         period_start = date(today.year, today.month, 1)
 
-    period_end = cashflow_add_months(period_start, 24)
+    horizon_years = parse_int(request.args.get('years'), CASH_FLOW_DEFAULT_HORIZON_YEARS)
+    horizon_years = max(1, min(CASH_FLOW_MAX_HORIZON_YEARS, horizon_years))
+    horizon_months = horizon_years * 12
+    period_end = cashflow_add_months(period_start, horizon_months)
     utc_start, utc_end = cashflow_utc_bounds(period_start, period_end)
 
     # Sales follow Macleen's existing accounting rule: completed POS orders plus Vault Drops.
@@ -2512,7 +2523,7 @@ def cash_flow_portal():
     except (TypeError, ValueError):
         # Backward compatibility for installs that used manual projection before this
         # start-date control existed: preserve the old behavior by starting at the
-        # beginning of the currently viewed 24-month cash-flow period.
+        # beginning of the currently viewed cash-flow period.
         manual_start_date = period_start
 
     actual_sales_entries = sorted(
@@ -2544,7 +2555,7 @@ def cash_flow_portal():
             return actual, False, 'ACTUAL'
         # A manually specified daily sales amount only takes effect on/after its
         # chosen start date. Blank days before that date continue using the chosen
-        # actual-sales average so the two-year cash-flow remains fully populated.
+        # actual-sales average so the selected cash-flow horizon remains fully populated.
         if projection_mode == 'MANUAL' and day >= manual_start_date:
             return manual_daily_sales, True, 'SPECIFIC PROJECTION'
         return average_daily_sales, True, 'AVG PROJECTION'
@@ -2571,7 +2582,7 @@ def cash_flow_portal():
         'net': 0.0,
     }
 
-    for month_index in range(24):
+    for month_index in range(horizon_months):
         month_start = cashflow_add_months(period_start, month_index)
         next_month = cashflow_add_months(month_start, 1)
         cursor = month_start
@@ -2659,13 +2670,17 @@ def cash_flow_portal():
     if edit_id:
         edit_plan = CashFlowPlan.query.get(edit_id)
 
+    def plan_occurrences_in_view(plan):
+        return sum(1 for _ in cashflow_occurrence_dates(plan, period_start, period_end))
+
+    def plan_window_total(plan):
+        return max(0.0, parse_float(plan.amount, 0.0)) * plan_occurrences_in_view(plan)
+
     active_expense_total = sum(
-        max(0.0, parse_float(p.amount, 0.0)) * max(0, parse_int(p.duration_count, 0))
-        for p in plans if p.is_active and p.entry_type == 'EXPENSE'
+        plan_window_total(p) for p in plans if p.is_active and p.entry_type == 'EXPENSE'
     )
     active_income_total = sum(
-        max(0.0, parse_float(p.amount, 0.0)) * max(0, parse_int(p.duration_count, 0))
-        for p in plans if p.is_active and p.entry_type == 'INCOME'
+        plan_window_total(p) for p in plans if p.is_active and p.entry_type == 'INCOME'
     )
 
     return render_template(
@@ -2673,6 +2688,9 @@ def cash_flow_portal():
         period_start=period_start,
         period_end=period_end,
         period_last_day=period_end - timedelta(days=1),
+        horizon_years=horizon_years,
+        horizon_months=horizon_months,
+        max_horizon_years=CASH_FLOW_MAX_HORIZON_YEARS,
         monthly_rows=monthly_rows,
         daily_rows=daily_rows,
         detail_month=detail_month,
@@ -2695,6 +2713,8 @@ def cash_flow_portal():
         active_expense_total=active_expense_total,
         active_income_total=active_income_total,
         plan_end_date=cashflow_plan_end_date,
+        plan_occurrences_in_view=plan_occurrences_in_view,
+        plan_window_total=plan_window_total,
     )
 
 
@@ -2707,27 +2727,28 @@ def cash_flow_projection_save():
     manual_start_raw = request.form.get('manual_start_date', '').strip()
     view_start = request.form.get('view_start', '').strip()
     view_month = request.form.get('view_month', '').strip()
+    view_years = request.form.get('view_years', '').strip()
 
     if projection_mode not in ('AVERAGE', 'MANUAL'):
         flash('Choose Actual Sales Average or Specific Daily Sales Amount.', 'error')
-        return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
+        return redirect(url_for('cash_flow_portal', start=view_start, month=view_month, years=view_years))
     if average_window not in ('3', '7', '15', '30', 'LIFETIME'):
         flash('Average range must be 3, 7, 15, 30 actual sales days, or Lifetime.', 'error')
-        return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
+        return redirect(url_for('cash_flow_portal', start=view_start, month=view_month, years=view_years))
     if manual_daily_sales < 0 or manual_daily_sales > 100000000:
         flash('Specific daily sales amount must be between ₱0.00 and ₱100,000,000.00.', 'error')
-        return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
+        return redirect(url_for('cash_flow_portal', start=view_start, month=view_month, years=view_years))
 
     existing_manual_start = StoreSetting.query.filter_by(key='cashflow_manual_start_date').first()
     if projection_mode == 'MANUAL':
         if not manual_start_raw:
             flash('Choose the starting date for the specific daily sales amount.', 'error')
-            return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
+            return redirect(url_for('cash_flow_portal', start=view_start, month=view_month, years=view_years))
         try:
             manual_start_date = datetime.strptime(manual_start_raw, '%Y-%m-%d').date()
         except (TypeError, ValueError):
             flash('Specific sales starting date is invalid.', 'error')
-            return redirect(url_for('cash_flow_portal', start=view_start, month=view_month))
+            return redirect(url_for('cash_flow_portal', start=view_start, month=view_month, years=view_years))
     else:
         # Keep the last manual start date ready in case the user switches back later.
         manual_start_raw = (existing_manual_start.value if existing_manual_start else manual_start_raw).strip()
@@ -2765,6 +2786,8 @@ def cash_flow_projection_save():
         redirect_kwargs['start'] = view_start
     if view_month:
         redirect_kwargs['month'] = view_month
+    if view_years:
+        redirect_kwargs['years'] = view_years
     return redirect(url_for('cash_flow_portal', **redirect_kwargs))
 
 
@@ -2776,33 +2799,41 @@ def cash_flow_plan_save():
     title = request.form.get('title', '').strip()
     amount = parse_float(request.form.get('amount'), 0.0)
     frequency = request.form.get('frequency', '').strip().upper()
-    duration_count = parse_int(request.form.get('duration_count'), 0)
+    indefinite = request.form.get('indefinite') == 'on'
+    duration_count = 0 if indefinite else parse_int(request.form.get('duration_count'), 0)
     category = request.form.get('category', '').strip()[:80]
     notes = request.form.get('notes', '').strip()[:255]
     start_raw = request.form.get('start_date', '').strip()
+    view_start = request.form.get('view_start', '').strip()
+    view_years = request.form.get('view_years', '').strip()
+    return_kwargs = {}
+    if view_start:
+        return_kwargs['start'] = view_start
+    if view_years:
+        return_kwargs['years'] = view_years
 
     if entry_type not in CASH_FLOW_ENTRY_TYPES:
         flash('Choose Expense or Additional Income.', 'error')
-        return redirect(url_for('cash_flow_portal'))
+        return redirect(url_for('cash_flow_portal', **return_kwargs))
     if not title:
         flash('Please enter a title/description.', 'error')
-        return redirect(url_for('cash_flow_portal'))
+        return redirect(url_for('cash_flow_portal', **return_kwargs))
     if amount <= 0:
         flash('Amount must be greater than ₱0.00.', 'error')
-        return redirect(url_for('cash_flow_portal'))
+        return redirect(url_for('cash_flow_portal', **return_kwargs))
     if frequency not in CASH_FLOW_FREQUENCIES:
         flash('Frequency must be Daily, Weekly, Bi-weekly, or Monthly.', 'error')
-        return redirect(url_for('cash_flow_portal'))
+        return redirect(url_for('cash_flow_portal', **return_kwargs))
     max_count = CASH_FLOW_MAX_DURATION[frequency]
-    if duration_count < 1 or duration_count > max_count:
+    if not indefinite and (duration_count < 1 or duration_count > max_count):
         unit = {'DAILY': 'days', 'WEEKLY': 'weeks', 'BIWEEKLY': 'bi-weekly periods', 'MONTHLY': 'months'}[frequency]
-        flash(f'Duration must be between 1 and {max_count} {unit}.', 'error')
-        return redirect(url_for('cash_flow_portal'))
+        flash(f'Duration must be between 1 and {max_count} {unit}, or choose Indefinite.', 'error')
+        return redirect(url_for('cash_flow_portal', **return_kwargs))
     try:
         start_date = date.fromisoformat(start_raw)
     except ValueError:
         flash('Please choose a valid start date.', 'error')
-        return redirect(url_for('cash_flow_portal'))
+        return redirect(url_for('cash_flow_portal', **return_kwargs))
 
     if plan_id:
         plan = CashFlowPlan.query.get_or_404(plan_id)
@@ -2823,8 +2854,7 @@ def cash_flow_plan_save():
 
     action = 'updated' if plan_id else 'added'
     flash(f'Cash-flow {entry_type.lower()} schedule {action}.', 'success')
-    view_start = request.form.get('view_start', '').strip()
-    return redirect(url_for('cash_flow_portal', start=view_start) if view_start else url_for('cash_flow_portal'))
+    return redirect(url_for('cash_flow_portal', **return_kwargs))
 
 
 @app.route('/admin/cash-flow/plan/<int:plan_id>/toggle', methods=['POST'])
@@ -2835,7 +2865,13 @@ def cash_flow_plan_toggle(plan_id):
     db.session.commit()
     flash(f"'{plan.title}' is now {'active' if plan.is_active else 'paused'}.", 'success')
     view_start = request.form.get('view_start', '').strip()
-    return redirect(url_for('cash_flow_portal', start=view_start) if view_start else url_for('cash_flow_portal'))
+    view_years = request.form.get('view_years', '').strip()
+    kwargs = {}
+    if view_start:
+        kwargs['start'] = view_start
+    if view_years:
+        kwargs['years'] = view_years
+    return redirect(url_for('cash_flow_portal', **kwargs))
 
 
 @app.route('/admin/cash-flow/plan/<int:plan_id>/delete', methods=['POST'])
@@ -2847,7 +2883,13 @@ def cash_flow_plan_delete(plan_id):
     db.session.commit()
     flash(f"Cash-flow schedule '{label}' deleted.", 'info')
     view_start = request.form.get('view_start', '').strip()
-    return redirect(url_for('cash_flow_portal', start=view_start) if view_start else url_for('cash_flow_portal'))
+    view_years = request.form.get('view_years', '').strip()
+    kwargs = {}
+    if view_start:
+        kwargs['start'] = view_start
+    if view_years:
+        kwargs['years'] = view_years
+    return redirect(url_for('cash_flow_portal', **kwargs))
 
 
 # ==================== MASTER ADMIN, CONTROLS & SETTINGS ====================

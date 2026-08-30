@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Macleen's Food House — 2-Year Cash Flow</title>
+  <title>Macleen's Food House — Cash Flow Manager</title>
   <style>
     :root {
       --pink:#ff69b4; --dark:#831843; --border:#fbcfe8; --bg:#fff5f9;
@@ -58,8 +58,8 @@
     <div style="display:flex;align-items:center;gap:10px;">
       <img src="{{ store_logo }}" alt="Logo" style="width:50px;height:50px;border-radius:50%;object-fit:cover;border:2px solid var(--pink);">
       <div>
-        <h1>💵 2-Year Cash Flow Manager</h1>
-        <p>{{ period_start.strftime('%b %Y') }} to {{ period_last_day.strftime('%b %Y') }} · 24 calendar months</p>
+        <h1>💵 Cash Flow Manager</h1>
+        <p>{{ period_start.strftime('%b %Y') }} to {{ period_last_day.strftime('%b %Y') }} · {{ horizon_years }} year{{ '' if horizon_years == 1 else 's' }} / {{ horizon_months }} calendar months</p>
       </div>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -84,14 +84,18 @@
     <div class="section-title">
       <div>
         <h2>📆 Cash-Flow Window</h2>
-        <p>Choose the first month. The portal always displays the next 24 months.</p>
+        <p>Choose the first month and how many years you want to project. You can view from 1 up to {{ max_horizon_years }} years.</p>
       </div>
       <form method="get" class="inline-form">
         <div class="field">
           <label>Start Month</label>
           <input class="control" type="month" name="start" value="{{ period_start.strftime('%Y-%m') }}">
         </div>
-        <button class="btn btn-pink" type="submit">Load 2 Years</button>
+        <div class="field">
+          <label>Planning Duration (Years)</label>
+          <input class="control" type="number" name="years" min="1" max="{{ max_horizon_years }}" step="1" value="{{ horizon_years }}">
+        </div>
+        <button class="btn btn-pink" type="submit">Load Cash Flow</button>
       </form>
     </div>
   </div>
@@ -110,6 +114,7 @@
         <input type="hidden" name="manual_start_date" value="{{ manual_start_date.strftime('%Y-%m-%d') }}">
         <input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}">
         <input type="hidden" name="view_month" value="{{ detail_month.strftime('%Y-%m') }}">
+        <input type="hidden" name="view_years" value="{{ horizon_years }}">
         <button class="btn btn-green" type="submit">↩ Use Average Again</button>
       </form>
       {% endif %}
@@ -117,6 +122,7 @@
     <form method="post" action="{{ url_for('cash_flow_projection_save') }}">
       <input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}">
       <input type="hidden" name="view_month" value="{{ detail_month.strftime('%Y-%m') }}">
+        <input type="hidden" name="view_years" value="{{ horizon_years }}">
       <div class="form-grid">
         <div class="field">
           <label>Projection Method</label>
@@ -160,7 +166,7 @@
   <div class="summary">
     <div class="metric"><div class="label">Projection Used for Blank Days</div><div class="value" style="color:var(--purple);">₱{{ "{:,.2f}".format(projection_daily_sales) }}</div><div class="small">{{ projection_source_label }}{% if projection_mode == 'MANUAL' %} · average is used before the start date{% endif %}</div></div>
     <div class="metric"><div class="label">Calculated Daily Average</div><div class="value" style="color:#6d28d9;">₱{{ "{:,.2f}".format(average_daily_sales) }}</div><div class="small">{{ average_window_label }} · {{ average_sales_day_count }} actual day{{ '' if average_sales_day_count == 1 else 's' }}</div></div>
-    <div class="metric"><div class="label">2-Year Sales (Actual + Projected)</div><div class="value" style="color:var(--green);">₱{{ "{:,.2f}".format(totals.sales) }}</div></div>
+    <div class="metric"><div class="label">{{ horizon_years }}-Year Sales (Actual + Projected)</div><div class="value" style="color:var(--green);">₱{{ "{:,.2f}".format(totals.sales) }}</div></div>
     <div class="metric"><div class="label">COGS @ 60%</div><div class="value" style="color:var(--red);">₱{{ "{:,.2f}".format(totals.cogs) }}</div></div>
     <div class="metric"><div class="label">Gross Profit</div><div class="value" style="color:var(--blue);">₱{{ "{:,.2f}".format(totals.gross_profit) }}</div></div>
     <div class="metric"><div class="label">Additional Income</div><div class="value" style="color:var(--green);">₱{{ "{:,.2f}".format(totals.income) }}</div></div>
@@ -174,13 +180,14 @@
         <div class="section-title">
           <div>
             <h2>{% if edit_plan %}✏️ Edit Cash-Flow Schedule{% else %}➕ Add Cash-Flow Schedule{% endif %}</h2>
-            <p>Duration means number of occurrences: 30 daily = 30 days, 8 weekly = 8 weeks, 6 bi-weekly = every 14 days for 6 occurrences, 12 monthly = 12 months.</p>
+            <p>Choose a fixed number of occurrences or select <strong>Indefinite</strong> to keep the income/expense recurring with no end date. Indefinite rules are calculated only through the planning window you are viewing.</p>
           </div>
-          {% if edit_plan %}<a href="{{ url_for('cash_flow_portal') }}#entry-form" class="btn btn-blue">Cancel Edit</a>{% endif %}
+          {% if edit_plan %}<a href="{{ url_for('cash_flow_portal', start=period_start.strftime('%Y-%m'), years=horizon_years) }}#entry-form" class="btn btn-blue">Cancel Edit</a>{% endif %}
         </div>
         <form method="post" action="{{ url_for('cash_flow_plan_save') }}">
           <input type="hidden" name="plan_id" value="{{ edit_plan.id if edit_plan else '' }}">
           <input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}">
+          <input type="hidden" name="view_years" value="{{ horizon_years }}">
           <div class="form-grid">
             <div class="field">
               <label>Type</label>
@@ -209,7 +216,11 @@
             </div>
             <div class="field">
               <label>Duration / Occurrences</label>
-              <input class="control" id="duration_count" type="number" name="duration_count" min="1" required value="{{ edit_plan.duration_count if edit_plan else 12 }}">
+              <label style="display:flex;align-items:center;gap:7px;margin:0 0 7px;font-weight:800;color:#7e22ce;">
+                <input type="checkbox" id="indefinite" name="indefinite" onchange="updateDurationHelp()" {% if edit_plan and edit_plan.duration_count == 0 %}checked{% endif %}>
+                Indefinite / No End Date
+              </label>
+              <input class="control" id="duration_count" type="number" name="duration_count" min="1" value="{{ edit_plan.duration_count if edit_plan and edit_plan.duration_count > 0 else 12 }}">
               <div id="durationHelp" class="small"></div>
             </div>
             <div class="field">
@@ -228,10 +239,11 @@
           <button class="btn btn-pink" type="submit" style="margin-top:10px;width:100%;">{% if edit_plan %}Save Changes{% else %}Add Schedule{% endif %}</button>
         </form>
         <div class="formula">
-          <div>Daily: max {{ max_duration.DAILY }} days</div>
-          <div>Weekly: max {{ max_duration.WEEKLY }} weeks</div>
-          <div>Bi-weekly: max {{ max_duration.BIWEEKLY }} occurrences (every 14 days)</div>
-          <div>Monthly: max {{ max_duration.MONTHLY }} months</div>
+          <div>Finite Daily: max {{ max_duration.DAILY }} days</div>
+          <div>Finite Weekly: max {{ max_duration.WEEKLY }} weeks</div>
+          <div>Finite Bi-weekly: max {{ max_duration.BIWEEKLY }} occurrences</div>
+          <div>Finite Monthly: max {{ max_duration.MONTHLY }} months</div>
+          <div><strong>Indefinite:</strong> no end date; continues for as long as the rule remains active.</div>
         </div>
       </div>
 
@@ -239,11 +251,11 @@
         <div class="section-title">
           <div>
             <h2>🧾 Recurring Income & Expense Rules</h2>
-            <p>Pause a rule without deleting it, or edit the amount/frequency/duration.</p>
+            <p>Pause a rule without deleting it, or edit the amount/frequency/duration. Indefinite rules keep recurring until you pause, edit, or delete them.</p>
           </div>
         </div>
         <div style="font-size:.76rem;margin-bottom:10px;color:var(--muted);">
-          Active scheduled commitments: <strong style="color:var(--green)">+₱{{ "{:,.2f}".format(active_income_total) }}</strong> income · <strong style="color:var(--red)">−₱{{ "{:,.2f}".format(active_expense_total) }}</strong> expenses
+          Active scheduled amounts within this {{ horizon_years }}-year planning window: <strong style="color:var(--green)">+₱{{ "{:,.2f}".format(active_income_total) }}</strong> income · <strong style="color:var(--red)">−₱{{ "{:,.2f}".format(active_expense_total) }}</strong> expenses
         </div>
         <div class="table-wrap" style="max-height:500px;">
           <table class="plan-table">
@@ -259,15 +271,16 @@
                   {% if p.notes %}<div class="small">{{ p.notes }}</div>{% endif %}
                 </td>
                 <td>
-                  <strong>{{ 'Bi-weekly' if p.frequency == 'BIWEEKLY' else p.frequency.title() }}</strong> × {{ p.duration_count }}<br>
-                  <span class="small">{{ p.start_date.strftime('%d %b %Y') }} → {{ plan_end_date(p).strftime('%d %b %Y') }}</span>
+                  <strong>{{ 'Bi-weekly' if p.frequency == 'BIWEEKLY' else p.frequency.title() }}</strong>
+                  {% if p.duration_count == 0 %}<span class="pill" style="background:#ede9fe;color:#6d28d9;">INDEFINITE</span>{% else %} × {{ p.duration_count }}{% endif %}<br>
+                  <span class="small">{{ p.start_date.strftime('%d %b %Y') }} → {% if p.duration_count == 0 %}No end date{% else %}{{ plan_end_date(p).strftime('%d %b %Y') }}{% endif %}</span>
                 </td>
-                <td class="amount">₱{{ "{:,.2f}".format(p.amount) }}<br><span class="small">Total ₱{{ "{:,.2f}".format(p.amount * p.duration_count) }}</span></td>
+                <td class="amount">₱{{ "{:,.2f}".format(p.amount) }}<br>{% if p.duration_count == 0 %}<span class="small">{{ plan_occurrences_in_view(p) }} occurrence{{ '' if plan_occurrences_in_view(p) == 1 else 's' }} in this view · ₱{{ "{:,.2f}".format(plan_window_total(p)) }}</span>{% else %}<span class="small">Full schedule ₱{{ "{:,.2f}".format(p.amount * p.duration_count) }}</span>{% endif %}</td>
                 <td>
                   <div class="actions">
-                    <a class="btn btn-blue" href="{{ url_for('cash_flow_portal', start=period_start.strftime('%Y-%m'), edit=p.id) }}#entry-form">Edit</a>
-                    <form method="post" action="{{ url_for('cash_flow_plan_toggle', plan_id=p.id) }}"><input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}"><button class="btn {{ 'btn-red' if p.is_active else 'btn-green' }}" type="submit">{{ 'Pause' if p.is_active else 'Resume' }}</button></form>
-                    <form method="post" action="{{ url_for('cash_flow_plan_delete', plan_id=p.id) }}" onsubmit="return confirm('Delete this cash-flow schedule?');"><input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}"><button class="btn btn-red" type="submit">Delete</button></form>
+                    <a class="btn btn-blue" href="{{ url_for('cash_flow_portal', start=period_start.strftime('%Y-%m'), years=horizon_years, edit=p.id) }}#entry-form">Edit</a>
+                    <form method="post" action="{{ url_for('cash_flow_plan_toggle', plan_id=p.id) }}"><input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}"><input type="hidden" name="view_years" value="{{ horizon_years }}"><button class="btn {{ 'btn-red' if p.is_active else 'btn-green' }}" type="submit">{{ 'Pause' if p.is_active else 'Resume' }}</button></form>
+                    <form method="post" action="{{ url_for('cash_flow_plan_delete', plan_id=p.id) }}" onsubmit="return confirm('Delete this cash-flow schedule?');"><input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}"><input type="hidden" name="view_years" value="{{ horizon_years }}"><button class="btn btn-red" type="submit">Delete</button></form>
                   </div>
                 </td>
               </tr>
@@ -284,7 +297,7 @@
       <div class="card">
         <div class="section-title">
           <div>
-            <h2>📊 24-Month Cash-Flow Summary</h2>
+            <h2>📊 {{ horizon_months }}-Month Cash-Flow Summary</h2>
             <p>Actual sales are preserved; blank days use ₱{{ "{:,.2f}".format(projection_daily_sales) }} from {{ projection_source_label }}. Net = Sales + Additional Income − 60% COGS − Scheduled Expenses.</p>
           </div>
         </div>
@@ -296,7 +309,7 @@
             <tbody>
               {% for row in monthly_rows %}
               <tr>
-                <td><a href="{{ url_for('cash_flow_portal', start=period_start.strftime('%Y-%m'), month=row.month_key) }}#daily-detail" style="color:var(--dark);font-weight:900;text-decoration:none;">{{ row.month_label }}</a></td>
+                <td><a href="{{ url_for('cash_flow_portal', start=period_start.strftime('%Y-%m'), years=horizon_years, month=row.month_key) }}#daily-detail" style="color:var(--dark);font-weight:900;text-decoration:none;">{{ row.month_label }}</a></td>
                 <td class="positive">₱{{ "{:,.2f}".format(row.sales) }}</td>
                 <td><span style="color:var(--green);font-weight:800;">A ₱{{ "{:,.2f}".format(row.actual_sales) }}</span><br><span class="small">{{ row.actual_days }} actual day{{ '' if row.actual_days == 1 else 's' }}</span><br><span style="color:var(--purple);font-weight:800;">P ₱{{ "{:,.2f}".format(row.projected_sales) }}</span><br><span class="small">{{ row.projected_days }} projected day{{ '' if row.projected_days == 1 else 's' }}</span></td>
                 <td style="color:var(--red);">₱{{ "{:,.2f}".format(row.cogs) }}</td>
@@ -320,6 +333,7 @@
           </div>
           <form method="get" class="inline-form">
             <input type="hidden" name="start" value="{{ period_start.strftime('%Y-%m') }}">
+            <input type="hidden" name="years" value="{{ horizon_years }}">
             <div class="field">
               <label>View Month</label>
               <select class="control" name="month" onchange="this.form.submit()">
@@ -371,12 +385,21 @@
   function updateDurationHelp(){
     const frequency = document.getElementById('frequency').value;
     const input = document.getElementById('duration_count');
+    const indefinite = document.getElementById('indefinite');
     const max = maxDurations[frequency];
-    const unit = frequency === 'DAILY' ? 'days' : (frequency === 'WEEKLY' ? 'weeks' : (frequency === 'BIWEEKLY' ? 'bi-weekly occurrences' : 'months'));
+    const periodName = frequency === 'DAILY' ? 'day' : (frequency === 'WEEKLY' ? 'week' : (frequency === 'BIWEEKLY' ? '2 weeks' : 'month'));
+    if (indefinite && indefinite.checked) {
+      input.disabled = true;
+      input.required = false;
+      document.getElementById('durationHelp').textContent = `Indefinite: repeats every ${periodName} with no end date until you pause/edit/delete the rule.`;
+      return;
+    }
+    input.disabled = false;
+    input.required = true;
     input.max = max;
     if (Number(input.value) > max) input.value = max;
-    const periodName = frequency === 'DAILY' ? 'day' : (frequency === 'WEEKLY' ? 'week' : (frequency === 'BIWEEKLY' ? '2 weeks' : 'month'));
-    document.getElementById('durationHelp').textContent = `1–${max} ${unit} (one charge/income entry each ${periodName})`;
+    const unit = frequency === 'DAILY' ? 'days' : (frequency === 'WEEKLY' ? 'weeks' : (frequency === 'BIWEEKLY' ? 'bi-weekly occurrences' : 'months'));
+    document.getElementById('durationHelp').textContent = `1–${max} ${unit} (one charge/income entry each ${periodName}) or choose Indefinite.`;
   }
   updateDurationHelp();
   updateProjectionFields();

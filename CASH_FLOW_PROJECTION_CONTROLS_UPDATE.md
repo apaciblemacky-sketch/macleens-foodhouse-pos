@@ -1,6 +1,6 @@
 # Cash Flow Projection Controls Update
 
-Added persistent Admin controls to the 2-Year Cash Flow portal.
+Added persistent Admin controls to the Cash Flow portal.
 
 - Blank sales days can use either a calculated actual-sales average or a specific daily sales amount.
 - Average ranges: most recent 3, 7, 15, or 30 actual positive-sales days, or Lifetime.

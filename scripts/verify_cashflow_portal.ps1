@@ -1,13 +1,15 @@
 $ErrorActionPreference = "Stop"
-Write-Host "Checking Macleen's 2-Year Cash Flow update..." -ForegroundColor Cyan
+Write-Host "Checking Macleen's Cash Flow update..." -ForegroundColor Cyan
 
 $checks = @(
     @{ Name = "Cash-flow route"; Path = ".\app.py"; Pattern = "@app.route\('/admin/cash-flow'\)" },
     @{ Name = "Cash-flow alias"; Path = ".\app.py"; Pattern = "@app.route\('/admin/cashflow'\)" },
     @{ Name = "Cash-flow model"; Path = ".\app.py"; Pattern = "class CashFlowPlan" },
     @{ Name = "60% COGS rule"; Path = ".\app.py"; Pattern = "CASH_FLOW_COGS_RATE = 0.60" },
-    @{ Name = "Admin Cash Flow button"; Path = ".\templates\admin.html"; Pattern = "2-Year Cash Flow" },
+    @{ Name = "Admin Cash Flow button"; Path = ".\templates\admin.html"; Pattern = "Cash Flow Manager" },
     @{ Name = "Bi-weekly frequency backend"; Path = ".\app.py"; Pattern = "BIWEEKLY" },
+    @{ Name = "Flexible horizon backend"; Path = ".\app.py"; Pattern = "CASH_FLOW_MAX_HORIZON_YEARS" },
+    @{ Name = "Indefinite recurrence backend"; Path = ".\app.py"; Pattern = "duration_count=0 means indefinite" },
     @{ Name = "Bi-weekly frequency UI"; Path = ".\templates\cash_flow_portal.html"; Pattern = "Bi-weekly \(Every 2 Weeks\)" }
 )
 
