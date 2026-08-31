@@ -10,12 +10,12 @@
 <body><div class="card">
   <h2 style="color:#831843;text-align:center;">🎁 Macleen's Rewards</h2>
   <p style="text-align:center;color:#6b7280;font-size:.82rem;margin-top:5px;">For walk-in customers too — no online order required.</p>
-  <div class="perk"><div>⭐ Earn Points</div><div>💡 Suggest Products</div><div>👥 Referral Rewards</div><div>🔥 Member Deals</div></div>
+  <div class="perk"><div>⭐ Earn Points</div><div>🗳️ Menu Voting</div><div>👥 Referral Rewards</div><div>🔥 Member Deals</div></div>
   {% with msgs=get_flashed_messages() %}{% if msgs %}<div style="background:#fee2e2;color:#991b1b;padding:8px;border-radius:7px;font-size:.78rem;margin-bottom:8px;">{{ msgs[0] }}</div>{% endif %}{% endwith %}
   <form method="POST">
     <input type="hidden" name="next" value="{{ next_section or '' }}">
-    <label style="font-size:.8rem;font-weight:800;">Mobile Contact Number</label>
-    <input type="text" name="contact" placeholder="09xxxxxxxxx" required>
+    <label style="font-size:.8rem;font-weight:800;">Mobile Number or Card ID</label>
+    <input type="text" name="contact" value="{{ card_hint or '' }}" placeholder="09xxxxxxxxx or MFH-0001" required>
     <label style="font-size:.8rem;font-weight:800;">4-Digit PIN</label>
     <input type="password" name="pin" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="4 digits" required>
     <button class="btn" type="submit">Open My Benefits</button>

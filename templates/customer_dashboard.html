@@ -46,6 +46,11 @@
     .secondary-order { background:#f8fafc; border-color:#e2e8f0; }
     .suggest-box { width:100%; min-height:120px; resize:vertical; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:.9rem; outline:none; background:#fff; color:#1e293b; }
     .suggest-box:focus { border-color:var(--pink); box-shadow:0 0 0 3px rgba(255,105,180,.12); }
+    .ranking-row { display:grid; grid-template-columns:34px 1fr auto; gap:8px; align-items:center; padding:8px 0; border-bottom:1px dashed #fbcfe8; }
+    .rank-no { width:30px; height:30px; border-radius:50%; background:#fdf2f8; display:flex; align-items:center; justify-content:center; color:var(--dark); font-weight:900; }
+    .vote-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px; margin-top:9px; }
+    .vote-card { border:1.5px solid #fbcfe8; border-radius:12px; padding:10px; background:#fffafd; }
+    .vote-card.voted { background:#f0fdf4; border-color:#86efac; }
   </style>
 </head>
 <body>
@@ -68,6 +73,7 @@
 
     <div class="action-grid">
       <a class="action" href="#rewards"><span>🎁</span>My Rewards</a>
+      <a class="action" href="#menuVote"><span>🗳️</span>Vote & Rankings</a>
       <a class="action" href="#suggest"><span>💡</span>Suggest a Product</a>
       <a class="action" href="#deals"><span>🔥</span>Today's Member Deals</a>
       <a class="action" href="/"><span>🛍️</span>Order / View Menu</a>
@@ -103,6 +109,39 @@
       <textarea class="suggest-box" name="suggestion" maxlength="500" required placeholder="Example: Bring back palabok, mango shake, chicken wings, corndog..."></textarea>
       <button class="btn btn-pink" type="submit" style="margin-top:8px;">SUBMIT SUGGESTION</button>
     </form>
+  </div>
+
+  <div class="card" id="menuVote">
+    <div class="section-title">🗳️ Menu Vote & Rankings</div>
+    <div class="muted">Vote for products you want to see more often or bring back. Each member can vote once per item every month. Rankings reset monthly so new favorites can rise.</div>
+
+    {% if vote_rankings %}
+      <div style="margin-top:12px;font-size:.78rem;font-weight:900;color:var(--dark);">🏆 {{ vote_period_key }} Rankings</div>
+      {% for candidate, vote_count in vote_rankings[:10] %}
+        <div class="ranking-row">
+          <div class="rank-no">{{ loop.index }}</div>
+          <div><strong>{{ candidate.name }}</strong><div class="muted">{{ candidate.category_name }}</div></div>
+          <strong style="color:var(--pink);">{{ vote_count }} vote{{ '' if vote_count == 1 else 's' }}</strong>
+        </div>
+      {% endfor %}
+    {% endif %}
+
+    {% for group in vote_candidates|groupby('category_name') %}
+      <div style="margin-top:13px;font-size:.76rem;font-weight:900;color:#831843;">{{ group.grouper }}</div>
+      <div class="vote-grid">
+        {% for candidate in group.list %}
+          <div class="vote-card {% if candidate.id in my_voted_ids %}voted{% endif %}">
+            <div style="font-weight:900;color:var(--dark);">{{ candidate.name }}</div>
+            <div class="muted" style="margin:3px 0 7px;">{{ candidate_vote_counts.get(candidate.id, 0) }} vote{{ '' if candidate_vote_counts.get(candidate.id, 0) == 1 else 's' }} this month</div>
+            {% if candidate.id in my_voted_ids %}
+              <button class="btn btn-outline" type="button" disabled>✓ Voted this month</button>
+            {% else %}
+              <form action="/portal/menu-vote/{{ candidate.id }}" method="POST"><button class="btn btn-pink" type="submit">🗳️ Vote</button></form>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endfor %}
   </div>
 
   <div class="card" id="deals">
@@ -164,11 +203,14 @@
     {% else %}<div class="muted" style="text-align:center; padding:10px;">No purchases linked to this member yet.</div>{% endif %}
   </div>
 
-  <div class="card">
-    <div class="section-title">⚙️ Account</div>
-    <form action="/portal/update-profile-pic" method="POST">
-      <input type="url" name="profile_image" value="{{ cust.profile_image or '' }}" placeholder="Optional profile image URL" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:7px; margin-bottom:7px;">
-      <button class="btn btn-soft" type="submit">Save Profile Photo URL</button>
+  <div class="card" id="account">
+    <div class="section-title">⚙️ Account & Card Photo</div>
+    <form action="/portal/update-profile-pic" method="POST" enctype="multipart/form-data">
+      <label style="display:block;font-size:.78rem;font-weight:900;color:var(--dark);margin-bottom:4px;">Upload photo from phone/gallery</label>
+      <input type="file" name="profile_photo" accept="image/png,image/jpeg,image/webp,image/gif" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:7px; margin-bottom:7px;background:white;">
+      <div class="muted" style="margin-bottom:7px;">PNG/JPG/WEBP/GIF up to 2.5 MB. This photo is also used by the Loyalty Card Printing portal.</div>
+      <input type="url" name="profile_image" placeholder="Or paste an optional photo URL" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:7px; margin-bottom:7px;">
+      <button class="btn btn-soft" type="submit">Save Profile Photo</button>
     </form>
     <a href="/portal/logout" class="btn btn-outline" style="margin-top:7px;">Log Out</a>
   </div>

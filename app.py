@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory, Response, has_request_context
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import inspect, text, UniqueConstraint
+from sqlalchemy import inspect, text, UniqueConstraint, and_
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -119,6 +119,7 @@ class Customer(db.Model):
     card_number = db.Column(db.String(20), unique=True, nullable=True)
     card_status = db.Column(db.String(20), default="ACTIVE")
     card_expires_at = db.Column(db.Date, nullable=True)
+    card_theme = db.Column(db.String(30), default="pink-classic")
     referred_by = db.Column(db.String(50), nullable=True)
     last_daily_login = db.Column(db.Date, nullable=True)
     login_streak = db.Column(db.Integer, default=1)
@@ -312,6 +313,26 @@ class MenuVote(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='CASCADE'), nullable=False)
     period_key = db.Column(db.String(20), nullable=False)
     created_at = db.Column(db.DateTime, default=utc_now)
+
+class MenuVoteCandidate(db.Model):
+    __tablename__ = 'menu_vote_candidate'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    normalized_name = db.Column(db.String(140), unique=True, nullable=False)
+    category_name = db.Column(db.String(80), nullable=False, default='Customer Requests')
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='SET NULL'), nullable=True)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class MenuPreferenceVote(db.Model):
+    __tablename__ = 'menu_preference_vote'
+    __table_args__ = (UniqueConstraint('customer_id', 'candidate_id', 'period_key', name='uq_menu_preference_vote_period'),)
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    candidate_id = db.Column(db.Integer, db.ForeignKey('menu_vote_candidate.id', ondelete='CASCADE'), nullable=False)
+    period_key = db.Column(db.String(20), nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    candidate = db.relationship('MenuVoteCandidate', backref=db.backref('preference_votes', lazy=True, cascade='all, delete-orphan'))
 
 class EngagementClaim(db.Model):
     __tablename__ = 'engagement_claim'
@@ -771,6 +792,7 @@ def run_schema_migrations():
             ('last_daily_login', 'DATE'),
             ('login_streak', 'INTEGER DEFAULT 1'),
             ('last_active_at', 'TIMESTAMP'),
+            ('card_theme', "VARCHAR(30) DEFAULT 'pink-classic'"),
         ],
         'order': [
             ('dining_option', "VARCHAR(20) DEFAULT 'DINE-IN'"),
@@ -814,6 +836,7 @@ def run_schema_migrations():
     with db.engine.begin() as conn:
         if 'customer' in tables:
             conn.execute(text("UPDATE customer SET login_streak = 1 WHERE login_streak IS NULL"))
+            conn.execute(text("UPDATE customer SET card_theme = 'pink-classic' WHERE card_theme IS NULL OR card_theme = ''"))
         if 'promotion_tracker' in tables:
             conn.execute(text("UPDATE promotion_tracker SET is_visible = TRUE WHERE is_visible IS NULL"))
             conn.execute(text("UPDATE promotion_tracker SET portal_only = FALSE WHERE portal_only IS NULL"))
@@ -849,6 +872,7 @@ def run_db_setup():
         db.session.commit()
 
         ensure_default_promos()
+        ensure_menu_vote_candidates()
         ensure_legacy_craft_catalog()
         disable_legacy_meta_connection()
         _DB_INITIALIZED = True
@@ -1277,6 +1301,143 @@ def generate_unique_card_number(customer_id=None):
         if not Customer.query.filter(db.func.lower(Customer.card_number) == candidate.lower()).first():
             return candidate
         number += 1
+
+LOYALTY_CARD_THEMES = {
+    'pink-classic': 'Classic Pink',
+    'cafe-cream': 'Café Cream',
+    'midnight-gold': 'Midnight Gold',
+    'mint-fresh': 'Mint Fresh',
+    'purple-craft': 'Purple Craft',
+}
+
+def normalize_menu_vote_name(value):
+    value = re.sub(r'[^a-z0-9]+', ' ', (value or '').lower()).strip()
+    return re.sub(r'\s+', ' ', value)
+
+def menu_vote_period_key(day=None):
+    day = day or ph_today()
+    return day.strftime('%Y-%m')
+
+def ensure_menu_vote_candidate(name, category_name='Customer Requests', product_id=None, commit=False):
+    clean_name = re.sub(r'\s+', ' ', (name or '').strip())[:120]
+    normalized = normalize_menu_vote_name(clean_name)
+    if not clean_name or not normalized:
+        return None
+    candidate = MenuVoteCandidate.query.filter_by(normalized_name=normalized).first()
+    if candidate:
+        if product_id and not candidate.product_id:
+            candidate.product_id = product_id
+        if category_name and (not candidate.category_name or candidate.category_name == 'Customer Requests'):
+            candidate.category_name = category_name[:80]
+    else:
+        candidate = MenuVoteCandidate(
+            name=clean_name,
+            normalized_name=normalized,
+            category_name=(category_name or 'Customer Requests')[:80],
+            product_id=product_id,
+            is_active=True,
+        )
+        db.session.add(candidate)
+    if commit:
+        db.session.commit()
+    return candidate
+
+def ensure_menu_vote_candidates():
+    """Keep a non-destructive voting catalog, including past favorites like Palabok."""
+    changed = False
+    if not MenuVoteCandidate.query.filter_by(normalized_name='palabok').first():
+        db.session.add(MenuVoteCandidate(
+            name='Palabok', normalized_name='palabok', category_name='Past Favorites', is_active=True
+        ))
+        changed = True
+    for product in Product.query.order_by(Product.id.asc()).all():
+        normalized = normalize_menu_vote_name(product.name)
+        if not normalized:
+            continue
+        candidate = MenuVoteCandidate.query.filter_by(normalized_name=normalized).first()
+        if not candidate:
+            db.session.add(MenuVoteCandidate(
+                name=product.name[:120],
+                normalized_name=normalized,
+                category_name=(product.category_name or 'Menu')[:80],
+                product_id=product.id,
+                is_active=True,
+            ))
+            changed = True
+        else:
+            if not candidate.product_id:
+                candidate.product_id = product.id
+                changed = True
+            if not candidate.category_name:
+                candidate.category_name = (product.category_name or 'Menu')[:80]
+                changed = True
+
+    # Preserve historical votes from the older product-only voting feature once.
+    db.session.flush()
+    legacy_marker = StoreSetting.query.filter_by(key='menu_vote_legacy_migrated_v1').first()
+    if not legacy_marker:
+        for legacy_vote in MenuVote.query.order_by(MenuVote.id.asc()).all():
+            product = Product.query.get(legacy_vote.product_id)
+            if not product:
+                continue
+            candidate = MenuVoteCandidate.query.filter_by(normalized_name=normalize_menu_vote_name(product.name)).first()
+            if not candidate:
+                continue
+            existing_vote = MenuPreferenceVote.query.filter_by(
+                customer_id=legacy_vote.customer_id,
+                candidate_id=candidate.id,
+                period_key=legacy_vote.period_key,
+            ).first()
+            if not existing_vote:
+                db.session.add(MenuPreferenceVote(
+                    customer_id=legacy_vote.customer_id,
+                    candidate_id=candidate.id,
+                    period_key=legacy_vote.period_key,
+                    created_at=legacy_vote.created_at or utc_now(),
+                ))
+        db.session.add(StoreSetting(key='menu_vote_legacy_migrated_v1', value='1'))
+        changed = True
+    if changed:
+        db.session.commit()
+
+def menu_vote_rankings(period_key=None, include_inactive=False):
+    period_key = period_key or menu_vote_period_key()
+    q = db.session.query(
+        MenuVoteCandidate,
+        db.func.count(MenuPreferenceVote.id).label('vote_count')
+    ).outerjoin(
+        MenuPreferenceVote,
+        and_(
+            MenuPreferenceVote.candidate_id == MenuVoteCandidate.id,
+            MenuPreferenceVote.period_key == period_key,
+        )
+    )
+    if not include_inactive:
+        q = q.filter(MenuVoteCandidate.is_active.is_(True))
+    return q.group_by(MenuVoteCandidate.id).order_by(
+        db.func.count(MenuPreferenceVote.id).desc(), MenuVoteCandidate.name.asc()
+    ).all()
+
+def customer_profile_image_from_request(file_key='profile_photo', url_key='profile_image', existing=None):
+    image_url = (request.form.get(url_key) or '').strip()
+    upload = request.files.get(file_key)
+    if upload and upload.filename:
+        content_type = (upload.mimetype or '').lower()
+        if content_type not in ('image/png', 'image/jpeg', 'image/webp', 'image/gif'):
+            raise OrderValidationError('Profile photo must be PNG, JPG, WEBP, or GIF.')
+        raw = upload.read(2_500_001)
+        if len(raw) > 2_500_000:
+            raise OrderValidationError('Profile photo must be 2.5 MB or smaller.')
+        encoded = base64.b64encode(raw).decode('ascii')
+        return f'data:{content_type};base64,{encoded}'
+    return image_url or existing
+
+def qr_svg_data_url(target):
+    image = qrcode.make(target, image_factory=qrcode.image.svg.SvgPathImage)
+    buffer = io.BytesIO()
+    image.save(buffer)
+    encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
+    return f'data:image/svg+xml;base64,{encoded}'
 
 def customer_available_credit(cust, include_pending=True):
     limit = max(0.0, parse_float(cust.credit_limit, 0.0))
@@ -4476,6 +4637,12 @@ def admin_dashboard():
     )[:10]
 
     seven_days_ago = utc_now() - timedelta(days=7)
+    ensure_menu_vote_candidates()
+    admin_vote_period = menu_vote_period_key()
+    admin_vote_rankings = menu_vote_rankings(admin_vote_period, include_inactive=True)
+    menu_vote_candidates = MenuVoteCandidate.query.order_by(MenuVoteCandidate.category_name.asc(), MenuVoteCandidate.name.asc()).all()
+    menu_vote_total_this_month = MenuPreferenceVote.query.filter_by(period_key=admin_vote_period).count()
+
     marketing_metrics = {
         'qr_scans_7d': PortalEvent.query.filter(PortalEvent.event_type == 'QR_SCAN', PortalEvent.created_at >= seven_days_ago).count(),
         'portal_logins_7d': PortalEvent.query.filter(PortalEvent.event_type == 'LOGIN', PortalEvent.created_at >= seven_days_ago).count(),
@@ -4485,6 +4652,7 @@ def admin_dashboard():
         'suggestions_total': ProductSuggestion.query.count(),
         'suggestions_open': ProductSuggestion.query.filter(ProductSuggestion.status != 'ARCHIVED').count(),
         'referral_rewards': ReferralReward.query.count(),
+        'menu_votes_month': menu_vote_total_this_month,
     }
 
     return render_template('admin.html', 
@@ -4514,7 +4682,33 @@ def admin_dashboard():
                            product_suggestions=product_suggestions,
                            suggestion_repeat_counts=suggestion_repeat_counts,
                            suggestion_demand=suggestion_demand,
-                           suggestion_statuses=SUGGESTION_STATUSES)
+                           suggestion_statuses=SUGGESTION_STATUSES,
+                           admin_vote_period=admin_vote_period,
+                           admin_vote_rankings=admin_vote_rankings,
+                           menu_vote_candidates=menu_vote_candidates)
+
+@app.route('/admin/menu-vote/candidate/add', methods=['POST'])
+@require_admin
+def admin_add_menu_vote_candidate():
+    name = re.sub(r'\s+', ' ', request.form.get('name', '').strip())
+    category = re.sub(r'\s+', ' ', request.form.get('category_name', '').strip()) or 'Customer Requests'
+    if len(name) < 2:
+        flash('Enter a menu item or product name for voting.', 'error')
+        return redirect(url_for('admin_dashboard') + '#menuVoteAdmin')
+    candidate = ensure_menu_vote_candidate(name, category_name=category, commit=True)
+    candidate.is_active = True
+    db.session.commit()
+    flash(f"Voting candidate '{candidate.name}' is active.", 'success')
+    return redirect(url_for('admin_dashboard') + '#menuVoteAdmin')
+
+@app.route('/admin/menu-vote/candidate/<int:candidate_id>/toggle', methods=['POST'])
+@require_admin
+def admin_toggle_menu_vote_candidate(candidate_id):
+    candidate = MenuVoteCandidate.query.get_or_404(candidate_id)
+    candidate.is_active = not bool(candidate.is_active)
+    db.session.commit()
+    flash(f"{candidate.name} voting is now {'active' if candidate.is_active else 'paused'}.", 'success')
+    return redirect(url_for('admin_dashboard') + '#menuVoteAdmin')
 
 @app.route('/admin/product-suggestion/<int:suggestion_id>/status', methods=['POST'])
 @require_admin
@@ -5076,6 +5270,47 @@ def admin_create_member_promo():
     flash(f"Promo '{title}' created and is live for its 3-day cycle.", 'success')
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/loyalty-cards')
+@require_admin
+def admin_loyalty_cards():
+    customers = Customer.query.order_by(Customer.name.asc()).all()
+    selected_id = parse_int(request.args.get('customer_id'), 0)
+    selected = Customer.query.get(selected_id) if selected_id else (customers[0] if customers else None)
+    theme = (request.args.get('theme') or (selected.card_theme if selected else None) or 'pink-classic').strip()
+    if theme not in LOYALTY_CARD_THEMES:
+        theme = 'pink-classic'
+    qr_data = None
+    qr_target = None
+    if selected:
+        base = _marketing_public_base_url()
+        card_identifier = selected.card_number or selected.contact
+        qr_target = f"{base}/portal/login?card={card_identifier}"
+        qr_data = qr_svg_data_url(qr_target)
+    return render_template(
+        'loyalty_card_portal.html',
+        customers=customers, selected=selected, theme=theme, themes=LOYALTY_CARD_THEMES,
+        qr_data=qr_data, qr_target=qr_target,
+    )
+
+@app.route('/admin/loyalty-cards/<int:cust_id>/save', methods=['POST'])
+@require_admin
+def admin_save_loyalty_card(cust_id):
+    cust = Customer.query.get_or_404(cust_id)
+    theme = request.form.get('theme', cust.card_theme or 'pink-classic').strip()
+    if theme not in LOYALTY_CARD_THEMES:
+        theme = 'pink-classic'
+    cust.card_theme = theme
+    try:
+        new_image = customer_profile_image_from_request(file_key='profile_photo', url_key='profile_image', existing=cust.profile_image)
+        if new_image:
+            cust.profile_image = new_image
+        db.session.commit()
+        flash(f'Card design saved for {cust.name}.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    return redirect(url_for('admin_loyalty_cards', customer_id=cust.id, theme=theme))
+
 @app.route('/admin/marketing/qr-kit')
 @require_admin
 def admin_qr_kit():
@@ -5117,13 +5352,14 @@ def portal_start(source):
 def customer_login():
     source = request.args.get('src', '').strip() or session.get('portal_source') or 'direct'
     next_section = request.args.get('next', '').strip()
+    card_hint = request.args.get('card', '').strip()
     if source:
         session['portal_source'] = source[:30]
     if request.method == 'POST':
         contact = request.form.get('contact', '').strip()
         pin = request.form.get('pin', '').strip()
         next_section = request.form.get('next', '').strip() or next_section
-        cust = Customer.query.filter_by(contact=contact).first()
+        cust = get_customer_by_identifier(contact)
         if cust and check_password_hash(cust.pin_hash, pin):
             issue = customer_access_issue(cust)
             if issue:
@@ -5131,7 +5367,7 @@ def customer_login():
                     cust.card_status = 'EXPIRED'
                     db.session.commit()
                 flash(issue, 'error')
-                return render_template('customer_login.html', source=source, next_section=next_section)
+                return render_template('customer_login.html', source=source, next_section=next_section, card_hint=contact or card_hint)
 
             portal_source = session.get('portal_source', source)
             session.clear()
@@ -5155,7 +5391,7 @@ def customer_login():
             target = url_for('customer_dashboard')
             return redirect(target + (f'#{next_section}' if next_section else ''))
         flash('Invalid Contact or PIN.', 'error')
-    return render_template('customer_login.html', source=source, next_section=next_section)
+    return render_template('customer_login.html', source=source, next_section=next_section, card_hint=card_hint)
 
 @app.route('/portal/register', methods=['GET', 'POST'])
 def customer_register():
@@ -5271,6 +5507,13 @@ def customer_dashboard():
     recent_rewards = RewardLedger.query.filter_by(customer_id=cust.id).order_by(RewardLedger.created_at.desc()).limit(8).all()
     referral_rewards_count = ReferralReward.query.filter_by(referrer_customer_id=cust.id).count()
 
+    ensure_menu_vote_candidates()
+    vote_period_key = menu_vote_period_key()
+    vote_rankings = menu_vote_rankings(vote_period_key)
+    vote_candidates = MenuVoteCandidate.query.filter_by(is_active=True).order_by(MenuVoteCandidate.category_name.asc(), MenuVoteCandidate.name.asc()).all()
+    my_voted_ids = {row.candidate_id for row in MenuPreferenceVote.query.filter_by(customer_id=cust.id, period_key=vote_period_key).all()}
+    candidate_vote_counts = {candidate.id: int(count or 0) for candidate, count in vote_rankings}
+
     return render_template(
         'customer_dashboard.html',
         cust=cust,
@@ -5282,8 +5525,41 @@ def customer_dashboard():
         reward_progress_pct=reward_progress_pct,
         recent_rewards=recent_rewards,
         referral_rewards_count=referral_rewards_count,
+        vote_period_key=vote_period_key,
+        vote_rankings=vote_rankings,
+        vote_candidates=vote_candidates,
+        my_voted_ids=my_voted_ids,
+        candidate_vote_counts=candidate_vote_counts,
         today=ph_today(),
     )
+
+@app.route('/portal/menu-vote/<int:candidate_id>', methods=['POST'])
+def customer_menu_vote(candidate_id):
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login', next='menuVote'))
+    cust = Customer.query.get_or_404(session['customer_id'])
+    issue = customer_access_issue(cust)
+    if issue:
+        flash(issue, 'error')
+        return redirect(url_for('customer_login'))
+    candidate = MenuVoteCandidate.query.get_or_404(candidate_id)
+    if not candidate.is_active:
+        flash('That menu vote is currently closed.', 'info')
+        return redirect(url_for('customer_dashboard') + '#menuVote')
+    period_key = menu_vote_period_key()
+    existing = MenuPreferenceVote.query.filter_by(
+        customer_id=cust.id, candidate_id=candidate.id, period_key=period_key
+    ).first()
+    if existing:
+        flash(f'You already voted for {candidate.name} this month.', 'info')
+        return redirect(url_for('customer_dashboard') + '#menuVote')
+    db.session.add(MenuPreferenceVote(
+        customer_id=cust.id, candidate_id=candidate.id, period_key=period_key
+    ))
+    track_portal_event('MENU_VOTE', customer_id=cust.id)
+    db.session.commit()
+    flash(f'🗳️ Vote recorded for {candidate.name}!', 'success')
+    return redirect(url_for('customer_dashboard') + '#menuVote')
 
 @app.route('/portal/suggest-product', methods=['POST'])
 def customer_submit_product_suggestion():
@@ -5310,6 +5586,8 @@ def customer_submit_product_suggestion():
         suggestion_text=suggestion_text,
         status='NEW',
     ))
+    if len(suggestion_text) <= 80:
+        ensure_menu_vote_candidate(suggestion_text, category_name='Customer Requests')
     track_portal_event('PRODUCT_SUGGESTION', customer_id=cust.id)
     db.session.commit()
     flash('💡 Thank you! Your product suggestion was sent to Macleen\'s.', 'success')
@@ -5393,13 +5671,18 @@ def customer_reserve_promo_by_code(promo_code):
 def update_profile_pic():
     if 'customer_id' not in session:
         return redirect(url_for('customer_login'))
-    cust = Customer.query.get(session['customer_id'])
-    img_url = request.form.get('profile_image', '').strip()
-    if img_url:
-        cust.profile_image = img_url
-        db.session.commit()
-        flash('Profile picture updated!', 'success')
-    return redirect(url_for('customer_dashboard'))
+    cust = Customer.query.get_or_404(session['customer_id'])
+    try:
+        new_image = customer_profile_image_from_request(existing=cust.profile_image)
+        if new_image:
+            cust.profile_image = new_image
+            db.session.commit()
+            flash('Profile picture updated!', 'success')
+        else:
+            flash('Choose a photo from your device or enter a photo URL.', 'info')
+    except OrderValidationError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('customer_dashboard') + '#account')
 
 # ==================== INDEPENDENT STAFF AUTH ====================
 

@@ -28,7 +28,7 @@ REQUIRED_DB_COLUMNS = {
         "id", "contact", "pin_hash", "points_balance", "accumulated_spend",
         "card_number", "card_status", "card_expires_at", "is_credit_eligible",
         "credit_limit", "outstanding_ar", "referred_by", "last_daily_login",
-        "login_streak", "last_active_at",
+        "login_streak", "last_active_at", "card_theme",
     },
     "product": {
         "id", "name", "category_name", "price", "cost", "allow_custom_amount",
@@ -46,6 +46,8 @@ REQUIRED_DB_COLUMNS = {
     "promotion_tracker": {"id", "promo_code", "promo_price", "promo_cost", "is_visible", "portal_only", "description"},
     "vault_drop": {"id", "drop_number", "amount", "cash_breakdown", "created_at"},
     "product_suggestion": {"id", "customer_id", "customer_name", "suggestion_text", "status", "created_at"},
+    "menu_vote_candidate": {"id", "name", "normalized_name", "category_name", "product_id", "is_active", "created_at"},
+    "menu_preference_vote": {"id", "customer_id", "candidate_id", "period_key", "created_at"},
     "bonus_campaign": {"id", "title", "bonus_points", "points_multiplier", "min_spend", "is_active"},
     "bonus_campaign_claim": {"id", "campaign_id", "customer_id", "order_id", "points_awarded"},
     "referral_reward": {"id", "referrer_customer_id", "referred_customer_id", "first_order_id"},
@@ -151,6 +153,9 @@ def main() -> int:
         "@app.route('/admin/product-suggestion/<int:suggestion_id>/status'",
         "@app.route('/marketing/qr/<string:source>.svg'",
         "class ProductSuggestion(db.Model):",
+        "class MenuVoteCandidate(db.Model):",
+        "class MenuPreferenceVote(db.Model):",
+        "@app.route('/portal/menu-vote/<int:candidate_id>'",
         "class BonusCampaign(db.Model):",
         "class ReferralReward(db.Model):",
     ]
@@ -168,12 +173,16 @@ def main() -> int:
     still_present = [marker for marker in retired_routes if marker in source]
     if still_present:
         fail("retired Wi-Fi/vote/wishlist routes are still present: " + ", ".join(still_present))
-    ok("product suggestions are active and retired Wi-Fi/vote/wishlist routes are removed")
+    ok("product suggestions and the restored monthly menu-vote ranking are active; obsolete Wi-Fi/wishlist routes stay retired")
 
     storefront = (TEMPLATES / "store_catalog.html").read_text(encoding="utf-8")
     if "Top 10 VIP Reward Members" in storefront or "top_customers" in storefront:
         fail("public VIP rewards leaderboard is still present on the storefront")
     ok("public VIP rewards leaderboard is removed")
+
+    if 'href="/staff/login"' in storefront or '>Staff</a>' in storefront:
+        fail("public Food House storefront still exposes a Staff login button")
+    ok("public Food House storefront no longer exposes the Staff button")
 
     # Public storefront visibility: Active controls visibility. Optional availability
     # times control ordering only, so Featured/Best Seller products do not disappear
@@ -268,6 +277,43 @@ def main() -> int:
     if re.search(r"\bproducts\s*=\s*products\b", dashboard_source):
         fail("customer_dashboard still passes an undefined products variable")
     ok("customer dashboard does not reference the retired undefined products context")
+
+    customer_dashboard_html = (TEMPLATES / "customer_dashboard.html").read_text(encoding="utf-8")
+    for marker in ["Menu Vote & Rankings", "/portal/menu-vote/", "vote_rankings", "Palabok"]:
+        if marker not in customer_dashboard_html + source:
+            fail(f"restored menu-vote/ranking feature is missing: {marker}")
+    if "ensure_menu_vote_candidates()" not in source or "name='Palabok'" not in source:
+        fail("Palabok/default vote-candidate restoration is missing")
+    if "MENU VOTES • MONTH" not in admin_template or "Menu Vote Candidates & Rankings" not in admin_template:
+        fail("Admin menu-vote ranking/candidate controls are missing")
+    ok("monthly menu voting and rankings are restored, including Palabok")
+
+    loyalty_template = TEMPLATES / "loyalty_card_portal.html"
+    if not loyalty_template.exists():
+        fail("templates/loyalty_card_portal.html is missing")
+    loyalty_html = loyalty_template.read_text(encoding="utf-8")
+    loyalty_markers = [
+        "@app.route('/admin/loyalty-cards')",
+        "@app.route('/admin/loyalty-cards/<int:cust_id>/save'",
+        "LOYALTY_CARD_THEMES",
+        "qr_svg_data_url",
+        "card_theme = db.Column",
+        "customer_profile_image_from_request",
+    ]
+    missing_loyalty = [marker for marker in loyalty_markers if marker not in source]
+    if missing_loyalty:
+        fail("loyalty-card printing portal is incomplete: " + ", ".join(missing_loyalty))
+    for marker in ["pink-classic", "cafe-cream", "midnight-gold", "mint-fresh", "purple-craft", "85.6 × 54 mm", "Print Front + Back"]:
+        if marker not in loyalty_html + source:
+            fail(f"loyalty-card portal UI is missing: {marker}")
+    if "url_for('admin_loyalty_cards')" not in admin_template:
+        fail("Master Admin does not link to the Loyalty Card Printing portal")
+    if 'type="file" name="profile_photo"' not in customer_dashboard_html or 'enctype="multipart/form-data"' not in customer_dashboard_html:
+        fail("Customer Portal does not allow phone/gallery profile photo uploads")
+    customer_login_html = (TEMPLATES / "customer_login.html").read_text(encoding="utf-8")
+    if "Mobile Number or Card ID" not in customer_login_html or "card_hint" not in customer_login_html:
+        fail("printed loyalty-card QR cannot prefill the member Card ID at login")
+    ok("loyalty-card printer has five themes, member QR, and phone/gallery profile photo upload")
 
     req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     if "qrcode" not in req.lower():
