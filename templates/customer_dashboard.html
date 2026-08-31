@@ -46,11 +46,17 @@
     .secondary-order { background:#f8fafc; border-color:#e2e8f0; }
     .suggest-box { width:100%; min-height:120px; resize:vertical; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:.9rem; outline:none; background:#fff; color:#1e293b; }
     .suggest-box:focus { border-color:var(--pink); box-shadow:0 0 0 3px rgba(255,105,180,.12); }
-    .ranking-row { display:grid; grid-template-columns:34px 1fr auto; gap:8px; align-items:center; padding:8px 0; border-bottom:1px dashed #fbcfe8; }
-    .rank-no { width:30px; height:30px; border-radius:50%; background:#fdf2f8; display:flex; align-items:center; justify-content:center; color:var(--dark); font-weight:900; }
-    .vote-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:8px; margin-top:9px; }
-    .vote-card { border:1.5px solid #fbcfe8; border-radius:12px; padding:10px; background:#fffafd; }
-    .vote-card.voted { background:#f0fdf4; border-color:#86efac; }
+    .card-theme-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px; }
+    .card-theme-option { position:relative; display:block; cursor:pointer; }
+    .card-theme-option input { position:absolute; opacity:0; pointer-events:none; }
+    .theme-preview { min-height:76px; border-radius:12px; padding:10px; border:2px solid transparent; box-shadow:0 3px 9px rgba(15,23,42,.08); transition:.15s ease; display:flex; flex-direction:column; justify-content:space-between; }
+    .card-theme-option input:checked + .theme-preview { outline:3px solid rgba(236,72,153,.20); border-color:#ec4899; transform:translateY(-1px); }
+    .theme-preview strong { font-size:.78rem; } .theme-preview small { font-size:.62rem; font-weight:800; opacity:.88; }
+    .pink-classic { background:linear-gradient(135deg,#ec4899,#fb7185 55%,#fbcfe8); color:white; }
+    .cafe-cream { background:linear-gradient(135deg,#fff7ed,#fed7aa 56%,#fdba74); color:#78350f; }
+    .midnight-gold { background:linear-gradient(135deg,#0f172a,#1e293b 55%,#334155); color:#fef3c7; }
+    .mint-fresh { background:linear-gradient(135deg,#ecfdf5,#a7f3d0 58%,#6ee7b7); color:#065f46; }
+    .purple-craft { background:linear-gradient(135deg,#7c3aed,#a855f7 55%,#f0abfc); color:white; }
   </style>
 </head>
 <body>
@@ -73,7 +79,7 @@
 
     <div class="action-grid">
       <a class="action" href="#rewards"><span>🎁</span>My Rewards</a>
-      <a class="action" href="#menuVote"><span>🗳️</span>Vote & Rankings</a>
+      <a class="action" href="#cardDesign"><span>🎫</span>My Card Theme</a>
       <a class="action" href="#suggest"><span>💡</span>Suggest a Product</a>
       <a class="action" href="#deals"><span>🔥</span>Today's Member Deals</a>
       <a class="action" href="/"><span>🛍️</span>Order / View Menu</a>
@@ -111,37 +117,24 @@
     </form>
   </div>
 
-  <div class="card" id="menuVote">
-    <div class="section-title">🗳️ Menu Vote & Rankings</div>
-    <div class="muted">Vote for products you want to see more often or bring back. Each member can vote once per item every month. Rankings reset monthly so new favorites can rise.</div>
-
-    {% if vote_rankings %}
-      <div style="margin-top:12px;font-size:.78rem;font-weight:900;color:var(--dark);">🏆 {{ vote_period_key }} Rankings</div>
-      {% for candidate, vote_count in vote_rankings[:10] %}
-        <div class="ranking-row">
-          <div class="rank-no">{{ loop.index }}</div>
-          <div><strong>{{ candidate.name }}</strong><div class="muted">{{ candidate.category_name }}</div></div>
-          <strong style="color:var(--pink);">{{ vote_count }} vote{{ '' if vote_count == 1 else 's' }}</strong>
-        </div>
-      {% endfor %}
-    {% endif %}
-
-    {% for group in vote_candidates|groupby('category_name') %}
-      <div style="margin-top:13px;font-size:.76rem;font-weight:900;color:#831843;">{{ group.grouper }}</div>
-      <div class="vote-grid">
-        {% for candidate in group.list %}
-          <div class="vote-card {% if candidate.id in my_voted_ids %}voted{% endif %}">
-            <div style="font-weight:900;color:var(--dark);">{{ candidate.name }}</div>
-            <div class="muted" style="margin:3px 0 7px;">{{ candidate_vote_counts.get(candidate.id, 0) }} vote{{ '' if candidate_vote_counts.get(candidate.id, 0) == 1 else 's' }} this month</div>
-            {% if candidate.id in my_voted_ids %}
-              <button class="btn btn-outline" type="button" disabled>✓ Voted this month</button>
-            {% else %}
-              <form action="/portal/menu-vote/{{ candidate.id }}" method="POST"><button class="btn btn-pink" type="submit">🗳️ Vote</button></form>
-            {% endif %}
-          </div>
+  <div class="card" id="cardDesign">
+    <div class="section-title">🎫 Choose My Loyalty Card Theme</div>
+    <div class="muted">Choose how you want your physical Macleen's Loyalty Rewards Card to look. Your selection is saved to your member profile and will automatically appear in the Staff Card Printing Portal.</div>
+    <form action="/portal/card-theme" method="POST" style="margin-top:10px;">
+      <div class="card-theme-grid">
+        {% for key, label in loyalty_card_themes.items() %}
+          <label class="card-theme-option">
+            <input type="radio" name="theme" value="{{ key }}" {% if (cust.card_theme or 'pink-classic') == key %}checked{% endif %}>
+            <span class="theme-preview {{ key }}">
+              <strong>{{ label }}</strong>
+              <small>{{ cust.card_number or 'MFH-0000' }} • {{ cust.name }}</small>
+            </span>
+          </label>
         {% endfor %}
       </div>
-    {% endfor %}
+      <button class="btn btn-pink" type="submit" style="margin-top:10px;">SAVE MY CARD THEME</button>
+    </form>
+    <div class="muted" style="margin-top:8px;">Your profile photo is also used on the printed card. You can update it below from your phone/gallery.</div>
   </div>
 
   <div class="card" id="deals">

@@ -872,7 +872,6 @@ def run_db_setup():
         db.session.commit()
 
         ensure_default_promos()
-        ensure_menu_vote_candidates()
         ensure_legacy_craft_catalog()
         disable_legacy_meta_connection()
         _DB_INITIALIZED = True
@@ -4637,11 +4636,6 @@ def admin_dashboard():
     )[:10]
 
     seven_days_ago = utc_now() - timedelta(days=7)
-    ensure_menu_vote_candidates()
-    admin_vote_period = menu_vote_period_key()
-    admin_vote_rankings = menu_vote_rankings(admin_vote_period, include_inactive=True)
-    menu_vote_candidates = MenuVoteCandidate.query.order_by(MenuVoteCandidate.category_name.asc(), MenuVoteCandidate.name.asc()).all()
-    menu_vote_total_this_month = MenuPreferenceVote.query.filter_by(period_key=admin_vote_period).count()
 
     marketing_metrics = {
         'qr_scans_7d': PortalEvent.query.filter(PortalEvent.event_type == 'QR_SCAN', PortalEvent.created_at >= seven_days_ago).count(),
@@ -4652,7 +4646,6 @@ def admin_dashboard():
         'suggestions_total': ProductSuggestion.query.count(),
         'suggestions_open': ProductSuggestion.query.filter(ProductSuggestion.status != 'ARCHIVED').count(),
         'referral_rewards': ReferralReward.query.count(),
-        'menu_votes_month': menu_vote_total_this_month,
     }
 
     return render_template('admin.html', 
@@ -4682,10 +4675,7 @@ def admin_dashboard():
                            product_suggestions=product_suggestions,
                            suggestion_repeat_counts=suggestion_repeat_counts,
                            suggestion_demand=suggestion_demand,
-                           suggestion_statuses=SUGGESTION_STATUSES,
-                           admin_vote_period=admin_vote_period,
-                           admin_vote_rankings=admin_vote_rankings,
-                           menu_vote_candidates=menu_vote_candidates)
+                           suggestion_statuses=SUGGESTION_STATUSES)
 
 @app.route('/admin/menu-vote/candidate/add', methods=['POST'])
 @require_admin
@@ -5507,13 +5497,6 @@ def customer_dashboard():
     recent_rewards = RewardLedger.query.filter_by(customer_id=cust.id).order_by(RewardLedger.created_at.desc()).limit(8).all()
     referral_rewards_count = ReferralReward.query.filter_by(referrer_customer_id=cust.id).count()
 
-    ensure_menu_vote_candidates()
-    vote_period_key = menu_vote_period_key()
-    vote_rankings = menu_vote_rankings(vote_period_key)
-    vote_candidates = MenuVoteCandidate.query.filter_by(is_active=True).order_by(MenuVoteCandidate.category_name.asc(), MenuVoteCandidate.name.asc()).all()
-    my_voted_ids = {row.candidate_id for row in MenuPreferenceVote.query.filter_by(customer_id=cust.id, period_key=vote_period_key).all()}
-    candidate_vote_counts = {candidate.id: int(count or 0) for candidate, count in vote_rankings}
-
     return render_template(
         'customer_dashboard.html',
         cust=cust,
@@ -5525,41 +5508,17 @@ def customer_dashboard():
         reward_progress_pct=reward_progress_pct,
         recent_rewards=recent_rewards,
         referral_rewards_count=referral_rewards_count,
-        vote_period_key=vote_period_key,
-        vote_rankings=vote_rankings,
-        vote_candidates=vote_candidates,
-        my_voted_ids=my_voted_ids,
-        candidate_vote_counts=candidate_vote_counts,
+        loyalty_card_themes=LOYALTY_CARD_THEMES,
         today=ph_today(),
     )
 
 @app.route('/portal/menu-vote/<int:candidate_id>', methods=['POST'])
 def customer_menu_vote(candidate_id):
+    # Legacy compatibility endpoint: voting was retired in favor of free-text product requests.
     if 'customer_id' not in session:
-        return redirect(url_for('customer_login', next='menuVote'))
-    cust = Customer.query.get_or_404(session['customer_id'])
-    issue = customer_access_issue(cust)
-    if issue:
-        flash(issue, 'error')
-        return redirect(url_for('customer_login'))
-    candidate = MenuVoteCandidate.query.get_or_404(candidate_id)
-    if not candidate.is_active:
-        flash('That menu vote is currently closed.', 'info')
-        return redirect(url_for('customer_dashboard') + '#menuVote')
-    period_key = menu_vote_period_key()
-    existing = MenuPreferenceVote.query.filter_by(
-        customer_id=cust.id, candidate_id=candidate.id, period_key=period_key
-    ).first()
-    if existing:
-        flash(f'You already voted for {candidate.name} this month.', 'info')
-        return redirect(url_for('customer_dashboard') + '#menuVote')
-    db.session.add(MenuPreferenceVote(
-        customer_id=cust.id, candidate_id=candidate.id, period_key=period_key
-    ))
-    track_portal_event('MENU_VOTE', customer_id=cust.id)
-    db.session.commit()
-    flash(f'🗳️ Vote recorded for {candidate.name}!', 'success')
-    return redirect(url_for('customer_dashboard') + '#menuVote')
+        return redirect(url_for('customer_login', next='suggest'))
+    flash('Menu voting has been replaced by “What would you like to buy from our shop?”. Please send your request there.', 'info')
+    return redirect(url_for('customer_dashboard') + '#suggest')
 
 @app.route('/portal/suggest-product', methods=['POST'])
 def customer_submit_product_suggestion():
@@ -5586,8 +5545,8 @@ def customer_submit_product_suggestion():
         suggestion_text=suggestion_text,
         status='NEW',
     ))
-    if len(suggestion_text) <= 80:
-        ensure_menu_vote_candidate(suggestion_text, category_name='Customer Requests')
+    # Keep customer requests as literal free-text words in Admin.
+    # Do not convert suggestions into products, vote candidates, or catalog records.
     track_portal_event('PRODUCT_SUGGESTION', customer_id=cust.id)
     db.session.commit()
     flash('💡 Thank you! Your product suggestion was sent to Macleen\'s.', 'success')
@@ -5666,6 +5625,26 @@ def customer_reserve_promo_by_code(promo_code):
     db.session.commit()
     flash(f'🎉 Deal reserved! Order #{order.id} queued at Cashier counter.', 'success')
     return redirect(url_for('customer_dashboard') + '#deals')
+
+@app.route('/portal/card-theme', methods=['POST'])
+def customer_update_card_theme():
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login', next='cardDesign'))
+    cust = Customer.query.get_or_404(session['customer_id'])
+    issue = customer_access_issue(cust)
+    if issue:
+        flash(issue, 'error')
+        return redirect(url_for('customer_login'))
+
+    theme = (request.form.get('theme') or '').strip()
+    if theme not in LOYALTY_CARD_THEMES:
+        flash('Please choose one of the available loyalty card themes.', 'error')
+        return redirect(url_for('customer_dashboard') + '#cardDesign')
+
+    cust.card_theme = theme
+    db.session.commit()
+    flash(f'🎫 Your loyalty card theme is now {LOYALTY_CARD_THEMES[theme]}.', 'success')
+    return redirect(url_for('customer_dashboard') + '#cardDesign')
 
 @app.route('/portal/update-profile-pic', methods=['POST'])
 def update_profile_pic():

@@ -173,7 +173,7 @@ def main() -> int:
     still_present = [marker for marker in retired_routes if marker in source]
     if still_present:
         fail("retired Wi-Fi/vote/wishlist routes are still present: " + ", ".join(still_present))
-    ok("product suggestions and the restored monthly menu-vote ranking are active; obsolete Wi-Fi/wishlist routes stay retired")
+    ok("product suggestions are active; legacy menu-vote data is preserved while the active voting workflow is retired")
 
     storefront = (TEMPLATES / "store_catalog.html").read_text(encoding="utf-8")
     if "Top 10 VIP Reward Members" in storefront or "top_customers" in storefront:
@@ -279,14 +279,18 @@ def main() -> int:
     ok("customer dashboard does not reference the retired undefined products context")
 
     customer_dashboard_html = (TEMPLATES / "customer_dashboard.html").read_text(encoding="utf-8")
-    for marker in ["Menu Vote & Rankings", "/portal/menu-vote/", "vote_rankings", "Palabok"]:
-        if marker not in customer_dashboard_html + source:
-            fail(f"restored menu-vote/ranking feature is missing: {marker}")
-    if "ensure_menu_vote_candidates()" not in source or "name='Palabok'" not in source:
-        fail("Palabok/default vote-candidate restoration is missing")
-    if "MENU VOTES • MONTH" not in admin_template or "Menu Vote Candidates & Rankings" not in admin_template:
-        fail("Admin menu-vote ranking/candidate controls are missing")
-    ok("monthly menu voting and rankings are restored, including Palabok")
+    if "Menu Vote & Rankings" in customer_dashboard_html or 'href="#menuVote"' in customer_dashboard_html or "/portal/menu-vote/" in customer_dashboard_html:
+        fail("Customer Portal still exposes the retired menu-voting/rankings UI")
+    if "MENU VOTES • MONTH" in admin_template or "Menu Vote Candidates & Rankings" in admin_template:
+        fail("Master Admin still exposes the retired menu-voting/rankings UI")
+    if "ensure_menu_vote_candidate(suggestion_text" in source:
+        fail("free-text customer suggestions are still converted into vote/product candidates")
+    if "ensure_default_promos()\n        ensure_menu_vote_candidates()" in source:
+        fail("startup still auto-populates retired menu vote candidates")
+    for marker in ["What would you like to buy from our shop?", "Customer entries stay exactly as free-text requests"]:
+        if marker not in customer_dashboard_html + admin_template:
+            fail(f"free-text suggestion workflow is missing: {marker}")
+    ok("customer feedback is free-text only; voting/rankings UI is retired without deleting legacy data")
 
     loyalty_template = TEMPLATES / "loyalty_card_portal.html"
     if not loyalty_template.exists():
@@ -313,7 +317,12 @@ def main() -> int:
     customer_login_html = (TEMPLATES / "customer_login.html").read_text(encoding="utf-8")
     if "Mobile Number or Card ID" not in customer_login_html or "card_hint" not in customer_login_html:
         fail("printed loyalty-card QR cannot prefill the member Card ID at login")
-    ok("loyalty-card printer has five themes, member QR, and phone/gallery profile photo upload")
+    for marker in ["@app.route('/portal/card-theme'", "loyalty_card_themes=LOYALTY_CARD_THEMES", "Choose My Loyalty Card Theme"]:
+        if marker not in source + customer_dashboard_html:
+            fail(f"customer loyalty-card theme chooser is missing: {marker}")
+    if "fb.com/macleens" not in loyalty_html:
+        fail("printed loyalty card is missing fb.com/macleens")
+    ok("loyalty-card printer has five themes, customer theme selection, member QR, phone/gallery profile photo upload, and fb.com/macleens")
 
     req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     if "qrcode" not in req.lower():

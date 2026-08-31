@@ -414,7 +414,6 @@
       <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">TOTAL SUGGESTIONS</div><div class="metric-val" style="color:#be185d;">{{ marketing_metrics.suggestions_total }}</div></div>
       <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">OPEN REQUESTS</div><div class="metric-val" style="color:#7c3aed;">{{ marketing_metrics.suggestions_open }}</div></div>
       <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">REFERRALS REWARDED</div><div class="metric-val" style="color:#b45309;">{{ marketing_metrics.referral_rewards }}</div></div>
-      <div class="metric-card"><div style="font-size:0.7rem;color:#64748b;font-weight:bold;">MENU VOTES • MONTH</div><div class="metric-val" style="color:#7c3aed;">{{ marketing_metrics.menu_votes_month }}</div></div>
     </div>
 
     <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px; align-items:start;">
@@ -476,39 +475,9 @@
           <button class="btn btn-pink" style="margin-top:7px;padding:6px 10px;font-size:.75rem;" type="submit">Create 3-Day Deal</button>
         </form>
 
-        <div id="menuVoteAdmin" style="margin-top:14px; border-top:1px solid #ddd6fe; padding-top:10px;">
-          <h4 style="color:#6d28d9; margin-bottom:6px; font-size:0.9rem;">🗳️ Menu Vote Candidates & Rankings</h4>
-          <p style="font-size:0.7rem;color:#64748b;margin-bottom:8px;">Members can vote once per item each month. Current and past products are kept as vote choices. Palabok is restored under Past Favorites.</p>
-          <form action="/admin/menu-vote/candidate/add" method="POST" class="form-row" style="margin-bottom:8px;">
-            <div class="form-group" style="min-width:180px;"><label>Candidate / Product</label><input class="form-control" name="name" required placeholder="Palabok"></div>
-            <div class="form-group"><label>Category</label><input class="form-control" name="category_name" placeholder="Past Favorites"></div>
-            <button class="btn" type="submit" style="background:#7c3aed;color:white;padding:6px 10px;font-size:.72rem;">Add / Activate</button>
-          </form>
-          {% if admin_vote_rankings %}
-          <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;">
-            {% for candidate, vote_count in admin_vote_rankings[:10] %}
-              <span style="background:#f5f3ff;border:1px solid #ddd6fe;color:#5b21b6;border-radius:14px;padding:4px 8px;font-size:.68rem;font-weight:900;">#{{ loop.index }} {{ candidate.name }} • {{ vote_count }}</span>
-            {% endfor %}
-          </div>
-          {% endif %}
-          <div style="max-height:250px;overflow:auto;">
-            <table>
-              <thead><tr><th>Candidate</th><th>Category</th><th>{{ admin_vote_period }} Votes</th><th>Status</th></tr></thead>
-              <tbody>
-                {% for candidate, vote_count in admin_vote_rankings %}
-                <tr>
-                  <td><strong>{{ candidate.name }}</strong></td><td>{{ candidate.category_name }}</td><td><strong>{{ vote_count }}</strong></td>
-                  <td><form action="/admin/menu-vote/candidate/{{ candidate.id }}/toggle" method="POST"><button class="btn" type="submit" style="padding:4px 7px;font-size:.66rem;background:{{ '#dcfce7' if candidate.is_active else '#fee2e2' }};color:{{ '#166534' if candidate.is_active else '#991b1b' }};">{{ 'ACTIVE' if candidate.is_active else 'PAUSED' }}</button></form></td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
         <div id="customerSuggestions" style="margin-top:14px; border-top:1px solid #fbcfe8; padding-top:10px;">
           <h4 style="color:#831843; margin-bottom:6px; font-size:0.9rem;">💡 Customer Product Requests</h4>
-          <p style="font-size:0.7rem; color:#64748b; margin-bottom:7px;">Customers can request past, present or completely new products. Repeated wording is grouped as demand so popular requests stand out.</p>
+          <p style="font-size:0.7rem; color:#64748b; margin-bottom:7px;">Customer entries stay exactly as free-text requests — they are not converted into products or voting choices. Repeated wording is grouped only to show demand.</p>
 
           {% if suggestion_demand %}
           <div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:8px;">
