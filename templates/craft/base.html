@@ -41,7 +41,7 @@
 <header><div class="navbar"><a href="{{ url_for('craft_store') }}" class="brand-container"><span class="brand-title">🎀 Macleen's Crafts</span><span class="brand-sub">by Macleen's Food House</span></a><nav class="nav-links"><a href="{{ url_for('craft_store') }}" class="nav-link">Catalog</a><a href="{{ url_for('store_catalog') }}" class="nav-link">🍲 Food House</a><button type="button" class="share-nav" onclick="shareLink('Macleen\'s Crafts', '{{ url_for('craft_store') }}')">↗ Share Crafts</button></nav></div></header>
 <main class="container">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}{% endwith %}{% block content %}{% endblock %}</main>
 <div class="view-mode-bar"><span style="color:var(--text-muted);font-size:.8rem">📱 Display View:</span><div class="toggle-pill-container"><button class="toggle-pill-btn" id="btnMobileView" onclick="setViewMode('mobile')">📱 Mobile</button><button class="toggle-pill-btn" id="btnDesktopView" onclick="setViewMode('desktop')">💻 PC / Desktop</button></div></div>
-<script src="{{ url_for('static', filename='share-helper.js') }}?v=4"></script>
+<script src="{{ url_for('static', filename='share-helper.js') }}?v=6"></script>
 <script>
 function shareLink(title, path){
   if (!window.MacleensShare || typeof window.MacleensShare.open !== 'function') {

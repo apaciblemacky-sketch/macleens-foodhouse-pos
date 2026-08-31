@@ -2170,12 +2170,14 @@ def store_catalog():
         total_accumulated_visits = 0
 
     categories = Category.query.all()
+    # Visibility and orderability are intentionally separate on the public storefront.
+    # If Admin marks a product Active, customers should still be able to see it even
+    # outside its optional selling-time window. The time window only disables ordering.
     all_active_products = Product.query.filter_by(is_active=True).all()
-    available_products = [p for p in all_active_products if is_product_available_now(p)]
 
-    featured = [p for p in available_products if p.is_featured]
-    top_sellers = [p for p in available_products if p.is_top_seller]
-    products = sorted(available_products, key=lambda x: (-(x.total_likes or 0), x.id))
+    featured = [p for p in all_active_products if p.is_featured]
+    top_sellers = [p for p in all_active_products if p.is_top_seller]
+    products = sorted(all_active_products, key=lambda x: (-(x.total_likes or 0), x.id))
 
     liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=get_client_ip()).all()}
     delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()
@@ -2202,7 +2204,8 @@ def store_catalog():
                            status=status, 
                            unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits,
-                           credit_available=credit_available)
+                           credit_available=credit_available,
+                           product_is_available_now=is_product_available_now)
 
 @app.route('/promo/burger-deal')
 def promo_burger_deal():

@@ -22,7 +22,7 @@
   <meta name="twitter:image" content="{{ url_for('static', filename='social/foodhouse-share-header.png', _external=True) }}">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#ff69b4">
-  <script src="{{ url_for('static', filename='share-helper.js') }}?v=4"></script>
+  <script src="{{ url_for('static', filename='share-helper.js') }}?v=6"></script>
 <script>
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js');
@@ -180,7 +180,14 @@
           <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ f.name }}</div>
           <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">{% if f.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(f)) }}</div>
         </div>
-        <button class="btn-add" style="padding:4px; font-size:0.75rem; margin-top:6px;" onclick='addToCart({{ f.id }}, {{ f.name|tojson }}, {{ f.price }}, {{ product_choice_groups(f.option_schema, f.size_schema)|tojson }})'>+ Add</button>
+        <div style="display:flex;gap:5px;margin-top:6px;">
+          {% if product_is_available_now(f) %}
+          <button class="btn-add" style="padding:4px; font-size:0.75rem; margin-top:0; flex:1;" onclick='addToCart({{ f.id }}, {{ f.name|tojson }}, {{ f.price }}, {{ product_choice_groups(f.option_schema, f.size_schema)|tojson }})'>+ Add</button>
+          {% else %}
+          <button class="btn-add" type="button" disabled style="padding:4px;font-size:0.7rem;margin-top:0;flex:1;background:#94a3b8;cursor:not-allowed;">⏰ Scheduled</button>
+          {% endif %}
+          <button type="button" class="btn-review food-share-btn" style="cursor:pointer;min-width:36px;" data-share-title="{{ f.name|e }}" data-share-url="{{ url_for('product_detail', product_id=f.id)|e }}" aria-label="Share {{ f.name|e }}">↗</button>
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -205,7 +212,14 @@
           <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ b.name }}</div>
           <div style="font-size:0.95rem; font-weight:900; color:#d97706;">{% if b.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(b)) }}</div>
         </div>
-        <button class="btn-add" style="background:#d97706; padding:4px; font-size:0.75rem; margin-top:6px;" onclick='addToCart({{ b.id }}, {{ b.name|tojson }}, {{ b.price }}, {{ product_choice_groups(b.option_schema, b.size_schema)|tojson }})'>+ Add</button>
+        <div style="display:flex;gap:5px;margin-top:6px;">
+          {% if product_is_available_now(b) %}
+          <button class="btn-add" style="background:#d97706;padding:4px;font-size:0.75rem;margin-top:0;flex:1;" onclick='addToCart({{ b.id }}, {{ b.name|tojson }}, {{ b.price }}, {{ product_choice_groups(b.option_schema, b.size_schema)|tojson }})'>+ Add</button>
+          {% else %}
+          <button class="btn-add" type="button" disabled style="padding:4px;font-size:0.7rem;margin-top:0;flex:1;background:#94a3b8;cursor:not-allowed;">⏰ Scheduled</button>
+          {% endif %}
+          <button type="button" class="btn-review food-share-btn" style="cursor:pointer;min-width:36px;" data-share-title="{{ b.name|e }}" data-share-url="{{ url_for('product_detail', product_id=b.id)|e }}" aria-label="Share {{ b.name|e }}">↗</button>
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -246,10 +260,15 @@
             <a href="/product/{{ p.id }}" class="btn-review">
               💬 {{ p.comments|length }}
             </a>
-            <button type="button" class="btn-review" style="cursor:pointer" onclick='shareProductLink({{ p.name|tojson }}, {{ p.id }})'>↗</button>
+            <button type="button" class="btn-review food-share-btn" style="cursor:pointer" data-share-title="{{ p.name|e }}" data-share-url="{{ url_for('product_detail', product_id=p.id)|e }}" aria-label="Share {{ p.name|e }}">↗</button>
           </div>
 
+          {% if product_is_available_now(p) %}
           <button class="btn-add" onclick='addToCart({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_choice_groups(p.option_schema, p.size_schema)|tojson }})'>+ Add to Basket</button>
+          {% else %}
+          <div style="font-size:0.7rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:5px 7px;margin-bottom:5px;font-weight:800;text-align:center;">⏰ Visible now • ordering follows its availability schedule{% if p.available_start_time and p.available_end_time %}: {{ p.available_start_time }}–{{ p.available_end_time }}{% endif %}</div>
+          <button class="btn-add" type="button" disabled style="background:#94a3b8;cursor:not-allowed;">Not Available to Order Now</button>
+          {% endif %}
         </div>
       </div>
       {% endfor %}
@@ -667,10 +686,29 @@
       calculateChangePreview();
     }
 
-    function shareAnyLink(title, path) { return window.MacleensShare.open(title, path); }
+    function shareAnyLink(title, path) {
+      const url = new URL(path || window.location.href, window.location.origin).href;
+      if (window.MacleensShare && typeof window.MacleensShare.open === 'function') {
+        return window.MacleensShare.open(title, url);
+      }
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(url).then(() => alert('Link copied: ' + url)).catch(() => window.prompt('Copy this link:', url));
+      } else {
+        window.prompt('Copy this link:', url);
+      }
+    }
 
     function shareStoreLink() { return shareAnyLink("Macleen's Food House", '/'); }
-    function shareProductLink(name, id) { return shareAnyLink(name + " — Macleen's Food House", `/product/${id}`); }
+
+    // Delegated handler avoids fragile inline JavaScript when a product name
+    // contains apostrophes, quotes, emoji or other special characters.
+    document.addEventListener('click', function(event) {
+      const button = event.target.closest('.food-share-btn');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      shareAnyLink((button.dataset.shareTitle || 'Product') + " — Macleen's Food House", button.dataset.shareUrl || window.location.href);
+    });
 
     async function toggleLike(id) {
       const res = await fetch(`/api/toggle-like/${id}`, { method: 'POST' });

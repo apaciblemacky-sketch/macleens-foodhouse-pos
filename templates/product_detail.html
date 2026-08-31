@@ -73,7 +73,7 @@
         <button class="btn-like-lg" onclick="toggleLikeDetail({{ prod.id }})">
           ❤️ <span id="likeCounter">{{ prod.total_likes }}</span> Likes
         </button>
-        <button class="btn-like-lg" style="margin-left:6px;" onclick="shareFoodProduct({{ prod.name|tojson }}, {{ prod.id }})">↗ Share</button>
+        <button type="button" class="btn-like-lg food-share-btn" style="margin-left:6px;" data-share-title="{{ prod.name|e }}" data-share-url="{{ url_for('product_detail', product_id=prod.id)|e }}">↗ Share</button>
       </div>
     </div>
 
@@ -105,11 +105,26 @@
     </div>
   </div>
 
-  <script src="{{ url_for('static', filename='share-helper.js') }}?v=4"></script>
+  <script src="{{ url_for('static', filename='share-helper.js') }}?v=6"></script>
   <script>
-    function shareFoodProduct(name, id) {
-      return window.MacleensShare.open(`${name} — Macleen's Food House`, `/product/${id}`);
+    function shareFoodProductSafe(title, path) {
+      const url = new URL(path || window.location.href, window.location.origin).href;
+      if (window.MacleensShare && typeof window.MacleensShare.open === 'function') {
+        return window.MacleensShare.open((title || 'Product') + " — Macleen's Food House", url);
+      }
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(url).then(() => alert('Link copied: ' + url)).catch(() => window.prompt('Copy this link:', url));
+      } else {
+        window.prompt('Copy this link:', url);
+      }
     }
+
+    document.addEventListener('click', function(event) {
+      const button = event.target.closest('.food-share-btn');
+      if (!button) return;
+      event.preventDefault();
+      shareFoodProductSafe(button.dataset.shareTitle, button.dataset.shareUrl);
+    });
 
     async function toggleLikeDetail(id) {
       const res = await fetch(`/api/toggle-like/${id}`, { method: 'POST' });

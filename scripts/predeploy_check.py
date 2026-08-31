@@ -175,6 +175,25 @@ def main() -> int:
         fail("public VIP rewards leaderboard is still present on the storefront")
     ok("public VIP rewards leaderboard is removed")
 
+    # Public storefront visibility: Active controls visibility. Optional availability
+    # times control ordering only, so Featured/Best Seller products do not disappear
+    # from the storefront outside their selling window.
+    route_match = re.search(r"def store_catalog\(\):([\s\S]*?)(?=\n@app\.route)", source)
+    if not route_match:
+        fail("store_catalog route could not be located")
+    store_route = route_match.group(1)
+    if "products = sorted(all_active_products" not in store_route:
+        fail("public storefront still hides active products outside their availability window")
+    if "featured = [p for p in all_active_products if p.is_featured]" not in store_route:
+        fail("featured products are still filtered out by the availability-time window")
+    if "top_sellers = [p for p in all_active_products if p.is_top_seller]" not in store_route:
+        fail("best sellers are still filtered out by the availability-time window")
+    if "product_is_available_now=is_product_available_now" not in store_route:
+        fail("storefront does not receive orderability status for active scheduled products")
+    if "Not Available to Order Now" not in storefront or "Visible now • ordering follows its availability schedule" not in storefront:
+        fail("storefront does not visibly distinguish scheduled products from orderable products")
+    ok("all Active products stay visible; availability schedule controls ordering only")
+
     admin_template = (TEMPLATES / "admin.html").read_text(encoding="utf-8")
     if "window.location.href='/admin?sort='" in admin_template:
         fail("admin product sorting still reloads the page")
@@ -394,11 +413,20 @@ def main() -> int:
     if 'onclick="shareLink({{ item.name|tojson' in craft_card or 'onclick="shareLink({{ item.name|tojson' in craft_detail:
         fail("Craft product Share still contains fragile inline JSON onclick quoting")
     ok("Craft per-product Share buttons use the safe delegated click handler")
-    if "shareStoreLink" not in storefront or "shareProductLink" not in storefront:
+    if "shareStoreLink" not in storefront or "food-share-btn" not in storefront:
         fail("Food House storefront/product sharing controls are missing")
+    if "event.target.closest('.food-share-btn')" not in storefront:
+        fail("Food House storefront is missing the safe delegated product Share handler")
+    if 'data-share-title="{{ p.name|e }}"' not in storefront or "data-share-url=" not in storefront:
+        fail("Food House product cards are not using safe share data attributes")
+    if "onclick='shareProductLink(" in storefront or 'onclick="shareProductLink(' in storefront:
+        fail("Food House product cards still use fragile inline Share JavaScript")
     product_detail_html = (TEMPLATES / "product_detail.html").read_text(encoding="utf-8")
-    if "shareFoodProduct" not in product_detail_html:
+    if "shareFoodProductSafe" not in product_detail_html or "food-share-btn" not in product_detail_html:
         fail("Food House product detail sharing control is missing")
+    if "event.target.closest('.food-share-btn')" not in product_detail_html:
+        fail("Food House product detail is missing the safe delegated Share handler")
+    ok("Food House per-product Share buttons use safe delegated handlers with copy fallback")
     share_helper = (ROOT / "static" / "share-helper.js").read_text(encoding="utf-8")
     if 'data-share="whatsapp"' in share_helper or 'data-share="telegram"' in share_helper:
         fail("Share dialog still exposes WhatsApp or Telegram buttons")
@@ -410,7 +438,7 @@ def main() -> int:
         fail("Email sharing is not wired to the working Gmail compose popup")
     for rel in ["store_catalog.html", "product_detail.html", "craft/base.html"]:
         content = (TEMPLATES / rel).read_text(encoding="utf-8")
-        if "share-helper.js') }}?v=4" not in content:
+        if "share-helper.js') }}?v=6" not in content:
             fail(f"{rel} does not load the latest share helper cache version")
     ok("Share menu uses Facebook popup + Gmail email, without WhatsApp/Telegram")
 
