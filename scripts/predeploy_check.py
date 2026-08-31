@@ -424,8 +424,8 @@ def main() -> int:
     ok("Craft Shop keeps legacy UI, per-IP views/likes/comments tracking, sharing, cashier sync, and direct-link-only admin access")
 
 
-    # AI Marketing agent: OpenAI-generated Page posts + Facebook Page API publishing,
-    # while joined Groups remain explicitly assisted/manual.
+    # AI Marketing agent: Gemini Free by default, optional OpenAI, local smart-template fallback,
+    # Facebook Page API publishing, while joined Groups remain explicitly assisted/manual.
     marketing_template = (TEMPLATES / "marketing_admin.html")
     marketing_module = ROOT / "marketing_agent.py"
     if not marketing_template.exists() or not marketing_module.exists():
@@ -449,19 +449,28 @@ def main() -> int:
         fail("AI Marketing integration markers are missing: " + ", ".join(missing_marketing))
     if "url_for('marketing_admin')" not in admin_template:
         fail("Master Admin does not link to AI Marketing")
-    for marker in ["Macleen's AI Marketing", "Connect Facebook Page", "Joined Facebook Groups — Assisted Posting", "Fully Automatic", "Generate AI Draft"]:
+    for marker in ["Macleen's AI Marketing", "Connect Facebook Page", "Joined Facebook Groups — Assisted Posting", "Fully Automatic", "Gemini Free (Recommended)", "Smart Template — No API", "Generate Marketing Draft"]:
         if marker not in marketing_html:
             fail(f"AI Marketing UI is missing: {marker}")
     if "pages_manage_posts" not in marketing_py or "pages_show_list" not in marketing_py:
         fail("Meta Page OAuth permissions are missing")
+    if "https://generativelanguage.googleapis.com/v1beta/interactions" not in marketing_py or "x-goog-api-key" not in marketing_py:
+        fail("Gemini Interactions API integration is missing")
+    if '"mime_type": "application/json"' not in marketing_py or "gemini-3.7-flash" not in marketing_py:
+        fail("Gemini structured-output/default-model configuration is missing")
+    if "generate_template_marketing_decision" not in marketing_py or "smart-template-fallback" not in marketing_py:
+        fail("No-cost smart-template fallback is missing")
     if "https://api.openai.com/v1/responses" not in marketing_py or '"type": "json_schema"' not in marketing_py:
-        fail("OpenAI Responses API structured-output integration is missing")
+        fail("Optional OpenAI structured-output integration is missing")
+    render_yaml = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    if "GEMINI_API_KEY" not in render_yaml or "GEMINI_MARKETING_MODEL" not in render_yaml:
+        fail("Render Gemini environment placeholders are missing")
     if "Joined Facebook Groups use assisted posting only" not in source:
         fail("Group posting safeguard is missing; groups must not auto-publish")
     reqs = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
     if "requests" not in reqs or "cryptography" not in reqs:
         fail("AI Marketing runtime dependencies are missing from requirements.txt")
-    ok("AI Marketing supports autonomous Page drafting/publishing and assisted Facebook Group posting")
+    ok("AI Marketing defaults to Gemini Free, keeps OpenAI optional, falls back locally, and supports Facebook Page + assisted Group workflows")
 
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0

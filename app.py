@@ -21,7 +21,7 @@ import qrcode.image.svg
 
 from marketing_agent import (
     decrypt_secret, encrypt_secret, exchange_meta_code, extract_peso_amounts,
-    generate_ai_marketing_decision, list_managed_pages, meta_configured, meta_login_url,
+    generate_ai_marketing_decision, gemini_configured, list_managed_pages, meta_configured, meta_login_url,
     openai_configured, publish_page_link, test_page_token,
 )
 
@@ -1758,6 +1758,7 @@ def marketing_settings():
     return {
         'enabled': marketing_setting('marketing_enabled', 'false') == 'true',
         'mode': marketing_setting('marketing_mode', 'REQUIRE_APPROVAL'),
+        'ai_provider': marketing_setting('marketing_ai_provider', 'GEMINI').upper(),
         'business_scope': marketing_setting('marketing_business_scope', 'BOTH'),
         'posts_per_week': max(1, min(7, parse_int(marketing_setting('marketing_posts_per_week', '4'), 4))),
         'start_hour': marketing_setting('marketing_start_hour', '08:00'),
@@ -1923,7 +1924,10 @@ def create_ai_marketing_post(business_hint='AUTO', post_type_hint='AUTO', group=
         }
         if group.business_scope in ('FOODHOUSE', 'CRAFT'):
             business_hint = group.business_scope
-    decision = generate_ai_marketing_decision(context, business_hint, post_type_hint, group_context)
+    decision = generate_ai_marketing_decision(
+        context, business_hint, post_type_hint, group_context,
+        provider=marketing_settings().get('ai_provider', 'GEMINI'),
+    )
     if not decision.get('should_post'):
         post = MarketingPost(
             target_type=target_type,
@@ -4027,7 +4031,10 @@ def marketing_admin():
         facebook_page=page,
         groups=groups,
         posts=posts,
+        gemini_ready=gemini_configured(),
         openai_ready=openai_configured(),
+        gemini_model=os.environ.get('GEMINI_MARKETING_MODEL', 'gemini-3.7-flash'),
+        openai_model=os.environ.get('OPENAI_MARKETING_MODEL', 'gpt-5.5'),
         meta_ready=meta_configured(),
         pending_pages=pending_pages,
         cron_ready=bool(os.environ.get('MARKETING_CRON_TOKEN')),
@@ -4044,8 +4051,12 @@ def marketing_save_settings():
     scope = request.form.get('business_scope', 'BOTH').upper()
     if scope not in ('FOODHOUSE', 'CRAFT', 'BOTH'):
         scope = 'BOTH'
+    provider = request.form.get('ai_provider', 'GEMINI').upper()
+    if provider not in ('GEMINI', 'AUTO', 'OPENAI', 'TEMPLATE'):
+        provider = 'GEMINI'
     save_marketing_setting('marketing_enabled', 'true' if request.form.get('enabled') else 'false')
     save_marketing_setting('marketing_mode', mode)
+    save_marketing_setting('marketing_ai_provider', provider)
     save_marketing_setting('marketing_business_scope', scope)
     save_marketing_setting('marketing_posts_per_week', max(1, min(7, parse_int(request.form.get('posts_per_week'), 4))))
     save_marketing_setting('marketing_start_hour', request.form.get('start_hour', '08:00'))

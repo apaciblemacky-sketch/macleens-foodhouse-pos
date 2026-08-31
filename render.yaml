@@ -9,6 +9,10 @@ services:
     envVars:
       - key: SECRET_KEY
         generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MARKETING_MODEL
+        value: gemini-3.7-flash
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MARKETING_MODEL

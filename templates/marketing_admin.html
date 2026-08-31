@@ -36,7 +36,9 @@
   {% endwith %}
 
   <div class="grid">
-    <div class="metric"><span class="muted">OpenAI</span><strong>{{ 'READY' if openai_ready else 'NOT CONFIGURED' }}</strong><span class="status {{ 'ok' if openai_ready else 'warn' }}">{{ 'AI enabled' if openai_ready else 'Add OPENAI_API_KEY' }}</span></div>
+    <div class="metric"><span class="muted">AI Provider</span><strong>{{ settings.ai_provider }}</strong><span class="status info">Gemini Free is default</span></div>
+    <div class="metric"><span class="muted">Gemini</span><strong>{{ 'READY' if gemini_ready else 'NO KEY YET' }}</strong><span class="status {{ 'ok' if gemini_ready else 'warn' }}">{{ gemini_model if gemini_ready else 'Add GEMINI_API_KEY' }}</span></div>
+    <div class="metric"><span class="muted">OpenAI (optional)</span><strong>{{ 'READY' if openai_ready else 'NOT NEEDED' }}</strong><span class="status {{ 'ok' if openai_ready else 'info' }}">{{ openai_model if openai_ready else 'Optional paid fallback' }}</span></div>
     <div class="metric"><span class="muted">Facebook Page</span><strong>{{ facebook_page.page_name if facebook_page else 'Not connected' }}</strong><span class="status {{ 'ok' if facebook_page else 'warn' }}">{{ 'Connected' if facebook_page else 'Needs setup' }}</span></div>
     <div class="metric"><span class="muted">Agent</span><strong>{{ 'ON' if settings.enabled else 'PAUSED' }}</strong><span class="status {{ 'ok' if settings.enabled else 'warn' }}">{{ settings.mode.replace('_',' ') }}</span></div>
     <div class="metric"><span class="muted">Scheduler endpoint</span><strong>{{ 'READY' if cron_ready else 'NOT CONFIGURED' }}</strong><span class="status {{ 'ok' if cron_ready else 'warn' }}">MARKETING_CRON_TOKEN</span></div>
@@ -48,6 +50,7 @@
       <form action="{{ url_for('marketing_save_settings') }}" method="post">
         <div class="checkline" style="margin-bottom:12px"><input type="checkbox" name="enabled" id="enabled" {% if settings.enabled %}checked{% endif %}><label for="enabled" style="margin:0">Enable scheduled AI marketing</label></div>
         <div class="form-grid">
+          <div><label>AI Provider</label><select name="ai_provider"><option value="GEMINI" {% if settings.ai_provider=='GEMINI' %}selected{% endif %}>Gemini Free (Recommended)</option><option value="AUTO" {% if settings.ai_provider=='AUTO' %}selected{% endif %}>Auto: Gemini → OpenAI → Template</option><option value="OPENAI" {% if settings.ai_provider=='OPENAI' %}selected{% endif %}>OpenAI (Optional)</option><option value="TEMPLATE" {% if settings.ai_provider=='TEMPLATE' %}selected{% endif %}>Smart Template — No API</option></select></div>
           <div><label>Mode</label><select name="mode"><option value="DRAFT_ONLY" {% if settings.mode=='DRAFT_ONLY' %}selected{% endif %}>Draft Only</option><option value="REQUIRE_APPROVAL" {% if settings.mode=='REQUIRE_APPROVAL' %}selected{% endif %}>Require Approval</option><option value="AUTO_PUBLISH" {% if settings.mode=='AUTO_PUBLISH' %}selected{% endif %}>Fully Automatic</option></select></div>
           <div><label>Business Pool</label><select name="business_scope"><option value="BOTH" {% if settings.business_scope=='BOTH' %}selected{% endif %}>Food + Crafts</option><option value="FOODHOUSE" {% if settings.business_scope=='FOODHOUSE' %}selected{% endif %}>Food House only</option><option value="CRAFT" {% if settings.business_scope=='CRAFT' %}selected{% endif %}>Crafts only</option></select></div>
           <div><label>Target Posts / Week</label><input type="number" min="1" max="7" name="posts_per_week" value="{{ settings.posts_per_week }}"></div>
@@ -56,7 +59,7 @@
           <div><label>Allowed Until</label><input type="time" name="end_hour" value="{{ settings.end_hour }}"></div>
           <div><label>Same Product Cooldown (days)</label><input type="number" min="0" max="90" name="repeat_cooldown_days" value="{{ settings.repeat_cooldown_days }}"></div>
         </div>
-        <p class="muted" style="margin:10px 0">The AI sees current products, Craft inventory/engagement, 30-day Food sales, active promotions, and recent marketing history. Python still blocks unavailable items, unapproved prices, repeat spam, and daily-limit violations.</p>
+        <p class="muted" style="margin:10px 0">Gemini is the default free-tier AI. If the selected AI is unavailable, the built-in Smart Template engine can still create a safe draft without an API charge. The external AI receives business/product summaries only — not customer names, phone numbers, addresses, PINs, or payment details. Python still blocks unavailable items, unapproved prices, repeat spam, and daily-limit violations.</p>
         <button class="btn btn-pink" type="submit">Save Agent Settings</button>
         <button class="btn btn-dark" type="submit" formaction="{{ url_for('marketing_run_agent_now') }}" formmethod="post" style="margin-left:6px">▶ Run Due-Check Now</button>
       </form>
@@ -70,7 +73,7 @@
           <div><label>Post Purpose</label><select name="post_type"><option value="AUTO">Let AI Decide</option>{% for pt in post_types %}<option value="{{ pt }}">{{ pt.replace('_',' ').title() }}</option>{% endfor %}</select></div>
         </div>
         <p class="muted" style="margin:10px 0">The AI may intentionally choose <strong>not to post</strong> if the current data does not support a useful, truthful promotion.</p>
-        <button class="btn btn-blue" type="submit" {% if not openai_ready %}disabled title="Set OPENAI_API_KEY first"{% endif %}>✨ Generate AI Draft</button>
+        <button class="btn btn-blue" type="submit">✨ Generate Marketing Draft</button>
       </form>
     </section>
   </div>
@@ -124,7 +127,7 @@
         <div class="connection">
           <div><strong>{{ group.name }}</strong> <span class="status {{ 'ok' if group.is_active else 'warn' }}">{{ 'ACTIVE' if group.is_active else 'PAUSED' }}</span><br><span class="muted">{{ group.business_scope }} · {{ group.cooldown_days }}-day cooldown{% if group.last_posted_at %} · last marked posted {{ group.last_posted_at }}{% endif %}</span>{% if group.notes %}<div class="tiny">{{ group.notes }}</div>{% endif %}</div>
           <div class="actions">
-            <form method="post" action="{{ url_for('marketing_group_generate', group_id=group.id) }}"><button class="btn btn-blue" {% if not group.is_active or not openai_ready %}disabled{% endif %}>AI Draft</button></form>
+            <form method="post" action="{{ url_for('marketing_group_generate', group_id=group.id) }}"><button class="btn btn-blue" {% if not group.is_active %}disabled{% endif %}>Marketing Draft</button></form>
             <a href="{{ group.group_url }}" class="btn btn-light" target="_blank" rel="noopener">Open Group ↗</a>
             <form method="post" action="{{ url_for('marketing_group_toggle', group_id=group.id) }}"><button class="btn btn-light">{{ 'Pause' if group.is_active else 'Resume' }}</button></form>
             <form method="post" action="{{ url_for('marketing_group_delete', group_id=group.id) }}" onsubmit="return confirm('Remove this group from the assistant?')"><button class="btn btn-red">Delete</button></form>
@@ -144,7 +147,7 @@
         <tr>
           <td><strong>#{{ post.id }}</strong><br><span class="status {% if post.status=='POSTED' %}ok{% elif post.status in ['FAILED','SKIPPED'] %}bad{% elif post.status=='APPROVED' %}info{% else %}warn{% endif %}">{{ post.status }}</span><br><span class="tiny">{{ post.created_at }}</span></td>
           <td><strong>{{ post.business }}</strong><br>{{ post.target_type.replace('_',' ') }}{% if post.group %}<br><span class="tiny">{{ post.group.name }}</span>{% endif %}<br><span class="tiny">{{ post.source_kind }}{% if post.source_id %} #{{ post.source_id }}{% endif %}</span></td>
-          <td>{{ post.post_type.replace('_',' ').title() }}<div class="reason">{{ post.reason }}</div>{% if post.error_message %}<div class="reason" style="color:#b91c1c">{{ post.error_message }}</div>{% endif %}</td>
+          <td>{{ post.post_type.replace('_',' ').title() }}{% if post.ai_model %}<div class="tiny"><strong>Engine:</strong> {{ post.ai_model }}</div>{% endif %}<div class="reason">{{ post.reason }}</div>{% if post.error_message %}<div class="reason" style="color:#b91c1c">{{ post.error_message }}</div>{% endif %}</td>
           <td>
             {% if post.status != 'POSTED' and post.status != 'SKIPPED' %}
               <form method="post" action="{{ url_for('marketing_edit_post', post_id=post.id) }}"><textarea name="caption">{{ post.caption }}</textarea><button class="btn btn-light" style="margin-top:5px">Save Edit</button></form>
