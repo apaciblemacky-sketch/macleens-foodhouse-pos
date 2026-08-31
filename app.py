@@ -5496,6 +5496,10 @@ def customer_dashboard():
     reward_progress_pct = min(100.0, (balance / reward_target * 100.0) if reward_target else 100.0)
     recent_rewards = RewardLedger.query.filter_by(customer_id=cust.id).order_by(RewardLedger.created_at.desc()).limit(8).all()
     referral_rewards_count = ReferralReward.query.filter_by(referrer_customer_id=cust.id).count()
+    base = _marketing_public_base_url()
+    card_identifier = cust.card_number or cust.contact
+    qr_target = f"{base}/portal/login?card={card_identifier}"
+    qr_data = qr_svg_data_url(qr_target)
 
     return render_template(
         'customer_dashboard.html',
@@ -5509,6 +5513,8 @@ def customer_dashboard():
         recent_rewards=recent_rewards,
         referral_rewards_count=referral_rewards_count,
         loyalty_card_themes=LOYALTY_CARD_THEMES,
+        qr_data=qr_data,
+        qr_target=qr_target,
         today=ph_today(),
     )
 
