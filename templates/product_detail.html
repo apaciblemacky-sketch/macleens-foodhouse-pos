@@ -50,7 +50,15 @@
 
       <span style="font-size:0.75rem; font-weight:bold; color:var(--hk-pink); text-transform:uppercase;">{{ prod.category_name }}</span>
       <h1 style="color:var(--hk-dark); font-size:1.4rem; margin:4px 0 8px;">{{ prod.name }}</h1>
-      <div style="font-size:1.4rem; font-weight:900; color:var(--hk-pink); margin-bottom:12px;">₱{{ "{:,.2f}".format(prod.price) }}</div>
+      <div style="font-size:1.4rem; font-weight:900; color:var(--hk-pink); margin-bottom:12px;">{% if prod.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(prod)) }}</div>
+      {% if prod.size_schema %}
+      <div style="background:#fdf2f8; border:1px solid #f9a8d4; border-radius:8px; padding:9px; margin-bottom:8px; font-size:0.82rem;">
+        <strong style="color:#9d174d;">Available sizes & prices:</strong>
+        {% for size in product_size_options(prod.size_schema) %}
+          <span style="display:inline-block; margin:4px 6px 0 0; background:white; border:1px solid #fbcfe8; border-radius:999px; padding:4px 8px;"><strong>{{ size.name }}</strong> — ₱{{ "{:,.2f}".format(size.price) }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
       {% if prod.option_schema %}
       <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:9px; margin-bottom:12px; font-size:0.82rem;">
         <strong style="color:#92400e;">Available choices:</strong>

@@ -9,11 +9,11 @@
     *{box-sizing:border-box} body{margin:0;background:var(--bg);color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
     .wrap{max-width:1450px;margin:auto;padding:20px}.header,.card{background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:0 4px 18px rgba(131,24,67,.05)}
     .header{padding:16px 20px;display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:16px}.header h1{margin:0;color:var(--dark);font-size:1.45rem}.header p{margin:4px 0 0;color:#64748b;font-size:.85rem}
-    .card{padding:16px;margin-bottom:16px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}.grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px}
+    .card{padding:16px;margin-bottom:16px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px}
     h2{font-size:1.05rem;color:var(--dark);margin:0 0 12px} h3{font-size:.95rem;margin:0 0 10px}.muted{font-size:.78rem;color:#64748b}.status{display:inline-block;padding:3px 8px;border-radius:999px;font-size:.72rem;font-weight:800}.ok{background:#dcfce7;color:#166534}.warn{background:#fef3c7;color:#92400e}.bad{background:#fee2e2;color:#991b1b}.info{background:#dbeafe;color:#1d4ed8}
     .btn{border:0;border-radius:8px;padding:9px 13px;font-weight:800;cursor:pointer;text-decoration:none;display:inline-block;font-size:.8rem}.btn-pink{background:var(--pink);color:white}.btn-dark{background:#1f2937;color:#fff}.btn-blue{background:#2563eb;color:#fff}.btn-green{background:#16a34a;color:#fff}.btn-light{background:#f1f5f9;color:#334155}.btn-red{background:#fee2e2;color:#991b1b}.btn-amber{background:#f59e0b;color:#fff}
     label{display:block;font-size:.75rem;font-weight:800;color:#475569;margin-bottom:4px}input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#fff;font:inherit;font-size:.82rem}textarea{min-height:90px;resize:vertical}.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.actions{display:flex;gap:7px;flex-wrap:wrap;align-items:center}.flash{padding:10px 12px;border-radius:8px;margin-bottom:10px;background:#f8fafc;border:1px solid #e2e8f0;font-size:.82rem}
-    table{width:100%;border-collapse:collapse;font-size:.78rem}th,td{border-bottom:1px solid #e5e7eb;padding:9px 7px;text-align:left;vertical-align:top}th{background:#fdf2f8;color:var(--dark);position:sticky;top:0}.scroll{overflow:auto;max-height:560px}.caption{white-space:pre-wrap;line-height:1.45;max-width:540px}.reason{font-size:.72rem;color:#64748b;max-width:420px}.metric{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px}.metric strong{display:block;font-size:1.05rem;margin-top:4px}.connection{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.group-row{border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:8px}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f172a;color:#e2e8f0;padding:9px;border-radius:7px;font-size:.75rem;overflow:auto}.tiny{font-size:.7rem}.checkline{display:flex;gap:8px;align-items:center}.checkline input{width:auto}
+    table{width:100%;border-collapse:collapse;font-size:.78rem}th,td{border-bottom:1px solid #e5e7eb;padding:9px 7px;text-align:left;vertical-align:top}th{background:#fdf2f8;color:var(--dark);position:sticky;top:0}.scroll{overflow:auto;max-height:620px}.caption{white-space:pre-wrap;line-height:1.45;max-width:540px}.reason{font-size:.72rem;color:#64748b;max-width:420px}.metric{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px}.metric strong{display:block;font-size:1.05rem;margin-top:4px}.connection{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.group-row{border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:8px}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f172a;color:#e2e8f0;padding:9px;border-radius:7px;font-size:.75rem;overflow:auto}.tiny{font-size:.7rem}.checkline{display:flex;gap:8px;align-items:center}.checkline input{width:auto}.notice{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;color:#1e3a8a;font-size:.82rem}
     @media(max-width:700px){.wrap{padding:10px}.header{align-items:flex-start;flex-direction:column}.grid-2{grid-template-columns:1fr}.card{padding:12px}}
   </style>
 </head>
@@ -22,7 +22,7 @@
   <header class="header">
     <div>
       <h1>📣 Macleen's AI Marketing</h1>
-      <p>AI-assisted Facebook Page publishing + safe assisted posting for Facebook Groups.</p>
+      <p>AI-assisted Facebook post planning and manual Page/Group posting — no Meta Developer connection required.</p>
     </div>
     <div class="actions">
       <a class="btn btn-light" href="{{ url_for('admin_dashboard') }}">← Master Admin</a>
@@ -35,32 +35,32 @@
     {% for category, message in messages %}<div class="flash"><strong>{{ category|upper }}</strong> — {{ message }}</div>{% endfor %}
   {% endwith %}
 
+  <div class="notice" style="margin-bottom:16px"><strong>Manual Facebook mode:</strong> Macleen's never logs in to Facebook, stores no Facebook access token, and does not need a Meta Developer App ID or App Secret. Generate/edit a post here, copy it, open your Page or Group, paste it, then click <strong>Mark Posted</strong> so the AI remembers your posting history.</div>
+
   <div class="grid">
     <div class="metric"><span class="muted">AI Provider</span><strong>{{ settings.ai_provider }}</strong><span class="status info">Gemini Free is default</span></div>
     <div class="metric"><span class="muted">Gemini</span><strong>{{ 'READY' if gemini_ready else 'NO KEY YET' }}</strong><span class="status {{ 'ok' if gemini_ready else 'warn' }}">{{ gemini_model if gemini_ready else 'Add GEMINI_API_KEY' }}</span></div>
-    <div class="metric"><span class="muted">OpenAI (optional)</span><strong>{{ 'READY' if openai_ready else 'NOT NEEDED' }}</strong><span class="status {{ 'ok' if openai_ready else 'info' }}">{{ openai_model if openai_ready else 'Optional paid fallback' }}</span></div>
-    <div class="metric"><span class="muted">Facebook Page</span><strong>{{ facebook_page.page_name if facebook_page else 'Not connected' }}</strong><span class="status {{ 'ok' if facebook_page else 'warn' }}">{{ 'Connected' if facebook_page else 'Needs setup' }}</span></div>
-    <div class="metric"><span class="muted">Agent</span><strong>{{ 'ON' if settings.enabled else 'PAUSED' }}</strong><span class="status {{ 'ok' if settings.enabled else 'warn' }}">{{ settings.mode.replace('_',' ') }}</span></div>
-    <div class="metric"><span class="muted">Scheduler endpoint</span><strong>{{ 'READY' if cron_ready else 'NOT CONFIGURED' }}</strong><span class="status {{ 'ok' if cron_ready else 'warn' }}">MARKETING_CRON_TOKEN</span></div>
+    <div class="metric"><span class="muted">Facebook Posting</span><strong>MANUAL</strong><span class="status ok">No Meta API needed</span></div>
+    <div class="metric"><span class="muted">Scheduled Draft Queue</span><strong>{{ 'ON' if settings.enabled else 'PAUSED' }}</strong><span class="status {{ 'ok' if settings.enabled else 'warn' }}">Drafts only</span></div>
+    <div class="metric"><span class="muted">Scheduler endpoint</span><strong>{{ 'READY' if cron_ready else 'OPTIONAL' }}</strong><span class="status {{ 'ok' if cron_ready else 'info' }}">MARKETING_CRON_TOKEN</span></div>
   </div>
 
   <div class="grid-2" style="margin-top:16px">
     <section class="card">
-      <h2>🤖 AI Agent Controls</h2>
+      <h2>🤖 AI Draft Controls</h2>
       <form action="{{ url_for('marketing_save_settings') }}" method="post">
-        <div class="checkline" style="margin-bottom:12px"><input type="checkbox" name="enabled" id="enabled" {% if settings.enabled %}checked{% endif %}><label for="enabled" style="margin:0">Enable scheduled AI marketing</label></div>
+        <div class="checkline" style="margin-bottom:12px"><input type="checkbox" name="enabled" id="enabled" {% if settings.enabled %}checked{% endif %}><label for="enabled" style="margin:0">Enable scheduled AI draft creation</label></div>
         <div class="form-grid">
           <div><label>AI Provider</label><select name="ai_provider"><option value="GEMINI" {% if settings.ai_provider=='GEMINI' %}selected{% endif %}>Gemini Free (Recommended)</option><option value="AUTO" {% if settings.ai_provider=='AUTO' %}selected{% endif %}>Auto: Gemini → OpenAI → Template</option><option value="OPENAI" {% if settings.ai_provider=='OPENAI' %}selected{% endif %}>OpenAI (Optional)</option><option value="TEMPLATE" {% if settings.ai_provider=='TEMPLATE' %}selected{% endif %}>Smart Template — No API</option></select></div>
-          <div><label>Mode</label><select name="mode"><option value="DRAFT_ONLY" {% if settings.mode=='DRAFT_ONLY' %}selected{% endif %}>Draft Only</option><option value="REQUIRE_APPROVAL" {% if settings.mode=='REQUIRE_APPROVAL' %}selected{% endif %}>Require Approval</option><option value="AUTO_PUBLISH" {% if settings.mode=='AUTO_PUBLISH' %}selected{% endif %}>Fully Automatic</option></select></div>
           <div><label>Business Pool</label><select name="business_scope"><option value="BOTH" {% if settings.business_scope=='BOTH' %}selected{% endif %}>Food + Crafts</option><option value="FOODHOUSE" {% if settings.business_scope=='FOODHOUSE' %}selected{% endif %}>Food House only</option><option value="CRAFT" {% if settings.business_scope=='CRAFT' %}selected{% endif %}>Crafts only</option></select></div>
-          <div><label>Target Posts / Week</label><input type="number" min="1" max="7" name="posts_per_week" value="{{ settings.posts_per_week }}"></div>
-          <div><label>Max Posts / Day</label><input type="number" min="1" max="3" name="max_posts_per_day" value="{{ settings.max_posts_per_day }}"></div>
-          <div><label>Allowed From</label><input type="time" name="start_hour" value="{{ settings.start_hour }}"></div>
-          <div><label>Allowed Until</label><input type="time" name="end_hour" value="{{ settings.end_hour }}"></div>
+          <div><label>Target Drafts / Week</label><input type="number" min="1" max="7" name="posts_per_week" value="{{ settings.posts_per_week }}"></div>
+          <div><label>Max Drafts / Day</label><input type="number" min="1" max="3" name="max_posts_per_day" value="{{ settings.max_posts_per_day }}"></div>
+          <div><label>Draft Window From</label><input type="time" name="start_hour" value="{{ settings.start_hour }}"></div>
+          <div><label>Draft Window Until</label><input type="time" name="end_hour" value="{{ settings.end_hour }}"></div>
           <div><label>Same Product Cooldown (days)</label><input type="number" min="0" max="90" name="repeat_cooldown_days" value="{{ settings.repeat_cooldown_days }}"></div>
         </div>
-        <p class="muted" style="margin:10px 0">Gemini is the default free-tier AI. If the selected AI is unavailable, the built-in Smart Template engine can still create a safe draft without an API charge. The external AI receives business/product summaries only — not customer names, phone numbers, addresses, PINs, or payment details. Python still blocks unavailable items, unapproved prices, repeat spam, and daily-limit violations.</p>
-        <button class="btn btn-pink" type="submit">Save Agent Settings</button>
+        <p class="muted" style="margin:10px 0">The scheduler only prepares drafts. It can never publish to Facebook. External AI receives business/product summaries only — not customer names, phone numbers, addresses, PINs, or payment details.</p>
+        <button class="btn btn-pink" type="submit">Save AI Settings</button>
         <button class="btn btn-dark" type="submit" formaction="{{ url_for('marketing_run_agent_now') }}" formmethod="post" style="margin-left:6px">▶ Run Due-Check Now</button>
       </form>
     </section>
@@ -72,43 +72,30 @@
           <div><label>Business</label><select name="business"><option value="AUTO">Let AI Decide</option><option value="FOODHOUSE">Food House</option><option value="CRAFT">Crafts</option></select></div>
           <div><label>Post Purpose</label><select name="post_type"><option value="AUTO">Let AI Decide</option>{% for pt in post_types %}<option value="{{ pt }}">{{ pt.replace('_',' ').title() }}</option>{% endfor %}</select></div>
         </div>
-        <p class="muted" style="margin:10px 0">The AI may intentionally choose <strong>not to post</strong> if the current data does not support a useful, truthful promotion.</p>
+        <p class="muted" style="margin:10px 0">The AI may intentionally choose not to create a post if the current data does not support a useful, truthful promotion.</p>
         <button class="btn btn-blue" type="submit">✨ Generate Marketing Draft</button>
       </form>
     </section>
   </div>
 
   <section class="card">
-    <h2>📘 Connect Facebook Page</h2>
-    <div class="connection">
-      <div>
-        {% if facebook_page %}
-          <strong>{{ facebook_page.page_name }}</strong><br><span class="muted">Page ID {{ facebook_page.page_id }} · token encrypted at rest · Graph {{ graph_version }}</span>
-        {% else %}
-          <strong>No Page connected</strong><br><span class="muted">Requires a Meta app configured with Page permissions.</span>
-        {% endif %}
+    <h2>📘 Facebook Page — Manual Posting Shortcut</h2>
+    <p class="muted">Save your Page link once. This does not connect your Facebook account; it only gives you a quick <strong>Open Page</strong> button beside each draft.</p>
+    <form action="{{ url_for('marketing_save_facebook_page') }}" method="post">
+      <div class="form-grid">
+        <div><label>Page Name</label><input name="page_name" value="{{ settings.facebook_page_name }}" placeholder="Macleen's Food House"></div>
+        <div><label>Facebook Page URL</label><input name="page_url" value="{{ settings.facebook_page_url }}" placeholder="https://www.facebook.com/yourpage"></div>
       </div>
-      <div class="actions">
-        {% if facebook_page %}
-          <form method="post" action="{{ url_for('marketing_facebook_test') }}"><button class="btn btn-light">Test Connection</button></form>
-          <form method="post" action="{{ url_for('marketing_facebook_disconnect') }}"><button class="btn btn-red">Disconnect</button></form>
-        {% else %}
-          <a class="btn btn-blue" href="{{ url_for('marketing_facebook_connect') }}">Connect Facebook Page</a>
-        {% endif %}
+      <div class="actions" style="margin-top:10px">
+        <button class="btn btn-pink">Save Page Shortcut</button>
+        {% if settings.facebook_page_url %}<a class="btn btn-light" href="{{ settings.facebook_page_url }}" target="_blank" rel="noopener">Open Page ↗</a>{% else %}<a class="btn btn-light" href="https://www.facebook.com/" target="_blank" rel="noopener">Open Facebook ↗</a>{% endif %}
       </div>
-    </div>
-    {% if not meta_ready %}<p class="muted">Render still needs <code>META_APP_ID</code> and <code>META_APP_SECRET</code>. The callback URL is <strong>{{ request.url_root.rstrip('/') }}/admin/marketing/facebook/callback</strong>.</p>{% endif %}
-    {% if pending_pages %}
-      <form action="{{ url_for('marketing_facebook_select') }}" method="post" style="margin-top:12px">
-        <label>Choose Page to manage</label>
-        <div class="actions"><select name="page_id" style="max-width:420px">{% for p in pending_pages %}<option value="{{ p.id }}">{{ p.name }} ({{ p.id }})</option>{% endfor %}</select><button class="btn btn-green">Use This Page</button></div>
-      </form>
-    {% endif %}
+    </form>
   </section>
 
   <section class="card">
-    <h2>👥 Joined Facebook Groups — Assisted Posting</h2>
-    <p class="muted">The system does not log in as your personal Facebook account or auto-post into joined groups. It creates group-specific copy, opens the group in a new tab, and lets you paste/post it yourself.</p>
+    <h2>👥 Joined Facebook Groups — Manual Posting</h2>
+    <p class="muted">Save each group so AI can adapt captions to its purpose/rules. Use Copy Post + Open Group, post manually, then Mark Posted.</p>
     <form action="{{ url_for('marketing_group_add') }}" method="post">
       <div class="form-grid">
         <div><label>Group Name</label><input name="name" required placeholder="Binalbagan Buy & Sell"></div>
@@ -139,31 +126,33 @@
   </section>
 
   <section class="card">
-    <h2>📝 AI Marketing Memory & Queue</h2>
+    <h2>📝 AI Marketing Memory & Manual Posting Queue</h2>
     <div class="scroll"><table>
-      <thead><tr><th>ID / Status</th><th>Target</th><th>AI Decision</th><th>Caption</th><th>Actions</th></tr></thead>
+      <thead><tr><th>ID / Status</th><th>Target</th><th>AI Decision</th><th>Caption</th><th>Manual Actions</th></tr></thead>
       <tbody>
       {% for post in posts %}
         <tr>
-          <td><strong>#{{ post.id }}</strong><br><span class="status {% if post.status=='POSTED' %}ok{% elif post.status in ['FAILED','SKIPPED'] %}bad{% elif post.status=='APPROVED' %}info{% else %}warn{% endif %}">{{ post.status }}</span><br><span class="tiny">{{ post.created_at }}</span></td>
-          <td><strong>{{ post.business }}</strong><br>{{ post.target_type.replace('_',' ') }}{% if post.group %}<br><span class="tiny">{{ post.group.name }}</span>{% endif %}<br><span class="tiny">{{ post.source_kind }}{% if post.source_id %} #{{ post.source_id }}{% endif %}</span></td>
+          <td><strong>#{{ post.id }}</strong><br><span class="status {% if post.status=='POSTED' %}ok{% elif post.status in ['FAILED','SKIPPED'] %}bad{% else %}warn{% endif %}">{{ post.status }}</span><br><span class="tiny">{{ post.created_at }}</span></td>
+          <td><strong>{{ post.business }}</strong><br>{{ 'FACEBOOK PAGE' if post.target_type=='FACEBOOK_PAGE' else 'FACEBOOK GROUP' }}{% if post.group %}<br><span class="tiny">{{ post.group.name }}</span>{% endif %}<br><span class="tiny">{{ post.source_kind }}{% if post.source_id %} #{{ post.source_id }}{% endif %}</span></td>
           <td>{{ post.post_type.replace('_',' ').title() }}{% if post.ai_model %}<div class="tiny"><strong>Engine:</strong> {{ post.ai_model }}</div>{% endif %}<div class="reason">{{ post.reason }}</div>{% if post.error_message %}<div class="reason" style="color:#b91c1c">{{ post.error_message }}</div>{% endif %}</td>
           <td>
-            {% if post.status != 'POSTED' and post.status != 'SKIPPED' %}
+            {% if post.status not in ['POSTED','SKIPPED'] %}
               <form method="post" action="{{ url_for('marketing_edit_post', post_id=post.id) }}"><textarea name="caption">{{ post.caption }}</textarea><button class="btn btn-light" style="margin-top:5px">Save Edit</button></form>
             {% else %}<div class="caption">{{ post.caption }}</div>{% endif %}
             {% if post.link_url %}<a href="{{ post.link_url }}" target="_blank" rel="noopener" class="tiny">{{ post.link_url }}</a>{% endif %}
+            {% if post.status != 'SKIPPED' %}<textarea id="copy-{{ post.id }}" style="position:absolute;left:-9999px">{{ post.caption }}{% if post.link_url %}\n\n{{ post.link_url }}{% endif %}</textarea>{% endif %}
           </td>
           <td>
             <div class="actions">
-            {% if post.target_type == 'FACEBOOK_PAGE' and post.status not in ['POSTED','SKIPPED'] %}
-              <form method="post" action="{{ url_for('marketing_approve_post', post_id=post.id) }}"><button class="btn btn-light">Approve</button></form>
-              <form method="post" action="{{ url_for('marketing_publish_post', post_id=post.id) }}" onsubmit="return confirm('Publish this post to the connected Facebook Page now?')"><button class="btn btn-green">Post to FB</button></form>
-            {% elif post.target_type == 'GROUP_ASSIST' and post.status not in ['POSTED','SKIPPED'] %}
-              <button type="button" class="btn btn-blue" onclick="copyGroupPost({{ post.id }})">Copy Post</button>
-              {% if post.group %}<a class="btn btn-light" target="_blank" rel="noopener" href="{{ post.group.group_url }}">Open Group ↗</a>{% endif %}
-              <form method="post" action="{{ url_for('marketing_group_mark_posted', post_id=post.id) }}"><button class="btn btn-green">Mark Posted</button></form>
-              <textarea id="copy-{{ post.id }}" style="display:none">{{ post.caption }}{% if post.link_url %}\n\n{{ post.link_url }}{% endif %}</textarea>
+            {% if post.status not in ['POSTED','SKIPPED'] %}
+              <button type="button" class="btn btn-blue" onclick="copyMarketingPost({{ post.id }})">Copy Post</button>
+              {% if post.target_type == 'GROUP_ASSIST' and post.group %}
+                <a class="btn btn-light" target="_blank" rel="noopener" href="{{ post.group.group_url }}">Open Group ↗</a>
+                <form method="post" action="{{ url_for('marketing_group_mark_posted', post_id=post.id) }}"><button class="btn btn-green">Mark Posted</button></form>
+              {% elif post.target_type == 'FACEBOOK_PAGE' %}
+                <a class="btn btn-light" target="_blank" rel="noopener" href="{{ settings.facebook_page_url or 'https://www.facebook.com/' }}">{{ 'Open Page ↗' if settings.facebook_page_url else 'Open Facebook ↗' }}</a>
+                <form method="post" action="{{ url_for('marketing_page_mark_posted', post_id=post.id) }}"><button class="btn btn-green">Mark Posted</button></form>
+              {% endif %}
             {% endif %}
             {% if post.status != 'POSTED' %}<form method="post" action="{{ url_for('marketing_delete_post', post_id=post.id) }}"><button class="btn btn-red">Remove</button></form>{% endif %}
             </div>
@@ -175,17 +164,16 @@
   </section>
 
   <section class="card">
-    <h2>⏰ Scheduler Setup</h2>
-    <p class="muted">Your existing UptimeRobot can call this protected endpoint regularly. The agent itself decides whether the cadence/time rules are due, so frequent checks do not mean frequent Facebook posts.</p>
+    <h2>⏰ Optional Scheduled Drafts</h2>
+    <p class="muted">Your scheduler/UptimeRobot may call this protected endpoint to create drafts when the cadence is due. <strong>It never publishes to Facebook.</strong> You still copy/open/post/mark manually.</p>
     <div class="code">GET {{ request.url_root.rstrip('/') }}/tasks/marketing/run?token=YOUR_MARKETING_CRON_TOKEN</div>
-    <p class="muted">Safer option: send <code>Authorization: Bearer YOUR_MARKETING_CRON_TOKEN</code> as a custom request header. Never put the actual token in Facebook posts or public pages.</p>
   </section>
 </div>
 <script>
-async function copyGroupPost(id){
+async function copyMarketingPost(id){
   const el=document.getElementById('copy-'+id); if(!el)return;
-  try{await navigator.clipboard.writeText(el.value); alert('Caption + verified link copied. Open the Facebook group and paste it.');}
-  catch(e){el.style.display='block';el.select();document.execCommand('copy');el.style.display='none';alert('Post copied.');}
+  try{await navigator.clipboard.writeText(el.value); alert('Caption + verified link copied. Open Facebook and paste it.');}
+  catch(e){el.select();document.execCommand('copy');alert('Post copied.');}
 }
 </script>
 </body>

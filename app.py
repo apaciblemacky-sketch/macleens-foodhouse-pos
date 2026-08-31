@@ -20,9 +20,7 @@ import qrcode
 import qrcode.image.svg
 
 from marketing_agent import (
-    decrypt_secret, encrypt_secret, exchange_meta_code, extract_peso_amounts,
-    generate_ai_marketing_decision, gemini_configured, list_managed_pages, meta_configured, meta_login_url,
-    openai_configured, publish_page_link, test_page_token,
+    extract_peso_amounts, generate_ai_marketing_decision, gemini_configured, openai_configured,
 )
 
 logging.basicConfig(
@@ -154,6 +152,7 @@ class Product(db.Model):
     allow_custom_amount = db.Column(db.Boolean, default=False)
     minimum_order_amount = db.Column(db.Float, nullable=True)
     option_schema = db.Column(db.Text, nullable=True)
+    size_schema = db.Column(db.Text, nullable=True)
     stock = db.Column(db.Integer, default=100)
     image_url = db.Column(db.Text, nullable=True)
     is_featured = db.Column(db.Boolean, default=False)
@@ -787,6 +786,7 @@ def run_schema_migrations():
             ('allow_custom_amount', 'BOOLEAN DEFAULT FALSE'),
             ('minimum_order_amount', 'FLOAT'),
             ('option_schema', 'TEXT'),
+            ('size_schema', 'TEXT'),
             ('available_start_time', 'VARCHAR(10)'),
             ('available_end_time', 'VARCHAR(10)'),
         ],
@@ -850,6 +850,7 @@ def run_db_setup():
 
         ensure_default_promos()
         ensure_legacy_craft_catalog()
+        disable_legacy_meta_connection()
         _DB_INITIALIZED = True
         app.logger.info('Database setup completed successfully.')
     except Exception:
@@ -1047,8 +1048,105 @@ def normalize_product_option_schema(schema):
         for g in groups
     ) or None
 
+def parse_product_size_schema(schema, strict=False):
+    """Parse per-size selling prices from a compact admin definition.
+
+    Examples:
+        Small=35|Medium=45|Large=55
+        12oz=50 | 16oz=65 | 22oz=80
+
+    A configured size is a required single-choice option and its selling price
+    replaces the product's base price for that cart/order line.
+    """
+    raw = str(schema or '').strip()
+    if not raw:
+        return []
+
+    entries = []
+    seen = set()
+    parts = [x.strip() for x in re.split(r'[|;\n]+', raw) if x.strip()]
+    if len(parts) > 12:
+        raise OrderValidationError('A product can have at most 12 priced sizes.')
+
+    for part in parts:
+        match = re.match(r'^(.+?)\s*(?:=|:|@)\s*₱?\s*([0-9]+(?:\.[0-9]{1,2})?)$', part)
+        if not match:
+            if strict:
+                raise OrderValidationError(
+                    f"Invalid size '{part}'. Use Size=Price, for example 12oz=50|16oz=65."
+                )
+            continue
+        name = re.sub(r'\s+', ' ', match.group(1).strip())[:40]
+        price = round(parse_float(match.group(2), 0.0), 2)
+        if not name or price <= 0:
+            if strict:
+                raise OrderValidationError('Every size needs a name and a price greater than ₱0.00.')
+            continue
+        key = name.casefold()
+        if key in seen:
+            raise OrderValidationError(f'Duplicate product size: {name}.')
+        seen.add(key)
+        entries.append({'name': name, 'price': price})
+
+    if strict and raw and not entries:
+        raise OrderValidationError('Product sizes could not be read. Example: Small=35|Medium=45|Large=55')
+    return entries
+
+
+def normalize_product_size_schema(schema):
+    sizes = parse_product_size_schema(schema, strict=bool(str(schema or '').strip()))
+    return '|'.join(f"{row['name']}={row['price']:.2f}" for row in sizes) or None
+
+
+def product_choice_groups(option_schema=None, size_schema=None):
+    """Return all selectable groups, with a priced Size group first when configured."""
+    groups = []
+    sizes = parse_product_size_schema(size_schema, strict=False)
+    if sizes:
+        groups.append({
+            'name': 'Size',
+            'choices': [row['name'] for row in sizes],
+            'multiple': False,
+            'priced': True,
+            'prices': {row['name']: row['price'] for row in sizes},
+        })
+    groups.extend(parse_product_option_schema(option_schema, strict=False))
+    return groups
+
+
+def normalize_product_configuration(option_schema, size_schema):
+    normalized_options = normalize_product_option_schema(option_schema)
+    normalized_sizes = normalize_product_size_schema(size_schema)
+    if normalized_sizes:
+        if any(g['name'].casefold() == 'size' for g in parse_product_option_schema(normalized_options, strict=False)):
+            raise OrderValidationError(
+                "Do not add a normal 'Size' sub-option when Priced Sizes are configured. Use the Priced Sizes field instead."
+            )
+    return normalized_options, normalized_sizes
+
+
+def product_starting_price(prod):
+    sizes = parse_product_size_schema(getattr(prod, 'size_schema', None), strict=False)
+    if sizes:
+        return min(row['price'] for row in sizes)
+    return max(0.0, parse_float(getattr(prod, 'price', 0.0), 0.0))
+
+
+def product_price_for_options(prod, selected_options):
+    """Resolve the authoritative regular selling price after a priced Size choice."""
+    base = round(max(0.0, parse_float(getattr(prod, 'price', 0.0), 0.0)), 2)
+    sizes = parse_product_size_schema(getattr(prod, 'size_schema', None), strict=False)
+    if not sizes:
+        return base
+    selected_size = str((selected_options or {}).get('Size') or '').strip()
+    for row in sizes:
+        if row['name'].casefold() == selected_size.casefold():
+            return round(row['price'], 2)
+    raise OrderValidationError(f'Please choose a valid Size for {prod.name}.')
+
+
 def validate_product_options(prod, raw_options):
-    groups = parse_product_option_schema(getattr(prod, 'option_schema', None), strict=False)
+    groups = product_choice_groups(getattr(prod, 'option_schema', None), getattr(prod, 'size_schema', None))
     if not groups:
         if raw_options not in (None, '', {}, []):
             raise OrderValidationError(f'{prod.name} does not have selectable options.')
@@ -1251,7 +1349,8 @@ def validate_and_lock_cart(raw_items, require_available=True, allow_cashier_cust
         base_price = round(max(0.0, parse_float(prod.price, 0.0)), 2)
         if base_price <= 0:
             raise OrderValidationError(f'{prod.name} has an invalid selling price.')
-        unit_price = base_price
+        selected_options = validate_product_options(prod, entry['raw_options'])
+        unit_price = product_price_for_options(prod, selected_options)
 
         requested_price = entry['requested_price']
         if requested_price is not None:
@@ -1259,16 +1358,16 @@ def validate_and_lock_cart(raw_items, require_available=True, allow_cashier_cust
                 raise OrderValidationError('Specific amounts are only available at the Cashier POS.')
             if not bool(getattr(prod, 'allow_custom_amount', False)):
                 raise OrderValidationError(f'{prod.name} does not allow a specific cashier amount.')
-            min_amount = round(parse_float(getattr(prod, 'minimum_order_amount', None), base_price), 2)
+            configured_min = getattr(prod, 'minimum_order_amount', None)
+            min_amount = round(parse_float(configured_min, unit_price), 2)
             if min_amount <= 0:
-                min_amount = base_price
+                min_amount = unit_price
             if requested_price + 0.004 < min_amount:
                 raise OrderValidationError(
                     f'{prod.name} cannot be sold below its ₱{min_amount:,.2f} minimum order amount.'
                 )
             unit_price = requested_price
 
-        selected_options = validate_product_options(prod, entry['raw_options'])
         selected_json = serialize_selected_options(selected_options)
         identity = (product_id, round(unit_price, 2), selected_json or '')
         if identity in combined:
@@ -1607,7 +1706,7 @@ def inject_globals():
         app.logger.exception('Logo setting query failed; using /static/logo.png fallback')
         logo = '/static/logo.png'
     status = check_operating_status()
-    return dict(store_logo=logo, status=status, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema)
+    return dict(store_logo=logo, status=status, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price)
 
 def _staff_auth_failure(target, message):
     """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
@@ -1757,7 +1856,8 @@ def save_marketing_setting(key, value):
 def marketing_settings():
     return {
         'enabled': marketing_setting('marketing_enabled', 'false') == 'true',
-        'mode': marketing_setting('marketing_mode', 'REQUIRE_APPROVAL'),
+        # Facebook publishing is manual in this build. The scheduler may create drafts only.
+        'mode': 'MANUAL_POSTING',
         'ai_provider': marketing_setting('marketing_ai_provider', 'GEMINI').upper(),
         'business_scope': marketing_setting('marketing_business_scope', 'BOTH'),
         'posts_per_week': max(1, min(7, parse_int(marketing_setting('marketing_posts_per_week', '4'), 4))),
@@ -1765,6 +1865,8 @@ def marketing_settings():
         'end_hour': marketing_setting('marketing_end_hour', '19:00'),
         'repeat_cooldown_days': max(0, min(90, parse_int(marketing_setting('marketing_repeat_cooldown_days', '10'), 10))),
         'max_posts_per_day': max(1, min(3, parse_int(marketing_setting('marketing_max_posts_per_day', '1'), 1))),
+        'facebook_page_name': marketing_setting('marketing_facebook_page_name', 'Macleen\'s Facebook Page'),
+        'facebook_page_url': marketing_setting('marketing_facebook_page_url', ''),
     }
 
 def _marketing_public_base_url():
@@ -1962,24 +2064,28 @@ def create_ai_marketing_post(business_hint='AUTO', post_type_hint='AUTO', group=
     db.session.commit()
     return post
 
-def active_facebook_page():
-    return MarketingFacebookPage.query.filter_by(is_active=True).order_by(MarketingFacebookPage.connected_at.desc()).first()
+def disable_legacy_meta_connection():
+    """Permanently disable/clear any old Meta API tokens; manual posting no longer needs them."""
+    changed = False
+    for row in MarketingFacebookPage.query.all():
+        if row.is_active or row.access_token_encrypted:
+            row.is_active = False
+            row.access_token_encrypted = ''
+            changed = True
+    pending = StoreSetting.query.filter_by(key='meta_pending_user_token').first()
+    if pending and pending.value:
+        pending.value = ''
+        changed = True
+    legacy_mode = StoreSetting.query.filter_by(key='marketing_mode').first()
+    if legacy_mode and legacy_mode.value != 'MANUAL_POSTING':
+        legacy_mode.value = 'MANUAL_POSTING'
+        changed = True
+    if changed:
+        db.session.commit()
 
-def publish_marketing_post(post):
-    if post.target_type != 'FACEBOOK_PAGE':
-        raise OrderValidationError('Joined Facebook Groups use assisted posting only.')
-    page = active_facebook_page()
-    if not page:
-        raise OrderValidationError('No Facebook Page is connected.')
-    token = decrypt_secret(page.access_token_encrypted, app.config['SECRET_KEY'])
-    if not token:
-        raise OrderValidationError('The stored Facebook Page token could not be decrypted.')
-    result = publish_page_link(page.page_id, token, post.caption, post.link_url or '')
-    post.facebook_post_id = result.get('id')
-    post.status = 'POSTED'
-    post.published_at = utc_now()
-    db.session.commit()
-    return result
+
+def manual_facebook_page_url():
+    return marketing_settings().get('facebook_page_url', '').strip()
 
 def marketing_agent_due_now():
     cfg = marketing_settings()
@@ -2020,11 +2126,12 @@ def run_marketing_agent_once():
     cfg = marketing_settings()
     post = create_ai_marketing_post(business_hint=cfg['business_scope'])
     if post.status == 'SKIPPED':
-        return {'ran': True, 'posted': False, 'post_id': post.id, 'message': post.reason or 'AI chose to skip.'}
-    if cfg['mode'] == 'AUTO_PUBLISH':
-        publish_marketing_post(post)
-        return {'ran': True, 'posted': True, 'post_id': post.id, 'message': 'AI post published to Facebook Page.'}
-    return {'ran': True, 'posted': False, 'post_id': post.id, 'message': 'AI draft created for approval.'}
+        return {'ran': True, 'post_id': post.id, 'message': post.reason or 'AI chose to skip.'}
+    return {
+        'ran': True,
+        'post_id': post.id,
+        'message': 'AI draft created. Copy it from Marketing and post it manually to Facebook when ready.',
+    }
 
 
 # ==================== REAL-TIME POLLING API ====================
@@ -4021,33 +4128,24 @@ def cash_flow_plan_delete(plan_id):
 @require_admin
 def marketing_admin():
     cfg = marketing_settings()
-    page = active_facebook_page()
     groups = MarketingGroup.query.order_by(MarketingGroup.is_active.desc(), MarketingGroup.name.asc()).all()
     posts = MarketingPost.query.order_by(MarketingPost.created_at.desc()).limit(100).all()
-    pending_pages = session.get('_meta_pending_pages') or []
     return render_template(
         'marketing_admin.html',
         settings=cfg,
-        facebook_page=page,
         groups=groups,
         posts=posts,
         gemini_ready=gemini_configured(),
         openai_ready=openai_configured(),
-        gemini_model=os.environ.get('GEMINI_MARKETING_MODEL', 'gemini-3.7-flash'),
+        gemini_model=os.environ.get('GEMINI_MARKETING_MODEL', 'gemini-3.5-flash-lite'),
         openai_model=os.environ.get('OPENAI_MARKETING_MODEL', 'gpt-5.5'),
-        meta_ready=meta_configured(),
-        pending_pages=pending_pages,
         cron_ready=bool(os.environ.get('MARKETING_CRON_TOKEN')),
         post_types=MARKETING_POST_TYPES,
-        graph_version=os.environ.get('META_GRAPH_VERSION', 'v25.0'),
     )
 
 @app.route('/admin/marketing/settings', methods=['POST'])
 @require_admin
 def marketing_save_settings():
-    mode = request.form.get('mode', 'REQUIRE_APPROVAL').upper()
-    if mode not in ('DRAFT_ONLY', 'REQUIRE_APPROVAL', 'AUTO_PUBLISH'):
-        mode = 'REQUIRE_APPROVAL'
     scope = request.form.get('business_scope', 'BOTH').upper()
     if scope not in ('FOODHOUSE', 'CRAFT', 'BOTH'):
         scope = 'BOTH'
@@ -4055,7 +4153,7 @@ def marketing_save_settings():
     if provider not in ('GEMINI', 'AUTO', 'OPENAI', 'TEMPLATE'):
         provider = 'GEMINI'
     save_marketing_setting('marketing_enabled', 'true' if request.form.get('enabled') else 'false')
-    save_marketing_setting('marketing_mode', mode)
+    save_marketing_setting('marketing_mode', 'MANUAL_POSTING')
     save_marketing_setting('marketing_ai_provider', provider)
     save_marketing_setting('marketing_business_scope', scope)
     save_marketing_setting('marketing_posts_per_week', max(1, min(7, parse_int(request.form.get('posts_per_week'), 4))))
@@ -4064,7 +4162,21 @@ def marketing_save_settings():
     save_marketing_setting('marketing_repeat_cooldown_days', max(0, min(90, parse_int(request.form.get('repeat_cooldown_days'), 10))))
     save_marketing_setting('marketing_max_posts_per_day', max(1, min(3, parse_int(request.form.get('max_posts_per_day'), 1))))
     db.session.commit()
-    flash('AI Marketing settings saved.', 'success')
+    flash('AI Marketing settings saved. Facebook publishing remains manual.', 'success')
+    return redirect(url_for('marketing_admin'))
+
+@app.route('/admin/marketing/facebook-page', methods=['POST'])
+@require_admin
+def marketing_save_facebook_page():
+    name = request.form.get('page_name', '').strip()[:150] or "Macleen's Facebook Page"
+    page_url = request.form.get('page_url', '').strip()
+    if page_url and not page_url.startswith(('https://facebook.com/', 'https://www.facebook.com/', 'https://m.facebook.com/')):
+        flash('Enter a valid Facebook Page URL starting with https://www.facebook.com/.', 'error')
+        return redirect(url_for('marketing_admin'))
+    save_marketing_setting('marketing_facebook_page_name', name)
+    save_marketing_setting('marketing_facebook_page_url', page_url)
+    db.session.commit()
+    flash('Facebook Page shortcut saved. No Meta API connection is required.', 'success')
     return redirect(url_for('marketing_admin'))
 
 @app.route('/admin/marketing/run-agent', methods=['POST'])
@@ -4072,7 +4184,7 @@ def marketing_save_settings():
 def marketing_run_agent_now():
     try:
         result = run_marketing_agent_once()
-        flash(result.get('message') or 'AI Marketing agent finished.', 'success' if result.get('posted') else 'info')
+        flash(result.get('message') or 'AI Marketing agent finished.', 'success' if result.get('ran') else 'info')
     except Exception as exc:
         app.logger.exception('Manual AI marketing agent run failed')
         flash(f'AI Marketing agent failed: {exc}', 'error')
@@ -4089,7 +4201,7 @@ def marketing_generate():
         if post.status == 'SKIPPED':
             flash(f'AI chose not to create a promotional post: {post.reason}', 'info')
         else:
-            flash(f'AI draft #{post.id} created. Review it before publishing.', 'success')
+            flash(f'AI draft #{post.id} created. Edit/copy it, then post it manually to Facebook.', 'success')
     except Exception as exc:
         app.logger.exception('AI marketing draft generation failed')
         flash(f'Could not generate AI post: {exc}', 'error')
@@ -4100,7 +4212,7 @@ def marketing_generate():
 def marketing_edit_post(post_id):
     post = MarketingPost.query.get_or_404(post_id)
     if post.status == 'POSTED':
-        flash('A published post cannot be edited from this dashboard.', 'error')
+        flash('A post already marked as posted cannot be edited from this dashboard.', 'error')
         return redirect(url_for('marketing_admin'))
     caption = request.form.get('caption', '').strip()
     if not caption:
@@ -4108,47 +4220,29 @@ def marketing_edit_post(post_id):
     else:
         post.caption = caption[:3000]
         post.status = 'DRAFT'
+        post.error_message = None
         db.session.commit()
         flash(f'Draft #{post.id} updated.', 'success')
     return redirect(url_for('marketing_admin'))
 
-@app.route('/admin/marketing/post/<int:post_id>/approve', methods=['POST'])
+@app.route('/admin/marketing/post/<int:post_id>/mark-posted', methods=['POST'])
 @require_admin
-def marketing_approve_post(post_id):
+def marketing_page_mark_posted(post_id):
     post = MarketingPost.query.get_or_404(post_id)
-    if post.target_type == 'GROUP_ASSIST':
-        flash('Group-assisted posts are copied/opened manually rather than approved for API publishing.', 'info')
-    elif post.status not in ('POSTED', 'SKIPPED'):
-        post.status = 'APPROVED'
-        post.approved_at = utc_now()
+    if post.target_type != 'FACEBOOK_PAGE':
+        flash('This action is only for the manual Facebook Page queue.', 'error')
+    elif post.status == 'SKIPPED':
+        flash('A skipped AI decision cannot be marked as posted.', 'error')
+    elif post.status == 'POSTED':
+        flash('This post is already marked as posted.', 'info')
+    else:
+        post.status = 'POSTED'
+        post.approved_at = post.approved_at or utc_now()
+        post.published_at = utc_now()
+        post.facebook_post_id = None
+        post.error_message = None
         db.session.commit()
-        flash(f'Draft #{post.id} approved.', 'success')
-    return redirect(url_for('marketing_admin'))
-
-@app.route('/admin/marketing/post/<int:post_id>/publish', methods=['POST'])
-@require_admin
-def marketing_publish_post(post_id):
-    post = MarketingPost.query.get_or_404(post_id)
-    try:
-        if post.status == 'POSTED':
-            flash('This post is already published.', 'info')
-        elif post.status == 'SKIPPED':
-            flash('A skipped AI decision cannot be published.', 'error')
-        else:
-            post.status = 'APPROVED'
-            post.approved_at = post.approved_at or utc_now()
-            db.session.commit()
-            publish_marketing_post(post)
-            flash(f'Post #{post.id} published to the connected Facebook Page.', 'success')
-    except Exception as exc:
-        db.session.rollback()
-        post = db.session.get(MarketingPost, post_id)
-        if post:
-            post.status = 'FAILED'
-            post.error_message = str(exc)[:1000]
-            db.session.commit()
-        app.logger.exception('Facebook Page publish failed for marketing post %s', post_id)
-        flash(f'Facebook publish failed: {exc}', 'error')
+        flash(f'Post #{post.id} marked as manually posted to Facebook.', 'success')
     return redirect(url_for('marketing_admin'))
 
 @app.route('/admin/marketing/post/<int:post_id>/delete', methods=['POST'])
@@ -4161,106 +4255,6 @@ def marketing_delete_post(post_id):
         db.session.delete(post)
         db.session.commit()
         flash('Marketing draft removed.', 'info')
-    return redirect(url_for('marketing_admin'))
-
-@app.route('/admin/marketing/facebook/connect')
-@require_admin
-def marketing_facebook_connect():
-    if not meta_configured():
-        flash('Set META_APP_ID and META_APP_SECRET in Render before connecting Facebook.', 'error')
-        return redirect(url_for('marketing_admin'))
-    state = secrets.token_urlsafe(24)
-    session['_meta_oauth_state'] = state
-    callback = url_for('marketing_facebook_callback', _external=True, _scheme='https' if IS_PRODUCTION else request.scheme)
-    return redirect(meta_login_url(callback, state))
-
-@app.route('/admin/marketing/facebook/callback')
-@require_admin
-def marketing_facebook_callback():
-    if request.args.get('state') != session.pop('_meta_oauth_state', None):
-        flash('Facebook connection was rejected because the OAuth state did not match.', 'error')
-        return redirect(url_for('marketing_admin'))
-    if request.args.get('error'):
-        flash(f"Facebook authorization was cancelled: {request.args.get('error_description') or request.args.get('error')}", 'error')
-        return redirect(url_for('marketing_admin'))
-    code = request.args.get('code', '').strip()
-    if not code:
-        flash('Facebook did not return an authorization code.', 'error')
-        return redirect(url_for('marketing_admin'))
-    callback = url_for('marketing_facebook_callback', _external=True, _scheme='https' if IS_PRODUCTION else request.scheme)
-    try:
-        user_token, pages = exchange_meta_code(code, callback)
-        if not pages:
-            raise RuntimeError('No manageable Facebook Pages were returned for this account.')
-        session['_meta_pending_pages'] = [{'id': p.get('id'), 'name': p.get('name')} for p in pages if p.get('id')]
-        save_marketing_setting('meta_pending_user_token', encrypt_secret(user_token, app.config['SECRET_KEY']))
-        db.session.commit()
-        flash("Facebook connected. Choose which Page Macleen's should manage.", 'success')
-    except Exception as exc:
-        app.logger.exception('Facebook OAuth callback failed')
-        flash(f'Facebook connection failed: {exc}', 'error')
-    return redirect(url_for('marketing_admin'))
-
-@app.route('/admin/marketing/facebook/select', methods=['POST'])
-@require_admin
-def marketing_facebook_select():
-    page_id = request.form.get('page_id', '').strip()
-    user_token = decrypt_secret(marketing_setting('meta_pending_user_token', ''), app.config['SECRET_KEY'])
-    if not page_id or not user_token:
-        flash('Facebook Page selection expired. Connect Facebook again.', 'error')
-        return redirect(url_for('marketing_admin'))
-    try:
-        pages = list_managed_pages(user_token)
-        chosen = next((p for p in pages if str(p.get('id')) == page_id), None)
-        if not chosen or not chosen.get('access_token'):
-            raise RuntimeError('Selected Page is not available to this Facebook login.')
-        MarketingFacebookPage.query.update({'is_active': False})
-        row = MarketingFacebookPage.query.filter_by(page_id=page_id).first()
-        encrypted = encrypt_secret(chosen['access_token'], app.config['SECRET_KEY'])
-        if row:
-            row.page_name = chosen.get('name') or page_id
-            row.access_token_encrypted = encrypted
-            row.is_active = True
-            row.token_updated_at = utc_now()
-        else:
-            db.session.add(MarketingFacebookPage(
-                page_id=page_id,
-                page_name=chosen.get('name') or page_id,
-                access_token_encrypted=encrypted,
-                is_active=True,
-            ))
-        save_marketing_setting('meta_pending_user_token', '')
-        db.session.commit()
-        session.pop('_meta_pending_pages', None)
-        flash(f"Facebook Page '{chosen.get('name') or page_id}' connected.", 'success')
-    except Exception as exc:
-        db.session.rollback()
-        app.logger.exception('Facebook Page selection failed')
-        flash(f'Could not connect Page: {exc}', 'error')
-    return redirect(url_for('marketing_admin'))
-
-@app.route('/admin/marketing/facebook/test', methods=['POST'])
-@require_admin
-def marketing_facebook_test():
-    page = active_facebook_page()
-    if not page:
-        flash('No Facebook Page is connected.', 'error')
-        return redirect(url_for('marketing_admin'))
-    try:
-        token = decrypt_secret(page.access_token_encrypted, app.config['SECRET_KEY'])
-        result = test_page_token(page.page_id, token)
-        flash(f"Facebook connection works: {result.get('name') or page.page_name}.", 'success')
-    except Exception as exc:
-        flash(f'Facebook connection test failed: {exc}', 'error')
-    return redirect(url_for('marketing_admin'))
-
-@app.route('/admin/marketing/facebook/disconnect', methods=['POST'])
-@require_admin
-def marketing_facebook_disconnect():
-    MarketingFacebookPage.query.update({'is_active': False})
-    db.session.commit()
-    session.pop('_meta_pending_pages', None)
-    flash('Facebook Page disconnected from automatic publishing.', 'info')
     return redirect(url_for('marketing_admin'))
 
 @app.route('/admin/marketing/group/add', methods=['POST'])
@@ -4773,6 +4767,7 @@ def admin_add_product():
     allow_custom_amount = bool(request.form.get('allow_custom_amount'))
     minimum_order_amount = parse_float(request.form.get('minimum_order_amount'), 0.0)
     option_schema_raw = request.form.get('option_schema', '').strip()
+    size_schema_raw = request.form.get('size_schema', '').strip()
     stock = parse_int(request.form.get('stock'), 100)
     image_url = request.form.get('image_url', '').strip()
     start_t = request.form.get('available_start_time', '').strip() or None
@@ -4796,7 +4791,7 @@ def admin_add_product():
         minimum_order_amount = None
 
     try:
-        option_schema = normalize_product_option_schema(option_schema_raw)
+        option_schema, size_schema = normalize_product_configuration(option_schema_raw, size_schema_raw)
     except OrderValidationError as exc:
         flash(str(exc), 'error')
         return redirect(url_for('admin_dashboard'))
@@ -4809,6 +4804,7 @@ def admin_add_product():
         allow_custom_amount=allow_custom_amount,
         minimum_order_amount=minimum_order_amount,
         option_schema=option_schema,
+        size_schema=size_schema,
         stock=stock,
         image_url=image_url,
         available_start_time=start_t,
@@ -4835,7 +4831,10 @@ def admin_batch_update_products():
             stock = parse_int(request.form.get(f'stock_{pid}'), prod.stock or 0)
             allow_custom_amount = (f'allow_custom_amount_{pid}' in request.form)
             minimum_order_amount = parse_float(request.form.get(f'minimum_order_amount_{pid}'), 0.0)
-            option_schema = normalize_product_option_schema(request.form.get(f'option_schema_{pid}', '').strip())
+            option_schema, size_schema = normalize_product_configuration(
+                request.form.get(f'option_schema_{pid}', '').strip(),
+                request.form.get(f'size_schema_{pid}', '').strip(),
+            )
             if price <= 0 or cost < 0 or stock < 0:
                 raise OrderValidationError(f'Invalid price/cost/stock for {prod.name}.')
             if allow_custom_amount:
@@ -4850,6 +4849,7 @@ def admin_batch_update_products():
             prod.allow_custom_amount = allow_custom_amount
             prod.minimum_order_amount = minimum_order_amount
             prod.option_schema = option_schema
+            prod.size_schema = size_schema
             prod.stock = stock
             prod.image_url = request.form.get(f'image_url_{pid}', '').strip()
             prod.available_start_time = request.form.get(f'available_start_time_{pid}', '').strip() or None

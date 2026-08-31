@@ -12,17 +12,11 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MARKETING_MODEL
-        value: gemini-3.7-flash
+        value: gemini-3.5-flash-lite
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MARKETING_MODEL
         value: gpt-5.5
-      - key: META_APP_ID
-        sync: false
-      - key: META_APP_SECRET
-        sync: false
-      - key: META_GRAPH_VERSION
-        value: v25.0
       - key: MARKETING_CRON_TOKEN
         generateValue: true
       - key: PUBLIC_BASE_URL

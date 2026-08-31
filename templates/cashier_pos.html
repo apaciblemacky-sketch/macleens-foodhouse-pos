@@ -138,12 +138,15 @@
 
       <div class="dish-grid">
         {% for p in products %}
-        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addPosCartItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ 'true' if p.allow_custom_amount else 'false' }}, {{ p.minimum_order_amount if p.minimum_order_amount else p.price }}, {{ product_option_groups(p.option_schema)|tojson }})'>
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addPosCartItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ 'true' if p.allow_custom_amount else 'false' }}, {{ p.minimum_order_amount if p.minimum_order_amount else 'null' }}, {{ product_choice_groups(p.option_schema, p.size_schema)|tojson }})'>
           <div style="font-size:0.75rem; font-weight:bold; line-height:1.2;">{{ p.name }}</div>
           <div>
-            <div style="font-size:0.85rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
+            <div style="font-size:0.85rem; font-weight:900; color:var(--hk-pink);">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div>
             {% if p.allow_custom_amount %}
               <div style="font-size:0.60rem; color:#38bdf8; font-weight:800; margin-top:1px;">Specific ≥ ₱{{ "{:,.2f}".format(p.minimum_order_amount or p.price) }}</div>
+            {% endif %}
+            {% if p.size_schema %}
+              <div style="font-size:0.58rem; color:#f472b6; font-weight:800; margin-top:1px;">Priced sizes</div>
             {% endif %}
             {% if p.option_schema %}
               <div style="font-size:0.58rem; color:#fbbf24; font-weight:800; margin-top:1px;">Choices available</div>
@@ -414,7 +417,7 @@
             <select name="product_id" id="resProductSelect" class="form-input" onchange="updateResAmount()" required>
               <option value="">-- Choose Dish --</option>
               {% for p in products %}
-                <option value="{{ p.id }}" data-price="{{ p.price }}" data-name="{{ p.name|e }}" data-options='{{ product_option_groups(p.option_schema)|tojson }}'>{{ p.name }} (₱{{ "{:,.2f}".format(p.price) }}){% if p.option_schema %} • choices{% endif %}</option>
+                <option value="{{ p.id }}" data-price="{{ p.price }}" data-name="{{ p.name|e }}" data-options='{{ product_choice_groups(p.option_schema, p.size_schema)|tojson }}'>{{ p.name }} ({% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}){% if p.size_schema %} • sizes{% endif %}{% if p.option_schema %} • choices{% endif %}</option>
               {% endfor %}
             </select>
             <input type="hidden" name="selected_options" id="resSelectedOptions">
@@ -552,7 +555,7 @@
           <select name="product_id" id="colProductSelect" class="form-input" onchange="updateColProductAmount()">
             <option value="">-- Choose Menu Item --</option>
             {% for p in products %}
-              <option value="{{ p.id }}" data-price="{{ p.price }}" data-name="{{ p.name|e }}" data-options='{{ product_option_groups(p.option_schema)|tojson }}'>{{ p.name }} (₱{{ "{:,.2f}".format(p.price) }}){% if p.option_schema %} • choices{% endif %}</option>
+              <option value="{{ p.id }}" data-price="{{ p.price }}" data-name="{{ p.name|e }}" data-options='{{ product_choice_groups(p.option_schema, p.size_schema)|tojson }}'>{{ p.name }} ({% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}){% if p.size_schema %} • sizes{% endif %}{% if p.option_schema %} • choices{% endif %}</option>
             {% endfor %}
           </select>
           <input type="hidden" name="selected_options" id="colSelectedOptions">
@@ -995,11 +998,15 @@
           const multiple = !!group.multiple;
           const type = multiple ? 'checkbox' : 'radio';
           const helper = multiple ? 'Select one or more.' : 'Select one.';
-          const inputs = choices.map((choice, ci) => `
+          const inputs = choices.map((choice, ci) => {
+            const rawPrice = group.prices && Object.prototype.hasOwnProperty.call(group.prices, choice) ? Number(group.prices[choice]) : null;
+            const priceText = Number.isFinite(rawPrice) && rawPrice > 0 ? ` <strong style="color:#ec4899;">• ₱${rawPrice.toFixed(2)}</strong>` : '';
+            return `
             <label class="po-choice">
               <input type="${type}" name="po_group_${gi}" data-choice-index="${ci}">
-              <span>${escapeOptionHtml(choice)}</span>
-            </label>`).join('');
+              <span>${escapeOptionHtml(choice)}${priceText}</span>
+            </label>`;
+          }).join('');
           return `<div class="po-group" data-group-index="${gi}">
             <div class="po-group-title">${escapeOptionHtml(group.name)}</div>
             <div class="po-help">${helper}</div>${inputs}</div>`;
@@ -1038,6 +1045,19 @@
       return Object.entries(options).map(([k,v]) => `${k}: ${Array.isArray(v) ? v.join(' + ') : v}`).join(' • ');
     }
 
+    function selectedPriceForOptions(basePrice, groups, options) {
+      let resolved = parseFloat(basePrice);
+      (Array.isArray(groups) ? groups : []).forEach(group => {
+        if (!group || !group.priced || !group.prices) return;
+        let choice = (options || {})[group.name];
+        if (Array.isArray(choice)) choice = choice[0];
+        if (!choice) return;
+        const candidate = Number(group.prices[choice]);
+        if (Number.isFinite(candidate) && candidate > 0) resolved = candidate;
+      });
+      return resolved;
+    }
+
     function cartKeyFor(productId, options) {
       const pairs = Object.entries(options || {}).sort((a,b) => a[0].localeCompare(b[0]));
       if (!pairs.length) return String(productId);
@@ -1049,10 +1069,12 @@
 
     async function addPosCartItem(id, name, price, allowCustomAmount=false, minimumAmount=null, optionGroups=[]) {
       id = String(id);
-      const regularPrice = parseFloat(price);
-      const minAmount = parseFloat(minimumAmount || regularPrice);
+      const basePrice = parseFloat(price);
       const options = await collectProductOptions(name, optionGroups);
       if (options === null) return;
+      const regularPrice = selectedPriceForOptions(basePrice, optionGroups, options);
+      const configuredMin = minimumAmount === null || minimumAmount === undefined || minimumAmount === '' ? null : parseFloat(minimumAmount);
+      const minAmount = Number.isFinite(configuredMin) && configuredMin > 0 ? configuredMin : regularPrice;
       const cartKey = cartKeyFor(id, options);
 
       if (allowCustomAmount) {

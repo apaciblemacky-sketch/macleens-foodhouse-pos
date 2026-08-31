@@ -120,3 +120,10 @@ Keep the ordinary UptimeRobot `/healthz` monitor separate.
 Use **Require Approval** first. Generate and review several posts before switching to **Fully Automatic**.
 
 The Marketing Memory table stores the selected engine/model, decision type, selected item, reason, caption, status, link, Meta post ID/error, and timestamps so future decisions can avoid repetition.
+
+
+---
+
+## Current Facebook mode (supersedes the Meta API sections above)
+
+The current build intentionally uses **manual Facebook posting**. Meta Developer OAuth/API publishing has been removed. Use `/admin/marketing` to generate/edit/copy drafts, open the saved Facebook Page or Group, post manually, and click **Mark Posted**. See `AI_MARKETING_MANUAL_FACEBOOK_UPDATE.md`.

@@ -32,7 +32,7 @@ REQUIRED_DB_COLUMNS = {
     },
     "product": {
         "id", "name", "category_name", "price", "cost", "allow_custom_amount",
-        "minimum_order_amount", "option_schema", "stock", "is_active", "available_start_time", "available_end_time",
+        "minimum_order_amount", "option_schema", "size_schema", "stock", "is_active", "available_start_time", "available_end_time",
     },
     "order": {
         "id", "order_type", "dining_option", "customer_id", "subtotal",
@@ -210,6 +210,19 @@ def main() -> int:
     if missing_option_ui:
         fail("product sub-option UI is incomplete: " + ", ".join(missing_option_ui))
     ok("product sauce/flavor sub-options are configurable and server-validated")
+
+    size_markers = [
+        "size_schema = db.Column",
+        "parse_product_size_schema",
+        "product_price_for_options",
+        "product_choice_groups",
+        "Priced Sizes",
+    ]
+    combined_text = source + admin_template + cashier_template + storefront
+    missing_sizes = [marker for marker in size_markers if marker not in combined_text]
+    if missing_sizes:
+        fail("priced product-size support is incomplete: " + ", ".join(missing_sizes))
+    ok("product sub-sizes can carry server-validated selling prices")
 
     adjustment_markers = [
         "@app.route('/pos/adjust-order/<int:order_id>'",
@@ -424,8 +437,8 @@ def main() -> int:
     ok("Craft Shop keeps legacy UI, per-IP views/likes/comments tracking, sharing, cashier sync, and direct-link-only admin access")
 
 
-    # AI Marketing agent: Gemini Free by default, optional OpenAI, local smart-template fallback,
-    # Facebook Page API publishing, while joined Groups remain explicitly assisted/manual.
+    # AI Marketing: Gemini Free by default, optional OpenAI/local template,
+    # with manual Facebook Page/Group posting and no Meta Developer dependency.
     marketing_template = (TEMPLATES / "marketing_admin.html")
     marketing_module = ROOT / "marketing_agent.py"
     if not marketing_template.exists() or not marketing_module.exists():
@@ -433,30 +446,36 @@ def main() -> int:
     marketing_html = marketing_template.read_text(encoding="utf-8")
     marketing_py = marketing_module.read_text(encoding="utf-8")
     marketing_markers = [
-        "class MarketingFacebookPage(db.Model):",
         "class MarketingGroup(db.Model):",
         "class MarketingPost(db.Model):",
         "@app.route('/admin/marketing')",
-        "@app.route('/admin/marketing/facebook/connect')",
+        "@app.route('/admin/marketing/facebook-page'",
+        "@app.route('/admin/marketing/post/<int:post_id>/mark-posted'",
         "@app.route('/tasks/marketing/run'",
         "generate_ai_marketing_decision",
-        "publish_page_link",
         "MARKETING_CRON_TOKEN",
         "GROUP_ASSIST",
+        "disable_legacy_meta_connection",
     ]
     missing_marketing = [m for m in marketing_markers if m not in source]
     if missing_marketing:
         fail("AI Marketing integration markers are missing: " + ", ".join(missing_marketing))
     if "url_for('marketing_admin')" not in admin_template:
         fail("Master Admin does not link to AI Marketing")
-    for marker in ["Macleen's AI Marketing", "Connect Facebook Page", "Joined Facebook Groups — Assisted Posting", "Fully Automatic", "Gemini Free (Recommended)", "Smart Template — No API", "Generate Marketing Draft"]:
+    for marker in [
+        "Macleen's AI Marketing", "Manual Facebook mode", "Facebook Page — Manual Posting Shortcut",
+        "Joined Facebook Groups — Manual Posting", "Copy Post", "Mark Posted",
+        "Gemini Free (Recommended)", "Smart Template — No API", "Generate Marketing Draft",
+    ]:
         if marker not in marketing_html:
             fail(f"AI Marketing UI is missing: {marker}")
-    if "pages_manage_posts" not in marketing_py or "pages_show_list" not in marketing_py:
-        fail("Meta Page OAuth permissions are missing")
+    forbidden_meta = ["META_APP_ID", "META_APP_SECRET", "pages_manage_posts", "marketing_facebook_connect", "publish_page_link("]
+    for marker in forbidden_meta:
+        if marker in source or marker in marketing_py or marker in marketing_html:
+            fail(f"Legacy Meta API integration is still exposed: {marker}")
     if "https://generativelanguage.googleapis.com/v1beta/interactions" not in marketing_py or "x-goog-api-key" not in marketing_py:
         fail("Gemini Interactions API integration is missing")
-    if '"mime_type": "application/json"' not in marketing_py or "gemini-3.7-flash" not in marketing_py:
+    if '"mime_type": "application/json"' not in marketing_py or "gemini-3.5-flash-lite" not in marketing_py:
         fail("Gemini structured-output/default-model configuration is missing")
     if "generate_template_marketing_decision" not in marketing_py or "smart-template-fallback" not in marketing_py:
         fail("No-cost smart-template fallback is missing")
@@ -465,12 +484,16 @@ def main() -> int:
     render_yaml = (ROOT / "render.yaml").read_text(encoding="utf-8")
     if "GEMINI_API_KEY" not in render_yaml or "GEMINI_MARKETING_MODEL" not in render_yaml:
         fail("Render Gemini environment placeholders are missing")
-    if "Joined Facebook Groups use assisted posting only" not in source:
-        fail("Group posting safeguard is missing; groups must not auto-publish")
+    if "META_APP_ID" in render_yaml or "META_APP_SECRET" in render_yaml or "META_GRAPH_VERSION" in render_yaml:
+        fail("Render still contains obsolete Meta API environment placeholders")
+    if "publish_marketing_post" in source or "AUTO_PUBLISH" in source:
+        fail("Automatic Facebook publishing is still present; this build must stay manual-only")
     reqs = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
-    if "requests" not in reqs or "cryptography" not in reqs:
-        fail("AI Marketing runtime dependencies are missing from requirements.txt")
-    ok("AI Marketing defaults to Gemini Free, keeps OpenAI optional, falls back locally, and supports Facebook Page + assisted Group workflows")
+    if "requests" not in reqs or "tzdata" not in reqs:
+        fail("AI Marketing/Windows timezone runtime dependencies are missing from requirements.txt")
+    if "cryptography" in reqs:
+        fail("Obsolete Meta-token cryptography dependency is still present")
+    ok("AI Marketing uses Gemini Free with local fallback and manual-only Facebook Page/Group posting")
 
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0

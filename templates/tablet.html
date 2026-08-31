@@ -53,10 +53,11 @@
 
       <div class="dish-grid">
         {% for p in products %}
-        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_option_groups(p.option_schema)|tojson }})' >
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_choice_groups(p.option_schema, p.size_schema)|tojson }})' >
           <div style="font-size:0.8rem; font-weight:900; line-height:1.2;">{{ p.name }}</div>
           <div>
-            <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(p.price) }}</div>
+            <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div>
+            {% if p.size_schema %}<div style="font-size:0.58rem; color:#f472b6; font-weight:800;">Priced sizes available</div>{% endif %}
             {% if p.option_schema %}<div style="font-size:0.58rem; color:#d97706; font-weight:800;">Choices available</div>{% endif %}
           </div>
         </div>
@@ -200,11 +201,15 @@
           const multiple = !!group.multiple;
           const type = multiple ? 'checkbox' : 'radio';
           const helper = multiple ? 'Select one or more.' : 'Select one.';
-          const inputs = choices.map((choice, ci) => `
+          const inputs = choices.map((choice, ci) => {
+            const rawPrice = group.prices && Object.prototype.hasOwnProperty.call(group.prices, choice) ? Number(group.prices[choice]) : null;
+            const priceText = Number.isFinite(rawPrice) && rawPrice > 0 ? ` <strong style="color:#ec4899;">• ₱${rawPrice.toFixed(2)}</strong>` : '';
+            return `
             <label class="po-choice">
               <input type="${type}" name="po_group_${gi}" data-choice-index="${ci}">
-              <span>${escapeOptionHtml(choice)}</span>
-            </label>`).join('');
+              <span>${escapeOptionHtml(choice)}${priceText}</span>
+            </label>`;
+          }).join('');
           return `<div class="po-group" data-group-index="${gi}">
             <div class="po-group-title">${escapeOptionHtml(group.name)}</div>
             <div class="po-help">${helper}</div>${inputs}</div>`;
@@ -243,6 +248,19 @@
       return Object.entries(options).map(([k,v]) => `${k}: ${Array.isArray(v) ? v.join(' + ') : v}`).join(' • ');
     }
 
+    function selectedPriceForOptions(basePrice, groups, options) {
+      let resolved = parseFloat(basePrice);
+      (Array.isArray(groups) ? groups : []).forEach(group => {
+        if (!group || !group.priced || !group.prices) return;
+        let choice = (options || {})[group.name];
+        if (Array.isArray(choice)) choice = choice[0];
+        if (!choice) return;
+        const candidate = Number(group.prices[choice]);
+        if (Number.isFinite(candidate) && candidate > 0) resolved = candidate;
+      });
+      return resolved;
+    }
+
     function cartKeyFor(productId, options) {
       const pairs = Object.entries(options || {}).sort((a,b) => a[0].localeCompare(b[0]));
       return pairs.length ? `${productId}::${encodeURIComponent(JSON.stringify(Object.fromEntries(pairs)))}` : String(productId);
@@ -253,7 +271,7 @@
       if (options === null) return;
       const key = cartKeyFor(id, options);
       if (kCart[key]) kCart[key].qty += 1;
-      else kCart[key] = { productId: parseInt(id), name, price: parseFloat(price), qty: 1, options };
+      else kCart[key] = { productId: parseInt(id), name, price: selectedPriceForOptions(price, optionGroups, options), qty: 1, options };
       renderKiosk();
     }
 

@@ -178,9 +178,9 @@
             <img src="{{ f.image_url }}" referrerpolicy="no-referrer" loading="eager" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
           {% endif %}
           <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ f.name }}</div>
-          <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">₱{{ "{:,.2f}".format(f.price) }}</div>
+          <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">{% if f.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(f)) }}</div>
         </div>
-        <button class="btn-add" style="padding:4px; font-size:0.75rem; margin-top:6px;" onclick='addToCart({{ f.id }}, {{ f.name|tojson }}, {{ f.price }}, {{ product_option_groups(f.option_schema)|tojson }})'>+ Add</button>
+        <button class="btn-add" style="padding:4px; font-size:0.75rem; margin-top:6px;" onclick='addToCart({{ f.id }}, {{ f.name|tojson }}, {{ f.price }}, {{ product_choice_groups(f.option_schema, f.size_schema)|tojson }})'>+ Add</button>
       </div>
       {% endfor %}
     </div>
@@ -203,9 +203,9 @@
             <img src="{{ b.image_url }}" referrerpolicy="no-referrer" loading="eager" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
           {% endif %}
           <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ b.name }}</div>
-          <div style="font-size:0.95rem; font-weight:900; color:#d97706;">₱{{ "{:,.2f}".format(b.price) }}</div>
+          <div style="font-size:0.95rem; font-weight:900; color:#d97706;">{% if b.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(b)) }}</div>
         </div>
-        <button class="btn-add" style="background:#d97706; padding:4px; font-size:0.75rem; margin-top:6px;" onclick='addToCart({{ b.id }}, {{ b.name|tojson }}, {{ b.price }}, {{ product_option_groups(b.option_schema)|tojson }})'>+ Add</button>
+        <button class="btn-add" style="background:#d97706; padding:4px; font-size:0.75rem; margin-top:6px;" onclick='addToCart({{ b.id }}, {{ b.name|tojson }}, {{ b.price }}, {{ product_choice_groups(b.option_schema, b.size_schema)|tojson }})'>+ Add</button>
       </div>
       {% endfor %}
     </div>
@@ -233,7 +233,8 @@
           {% endif %}
           <span style="font-size:0.68rem; font-weight:bold; color:#ec4899;">{{ p.category_name }}</span>
           <div class="p-title">{{ p.name }}</div>
-          <div class="p-price">₱{{ "{:,.2f}".format(p.price) }}</div>
+          <div class="p-price">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div>
+          {% if p.size_schema %}<div style="font-size:0.68rem; color:#be185d; font-weight:800; margin-bottom:3px;">Choose size • priced per size</div>{% endif %}
           {% if p.option_schema %}<div style="font-size:0.68rem; color:#b45309; font-weight:800; margin-bottom:5px;">Choose sauce / flavor</div>{% endif %}
         </div>
         
@@ -248,7 +249,7 @@
             <button type="button" class="btn-review" style="cursor:pointer" onclick='shareProductLink({{ p.name|tojson }}, {{ p.id }})'>↗</button>
           </div>
 
-          <button class="btn-add" onclick='addToCart({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_option_groups(p.option_schema)|tojson }})'>+ Add to Basket</button>
+          <button class="btn-add" onclick='addToCart({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_choice_groups(p.option_schema, p.size_schema)|tojson }})'>+ Add to Basket</button>
         </div>
       </div>
       {% endfor %}
@@ -449,11 +450,15 @@
           const multiple = !!group.multiple;
           const type = multiple ? 'checkbox' : 'radio';
           const helper = multiple ? 'Select one or more.' : 'Select one.';
-          const inputs = choices.map((choice, ci) => `
+          const inputs = choices.map((choice, ci) => {
+            const rawPrice = group.prices && Object.prototype.hasOwnProperty.call(group.prices, choice) ? Number(group.prices[choice]) : null;
+            const priceText = Number.isFinite(rawPrice) && rawPrice > 0 ? ` <strong style="color:#ec4899;">• ₱${rawPrice.toFixed(2)}</strong>` : '';
+            return `
             <label class="po-choice">
               <input type="${type}" name="po_group_${gi}" data-choice-index="${ci}">
-              <span>${escapeOptionHtml(choice)}</span>
-            </label>`).join('');
+              <span>${escapeOptionHtml(choice)}${priceText}</span>
+            </label>`;
+          }).join('');
           return `<div class="po-group" data-group-index="${gi}">
             <div class="po-group-title">${escapeOptionHtml(group.name)}</div>
             <div class="po-help">${helper}</div>${inputs}</div>`;
@@ -492,6 +497,19 @@
       return Object.entries(options).map(([k,v]) => `${k}: ${Array.isArray(v) ? v.join(' + ') : v}`).join(' • ');
     }
 
+    function selectedPriceForOptions(basePrice, groups, options) {
+      let resolved = parseFloat(basePrice);
+      (Array.isArray(groups) ? groups : []).forEach(group => {
+        if (!group || !group.priced || !group.prices) return;
+        let choice = (options || {})[group.name];
+        if (Array.isArray(choice)) choice = choice[0];
+        if (!choice) return;
+        const candidate = Number(group.prices[choice]);
+        if (Number.isFinite(candidate) && candidate > 0) resolved = candidate;
+      });
+      return resolved;
+    }
+
     function cartKeyFor(productId, options) {
       const pairs = Object.entries(options || {}).sort((a,b) => a[0].localeCompare(b[0]));
       return pairs.length ? `${productId}::${encodeURIComponent(JSON.stringify(Object.fromEntries(pairs)))}` : String(productId);
@@ -501,10 +519,11 @@
       const options = await collectProductOptions(name, optionGroups);
       if (options === null) return;
       const key = cartKeyFor(id, options);
+      const resolvedPrice = selectedPriceForOptions(price, optionGroups, options);
       if (cart[key]) {
         cart[key].qty += 1;
       } else {
-        cart[key] = { productId: parseInt(id), name, price: parseFloat(price), qty: 1, options };
+        cart[key] = { productId: parseInt(id), name, price: resolvedPrice, qty: 1, options };
       }
       saveCart();
       renderCart();
