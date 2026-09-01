@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My Macleen's Rewards</title>
   <link rel="manifest" href="/manifest.json">
-  <link rel="stylesheet" href="/static/loyalty-card.css?v=2">
+  <link rel="stylesheet" href="{{ url_for('static', filename='loyalty-card.css') }}?v=2">
   <meta name="theme-color" content="#ff69b4">
   <style>
     :root { --pink:#ff69b4; --dark:#831843; --border:#fbcfe8; --bg:#fff0f5; --muted:#64748b; }
@@ -53,57 +53,16 @@
     .theme-preview { min-height:76px; border-radius:12px; padding:10px; border:2px solid transparent; box-shadow:0 3px 9px rgba(15,23,42,.08); transition:.15s ease; display:flex; flex-direction:column; justify-content:space-between; }
     .card-theme-option input:checked + .theme-preview { outline:3px solid rgba(236,72,153,.20); border-color:#ec4899; transform:translateY(-1px); }
     .theme-preview strong { font-size:.78rem; } .theme-preview small { font-size:.62rem; font-weight:800; opacity:.88; }
+    .theme-preview.pink-classic { background:linear-gradient(135deg,#e94f9b,#f4778f 56%,#f9d1df); color:white; }
+    .theme-preview.cafe-cream { background:linear-gradient(135deg,#fff7eb,#f8d9b3 58%,#f3bd7f); color:#733b12; }
+    .theme-preview.midnight-gold { background:linear-gradient(135deg,#0f172a,#1f2937 58%,#374151); color:#fde9aa; }
+    .theme-preview.mint-fresh { background:linear-gradient(135deg,#effdf7,#b8efd8 58%,#7bdcb5); color:#075f49; }
+    .theme-preview.purple-craft { background:linear-gradient(135deg,#7c3aed,#a855f7 58%,#efb5fb); color:white; }
     .preview-shell{margin-top:12px;background:#fff8fb;border:1px dashed var(--border);border-radius:14px;padding:12px;overflow:auto}
     .preview-title{font-size:.78rem;font-weight:900;color:var(--dark);margin-bottom:8px}
-    .card-preview-stack{display:grid;grid-template-columns:1fr;gap:12px;justify-items:center}
-
-    .loyalty-card{width:85.6mm;max-width:100%;height:54mm;border-radius:4mm;position:relative;overflow:hidden;padding:4.2mm;box-shadow:0 8px 20px rgba(15,23,42,.15)}
-    .loyalty-card::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.22),rgba(255,255,255,0) 45%,rgba(255,255,255,.12));pointer-events:none}
-    .card-front{display:grid;grid-template-columns:38% 62%;gap:3.2mm;align-items:stretch}
-    .card-back{display:flex;flex-direction:column;gap:2mm}
-    .front-left,.front-right,.back-header,.back-rules,.fb-row,.return-strip,.back-note{position:relative;z-index:1}
-    .front-left{display:flex;flex-direction:column;height:100%;min-width:0}
-    .front-brand{display:flex;gap:2.4mm;align-items:flex-start}
-    .logo{width:12mm;height:12mm;object-fit:cover;border-radius:50%;background:rgba(255,255,255,.85);padding:.55mm}
-    .brand-copy{min-width:0}
-    .brand-main{font-weight:1000;font-size:4.2mm;line-height:1;text-transform:uppercase;letter-spacing:.12mm}
-    .brand-sub{font-weight:900;font-size:2.7mm;line-height:1.05;letter-spacing:.08mm;text-transform:uppercase;opacity:.95;margin-top:.5mm}
-    .front-program{font-size:2.6mm;line-height:1.07;font-weight:1000;text-transform:uppercase;letter-spacing:.08mm;margin:1.4mm 0 0 14.4mm;display:flex;flex-direction:column;gap:.35mm}
-    .photo-panel{margin-top:2.6mm;width:100%;display:flex;justify-content:flex-start}
-    .photo-wrap{width:23mm;height:23mm;border-radius:2mm;background:rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;overflow:hidden}
-    .photo{width:100%;height:100%;object-fit:cover;border-radius:50%;padding:1.2mm;background:rgba(255,255,255,.9)}
-    .photo-fallback{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:10mm;border-radius:50%;padding:1.2mm;background:rgba(255,255,255,.9)}
-    .member-block{margin-top:auto}
-    .member-name{font-size:5.4mm;font-weight:1000;line-height:1.03;letter-spacing:.04mm;word-break:break-word}
-    .member-id{font-size:3.2mm;font-weight:1000;margin-top:1.2mm;letter-spacing:.12mm;text-transform:uppercase}
-    .small{font-size:2.6mm;font-weight:800;line-height:1.2}
-    .front-right{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center}
-    .qr-card{background:rgba(255,255,255,.9);border-radius:3.3mm;padding:2.2mm;display:flex;align-items:center;justify-content:center;width:100%;height:100%;max-height:34mm;min-height:34mm}
-    .qr{width:100%;height:100%;max-width:28mm;max-height:28mm;object-fit:contain}
-    .scan-copy{margin-top:2.4mm;font-size:5.2mm;font-weight:1000;line-height:1;letter-spacing:.1mm;text-transform:uppercase}
-    .back-header{display:flex;align-items:flex-start;gap:2.5mm}
-    .back-title{font-size:5.2mm;font-weight:1000;line-height:1.02}
-    .back-subtitle{font-size:3mm;font-weight:1000;line-height:1.05;text-transform:uppercase;letter-spacing:.06mm;margin-top:.7mm}
-    .back-rules{font-size:2.55mm;line-height:1.3;font-weight:800;display:flex;flex-direction:column;gap:1mm;margin-top:.4mm}
-    .rule-row{display:flex;gap:1.3mm;align-items:flex-start}
-    .rule-row .icon{width:3.2mm;flex:none;text-align:center}
-    .return-strip{margin-top:auto;padding:1.2mm 2mm;border-radius:1.2mm;font-size:2.65mm;font-weight:1000;line-height:1.2}
-    .back-note{font-size:2.3mm;font-weight:900;line-height:1.2}
-    .fb-row{display:flex;align-items:center;gap:2mm;font-size:2.85mm;font-weight:1000;line-height:1.1;margin-top:.3mm}
-    .fb-icon{font-size:6mm;font-weight:1000;line-height:1}
-
-    .pink-classic { background:linear-gradient(135deg,#ec4899,#fb7185 56%,#fbcfe8); color:white; }
-    .pink-classic .qr-card,.pink-classic .photo-wrap{background:rgba(255,255,255,.34)} .pink-classic .return-strip{background:rgba(255,255,255,.28);color:#fff8fb}
-    .cafe-cream { background:linear-gradient(135deg,#f6efe6,#f8dcbc 58%,#f2bf87); color:#7a3f12; }
-    .cafe-cream .qr-card,.cafe-cream .photo-wrap{background:rgba(255,255,255,.58)} .cafe-cream .return-strip{background:#f4d4a9;color:#7a3f12}
-    .midnight-gold { background:linear-gradient(135deg,#0f172a,#1e293b 58%,#3b4658); color:#fef3c7; }
-    .midnight-gold .qr-card,.midnight-gold .photo-wrap{background:rgba(255,255,255,.9)} .midnight-gold .return-strip{background:rgba(254,243,199,.18);color:#fef3c7}
-    .mint-fresh { background:linear-gradient(135deg,#ecfdf5,#b7f0d5 58%,#7fe0b6); color:#0f5d47; }
-    .mint-fresh .qr-card,.mint-fresh .photo-wrap{background:rgba(255,255,255,.62)} .mint-fresh .return-strip{background:rgba(255,255,255,.38);color:#0f5d47}
-    .purple-craft { background:linear-gradient(135deg,#7c3aed,#a855f7 58%,#efb4ff); color:white; }
-    .purple-craft .qr-card,.purple-craft .photo-wrap{background:rgba(255,255,255,.36)} .purple-craft .return-strip{background:rgba(255,255,255,.22);color:#fff}
-
-    @media(max-width:560px){ .action-grid{grid-template-columns:1fr 1fr;} .card-theme-grid{grid-template-columns:1fr;} .row{align-items:flex-start; flex-direction:column;} }
+    .card-preview-stack{display:flex;justify-content:center;overflow:auto;padding:4px 0 8px}
+    .card-preview-stack .loyalty-card-pair{zoom:1.22}
+    @media(max-width:560px){ .action-grid{grid-template-columns:1fr 1fr;} .card-theme-grid{grid-template-columns:1fr;} .row{align-items:flex-start; flex-direction:column;} .card-preview-stack{justify-content:flex-start}.card-preview-stack .loyalty-card-pair{zoom:1} }
   </style>
 </head>
 <body>
@@ -182,11 +141,13 @@
       <button class="btn btn-pink" type="submit" style="margin-top:10px;">SAVE MY CARD THEME</button>
     </form>
     <div class="preview-shell">
-      <div class="preview-title">Live card preview — this is the same layout Staff will print</div>
-      {% set card_member = cust %}
-      {% set card_qr_data = qr_data %}
-      {% set card_theme = cust.card_theme or 'cafe-cream' %}
-      {% include '_loyalty_card_renderer.html' %}
+      <div class="preview-title">Live card preview — the same renderer used by staff printing</div>
+      <div class="card-preview-stack">
+        {% set card_customer = cust %}
+        {% set card_theme = cust.card_theme or 'pink-classic' %}
+        {% set card_qr_data = qr_data %}
+        {% include '_loyalty_card_pair.html' %}
+      </div>
     </div>
     <div class="muted" style="margin-top:8px;">Your profile photo is also used on the printed card. You can update it below from your phone/gallery.</div>
   </div>
@@ -271,7 +232,7 @@
   function syncCustomerCardPreview(){
     const selected=document.querySelector('input[name="theme"]:checked');
     const theme=selected ? selected.value : 'pink-classic';
-    document.querySelectorAll('[data-loyalty-card]').forEach(card=>{
+    document.querySelectorAll('[data-loyalty-card-pair] [data-card-theme]').forEach(card=>{
       card.classList.remove('pink-classic','cafe-cream','midnight-gold','mint-fresh','purple-craft');
       card.classList.add(theme);
     });

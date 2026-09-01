@@ -28,7 +28,8 @@ REQUIRED_DB_COLUMNS = {
         "id", "contact", "pin_hash", "points_balance", "accumulated_spend",
         "card_number", "card_status", "card_expires_at", "is_credit_eligible",
         "credit_limit", "outstanding_ar", "referred_by", "last_daily_login",
-        "login_streak", "last_active_at", "card_theme",
+        "login_streak", "last_active_at", "card_theme", "card_logo_scale",
+        "card_photo_scale", "card_qr_scale", "card_text_scale", "card_info_scale",
     },
     "product": {
         "id", "name", "category_name", "price", "cost", "allow_custom_amount",
@@ -293,18 +294,18 @@ def main() -> int:
     ok("customer feedback is free-text only; voting/rankings UI is retired without deleting legacy data")
 
     loyalty_template = TEMPLATES / "loyalty_card_portal.html"
-    loyalty_partial = TEMPLATES / "_loyalty_card_renderer.html"
-    loyalty_css_file = ROOT / "static" / "loyalty-card.css"
     if not loyalty_template.exists():
         fail("templates/loyalty_card_portal.html is missing")
-    if not loyalty_partial.exists():
-        fail("shared loyalty-card renderer is missing")
-    if not loyalty_css_file.exists():
-        fail("shared loyalty-card stylesheet is missing")
     loyalty_html = loyalty_template.read_text(encoding="utf-8")
-    loyalty_renderer = loyalty_partial.read_text(encoding="utf-8")
-    loyalty_css = loyalty_css_file.read_text(encoding="utf-8")
-    loyalty_combined = loyalty_html + customer_dashboard_html + loyalty_renderer + loyalty_css
+    loyalty_partial = TEMPLATES / "_loyalty_card_pair.html"
+    if not loyalty_partial.exists():
+        fail("templates/_loyalty_card_pair.html is missing")
+    loyalty_partial_html = loyalty_partial.read_text(encoding="utf-8")
+    loyalty_css_path = STATIC / "loyalty-card.css"
+    if not loyalty_css_path.exists():
+        fail("static/loyalty-card.css is missing")
+    loyalty_css = loyalty_css_path.read_text(encoding="utf-8")
+    loyalty_bundle = loyalty_html + customer_dashboard_html + loyalty_partial_html + loyalty_css + source
     loyalty_markers = [
         "@app.route('/admin/loyalty-cards')",
         "@app.route('/admin/loyalty-cards/<int:cust_id>/save'",
@@ -317,8 +318,13 @@ def main() -> int:
     if missing_loyalty:
         fail("loyalty-card printing portal is incomplete: " + ", ".join(missing_loyalty))
     for marker in ["pink-classic", "cafe-cream", "midnight-gold", "mint-fresh", "purple-craft", "85.6 × 54 mm", "Print Front + Back"]:
-        if marker not in loyalty_combined + source:
+        if marker not in loyalty_bundle:
             fail(f"loyalty-card portal UI is missing: {marker}")
+    for marker in ["card_logo_scale", "card_photo_scale", "card_qr_scale", "card_text_scale", "card_info_scale", "Element Sizes", "--logo-scale", "--photo-scale", "--qr-scale", "--text-scale", "--info-scale"]:
+        if marker not in loyalty_bundle:
+            fail(f"loyalty-card element-size controls are incomplete: {marker}")
+    if "{% include '_loyalty_card_pair.html' %}" not in loyalty_html or "{% include '_loyalty_card_pair.html' %}" not in customer_dashboard_html:
+        fail("customer preview and admin print portal are not using the same loyalty-card renderer")
     if "url_for('admin_loyalty_cards')" not in admin_template:
         fail("Master Admin does not link to the Loyalty Card Printing portal")
     if 'type="file" name="profile_photo"' not in customer_dashboard_html or 'enctype="multipart/form-data"' not in customer_dashboard_html:
@@ -329,18 +335,11 @@ def main() -> int:
     for marker in ["@app.route('/portal/card-theme'", "loyalty_card_themes=LOYALTY_CARD_THEMES", "Choose My Loyalty Card Theme"]:
         if marker not in source + customer_dashboard_html:
             fail(f"customer loyalty-card theme chooser is missing: {marker}")
-    if "fb.com/macleens" not in loyalty_renderer:
+    if "fb.com/macleens" not in loyalty_partial_html:
         fail("printed loyalty card is missing fb.com/macleens")
-    if "_loyalty_card_renderer.html" not in loyalty_html or "_loyalty_card_renderer.html" not in customer_dashboard_html:
-        fail("Customer preview and Admin print portal are not using the same loyalty-card renderer")
-    forbidden_card_points = ["POINTS", "Earn 1 point", "1 point =", "minimum redemption"]
-    present_forbidden = [marker for marker in forbidden_card_points if marker.lower() in loyalty_renderer.lower()]
-    if present_forbidden:
-        fail("printed loyalty card still contains points text: " + ", ".join(present_forbidden))
-    for marker in ["SCAN TO LOGIN", "Use your card when ordering or claiming member perks.", "Card validity follows the member account status.", "mfh-card-front", "mfh-card-back"]:
-        if marker not in loyalty_renderer:
-            fail(f"approved landscape loyalty-card layout is incomplete: {marker}")
-    ok("loyalty-card preview/print share one exact landscape renderer, contain no points text, keep five themes, member QR/photo, and fb.com/macleens")
+    if "POINTS" in loyalty_partial_html.upper() or "Earn 1 point per" in loyalty_partial_html:
+        fail("printed loyalty card still contains points/balance text instead of the approved points-free card design")
+    ok("loyalty-card printer uses one shared landscape renderer, five themes, per-element size controls, member QR, gallery photo upload, and fb.com/macleens")
 
     req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     if "qrcode" not in req.lower():

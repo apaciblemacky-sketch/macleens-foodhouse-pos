@@ -120,6 +120,11 @@ class Customer(db.Model):
     card_status = db.Column(db.String(20), default="ACTIVE")
     card_expires_at = db.Column(db.Date, nullable=True)
     card_theme = db.Column(db.String(30), default="pink-classic")
+    card_logo_scale = db.Column(db.Float, default=1.0)
+    card_photo_scale = db.Column(db.Float, default=1.0)
+    card_qr_scale = db.Column(db.Float, default=1.0)
+    card_text_scale = db.Column(db.Float, default=1.0)
+    card_info_scale = db.Column(db.Float, default=1.0)
     referred_by = db.Column(db.String(50), nullable=True)
     last_daily_login = db.Column(db.Date, nullable=True)
     login_streak = db.Column(db.Integer, default=1)
@@ -793,6 +798,11 @@ def run_schema_migrations():
             ('login_streak', 'INTEGER DEFAULT 1'),
             ('last_active_at', 'TIMESTAMP'),
             ('card_theme', "VARCHAR(30) DEFAULT 'pink-classic'"),
+            ('card_logo_scale', 'FLOAT DEFAULT 1.0'),
+            ('card_photo_scale', 'FLOAT DEFAULT 1.0'),
+            ('card_qr_scale', 'FLOAT DEFAULT 1.0'),
+            ('card_text_scale', 'FLOAT DEFAULT 1.0'),
+            ('card_info_scale', 'FLOAT DEFAULT 1.0'),
         ],
         'order': [
             ('dining_option', "VARCHAR(20) DEFAULT 'DINE-IN'"),
@@ -837,6 +847,11 @@ def run_schema_migrations():
         if 'customer' in tables:
             conn.execute(text("UPDATE customer SET login_streak = 1 WHERE login_streak IS NULL"))
             conn.execute(text("UPDATE customer SET card_theme = 'pink-classic' WHERE card_theme IS NULL OR card_theme = ''"))
+            conn.execute(text("UPDATE customer SET card_logo_scale = 1.0 WHERE card_logo_scale IS NULL"))
+            conn.execute(text("UPDATE customer SET card_photo_scale = 1.0 WHERE card_photo_scale IS NULL"))
+            conn.execute(text("UPDATE customer SET card_qr_scale = 1.0 WHERE card_qr_scale IS NULL"))
+            conn.execute(text("UPDATE customer SET card_text_scale = 1.0 WHERE card_text_scale IS NULL"))
+            conn.execute(text("UPDATE customer SET card_info_scale = 1.0 WHERE card_info_scale IS NULL"))
         if 'promotion_tracker' in tables:
             conn.execute(text("UPDATE promotion_tracker SET is_visible = TRUE WHERE is_visible IS NULL"))
             conn.execute(text("UPDATE promotion_tracker SET portal_only = FALSE WHERE portal_only IS NULL"))
@@ -1308,6 +1323,10 @@ LOYALTY_CARD_THEMES = {
     'mint-fresh': 'Mint Fresh',
     'purple-craft': 'Purple Craft',
 }
+
+def loyalty_card_scale(value, default=1.0):
+    """Clamp card element scaling to a print-safe range."""
+    return max(0.80, min(1.45, parse_float(value, default)))
 
 def normalize_menu_vote_name(value):
     value = re.sub(r'[^a-z0-9]+', ' ', (value or '').lower()).strip()
@@ -5290,6 +5309,11 @@ def admin_save_loyalty_card(cust_id):
     if theme not in LOYALTY_CARD_THEMES:
         theme = 'pink-classic'
     cust.card_theme = theme
+    cust.card_logo_scale = loyalty_card_scale(request.form.get('card_logo_scale'), cust.card_logo_scale or 1.0)
+    cust.card_photo_scale = loyalty_card_scale(request.form.get('card_photo_scale'), cust.card_photo_scale or 1.0)
+    cust.card_qr_scale = loyalty_card_scale(request.form.get('card_qr_scale'), cust.card_qr_scale or 1.0)
+    cust.card_text_scale = loyalty_card_scale(request.form.get('card_text_scale'), cust.card_text_scale or 1.0)
+    cust.card_info_scale = loyalty_card_scale(request.form.get('card_info_scale'), cust.card_info_scale or 1.0)
     try:
         new_image = customer_profile_image_from_request(file_key='profile_photo', url_key='profile_image', existing=cust.profile_image)
         if new_image:

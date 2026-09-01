@@ -4,82 +4,38 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Macleen's Loyalty Card Printing Portal</title>
-  <link rel="stylesheet" href="/static/loyalty-card.css?v=2">
+  <link rel="stylesheet" href="{{ url_for('static', filename='loyalty-card.css') }}?v=2">
   <style>
     *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
     body{margin:0;background:#fff5f7;color:#1e293b;padding:18px}
-    .topbar{max-width:1220px;margin:0 auto 14px;background:white;border:1.5px solid #fbcfe8;border-radius:14px;padding:12px 14px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+    .topbar{max-width:1250px;margin:0 auto 14px;background:white;border:1.5px solid #fbcfe8;border-radius:14px;padding:12px 14px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
     .topbar h1{font-size:1.15rem;color:#831843;margin:0}.topbar p{font-size:.75rem;color:#64748b;margin:3px 0 0}
-    .btn{border:none;border-radius:8px;padding:9px 12px;font-weight:900;text-decoration:none;cursor:pointer;display:inline-block}.btn-pink{background:#ec4899;color:white}.btn-soft{background:#fdf2f8;color:#831843;border:1px solid #fbcfe8}.btn-dark{background:#1e293b;color:white}
-    .layout{max-width:1220px;margin:auto;display:grid;grid-template-columns:minmax(300px,380px) 1fr;gap:14px;align-items:start}
+    .btn{border:none;border-radius:8px;padding:9px 12px;font-weight:900;text-decoration:none;cursor:pointer;display:inline-block}.btn-pink{background:#ec4899;color:white}.btn-soft{background:#fdf2f8;color:#831843;border:1px solid #fbcfe8}.btn-dark{background:#1e293b;color:white}.btn-reset{background:#f8fafc;color:#475569;border:1px solid #cbd5e1}
+    .layout{max-width:1250px;margin:auto;display:grid;grid-template-columns:minmax(300px,390px) 1fr;gap:14px;align-items:start}
     .panel{background:white;border:1.5px solid #fbcfe8;border-radius:14px;padding:14px;box-shadow:0 5px 18px rgba(236,72,153,.08)}
     label{display:block;font-size:.74rem;font-weight:900;color:#831843;margin:8px 0 4px}.control{width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;background:white}
-    .note{font-size:.7rem;color:#64748b;line-height:1.45}.flash{max-width:1220px;margin:0 auto 10px;padding:9px 12px;border-radius:9px;background:#ecfdf5;color:#166534;font-weight:800;font-size:.78rem}
+    .note{font-size:.7rem;color:#64748b;line-height:1.45}.flash{max-width:1250px;margin:0 auto 10px;padding:9px 12px;border-radius:9px;background:#ecfdf5;color:#166534;font-weight:800;font-size:.78rem}
     .theme-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px}.theme-chip{border:1.5px solid #e2e8f0;border-radius:9px;padding:8px;font-size:.72rem;font-weight:900;cursor:pointer;background:white}.theme-chip.active{outline:3px solid rgba(236,72,153,.16);border-color:#ec4899}
-    .preview-wrap{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:14px;padding:14px;overflow:auto}
-    .card-sheet{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;align-items:start}
-
-    .loyalty-card{width:85.6mm;max-width:100%;height:54mm;border-radius:4mm;position:relative;overflow:hidden;padding:4.2mm;box-shadow:0 8px 20px rgba(15,23,42,.15);print-color-adjust:exact;-webkit-print-color-adjust:exact}
-    .loyalty-card::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.22),rgba(255,255,255,0) 45%,rgba(255,255,255,.12));pointer-events:none}
-    .card-front{display:grid;grid-template-columns:38% 62%;gap:3.2mm;align-items:stretch}
-    .card-back{display:flex;flex-direction:column;gap:2mm}
-    .front-left,.front-right,.back-header,.back-rules,.fb-row,.return-strip,.back-note{position:relative;z-index:1}
-    .front-left{display:flex;flex-direction:column;height:100%;min-width:0}
-    .front-brand{display:flex;gap:2.4mm;align-items:flex-start}
-    .logo{width:12mm;height:12mm;object-fit:cover;border-radius:50%;background:rgba(255,255,255,.85);padding:.55mm}
-    .brand-copy{min-width:0}
-    .brand-copy .brand-main{font-weight:1000;font-size:4.2mm;line-height:1;text-transform:uppercase;letter-spacing:.12mm}
-    .brand-copy .brand-sub{font-weight:900;font-size:2.7mm;line-height:1.05;letter-spacing:.08mm;text-transform:uppercase;opacity:.95;margin-top:.5mm}
-    .front-program{font-size:2.6mm;line-height:1.07;font-weight:1000;text-transform:uppercase;letter-spacing:.08mm;margin:1.4mm 0 0 14.4mm;display:flex;flex-direction:column;gap:.35mm}
-    .photo-panel{margin-top:2.6mm;width:100%;display:flex;justify-content:flex-start}
-    .photo-wrap{width:23mm;height:23mm;border-radius:2mm;background:rgba(255,255,255,.45);display:flex;align-items:center;justify-content:center;overflow:hidden}
-    .photo{width:100%;height:100%;object-fit:cover;border-radius:50%;padding:1.2mm;background:rgba(255,255,255,.9)}
-    .photo-fallback{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:10mm;border-radius:50%;padding:1.2mm;background:rgba(255,255,255,.9)}
-    .member-block{margin-top:auto}
-    .member-name{font-size:5.4mm;font-weight:1000;line-height:1.03;letter-spacing:.04mm;word-break:break-word}
-    .member-id{font-size:3.2mm;font-weight:1000;margin-top:1.2mm;letter-spacing:.12mm;text-transform:uppercase}
-    .small{font-size:2.6mm;font-weight:800;line-height:1.2}
-
-    .front-right{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center}
-    .qr-card{background:rgba(255,255,255,.9);border-radius:3.3mm;padding:2.2mm;display:flex;align-items:center;justify-content:center;width:100%;height:100%;max-height:34mm;min-height:34mm}
-    .qr{width:100%;height:100%;max-width:28mm;max-height:28mm;object-fit:contain}
-    .scan-copy{margin-top:2.4mm;font-size:5.2mm;font-weight:1000;line-height:1;letter-spacing:.1mm;text-transform:uppercase}
-
-    .back-header{display:flex;align-items:flex-start;gap:2.5mm}
-    .back-title{font-size:5.2mm;font-weight:1000;line-height:1.02}
-    .back-subtitle{font-size:3mm;font-weight:1000;line-height:1.05;text-transform:uppercase;letter-spacing:.06mm;margin-top:.7mm}
-    .back-rules{font-size:2.55mm;line-height:1.3;font-weight:800;display:flex;flex-direction:column;gap:1mm;margin-top:.4mm}
-    .rule-row{display:flex;gap:1.3mm;align-items:flex-start}
-    .rule-row .icon{width:3.2mm;flex:none;text-align:center}
-    .return-strip{margin-top:auto;padding:1.2mm 2mm;border-radius:1.2mm;font-size:2.65mm;font-weight:1000;line-height:1.2}
-    .back-note{font-size:2.3mm;font-weight:900;line-height:1.2}
-    .fb-row{display:flex;align-items:center;gap:2mm;font-size:2.85mm;font-weight:1000;line-height:1.1;margin-top:.3mm}
-    .fb-icon{font-size:6mm;font-weight:1000;line-height:1}
-
-    .pink-classic{background:linear-gradient(135deg,#ec4899,#fb7185 56%,#fbcfe8);color:white}.pink-classic .qr-card,.pink-classic .photo-wrap{background:rgba(255,255,255,.34)}.pink-classic .return-strip{background:rgba(255,255,255,.28);color:#fff8fb}
-    .cafe-cream{background:linear-gradient(135deg,#f6efe6,#f8dcbc 58%,#f2bf87);color:#7a3f12}.cafe-cream .qr-card,.cafe-cream .photo-wrap{background:rgba(255,255,255,.58)}.cafe-cream .return-strip{background:#f4d4a9;color:#7a3f12}
-    .midnight-gold{background:linear-gradient(135deg,#0f172a,#1e293b 58%,#3b4658);color:#fef3c7}.midnight-gold .qr-card,.midnight-gold .photo-wrap{background:rgba(255,255,255,.9)}.midnight-gold .return-strip{background:rgba(254,243,199,.18);color:#fef3c7}
-    .mint-fresh{background:linear-gradient(135deg,#ecfdf5,#b7f0d5 58%,#7fe0b6);color:#0f5d47}.mint-fresh .qr-card,.mint-fresh .photo-wrap{background:rgba(255,255,255,.62)}.mint-fresh .return-strip{background:rgba(255,255,255,.38);color:#0f5d47}
-    .purple-craft{background:linear-gradient(135deg,#7c3aed,#a855f7 58%,#efb4ff);color:white}.purple-craft .qr-card,.purple-craft .photo-wrap{background:rgba(255,255,255,.36)}.purple-craft .return-strip{background:rgba(255,255,255,.22);color:#fff}
-
-    .checks{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:7px}.checks label{margin:0;color:#475569;font-weight:700;font-size:.7rem}
-    @media(max-width:900px){.layout{grid-template-columns:1fr}.topbar{align-items:flex-start}.card-sheet{grid-template-columns:1fr}}
+    .preview-wrap{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:14px;padding:16px;overflow:auto;min-height:300px}
+    .range-row{display:grid;grid-template-columns:1fr 62px;gap:8px;align-items:center;margin-top:7px}.range-row input[type=range]{width:100%;accent-color:#ec4899}.range-value{font-size:.72rem;font-weight:1000;color:#831843;text-align:right;background:#fdf2f8;border:1px solid #fbcfe8;padding:5px 6px;border-radius:7px}
+    .size-box{margin-top:11px;padding:10px;border:1px solid #fce7f3;background:#fff7fb;border-radius:10px}.size-title{font-size:.82rem;font-weight:1000;color:#831843}.zoom-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.zoom-row input{width:180px;accent-color:#ec4899}
+    @media(max-width:900px){.layout{grid-template-columns:1fr}.topbar{align-items:flex-start}}
     @media print{
-      body{background:white;padding:0}.topbar,.controls-panel,.flash,.screen-only{display:none!important}.layout{display:block;max-width:none}.preview-panel{border:none;box-shadow:none;padding:0}.preview-wrap{border:none;background:white;padding:0}.card-sheet{display:block}.loyalty-card{box-shadow:none;margin:0 0 8mm 0;page-break-inside:avoid}.loyalty-card:last-child{margin-bottom:0}@page{size:A4;margin:10mm}
+      body{background:white;padding:0}.topbar,.controls-panel,.flash,.screen-only{display:none!important}.layout{display:block;max-width:none}.preview-panel{border:none;box-shadow:none;padding:0}.preview-wrap{border:none;background:white;padding:0;overflow:visible}.loyalty-card-pair{zoom:1!important;gap:8mm}.loyalty-card{box-shadow:none;page-break-inside:avoid}@page{size:A4;margin:10mm}
     }
   </style>
 </head>
 <body>
 {% with messages=get_flashed_messages() %}{% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}{% endwith %}
 <div class="topbar">
-  <div><h1>🎫 Loyalty Rewards Card Printing Portal</h1><p>Choose a member, theme and card details, then print at standard CR80/PVC card size (85.6 × 54 mm).</p></div>
+  <div><h1>🎫 Loyalty Rewards Card Printing Portal</h1><p>Front and back use one shared renderer at standard CR80/PVC size (85.6 × 54 mm), so the live preview is the same layout that prints.</p></div>
   <div><a href="/admin" class="btn btn-soft">← Master Admin</a> {% if selected %}<button type="button" class="btn btn-pink" onclick="window.print()">🖨️ Print Card</button>{% endif %}</div>
 </div>
 <div class="layout">
   <div class="panel controls-panel">
     <h3 style="margin:0;color:#831843;font-size:.95rem;">1. Select Member</h3>
     {% if customers %}
-    <form method="GET" action="/admin/loyalty-cards" id="memberSelectForm">
+    <form method="GET" action="/admin/loyalty-cards">
       <select class="control" name="customer_id" onchange="this.form.submit()">
         {% for c in customers %}<option value="{{ c.id }}" {% if selected and c.id == selected.id %}selected{% endif %}>{{ c.name }} — {{ c.card_number or c.contact }}</option>{% endfor %}
       </select>
@@ -98,49 +54,73 @@
       </div>
       <label>Update Member Photo from Phone / Gallery</label>
       <input class="control" type="file" name="profile_photo" accept="image/png,image/jpeg,image/webp,image/gif">
-      <div class="note">The member's Customer Portal photo is used automatically. Upload here only if you need to replace it. Maximum 2.5 MB.</div>
+      <div class="note">The customer's portal photo is used automatically. Maximum upload size: 2.5 MB.</div>
       <label>Or Photo URL</label><input class="control" type="url" name="profile_image" placeholder="Optional image URL">
-      <button class="btn btn-dark" style="width:100%;margin-top:9px;" type="submit">Save Theme / Photo</button>
-    </form>
 
-    <h3 style="margin:15px 0 0;color:#831843;font-size:.95rem;">3. Print Options</h3>
-    <div class="checks">
-      <label><input type="checkbox" id="showPhoto" checked onchange="syncPreview()"> Show photo</label>
-      <label><input type="checkbox" id="showExpiry" checked onchange="syncPreview()"> Show expiry</label>
-      <label><input type="checkbox" id="showQr" checked onchange="syncPreview()"> Show QR</label>
-    </div>
-    <p class="note" style="margin-top:10px;">The customer preview and Admin print output now use the exact same landscape renderer. No points balance or points rules are printed on the card.</p>
+      <div class="size-box">
+        <div class="size-title">3. Element Sizes</div>
+        <div class="note">Increase only the element you want. The card itself stays standard CR80/PVC size.</div>
+
+        <label>Logo size</label>
+        <div class="range-row"><input type="range" name="card_logo_scale" id="logoScale" min="0.80" max="1.45" step="0.05" value="{{ selected.card_logo_scale or 1.0 }}" oninput="applyCardSizes()"><span class="range-value" id="logoScaleValue"></span></div>
+
+        <label>Profile photo size</label>
+        <div class="range-row"><input type="range" name="card_photo_scale" id="photoScale" min="0.80" max="1.45" step="0.05" value="{{ selected.card_photo_scale or 1.0 }}" oninput="applyCardSizes()"><span class="range-value" id="photoScaleValue"></span></div>
+
+        <label>QR code size</label>
+        <div class="range-row"><input type="range" name="card_qr_scale" id="qrScale" min="0.80" max="1.45" step="0.05" value="{{ selected.card_qr_scale or 1.0 }}" oninput="applyCardSizes()"><span class="range-value" id="qrScaleValue"></span></div>
+
+        <label>Headings / Member text size</label>
+        <div class="range-row"><input type="range" name="card_text_scale" id="textScale" min="0.80" max="1.45" step="0.05" value="{{ selected.card_text_scale or 1.0 }}" oninput="applyCardSizes()"><span class="range-value" id="textScaleValue"></span></div>
+
+        <label>Back information text size</label>
+        <div class="range-row"><input type="range" name="card_info_scale" id="infoScale" min="0.80" max="1.45" step="0.05" value="{{ selected.card_info_scale or 1.0 }}" oninput="applyCardSizes()"><span class="range-value" id="infoScaleValue"></span></div>
+
+        <button type="button" class="btn btn-reset" style="width:100%;margin-top:10px" onclick="resetCardSizes()">Reset Sizes to 100%</button>
+      </div>
+
+      <button class="btn btn-dark" style="width:100%;margin-top:10px;" type="submit">Save Card Design</button>
+      <div class="note" style="margin-top:7px;">Saved sizes are remembered per customer and are also used by that customer's live portal preview.</div>
+    </form>
     {% endif %}
   </div>
 
   <div class="panel preview-panel">
     {% if selected %}
-      <div class="screen-only" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;"><div><strong>Preview:</strong> {{ selected.name }} <span class="note">• {{ themes[theme] }}</span></div><button class="btn btn-pink" onclick="window.print()">🖨️ Print Front + Back</button></div>
+      <div class="screen-only" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+        <div><strong>Actual card preview:</strong> {{ selected.name }} <span class="note">• {{ themes[theme] }}</span></div>
+        <div class="zoom-row"><span class="note"><strong>Preview Zoom</strong></span><input id="previewZoom" type="range" min="0.80" max="1.50" step="0.05" value="1.15" oninput="applyPreviewZoom()"><span class="range-value" id="previewZoomValue">115%</span><button class="btn btn-pink" onclick="window.print()">🖨️ Print Front + Back</button></div>
+      </div>
       <div class="preview-wrap">
-        {% set card_member = selected %}
-        {% set card_qr_data = qr_data %}
-        {% set card_theme = theme %}
-        {% include '_loyalty_card_renderer.html' %}
+        <div id="previewZoomTarget">
+          {% set card_customer = selected %}
+          {% set card_theme = theme %}
+          {% set card_qr_data = qr_data %}
+          {% include '_loyalty_card_pair.html' %}
+        </div>
       </div>
     {% else %}<div style="padding:30px;text-align:center;color:#64748b;">Register a customer first, then return here to design and print their loyalty card.</div>{% endif %}
   </div>
 </div>
 <script>
 function applyTheme(theme){
-  document.querySelectorAll('[data-loyalty-card]').forEach(card=>{
+  document.querySelectorAll('[data-card-theme]').forEach(card=>{
     card.classList.remove('pink-classic','cafe-cream','midnight-gold','mint-fresh','purple-craft');
     card.classList.add(theme);
   });
   document.querySelectorAll('.theme-chip').forEach(chip=>chip.classList.toggle('active',chip.dataset.theme===theme));
 }
-function pickTheme(theme){ const select=document.getElementById('themeSelect'); if(select){select.value=theme;} applyTheme(theme); }
-function syncPreview(){
-  const toggle=(id,selector)=>{ const checked=document.getElementById(id)?.checked !== false; document.querySelectorAll(selector).forEach(el=>el.style.display=checked?'':'none'); };
-  toggle('showPhoto','[data-card-photo]');
-  toggle('showExpiry','[data-card-expiry]');
-  toggle('showQr','[data-card-qr]');
+function pickTheme(theme){const select=document.getElementById('themeSelect');if(select)select.value=theme;applyTheme(theme);}
+function percent(value){return Math.round(parseFloat(value||1)*100)+'%';}
+function applyCardSizes(){
+  const map=[['logoScale','--logo-scale','logoScaleValue'],['photoScale','--photo-scale','photoScaleValue'],['qrScale','--qr-scale','qrScaleValue'],['textScale','--text-scale','textScaleValue'],['infoScale','--info-scale','infoScaleValue']];
+  document.querySelectorAll('[data-loyalty-card-pair]').forEach(pair=>{
+    map.forEach(([id,prop,labelId])=>{const input=document.getElementById(id);if(!input)return;pair.style.setProperty(prop,input.value);const label=document.getElementById(labelId);if(label)label.textContent=percent(input.value);});
+  });
 }
-syncPreview();
+function resetCardSizes(){['logoScale','photoScale','qrScale','textScale','infoScale'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='1.00';});applyCardSizes();}
+function applyPreviewZoom(){const input=document.getElementById('previewZoom');const target=document.getElementById('previewZoomTarget');if(!input||!target)return;target.style.zoom=input.value;const label=document.getElementById('previewZoomValue');if(label)label.textContent=percent(input.value);}
+applyCardSizes();applyPreviewZoom();
 </script>
 </body>
 </html>
