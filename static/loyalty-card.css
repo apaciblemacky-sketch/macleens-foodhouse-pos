@@ -1,0 +1,92 @@
+/* Macleen's shared loyalty-card renderer.
+   Customer preview and Admin print portal use these same card elements. */
+.mfh-card-set{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:18px;
+  justify-items:center;
+  width:100%;
+}
+.mfh-card{
+  --ink:#7a3f12;
+  --line:#ef9f9f;
+  --soft:#fff8ef;
+  width:min(100%, 680px);
+  aspect-ratio:85.6 / 54;
+  position:relative;
+  overflow:hidden;
+  border-radius:5.2%;
+  color:var(--ink);
+  box-shadow:0 10px 28px rgba(75,42,20,.18);
+  container-type:inline-size;
+  print-color-adjust:exact;
+  -webkit-print-color-adjust:exact;
+}
+.mfh-card::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:
+    radial-gradient(circle at 14% 18%, rgba(255,255,255,.40), transparent 31%),
+    linear-gradient(130deg, rgba(255,255,255,.18), transparent 45%);
+}
+.mfh-card > *{position:relative;z-index:1}
+
+/* Themes: the exact approved layout stays identical; only palette changes. */
+.mfh-card.pink-classic{--ink:#fff;--line:rgba(255,255,255,.48);--soft:rgba(255,255,255,.88);background:linear-gradient(135deg,#d93686 0%,#ef6f9e 54%,#f8c6d8 100%)}
+.mfh-card.cafe-cream{--ink:#6f3511;--line:#ef9f9f;--soft:#fffaf2;background:linear-gradient(135deg,#f8efe3 0%,#f8d9b6 58%,#f1b878 100%)}
+.mfh-card.midnight-gold{--ink:#fff1bd;--line:#d6aa55;--soft:#fffdf5;background:linear-gradient(135deg,#101827 0%,#202b3c 56%,#3b4658 100%)}
+.mfh-card.mint-fresh{--ink:#0d5d47;--line:#72caaa;--soft:#f9fffc;background:linear-gradient(135deg,#effdf7 0%,#bcefd9 58%,#7fdcb6 100%)}
+.mfh-card.purple-craft{--ink:#fff;--line:rgba(255,255,255,.52);--soft:#fff;background:linear-gradient(135deg,#6e34d6 0%,#9c52e9 57%,#eab6f5 100%)}
+
+/* FRONT / MEMBER SIDE */
+.mfh-card-front{padding:4.5cqw 4.8cqw 4.2cqw;display:grid;grid-template-columns:52% 48%;gap:2.4cqw}
+.mfh-front-left{min-width:0;display:flex;flex-direction:column;height:100%}
+.mfh-front-heading{display:grid;grid-template-columns:13cqw 1fr;gap:2.3cqw;align-items:center}
+.mfh-logo{width:12.2cqw;height:12.2cqw;object-fit:cover;border-radius:50%;background:rgba(255,255,255,.78);padding:.55cqw;box-shadow:0 .6cqw 1.4cqw rgba(75,42,20,.08)}
+.mfh-front-title{font-weight:1000;font-size:5.7cqw;line-height:.92;letter-spacing:.05cqw;text-transform:uppercase;white-space:nowrap}
+.mfh-front-subtitle{margin-top:1.1cqw;font-weight:950;font-size:2.35cqw;line-height:1.05;text-transform:uppercase;letter-spacing:.04cqw;white-space:nowrap}
+.mfh-member-stack{display:flex;flex-direction:column;align-items:center;text-align:center;margin-top:2.2cqw;min-height:0;flex:1}
+.mfh-photo-frame{width:23cqw;height:23cqw;flex:0 0 23cqw;border-radius:50%;background:rgba(255,255,255,.72);padding:1.05cqw;box-shadow:0 0 0 .35cqw rgba(239,159,159,.50)}
+.mfh-photo{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+.mfh-photo-fallback{width:100%;height:100%;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.95);font-size:8cqw}
+.mfh-member-copy{min-width:0;margin-top:1.7cqw;width:100%}
+.mfh-member-name{font-weight:1000;font-size:4.25cqw;line-height:1.0;letter-spacing:.02cqw;word-break:break-word}
+.mfh-member-id{margin-top:1.0cqw;font-weight:1000;font-size:2.55cqw;line-height:1;text-transform:uppercase;letter-spacing:.08cqw}
+.mfh-validity{margin-top:.8cqw;font-weight:800;font-size:1.85cqw;line-height:1.1}
+.mfh-front-right{display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:4.5cqw}
+.mfh-qr-panel{width:33cqw;height:33cqw;background:var(--soft);border-radius:4.5cqw;display:grid;place-items:center;padding:3cqw;box-shadow:inset 0 0 0 .25cqw rgba(255,255,255,.38)}
+.mfh-qr{width:100%;height:100%;display:block;object-fit:contain}
+.mfh-scan{margin-top:2.1cqw;font-weight:1000;font-size:3.0cqw;line-height:1;text-transform:uppercase;letter-spacing:.04cqw}
+.mfh-front-footer{position:absolute;left:6cqw;right:6cqw;bottom:2.5cqw;display:flex;align-items:center;gap:2cqw;font-size:1.9cqw;font-weight:950;white-space:nowrap}
+.mfh-front-footer::before,.mfh-front-footer::after{content:"";height:.22cqw;background:var(--line);flex:1;border-radius:10px}
+.mfh-fb-badge{width:3.4cqw;height:3.4cqw;border-radius:50%;display:inline-grid;place-items:center;background:currentColor;color:transparent;position:relative;flex:none}
+.mfh-fb-badge::after{content:"f";color:var(--soft);font-family:Arial,sans-serif;font-weight:1000;font-size:2.8cqw;line-height:1;position:absolute;transform:translateY(.1cqw)}
+
+/* BACK / INFORMATION SIDE */
+.mfh-card-back{padding:4.2cqw 5.3cqw 3.7cqw;display:flex;flex-direction:column}
+.mfh-back-heading{display:grid;grid-template-columns:13cqw 1fr;gap:2.6cqw;align-items:center}
+.mfh-back-title{font-weight:1000;font-size:5.3cqw;line-height:.95;letter-spacing:.01cqw;white-space:nowrap}
+.mfh-back-subtitle{margin-top:1cqw;font-weight:950;font-size:2.5cqw;line-height:1;text-transform:uppercase;letter-spacing:.04cqw;white-space:nowrap}
+.mfh-info-list{display:flex;flex-direction:column;gap:1.6cqw;margin:4.1cqw 5cqw 0 6cqw}
+.mfh-info-row{display:grid;grid-template-columns:5cqw 1fr;gap:1.8cqw;align-items:center;font-weight:800;font-size:2.45cqw;line-height:1.22}
+.mfh-info-icon{font-size:3.7cqw;text-align:center;line-height:1}
+.mfh-back-divider{height:.22cqw;background:var(--line);margin:3.5cqw 2cqw 0;position:relative}
+.mfh-back-divider::before,.mfh-back-divider::after{content:"✦";position:absolute;top:50%;transform:translateY(-52%);font-size:2.4cqw;color:var(--line)}
+.mfh-back-divider::before{left:-1.5cqw}.mfh-back-divider::after{right:-1.5cqw}
+.mfh-back-validity{margin-top:2.4cqw;text-align:center;font-style:italic;font-weight:700;font-size:2.1cqw;line-height:1.1}
+.mfh-back-footer{margin-top:auto;display:flex;align-items:center;justify-content:center;gap:1.6cqw;font-weight:950;font-size:2.1cqw}
+
+/* On narrow phones, show the whole card without clipping. */
+@media(max-width:520px){
+  .mfh-card-set{gap:12px}
+  .mfh-card{border-radius:4.6%}
+}
+
+/* Printing remains true CR80/PVC size while reusing the exact same renderer. */
+@media print{
+  .mfh-card-set{display:block}
+  .mfh-card{width:85.6mm!important;height:54mm!important;aspect-ratio:auto!important;box-shadow:none!important;margin:0 0 8mm 0!important;page-break-inside:avoid}
+  .mfh-card:last-child{margin-bottom:0!important}
+}

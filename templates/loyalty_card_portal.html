@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Macleen's Loyalty Card Printing Portal</title>
+  <link rel="stylesheet" href="/static/loyalty-card.css?v=2">
   <style>
     *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
     body{margin:0;background:#fff5f7;color:#1e293b;padding:18px}
@@ -102,14 +103,13 @@
       <button class="btn btn-dark" style="width:100%;margin-top:9px;" type="submit">Save Theme / Photo</button>
     </form>
 
-    <h3 style="margin:15px 0 0;color:#831843;font-size:.95rem;">3. Print Customization</h3>
-    <label>Card Subtitle</label><input class="control" id="subtitleInput" value="LOYALTY REWARDS MEMBER" maxlength="40" oninput="syncPreview()">
+    <h3 style="margin:15px 0 0;color:#831843;font-size:.95rem;">3. Print Options</h3>
     <div class="checks">
       <label><input type="checkbox" id="showPhoto" checked onchange="syncPreview()"> Show photo</label>
       <label><input type="checkbox" id="showExpiry" checked onchange="syncPreview()"> Show expiry</label>
       <label><input type="checkbox" id="showQr" checked onchange="syncPreview()"> Show QR</label>
     </div>
-    <p class="note" style="margin-top:10px;">The print design now follows the approved landscape layout. Points are intentionally removed from the physical card print.</p>
+    <p class="note" style="margin-top:10px;">The customer preview and Admin print output now use the exact same landscape renderer. No points balance or points rules are printed on the card.</p>
     {% endif %}
   </div>
 
@@ -117,62 +117,17 @@
     {% if selected %}
       <div class="screen-only" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;"><div><strong>Preview:</strong> {{ selected.name }} <span class="note">• {{ themes[theme] }}</span></div><button class="btn btn-pink" onclick="window.print()">🖨️ Print Front + Back</button></div>
       <div class="preview-wrap">
-        <div class="card-sheet">
-          <div class="loyalty-card card-front {{ theme }}" data-card-theme>
-            <div class="front-left">
-              <div class="front-brand">
-                <img src="{{ store_logo }}" class="logo" alt="Macleen's">
-                <div class="brand-copy">
-                  <div class="brand-main">MACLEEN'S</div>
-                  <div class="brand-sub">FOOD HOUSE</div>
-                </div>
-              </div>
-              <div class="front-program preview-subtitle"><span>LOYALTY</span><span>REWARDS</span><span>MEMBER</span></div>
-              <div id="photoArea" class="photo-panel">
-                <div class="photo-wrap">
-                  {% if selected.profile_image %}<img src="{{ selected.profile_image }}" class="photo" alt="Member photo">{% else %}<div class="photo-fallback">🎀</div>{% endif %}
-                </div>
-              </div>
-              <div class="member-block">
-                <div class="member-name">{{ selected.name }}</div>
-                <div class="member-id">{{ selected.card_number or 'MFH-0000' }}</div>
-                <div class="small expiry-line">{% if selected.card_expires_at %}Valid until {{ selected.card_expires_at.strftime('%b %d, %Y') }}{% else %}Active Rewards Member{% endif %}</div>
-              </div>
-            </div>
-            <div class="front-right qr-area">
-              <div class="qr-card">
-                {% if qr_data %}<img src="{{ qr_data }}" class="qr" alt="Rewards login QR">{% endif %}
-              </div>
-              <div class="scan-copy">SCAN TO LOGIN</div>
-            </div>
-          </div>
-
-          <div class="loyalty-card card-back {{ theme }}" data-card-theme>
-            <div class="back-header">
-              <img src="{{ store_logo }}" class="logo" alt="Macleen's">
-              <div>
-                <div class="back-title">Macleen's Food House</div>
-                <div class="back-subtitle preview-subtitle">LOYALTY REWARDS MEMBER</div>
-              </div>
-            </div>
-            <div class="back-rules">
-              <div class="rule-row"><span class="icon">⭐</span><span>Earn 1 point per ₱30 eligible spend.</span></div>
-              <div class="rule-row"><span class="icon">🎁</span><span>1 point = ₱1 discount; minimum redemption: 20 points.</span></div>
-              <div class="rule-row"><span class="icon">🔐</span><span>Keep your 4-digit PIN private. Card ID: <strong>{{ selected.card_number or 'MFH-0000' }}</strong>.</span></div>
-              <div class="rule-row"><span class="icon">📱</span><span>Manage your profile, rewards, card theme and member deals in the Customer Portal.</span></div>
-            </div>
-            <div class="return-strip">If found, please return to Macleen's Food House.</div>
-            <div class="back-note">Card validity follows the member account status.</div>
-            <div class="fb-row"><span class="fb-icon">f</span><span>fb.com/macleens</span></div>
-          </div>
-        </div>
+        {% set card_member = selected %}
+        {% set card_qr_data = qr_data %}
+        {% set card_theme = theme %}
+        {% include '_loyalty_card_renderer.html' %}
       </div>
     {% else %}<div style="padding:30px;text-align:center;color:#64748b;">Register a customer first, then return here to design and print their loyalty card.</div>{% endif %}
   </div>
 </div>
 <script>
 function applyTheme(theme){
-  document.querySelectorAll('[data-card-theme]').forEach(card=>{
+  document.querySelectorAll('[data-loyalty-card]').forEach(card=>{
     card.classList.remove('pink-classic','cafe-cream','midnight-gold','mint-fresh','purple-craft');
     card.classList.add(theme);
   });
@@ -180,17 +135,10 @@ function applyTheme(theme){
 }
 function pickTheme(theme){ const select=document.getElementById('themeSelect'); if(select){select.value=theme;} applyTheme(theme); }
 function syncPreview(){
-  const raw=(document.getElementById('subtitleInput')?.value||'LOYALTY REWARDS MEMBER').trim()||'LOYALTY REWARDS MEMBER';
-  const lines=raw.split(/\s+/);
-  const first=lines[0]||'LOYALTY';
-  const second=lines[1]||'REWARDS';
-  const rest=lines.slice(2).join(' ')||'MEMBER';
-  document.querySelectorAll('.front-program.preview-subtitle').forEach(el=>{ el.innerHTML=`<span>${first}</span><span>${second}</span><span>${rest}</span>`; });
-  document.querySelectorAll('.back-subtitle.preview-subtitle').forEach(el=>el.textContent=raw);
   const toggle=(id,selector)=>{ const checked=document.getElementById(id)?.checked !== false; document.querySelectorAll(selector).forEach(el=>el.style.display=checked?'':'none'); };
-  toggle('showPhoto','#photoArea');
-  toggle('showExpiry','.expiry-line');
-  toggle('showQr','.qr-area');
+  toggle('showPhoto','[data-card-photo]');
+  toggle('showExpiry','[data-card-expiry]');
+  toggle('showQr','[data-card-qr]');
 }
 syncPreview();
 </script>
