@@ -205,6 +205,11 @@
           <div id="memberQuickInfo" style="font-size:0.68rem; color:#f9a8d4; margin-top:3px; min-height:14px;"></div>
         </div>
 
+        <div id="posRedeemWrap" style="display:none; margin:4px 0;">
+          <label style="font-size:0.68rem; color:#f9a8d4; font-weight:bold;">Use Points as Discount (minimum 20 • 1 point = ₱1)</label>
+          <input type="number" id="posRedeemPoints" min="0" step="0.01" value="0" class="form-input" style="margin-bottom:0; padding:3px;" oninput="renderPosCart()">
+        </div>
+
         <input type="text" id="posCustomName" placeholder="Customer Name / Remarks" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;">
       </div>
 
@@ -307,6 +312,20 @@
           {% if not unpaid_collections %}
             <div style="font-size:0.7rem; color:#64748b; text-align:center;">No unpaid orders.</div>
           {% endif %}
+        </div>
+      </div>
+
+      <div style="background:#1e293b; border:1.5px solid #10b981; border-radius:8px; padding:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.8rem; color:#6ee7b7; margin-bottom:6px;">🧾 Recent Purchases — Apply Points</h3>
+        <div style="max-height:150px; overflow-y:auto;">
+          {% for ro in completed_orders %}
+            {% if ro.customer_id and not (ro.points_redeemed or 0) %}
+            <div style="font-size:0.7rem; padding:5px 0; border-bottom:1px dashed #475569;">
+              <div><strong>#{{ ro.id }} {{ ro.customer_name }}</strong> — ₱{{ "{:,.2f}".format(ro.total_amount) }}</div>
+              <button onclick="applyRecentPoints({{ ro.id }})" style="margin-top:3px; background:#059669; color:white; border:0; border-radius:3px; padding:3px 7px; cursor:pointer;">Use Points</button>
+            </div>
+            {% endif %}
+          {% endfor %}
         </div>
       </div>
     </div>
@@ -921,7 +940,10 @@
     function togglePosCustSelect() {
       const type = document.getElementById('posCustType').value;
       document.getElementById('posRegCustWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      document.getElementById('posRedeemWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      if (type !== 'REGISTERED') document.getElementById('posRedeemPoints').value = 0;
       updateMemberQuickInfo();
+      renderPosCart();
     }
 
     function updateMemberQuickInfo() {
@@ -933,6 +955,7 @@
       const card = opt.dataset.card || 'No card';
       const left = Math.max(0, 20 - pts);
       info.innerText = `🎁 ${card} • ${pts.toFixed(1)} pts • ${left.toFixed(1)} pts to 20-point milestone`;
+      renderPosCart();
     }
 
     function filterCat(cat, btn) {
@@ -1204,8 +1227,16 @@
         `;
       });
 
+      const memberSelect = document.getElementById('posRegCustSelect');
+      const available = memberSelect && memberSelect.selectedOptions[0] ? parseFloat(memberSelect.selectedOptions[0].dataset.points || 0) : 0;
+      const requested = Math.max(0, parseFloat(document.getElementById('posRedeemPoints').value) || 0);
+      const discount = Math.min(requested, subtotal);
+      if (requested > available && memberSelect && memberSelect.value) {
+        html += `<div style="color:#f87171;font-size:.68rem;font-weight:bold;">Requested points exceed the member balance of ${available.toFixed(2)}.</div>`;
+      }
+      if (discount > 0) html += `<div style="display:flex;justify-content:space-between;padding:5px 0;color:#34d399;font-weight:bold;font-size:.75rem;"><span>Points Discount</span><span>-₱${discount.toFixed(2)}</span></div>`;
       box.innerHTML = html;
-      totalEl.innerText = `₱${subtotal.toFixed(2)}`;
+      totalEl.innerText = `₱${Math.max(0, subtotal - discount).toFixed(2)}`;
       updatePosChangePreview();
     }
 
@@ -1216,6 +1247,8 @@
 
       let subtotal = 0;
       keys.forEach(id => { subtotal += posCart[id].price * posCart[id].qty; });
+      const discount = Math.min(Math.max(0, parseFloat(document.getElementById('posRedeemPoints').value) || 0), subtotal);
+      subtotal = Math.max(0, subtotal - discount);
 
       if (bill > subtotal && subtotal > 0) {
         preview.innerText = `💵 Change: ₱${(bill - subtotal).toFixed(2)}`;
@@ -1288,6 +1321,7 @@
         customer_name: customName || (custType === 'REGISTERED' ? 'Registered Member' : 'Counter Walk-in'),
         payment_method: payMethod,
         change_for: bill,
+        redeem_points: parseFloat(document.getElementById('posRedeemPoints').value) || 0,
         notes: `Cashier POS (${diningOpt})`
       };
 
@@ -1306,7 +1340,7 @@
           if (bonusPts > 0) rewardLine += `\nCampaign Bonus: +${bonusPts.toFixed(1)} pts`;
           if (referralPts > 0) rewardLine += `\nFirst-Purchase Referral Bonus: +${referralPts.toFixed(1)} pts`;
           if (data.member_balance !== null && data.member_balance !== undefined) rewardLine += `\nNew Balance: ${Number(data.member_balance).toFixed(1)} pts`;
-          alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\n${rewardLine}`);
+          alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\nPoints Used: ${Number(data.points_redeemed || 0).toFixed(2)}\n${rewardLine}`);
           clearPosCart();
           document.getElementById('posCashBill').value = '';
           window.location.reload();
@@ -1316,6 +1350,21 @@
       } catch(e) {
         alert("Server error recording sale.");
       }
+    }
+
+    async function applyRecentPoints(orderId) {
+      const raw = prompt('How many points should be applied?\nMinimum: 20 points • 1 point = ₱1');
+      if (raw === null) return;
+      const points = parseFloat(raw);
+      if (!Number.isFinite(points) || points <= 0) return alert('Enter a valid number of points.');
+      const res = await fetch('/api/redeem-order-points', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({order_id: orderId, redeem_points: points})
+      });
+      const data = await res.json();
+      if (!data.success) return alert(data.message || 'Could not apply points.');
+      alert(`Points applied to Order #${orderId}.\nDiscount: ₱${data.discount.toFixed(2)}\nNew total: ₱${data.total.toFixed(2)}\nRefund/change due: ₱${data.refund_due.toFixed(2)}`);
+      window.location.reload();
     }
 
     function triggerThermalPrint(contentHtml) {

@@ -66,6 +66,7 @@ Goals:
 - Never claim urgency unless the supplied data supports it.
 - Never promote an inactive or out-of-stock in-stock item.
 - Respect recent-post history and avoid repeating a recently promoted product when alternatives exist.
+- When recent posts include aggregate Meta insights, learn from the strongest internally observed topics and actions while still varying the wording and format. Do not treat a single post as proof of causation.
 - If there is no worthwhile/safe post today, set should_post=false and explain why.
 - Do not put a URL in caption; the application attaches the verified link separately.
 - Use at most four hashtags.
@@ -106,6 +107,89 @@ def _extract_gemini_output_text(payload: dict) -> str:
             if part.get("type") == "text" and part.get("text"):
                 texts.append(part["text"])
     return "\n".join(texts).strip()
+
+
+def _template_insights_analysis(payload: dict, fallback_note: str = ""):
+    metrics = payload.get("metrics") or {}
+    reach = max(0, int(metrics.get("reach") or 0))
+    reactions = max(0, int(metrics.get("reactions") or 0))
+    comments = max(0, int(metrics.get("comments") or 0))
+    shares = max(0, int(metrics.get("shares") or 0))
+    saves = max(0, int(metrics.get("saves") or 0))
+    clicks = max(0, int(metrics.get("link_clicks") or 0))
+    engagement = reactions + comments + shares + saves
+    engagement_rate = (engagement / reach * 100.0) if reach else 0.0
+    click_rate = (clicks / reach * 100.0) if reach else 0.0
+    strongest = max(
+        [("reactions", reactions), ("comments", comments), ("shares", shares), ("saves", saves), ("link clicks", clicks)],
+        key=lambda item: item[1],
+    )
+    note = f" {fallback_note}" if fallback_note else ""
+    return {
+        "model": "smart-template:insights",
+        "analysis": (
+            f"Performance summary: Reach {reach:,}; total visible engagement {engagement:,} "
+            f"({engagement_rate:.2f}% of reach); link clicks {clicks:,} ({click_rate:.2f}% of reach). "
+            f"The strongest recorded action was {strongest[0]} ({strongest[1]:,}).\n\n"
+            "What to improve: compare the hook, product, offer, photo, posting time, and call-to-action with your other posts. "
+            "If reach is healthy but actions are low, make the first line and offer clearer. If shares/comments are strong, reuse the topic in a fresh format.\n\n"
+            "Next-post recommendation: repeat the strongest topic or product with a different opening line, one clear customer benefit, "
+            "one action request, and no more than four hashtags. Record the next post's insights after the same amount of time for a fair comparison."
+            + note
+        ),
+    }
+
+
+def analyze_marketing_insights(payload: dict, provider: str = "GEMINI"):
+    """Analyze manually entered Meta post insights; never receives customer-level data."""
+    provider = (provider or "GEMINI").upper()
+    prompt = (
+        "You are a practical Facebook performance analyst for Macleen's Food House and Macleen's Crafts in the Philippines. "
+        "Analyze only the supplied post caption and aggregate Meta insights. Do not invent missing metrics or claim causation. "
+        "Compare with supplied internal history when available. Return concise plain text with: Performance Summary, What Worked, "
+        "What to Improve, and Next Post Recommendation. Use specific numbers and practical language.\n\nDATA:\n"
+        + json.dumps(payload, ensure_ascii=False)
+    )
+    attempts = []
+    if provider in ("GEMINI", "AUTO") and gemini_configured():
+        try:
+            api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+            model = os.environ.get("GEMINI_MARKETING_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
+            response = requests.post(
+                GEMINI_INTERACTIONS_URL,
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json={"model": model, "input": prompt, "response_format": {"type": "text"}},
+                timeout=55,
+            )
+            body = response.json() if response.content else {}
+            if not response.ok:
+                raise RuntimeError(((body.get("error") or {}).get("message") if isinstance(body, dict) else None) or response.text)
+            analysis = _extract_gemini_output_text(body)
+            if not analysis:
+                raise RuntimeError("Gemini returned no analysis.")
+            return {"model": f"gemini:{model}", "analysis": analysis[:5000]}
+        except Exception as exc:
+            attempts.append(f"Gemini unavailable ({type(exc).__name__})")
+    if provider in ("OPENAI", "AUTO") and openai_configured():
+        try:
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            model = os.environ.get("OPENAI_MARKETING_MODEL", "gpt-5.5").strip() or "gpt-5.5"
+            response = requests.post(
+                OPENAI_RESPONSES_URL,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, "instructions": "Analyze aggregate Meta post insights accurately and concisely.", "input": prompt, "max_output_tokens": 1000},
+                timeout=50,
+            )
+            body = response.json() if response.content else {}
+            if not response.ok:
+                raise RuntimeError(((body.get("error") or {}).get("message") if isinstance(body, dict) else None) or response.text)
+            analysis = _extract_openai_output_text(body)
+            if not analysis:
+                raise RuntimeError("OpenAI returned no analysis.")
+            return {"model": f"openai:{model}", "analysis": analysis[:5000]}
+        except Exception as exc:
+            attempts.append(f"OpenAI unavailable ({type(exc).__name__})")
+    return _template_insights_analysis(payload, "; ".join(attempts))
 
 
 def _generate_with_gemini(context: dict, business_hint: str, post_type_hint: str, group_context=None):

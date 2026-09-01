@@ -20,7 +20,8 @@ import qrcode
 import qrcode.image.svg
 
 from marketing_agent import (
-    extract_peso_amounts, generate_ai_marketing_decision, gemini_configured, openai_configured,
+    analyze_marketing_insights, extract_peso_amounts, generate_ai_marketing_decision,
+    gemini_configured, openai_configured,
 )
 
 logging.basicConfig(
@@ -205,6 +206,8 @@ class Order(db.Model):
     subtotal = db.Column(db.Float, nullable=False)
     delivery_fee = db.Column(db.Float, default=0.0)
     total_amount = db.Column(db.Float, nullable=False)
+    points_redeemed = db.Column(db.Float, default=0.0)
+    points_discount = db.Column(db.Float, default=0.0)
     payment_method = db.Column(db.String(20), nullable=False)
     payment_verified = db.Column(db.Boolean, default=False)
     status = db.Column(db.String(30), default="VERIFICATION")
@@ -554,6 +557,20 @@ class MarketingPost(db.Model):
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     approved_at = db.Column(db.DateTime, nullable=True)
     published_at = db.Column(db.DateTime, nullable=True)
+    insight_reach = db.Column(db.Integer, default=0)
+    insight_impressions = db.Column(db.Integer, default=0)
+    insight_reactions = db.Column(db.Integer, default=0)
+    insight_comments = db.Column(db.Integer, default=0)
+    insight_shares = db.Column(db.Integer, default=0)
+    insight_saves = db.Column(db.Integer, default=0)
+    insight_link_clicks = db.Column(db.Integer, default=0)
+    insight_new_followers = db.Column(db.Integer, default=0)
+    insight_spend = db.Column(db.Float, default=0.0)
+    insight_notes = db.Column(db.Text, nullable=True)
+    insight_analysis = db.Column(db.Text, nullable=True)
+    insight_ai_model = db.Column(db.String(100), nullable=True)
+    insights_updated_at = db.Column(db.DateTime, nullable=True)
+    insights_analyzed_at = db.Column(db.DateTime, nullable=True)
     group = db.relationship('MarketingGroup', lazy=True)
 
 CRAFT_ORDER_STATUSES = ('PENDING', 'READY', 'COMPLETED', 'CANCELLED')
@@ -806,12 +823,30 @@ def run_schema_migrations():
         ],
         'order': [
             ('dining_option', "VARCHAR(20) DEFAULT 'DINE-IN'"),
+            ('points_redeemed', 'FLOAT DEFAULT 0.0'),
+            ('points_discount', 'FLOAT DEFAULT 0.0'),
         ],
         'promotion_tracker': [
             ('promo_cost', 'FLOAT DEFAULT 0.0'),
             ('is_visible', 'BOOLEAN DEFAULT TRUE'),
             ('portal_only', 'BOOLEAN DEFAULT FALSE'),
             ('description', 'TEXT'),
+        ],
+        'marketing_post': [
+            ('insight_reach', 'INTEGER DEFAULT 0'),
+            ('insight_impressions', 'INTEGER DEFAULT 0'),
+            ('insight_reactions', 'INTEGER DEFAULT 0'),
+            ('insight_comments', 'INTEGER DEFAULT 0'),
+            ('insight_shares', 'INTEGER DEFAULT 0'),
+            ('insight_saves', 'INTEGER DEFAULT 0'),
+            ('insight_link_clicks', 'INTEGER DEFAULT 0'),
+            ('insight_new_followers', 'INTEGER DEFAULT 0'),
+            ('insight_spend', 'FLOAT DEFAULT 0.0'),
+            ('insight_notes', 'TEXT'),
+            ('insight_analysis', 'TEXT'),
+            ('insight_ai_model', 'VARCHAR(100)'),
+            ('insights_updated_at', 'TIMESTAMP'),
+            ('insights_analyzed_at', 'TIMESTAMP'),
         ],
         'product': [
             ('cost', 'FLOAT DEFAULT 0.0'),
@@ -936,6 +971,32 @@ def parse_int(value, default=0):
         return int(value)
     except (TypeError, ValueError):
         return int(default)
+
+MIN_REDEMPTION_POINTS = 20.0
+POINT_VALUE_PHP = 1.0
+
+def calculate_points_redemption(cust, requested_points, merchandise_total):
+    """Validate redemption using the system rule: minimum 20 points, 1 point = ₱1."""
+    points = round(parse_float(requested_points, 0.0), 2)
+    balance = round(max(0.0, parse_float(cust.points_balance, 0.0)), 2)
+    total = round(max(0.0, parse_float(merchandise_total, 0.0)), 2)
+    if points <= 0:
+        return 0.0, 0.0
+    if points < MIN_REDEMPTION_POINTS:
+        raise OrderValidationError(f'Minimum redemption is {MIN_REDEMPTION_POINTS:g} points.')
+    if points > balance + 1e-9:
+        raise OrderValidationError(f'Only {balance:,.2f} points are available.')
+    max_points = round(total / POINT_VALUE_PHP, 2)
+    if points > max_points + 1e-9:
+        raise OrderValidationError(f'Only {max_points:,.2f} points can be used on this purchase.')
+    return points, round(points * POINT_VALUE_PHP, 2)
+
+def record_points_redemption(cust, points, order_id=None, reason='Purchase discount'):
+    if points <= 0:
+        return
+    cust.points_balance = round(max(0.0, parse_float(cust.points_balance, 0.0) - points), 2)
+    suffix = f' / Order #{order_id}' if order_id else ''
+    db.session.add(RewardLedger(customer_id=cust.id, points_change=-points, reason=f'{reason}{suffix}'))
 
 CASH_FLOW_FREQUENCIES = ('DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY')
 CASH_FLOW_ENTRY_TYPES = ('EXPENSE', 'INCOME')
@@ -2123,6 +2184,17 @@ def build_marketing_context():
                 'business': p.business, 'post_type': p.post_type, 'source_kind': p.source_kind,
                 'source_id': p.source_id, 'status': p.status,
                 'created_at': p.created_at.isoformat() if p.created_at else None,
+                'meta_insights': ({
+                    'reach': p.insight_reach or 0,
+                    'impressions': p.insight_impressions or 0,
+                    'reactions': p.insight_reactions or 0,
+                    'comments': p.insight_comments or 0,
+                    'shares': p.insight_shares or 0,
+                    'saves': p.insight_saves or 0,
+                    'link_clicks': p.insight_link_clicks or 0,
+                    'new_followers': p.insight_new_followers or 0,
+                    'analysis': (p.insight_analysis or '')[:1000],
+                } if p.insights_updated_at else None),
             } for p in recent
         ],
         'settings': marketing_settings(),
@@ -2509,7 +2581,8 @@ def api_storefront_checkout():
     try:
         lines = validate_and_lock_cart(data.get('items', []), require_available=True)
         subtotal = cart_subtotal(lines)
-        total = subtotal + delivery_fee
+        points_redeemed, points_discount = calculate_points_redemption(cust, data.get('redeem_points'), subtotal)
+        total = max(0.0, subtotal + delivery_fee - points_discount)
 
         if pay_method == 'CREDIT':
             available_credit = customer_available_credit(cust, include_pending=True)
@@ -2539,6 +2612,8 @@ def api_storefront_checkout():
             subtotal=subtotal,
             delivery_fee=delivery_fee,
             total_amount=total,
+            points_redeemed=points_redeemed,
+            points_discount=points_discount,
             payment_method=pay_method,
             payment_verified=False,
             status='VERIFICATION',
@@ -2546,6 +2621,7 @@ def api_storefront_checkout():
         )
         db.session.add(order)
         db.session.flush()
+        record_points_redemption(cust, points_redeemed, order.id, 'Storefront points discount')
 
         for line in lines:
             prod = line['product']
@@ -2561,7 +2637,8 @@ def api_storefront_checkout():
             ))
         reserve_cart_stock(lines)
         db.session.commit()
-        return jsonify({'success': True, 'order_id': order.id, 'total': total})
+        return jsonify({'success': True, 'order_id': order.id, 'total': total,
+                        'points_redeemed': points_redeemed, 'points_discount': points_discount})
     except OrderValidationError as exc:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(exc)}), 400
@@ -2719,11 +2796,11 @@ def cashier_direct_sale():
     try:
         lines = validate_and_lock_cart(data.get('items', []), require_available=False, allow_cashier_custom_amount=True)
         subtotal = cart_subtotal(lines)
-        if pay_method == 'CASH' and change_for and change_for < subtotal:
-            raise OrderValidationError('Cash bill cannot be less than the sale total.')
 
         cust = None
         points_earned = 0
+        points_redeemed = 0.0
+        points_discount = 0.0
         contact = 'N/A'
         if cust_type == 'REGISTERED':
             cust = db.session.get(Customer, parse_int(reg_id, 0))
@@ -2734,14 +2811,23 @@ def cashier_direct_sale():
                 raise OrderValidationError(issue)
             cust_name = cust.name
             contact = cust.contact
-            cust.accumulated_spend = (cust.accumulated_spend or 0.0) + subtotal
-            points_earned = int(subtotal // 30)
+            points_redeemed, points_discount = calculate_points_redemption(cust, data.get('redeem_points'), subtotal)
+        elif parse_float(data.get('redeem_points'), 0.0) > 0:
+            raise OrderValidationError('Select a registered member before redeeming points.')
+
+        total = max(0.0, subtotal - points_discount)
+        if pay_method == 'CASH' and change_for and change_for < total:
+            raise OrderValidationError('Cash bill cannot be less than the discounted sale total.')
+
+        if cust:
+            cust.accumulated_spend = (cust.accumulated_spend or 0.0) + total
+            points_earned = int(total // 30)
             if points_earned > 0:
                 cust.points_balance = (cust.points_balance or 0.0) + points_earned
                 db.session.add(RewardLedger(
                     customer_id=cust.id,
                     points_change=points_earned,
-                    reason=f'Counter POS Sale (₱{subtotal:,.2f})',
+                    reason=f'Counter POS Sale (₱{total:,.2f} paid)',
                 ))
 
         order = Order(
@@ -2752,7 +2838,9 @@ def cashier_direct_sale():
             contact_number=contact,
             subtotal=subtotal,
             delivery_fee=0.0,
-            total_amount=subtotal,
+            total_amount=total,
+            points_redeemed=points_redeemed,
+            points_discount=points_discount,
             payment_method=pay_method,
             payment_verified=True,
             change_for=change_for if change_for > 0 else None,
@@ -2761,6 +2849,8 @@ def cashier_direct_sale():
         )
         db.session.add(order)
         db.session.flush()
+        if cust:
+            record_points_redemption(cust, points_redeemed, order.id, 'Counter POS points discount')
 
         for line in lines:
             prod = line['product']
@@ -2780,8 +2870,11 @@ def cashier_direct_sale():
         return jsonify({
             'success': True,
             'order_id': order.id,
-            'total': subtotal,
+            'subtotal': subtotal,
+            'total': total,
             'points_earned': points_earned,
+            'points_redeemed': points_redeemed,
+            'points_discount': points_discount,
             'bonus_points': marketing['bonus_points'],
             'referral_points': marketing['referral_member_points'],
             'member_balance': (cust.points_balance or 0.0) if cust else None,
@@ -3353,6 +3446,75 @@ def cashier_adjust_pending_order(order_id):
     return redirect(url_for('cashier_terminal'))
 
 
+@app.route('/api/redeem-order-points', methods=['POST'])
+def redeem_points_on_recent_order():
+    """Apply points to a pending/recent completed order without permitting double redemption."""
+    data = request.get_json() or {}
+    order = db.session.get(Order, parse_int(data.get('order_id'), 0))
+    if not order:
+        return jsonify({'success': False, 'message': 'Purchase not found.'}), 404
+
+    staff_access = bool(session.get('cashier_user') or session.get('admin_user'))
+    customer_access = bool(session.get('customer_id') and order.customer_id == session.get('customer_id'))
+    if not staff_access and not customer_access:
+        return jsonify({'success': False, 'message': 'You cannot update this purchase.'}), 403
+    if order.status not in {'VERIFICATION', 'COMPLETED'}:
+        return jsonify({'success': False, 'message': 'Points can only be applied to a pending or completed purchase.'}), 400
+    if not order.customer_id:
+        return jsonify({'success': False, 'message': 'This purchase is not linked to a loyalty account.'}), 400
+    if parse_float(order.points_redeemed, 0.0) > 0:
+        return jsonify({'success': False, 'message': 'Points were already applied to this purchase.'}), 400
+    if utc_now() - order.created_at > timedelta(hours=24):
+        return jsonify({'success': False, 'message': 'Only purchases from the last 24 hours are eligible.'}), 400
+
+    cust = db.session.get(Customer, order.customer_id)
+    issue = customer_access_issue(cust)
+    if issue:
+        return jsonify({'success': False, 'message': issue}), 400
+
+    try:
+        old_total = round(parse_float(order.total_amount, 0.0), 2)
+        points, discount = calculate_points_redemption(cust, data.get('redeem_points'), old_total)
+        new_total = round(max(0.0, old_total - discount), 2)
+        if order.status == 'COMPLETED' and order.payment_verified and not order.is_unpaid:
+            old_earned = int(old_total // 30)
+            new_earned = int(new_total // 30)
+            earned_adjustment = new_earned - old_earned
+            if parse_float(cust.points_balance, 0.0) + earned_adjustment < points - 1e-9:
+                raise OrderValidationError('Not enough available points after recalculating this purchase.')
+            if earned_adjustment:
+                cust.points_balance = round(parse_float(cust.points_balance, 0.0) + earned_adjustment, 2)
+                db.session.add(RewardLedger(
+                    customer_id=cust.id,
+                    points_change=earned_adjustment,
+                    reason=f'Base points recalculated after discount / Order #{order.id}',
+                ))
+            cust.accumulated_spend = max(0.0, parse_float(cust.accumulated_spend, 0.0) - discount)
+
+        order.points_redeemed = points
+        order.points_discount = discount
+        order.total_amount = new_total
+        record_points_redemption(cust, points, order.id, 'Recent purchase points discount')
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'order_id': order.id,
+            'old_total': old_total,
+            'total': new_total,
+            'points_redeemed': points,
+            'discount': discount,
+            'refund_due': discount if order.status == 'COMPLETED' and order.payment_verified else 0.0,
+            'points_balance': round(parse_float(cust.points_balance, 0.0), 2),
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Recent purchase points redemption failed for order_id=%s', order.id)
+        return jsonify({'success': False, 'message': 'Could not apply points. No changes were saved.'}), 500
+
+
 @app.route('/pos/verify/<int:order_id>', methods=['POST'])
 @require_cashier
 def verify_order(order_id):
@@ -3415,6 +3577,16 @@ def verify_order(order_id):
         else:
             flash(f'Order #{order.id} accepted and completed. Details ready to print!', 'success')
     elif action == 'REJECT':
+        if order.customer_id and parse_float(order.points_redeemed, 0.0) > 0:
+            cust = db.session.get(Customer, order.customer_id)
+            if cust:
+                restored = round(parse_float(order.points_redeemed, 0.0), 2)
+                cust.points_balance = round(parse_float(cust.points_balance, 0.0) + restored, 2)
+                db.session.add(RewardLedger(
+                    customer_id=cust.id,
+                    points_change=restored,
+                    reason=f'Cancelled Order #{order.id}: redeemed points restored',
+                ))
         for item in order.items:
             if item.product_id:
                 prod = db.session.get(Product, item.product_id)
@@ -4427,6 +4599,106 @@ def marketing_page_mark_posted(post_id):
         flash(f'Post #{post.id} marked as manually posted to Facebook.', 'success')
     return redirect(url_for('marketing_admin'))
 
+def _assign_marketing_insights_from_form(post):
+    integer_fields = (
+        'reach', 'impressions', 'reactions', 'comments', 'shares', 'saves',
+        'link_clicks', 'new_followers',
+    )
+    for name in integer_fields:
+        raw = request.form.get(name, '0').strip()
+        try:
+            value = int(raw or 0)
+        except ValueError:
+            raise OrderValidationError(f'{name.replace("_", " ").title()} must be a whole number.')
+        setattr(post, f'insight_{name}', max(0, value))
+
+    spend = parse_float(request.form.get('spend'), 0.0)
+    if spend < 0:
+        raise OrderValidationError('Ad spend cannot be negative.')
+    post.insight_spend = round(spend, 2)
+    post.insight_notes = request.form.get('insight_notes', '').strip()[:3000]
+    post.insights_updated_at = utc_now()
+
+@app.route('/admin/marketing/post/<int:post_id>/insights', methods=['POST'])
+@require_admin
+def marketing_save_insights(post_id):
+    post = MarketingPost.query.get_or_404(post_id)
+    if post.status != 'POSTED':
+        flash('Mark the post as posted before adding Meta insights.', 'error')
+        return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
+    try:
+        _assign_marketing_insights_from_form(post)
+    except OrderValidationError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
+    db.session.commit()
+    flash(f'Meta insights saved for Post #{post.id}.', 'success')
+    return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
+
+@app.route('/admin/marketing/post/<int:post_id>/analyze-insights', methods=['POST'])
+@require_admin
+def marketing_analyze_insights(post_id):
+    post = MarketingPost.query.get_or_404(post_id)
+    if post.status != 'POSTED':
+        flash('Only posts marked as posted can be analyzed.', 'error')
+        return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
+    try:
+        _assign_marketing_insights_from_form(post)
+    except OrderValidationError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
+
+    comparison_rows = MarketingPost.query.filter(
+        MarketingPost.status == 'POSTED',
+        MarketingPost.id != post.id,
+        MarketingPost.insights_updated_at.isnot(None),
+    ).order_by(MarketingPost.insights_updated_at.desc()).limit(10).all()
+    payload = {
+        'post': {
+            'id': post.id,
+            'business': post.business,
+            'post_type': post.post_type,
+            'caption': post.caption[:3000],
+            'published_at': post.published_at.isoformat() if post.published_at else None,
+            'insights_captured_at': post.insights_updated_at.isoformat() if post.insights_updated_at else None,
+        },
+        'metrics': {
+            'reach': post.insight_reach or 0,
+            'impressions': post.insight_impressions or 0,
+            'reactions': post.insight_reactions or 0,
+            'comments': post.insight_comments or 0,
+            'shares': post.insight_shares or 0,
+            'saves': post.insight_saves or 0,
+            'link_clicks': post.insight_link_clicks or 0,
+            'new_followers': post.insight_new_followers or 0,
+            'spend_php': post.insight_spend or 0.0,
+            'notes': post.insight_notes or '',
+        },
+        'recent_internal_comparisons': [
+            {
+                'post_type': row.post_type,
+                'reach': row.insight_reach or 0,
+                'reactions': row.insight_reactions or 0,
+                'comments': row.insight_comments or 0,
+                'shares': row.insight_shares or 0,
+                'link_clicks': row.insight_link_clicks or 0,
+            }
+            for row in comparison_rows
+        ],
+    }
+    try:
+        result = analyze_marketing_insights(payload, provider=marketing_settings().get('ai_provider', 'GEMINI'))
+        post.insight_analysis = str(result.get('analysis') or '')[:5000]
+        post.insight_ai_model = str(result.get('model') or 'smart-template:insights')[:100]
+        post.insights_analyzed_at = utc_now()
+        db.session.commit()
+        flash(f'AI analysis completed for Post #{post.id}.', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('Marketing insight analysis failed for post_id=%s', post.id)
+        flash(f'Could not analyze Post #{post.id}: {exc}', 'error')
+    return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
+
 @app.route('/admin/marketing/post/<int:post_id>/delete', methods=['POST'])
 @require_admin
 def marketing_delete_post(post_id):
@@ -4818,6 +5090,10 @@ def admin_reassign_order(order_id):
         flash(issue, 'error')
         return redirect(url_for('admin_dashboard'))
     old_cust = Customer.query.get(order.customer_id) if order.customer_id else None
+    redeemed = round(parse_float(order.points_redeemed, 0.0), 2)
+    if redeemed > 0 and parse_float(new_cust.points_balance, 0.0) < redeemed - 1e-9:
+        flash(f"'{new_cust.name}' needs at least {redeemed:,.2f} points to receive this discounted order.", 'error')
+        return redirect(url_for('admin_dashboard'))
 
     if old_cust and order.status == 'COMPLETED' and order.payment_verified:
         earned = int(order.total_amount // 30)
@@ -4825,9 +5101,24 @@ def admin_reassign_order(order_id):
         old_cust.accumulated_spend = max(0.0, (old_cust.accumulated_spend or 0.0) - order.total_amount)
         reverse_member_marketing_rewards_for_order(order)
 
+    if old_cust and redeemed > 0:
+        old_cust.points_balance = round(parse_float(old_cust.points_balance, 0.0) + redeemed, 2)
+        db.session.add(RewardLedger(
+            customer_id=old_cust.id,
+            points_change=redeemed,
+            reason=f"Order #{order.id} reassigned: redeemed points restored"
+        ))
+
     order.customer_id = new_cust.id
     order.customer_name = new_cust.name
     order.contact_number = new_cust.contact
+    if redeemed > 0:
+        new_cust.points_balance = round(parse_float(new_cust.points_balance, 0.0) - redeemed, 2)
+        db.session.add(RewardLedger(
+            customer_id=new_cust.id,
+            points_change=-redeemed,
+            reason=f"Order #{order.id} reassigned: points discount transferred"
+        ))
 
     if order.status == 'COMPLETED' and order.payment_verified:
         earned_new = int(order.total_amount // 30)
@@ -4910,6 +5201,17 @@ def admin_revert_order(order_id):
                     reason=f"Admin Reverted Sale #{order.id}"
                 ))
         reverse_member_marketing_rewards_for_order(order)
+
+    if order.customer_id and parse_float(order.points_redeemed, 0.0) > 0:
+        cust = Customer.query.get(order.customer_id)
+        if cust:
+            restored = round(parse_float(order.points_redeemed, 0.0), 2)
+            cust.points_balance = round(parse_float(cust.points_balance, 0.0) + restored, 2)
+            db.session.add(RewardLedger(
+                customer_id=cust.id,
+                points_change=restored,
+                reason=f"Admin Reverted Sale #{order.id}: redeemed points restored"
+            ))
 
     if order.is_unpaid and order.customer_id:
         cust = Customer.query.get(order.customer_id)

@@ -38,7 +38,7 @@ REQUIRED_DB_COLUMNS = {
     "order": {
         "id", "order_type", "dining_option", "customer_id", "subtotal",
         "total_amount", "payment_method", "payment_verified", "status",
-        "is_unpaid", "created_at",
+        "is_unpaid", "points_redeemed", "points_discount", "created_at",
     },
     "order_item": {
         "id", "order_id", "product_id", "unit_price", "cost_price",
@@ -53,6 +53,12 @@ REQUIRED_DB_COLUMNS = {
     "bonus_campaign_claim": {"id", "campaign_id", "customer_id", "order_id", "points_awarded"},
     "referral_reward": {"id", "referrer_customer_id", "referred_customer_id", "first_order_id"},
     "portal_event": {"id", "source", "event_type", "customer_id", "created_at"},
+    "marketing_post": {
+        "id", "status", "caption", "insight_reach", "insight_impressions",
+        "insight_reactions", "insight_comments", "insight_shares", "insight_saves",
+        "insight_link_clicks", "insight_new_followers", "insight_spend", "insight_notes",
+        "insight_analysis", "insight_ai_model", "insights_updated_at", "insights_analyzed_at",
+    },
 }
 
 
