@@ -429,9 +429,18 @@ def main() -> int:
         fail("public storefront still exposes an investor/expansion link")
     investor_private_template = (TEMPLATES / "investor_private_offer.html").read_text(encoding="utf-8")
     cashier_investor_template = (TEMPLATES / "cashier_investor_proposals.html").read_text(encoding="utf-8")
-    for marker in ["Private access required", "Send a counteroffer", "straight-line simple interest", "Send proposal to Cashier for review"]:
+    for marker in ["Private access required", "Private Business Snapshot", "Recorded all-time sales", "Current break-even requirement", "Proposed use of funds", "Expansion milestones", "Send a counteroffer", "straight-line simple interest", "Send proposal to Cashier for review"]:
         if marker not in investor_private_template:
             fail(f"private investor proposal page is missing: {marker}")
+    for marker in ["private_investor_business_snapshot", "snapshot = private_investor_business_snapshot(investor)", "'Cache-Control': 'no-store, private'", "cashflow_order_is_excluded", "cashflow_plan_exclusion_reason"]:
+        if marker not in source:
+            fail(f"private investor snapshot safeguard is missing: {marker}")
+    if 'id="business-snapshot"' not in investor_private_template:
+        fail("private business snapshot section id is missing")
+    snapshot_section = investor_private_template.split('id="business-snapshot"', 1)[1].split('</section>', 1)[0]
+    for forbidden in ["customer_name", "contact_number", "delivery_address", "cashier_notes"]:
+        if forbidden in snapshot_section:
+            fail(f"private business snapshot exposes a forbidden detail: {forbidden}")
     for marker in ["Investor Proposals Queue", "Do not collect investment money", "cashier_notes"]:
         if marker not in cashier_investor_template + source:
             fail(f"cashier investor-proposal workflow is missing: {marker}")

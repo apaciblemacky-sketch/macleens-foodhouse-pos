@@ -52,11 +52,32 @@
     .summary-grid div { background:#1e293b; border-radius:8px; padding:10px; }
     .summary-grid small { display:block; color:#94a3b8; font-size:.65rem; text-transform:uppercase; font-weight:900; }
     .summary-grid strong { display:block; margin-top:3px; color:white; font-size:.9rem; }
+    .snapshot-head { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; margin-bottom:14px; }
+    .snapshot-head h2 { margin:0; color:var(--wine); }
+    .snapshot-head p { margin:4px 0 0; color:var(--muted); font-size:.8rem; }
+    .as-of { white-space:nowrap; background:#fce7f3; color:var(--wine); padding:6px 9px; border-radius:999px; font-size:.68rem; font-weight:900; }
+    .snapshot-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+    .snapshot-metric { border:1px solid #e2e8f0; border-radius:12px; padding:14px; background:#fff; }
+    .snapshot-metric small { display:block; color:#64748b; font-size:.66rem; text-transform:uppercase; font-weight:900; letter-spacing:.03em; }
+    .snapshot-metric strong { display:block; margin-top:4px; color:#0f172a; font-size:1.12rem; }
+    .snapshot-metric span { display:block; margin-top:3px; color:#64748b; font-size:.68rem; }
+    .snapshot-metric.good strong { color:#047857; }
+    .snapshot-metric.watch strong { color:#b45309; }
+    .snapshot-split { display:grid; grid-template-columns:1.15fr .85fr; gap:13px; margin-top:14px; }
+    .snapshot-panel { background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:15px; }
+    .snapshot-panel h3 { margin:0 0 9px; color:var(--wine); font-size:.95rem; }
+    .fund-row { display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center; padding:6px 0; border-bottom:1px solid #e2e8f0; font-size:.73rem; }
+    .fund-row:last-child { border-bottom:0; }
+    .fund-row strong { color:#334155; }
+    .milestones { margin:0; padding-left:18px; color:#475569; font-size:.75rem; }
+    .milestones li { margin:6px 0; }
     .check { display:flex; gap:8px; align-items:flex-start; color:#64748b; font-size:.76rem; font-weight:500; }
     .check input { width:auto; margin-top:3px; }
     .honeypot { position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
     .foot { color:#94a3b8; font-size:.72rem; margin-top:15px; }
-    @media(max-width:760px) { .offer-grid,.form-grid,.summary-grid{grid-template-columns:1fr}.full{grid-column:auto}.hero{padding:24px}.wrap{padding:14px} }
+    @media(max-width:900px) { .snapshot-grid{grid-template-columns:repeat(2,1fr)} }
+    @media(max-width:760px) { .offer-grid,.form-grid,.summary-grid,.snapshot-split{grid-template-columns:1fr}.full{grid-column:auto}.hero{padding:24px}.wrap{padding:14px}.snapshot-head{display:block}.as-of{display:inline-block;margin-top:8px} }
+    @media(max-width:480px) { .snapshot-grid{grid-template-columns:1fr} }
   </style>
 </head>
 <body>
@@ -95,6 +116,54 @@
 
       <div class="notice warning"><strong>Important:</strong> These are proposed discussion terms, not guaranteed returns, an approved investment, or a request to transfer money. Final rate, legality, disclosures, documents, payment controls, and business capacity must be reviewed before a signed agreement.</div>
       <div class="notice info">For monthly-interest options, the displayed interest is paid each month and the whole principal is due at the end. The “final payment” includes the last scheduled monthly interest plus the principal.</div>
+
+      <section class="section" id="business-snapshot">
+        <div class="snapshot-head">
+          <div>
+            <h2>Private Business Snapshot</h2>
+            <p>Aggregate system records for invited review. Customer details, investor identities, and internal cash-flow schedules are not shown.</p>
+          </div>
+          <span class="as-of">As of {{ snapshot.as_of.strftime('%d %b %Y') }}</span>
+        </div>
+
+        <div class="notice warning"><strong>Management information only:</strong> These figures are generated from current system records and are not audited financial statements. Reconcile them with receipts, bank/GCash records, taxes, inventory counts, and signed agreements before making a funding decision.</div>
+
+        <div class="snapshot-grid">
+          <div class="snapshot-metric"><small>Recorded all-time sales</small><strong>₱{{ "{:,.2f}".format(snapshot.all_time_sales) }}</strong><span>Filtered completed sales + Vault Drops</span></div>
+          <div class="snapshot-metric"><small>Most recent 30 days</small><strong>₱{{ "{:,.2f}".format(snapshot.recent_30_sales) }}</strong><span>{% if snapshot.sales_trend_percent is not none %}{{ '+' if snapshot.sales_trend_percent >= 0 else '' }}{{ "{:.1f}".format(snapshot.sales_trend_percent) }}% vs prior 30 days{% else %}No prior 30-day baseline yet{% endif %}</span></div>
+          <div class="snapshot-metric"><small>Lifetime actual-sales average</small><strong>₱{{ "{:,.2f}".format(snapshot.lifetime_daily_average) }}/day</strong><span>{{ snapshot.actual_sales_days }} recorded positive-sales day{{ '' if snapshot.actual_sales_days == 1 else 's' }}</span></div>
+          <div class="snapshot-metric"><small>Current break-even requirement</small><strong>₱{{ "{:,.2f}".format(snapshot.daily_break_even_sales) }}/day</strong><span>₱{{ "{:,.2f}".format(snapshot.monthly_break_even_sales) }} for {{ snapshot.as_of.strftime('%B') }}</span></div>
+          <div class="snapshot-metric {{ 'good' if snapshot.break_even_gap >= 0 else 'watch' }}"><small>Actual average vs break-even</small><strong>{{ '+' if snapshot.break_even_gap >= 0 else '−' }}₱{{ "{:,.2f}".format(snapshot.break_even_gap_abs) }}/day</strong><span>{{ "{:.1f}".format(snapshot.break_even_attainment) }}% of break-even</span></div>
+          <div class="snapshot-metric"><small>Planning sales used</small><strong>₱{{ "{:,.2f}".format(snapshot.planning_daily_sales) }}/day</strong><span>Higher of actual average or break-even</span></div>
+          <div class="snapshot-metric"><small>Completed orders</small><strong>{{ "{:,}".format(snapshot.completed_orders) }}</strong><span>{{ "{:,}".format(snapshot.customer_accounts) }} customer account{{ '' if snapshot.customer_accounts == 1 else 's' }}</span></div>
+          <div class="snapshot-metric"><small>Active offers</small><strong>{{ snapshot.active_food_offers }} Food · {{ snapshot.active_craft_offers }} Crafts</strong><span>Recorded inventory value: ₱{{ "{:,.2f}".format(snapshot.inventory_value) }}</span></div>
+        </div>
+
+        <div class="snapshot-split">
+          <div class="snapshot-panel">
+            <h3>Proposed use of funds</h3>
+            {% for row in snapshot.use_of_funds %}
+            <div class="fund-row"><span>{{ row.label }}</span><strong>{{ row.share }}% · ₱{{ "{:,.2f}".format(row.amount) }}</strong></div>
+            {% endfor %}
+            <p class="foot">Allocation basis: ₱{{ "{:,.2f}".format(snapshot.funding_basis) }}. Final amounts require quotations and owner approval.</p>
+          </div>
+          <div class="snapshot-panel">
+            <h3>Expansion milestones</h3>
+            <ol class="milestones">
+              <li>Verify margins, sales history, schedules, debts, and supplier quotations.</li>
+              <li>Strengthen profitable product availability and working capital.</li>
+              <li>Add practical seating, kitchen capacity, and Crafts equipment.</li>
+              <li>Secure the business domain and run measured Facebook campaigns.</li>
+              <li>Review results before releasing the next funding milestone.</li>
+            </ol>
+            {% if investor.show_funding_numbers %}
+            <div class="notice info"><strong>Funding progress:</strong> ₱{{ "{:,.2f}".format(investor.funds_committed) }} recorded toward ₱{{ "{:,.2f}".format(investor.funding_goal) }}.</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <p class="foot">Filtered analysis excludes expenses matching Tet, Joy, Delro, Motorcycle, Kevin, Investor/Investors and income or sales matching “Sample work.” Excluded source records remain available internally for audit.</p>
+      </section>
 
       <form method="post" action="{{ url_for('submit_private_investor_offer') }}" class="section" id="proposalForm">
         <input type="hidden" name="form_token" value="{{ form_token }}">

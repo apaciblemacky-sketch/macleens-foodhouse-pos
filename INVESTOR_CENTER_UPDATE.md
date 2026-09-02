@@ -6,6 +6,7 @@
 - Legacy investor URLs redirect to the access-code invitation page.
 - Admin-only Investor Center: `/admin/investors`
 - Private access-code invitation page: `/investors/private-offer`
+- Protected Private Business Snapshot shown only after the correct access code
 - Funding goal and recorded-commitment settings for private materials
 - Internal investor-readiness checklist
 - Recorded performance, inventory, customer, and inquiry overview
@@ -33,6 +34,20 @@ The page now explains:
 ## Important investor-safety design
 
 The storefront does not advertise investor access. Exact proposed terms are kept behind an Admin-set private access code and shared only with selected contacts. The private page states that selections are non-binding discussion requests, no money is accepted through the website, and final arrangements require due diligence, professional review, and a separate signed agreement.
+
+## Private Business Snapshot
+
+Invited contacts can now review aggregate system figures after entering the private access code:
+
+- filtered recorded all-time sales and recent 30-day sales;
+- lifetime actual-sales average and current filtered break-even requirement;
+- actual-average versus break-even gap and planning sales floor;
+- completed-order and customer-account counts;
+- active Food House and Crafts offers and recorded inventory value;
+- proposed use-of-funds allocation and expansion milestones; and
+- optional funding goal and recorded commitments when Admin enables them.
+
+The snapshot never shows customer identities, contact details, investor identities, proposal notes, or internal cash-flow schedules. It uses the same exclusion policy as the Cash Flow portal, is marked as unaudited management information, and is served with private/no-store browser caching.
 
 ## Private proposal options
 

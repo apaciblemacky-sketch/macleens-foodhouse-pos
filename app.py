@@ -5030,6 +5030,109 @@ def public_investor_settings():
         'private_offer_enabled': bool(investor_setting('investor_private_access_hash', '').strip()),
     }
 
+
+def private_investor_business_snapshot(investor):
+    """Return selected aggregate metrics only; never expose customer or schedule details."""
+    today = ph_today()
+    current_month = date(today.year, today.month, 1)
+    next_month = cashflow_add_months(current_month, 1)
+
+    completed_orders = Order.query.filter_by(status='COMPLETED').all()
+    included_orders = [order for order in completed_orders if not cashflow_order_is_excluded(order)]
+    excluded_sales_orders = [order for order in completed_orders if cashflow_order_is_excluded(order)]
+    vault_drops = VaultDrop.query.all()
+
+    daily_sales = {}
+    for order in included_orders:
+        if not order.created_at:
+            continue
+        day = utc_naive_to_ph(order.created_at).date()
+        daily_sales[day] = daily_sales.get(day, 0.0) + max(0.0, parse_float(order.total_amount, 0.0))
+    for drop in vault_drops:
+        if not drop.created_at:
+            continue
+        day = utc_naive_to_ph(drop.created_at).date()
+        daily_sales[day] = daily_sales.get(day, 0.0) + max(0.0, parse_float(drop.amount, 0.0))
+
+    actual_days = sorted((day, amount) for day, amount in daily_sales.items() if amount > 0 and day <= today)
+    all_time_sales = sum(amount for _, amount in actual_days)
+    lifetime_daily_average = all_time_sales / len(actual_days) if actual_days else 0.0
+    recent_start = today - timedelta(days=29)
+    prior_start = today - timedelta(days=59)
+    recent_30_sales = sum(amount for day, amount in actual_days if recent_start <= day <= today)
+    prior_30_sales = sum(amount for day, amount in actual_days if prior_start <= day < recent_start)
+    sales_trend_percent = ((recent_30_sales - prior_30_sales) / prior_30_sales * 100.0) if prior_30_sales > 0 else None
+
+    included_month_expenses = 0.0
+    included_month_income = 0.0
+    excluded_schedule_count = 0
+    active_plans = CashFlowPlan.query.filter_by(is_active=True).all()
+    for plan in active_plans:
+        if cashflow_plan_exclusion_reason(plan):
+            excluded_schedule_count += 1
+            continue
+        occurrences = sum(1 for _ in cashflow_occurrence_dates(plan, current_month, next_month))
+        amount = max(0.0, parse_float(plan.amount, 0.0)) * occurrences
+        if plan.entry_type == 'EXPENSE':
+            included_month_expenses += amount
+        elif plan.entry_type == 'INCOME':
+            included_month_income += amount
+
+    contribution_margin_rate = max(0.0001, 1.0 - CASH_FLOW_COGS_RATE)
+    required_contribution = max(0.0, included_month_expenses - included_month_income)
+    monthly_break_even_sales = required_contribution / contribution_margin_rate
+    days_in_month = max(1, (next_month - current_month).days)
+    daily_break_even_sales = monthly_break_even_sales / days_in_month
+    planning_daily_sales = max(lifetime_daily_average, daily_break_even_sales)
+    break_even_gap = lifetime_daily_average - daily_break_even_sales
+    break_even_attainment = (
+        min(999.0, lifetime_daily_average / daily_break_even_sales * 100.0)
+        if daily_break_even_sales > 0 else 100.0
+    )
+
+    inventory_value = sum((p.cost or 0.0) * max(0, p.stock or 0) for p in Product.query.all())
+    inventory_value += sum((item.cost or 0.0) * max(0, item.stock_quantity or 0) for item in CraftItem.query.all())
+    funding_basis = investor['funding_goal'] if investor['funding_goal'] > 0 else 500000.0
+    use_of_funds = [
+        ('Inventory & working capital', 28),
+        ('Kitchen & productive equipment', 22),
+        ('Tables, chairs & store improvements', 16),
+        ('Crafts equipment & supplies', 12),
+        ('Domain & website setup', 7),
+        ('Branding & measured marketing', 7),
+        ('Contingency & emergency reserve', 8),
+    ]
+
+    return {
+        'as_of': today,
+        'all_time_sales': all_time_sales,
+        'recent_30_sales': recent_30_sales,
+        'prior_30_sales': prior_30_sales,
+        'sales_trend_percent': sales_trend_percent,
+        'lifetime_daily_average': lifetime_daily_average,
+        'actual_sales_days': len(actual_days),
+        'first_sales_day': actual_days[0][0] if actual_days else None,
+        'last_sales_day': actual_days[-1][0] if actual_days else None,
+        'monthly_break_even_sales': monthly_break_even_sales,
+        'daily_break_even_sales': daily_break_even_sales,
+        'planning_daily_sales': planning_daily_sales,
+        'break_even_gap': break_even_gap,
+        'break_even_gap_abs': abs(break_even_gap),
+        'break_even_attainment': break_even_attainment,
+        'completed_orders': len(included_orders),
+        'customer_accounts': Customer.query.count(),
+        'active_food_offers': Product.query.filter_by(is_active=True).count(),
+        'active_craft_offers': CraftItem.query.filter_by(is_active=True).count(),
+        'inventory_value': inventory_value,
+        'excluded_schedule_count': excluded_schedule_count,
+        'excluded_sales_count': len(excluded_sales_orders),
+        'funding_basis': funding_basis,
+        'use_of_funds': [
+            {'label': label, 'share': share, 'amount': funding_basis * share / 100.0}
+            for label, share in use_of_funds
+        ],
+    }
+
 @app.route('/investor-deck')
 @app.route('/investor')
 @app.route('/investors')
@@ -5137,19 +5240,22 @@ def investor_private_offer():
 
     unlocked = private_offer_access_valid() and investor['private_offer_enabled']
     form_token = ''
+    snapshot = None
     if unlocked:
         form_token = secrets.token_urlsafe(24)
         session['investor_proposal_form_token'] = form_token
+        snapshot = private_investor_business_snapshot(investor)
     return render_template(
         'investor_private_offer.html',
         investor=investor,
         unlocked=unlocked,
+        snapshot=snapshot,
         form_token=form_token,
         offers=investor_offer_view_options(),
         payout_options=INVESTOR_PAYOUT_OPTIONS,
         support_areas=INVESTOR_SUPPORT_AREAS,
         contact_choices=INVESTOR_CONTACT_CHOICES,
-    )
+    ), 200, {'Cache-Control': 'no-store, private'}
 
 @app.route('/investors/private-offer/submit', methods=['POST'])
 def submit_private_investor_offer():
