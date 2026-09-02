@@ -93,6 +93,32 @@ class StoreSetting(db.Model):
     key = db.Column(db.String(50), unique=True, nullable=False)
     value = db.Column(db.Text, nullable=False)
 
+class InvestorInterest(db.Model):
+    """Private introduction requests submitted from the public expansion page."""
+    __tablename__ = 'investor_interest'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    contact = db.Column(db.String(160), nullable=False)
+    preferred_contact = db.Column(db.String(20), nullable=False, default='PHONE')
+    business_area = db.Column(db.String(30), nullable=False, default='WHOLE_BUSINESS')
+    funding_range = db.Column(db.String(40), nullable=False, default='DISCUSS_PRIVATELY')
+    offer_code = db.Column(db.String(40), nullable=False, default='GENERAL')
+    payout_option = db.Column(db.String(30), nullable=True)
+    proposed_amount = db.Column(db.Float, nullable=True)
+    monthly_rate_percent = db.Column(db.Float, nullable=True)
+    term_months = db.Column(db.Integer, nullable=True)
+    monthly_interest_amount = db.Column(db.Float, nullable=True)
+    total_interest_amount = db.Column(db.Float, nullable=True)
+    maturity_payment_amount = db.Column(db.Float, nullable=True)
+    total_contract_amount = db.Column(db.Float, nullable=True)
+    is_counter_offer = db.Column(db.Boolean, nullable=False, default=False)
+    message = db.Column(db.Text, nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='NEW')
+    cashier_notes = db.Column(db.Text, nullable=True)
+    cashier_reviewed_by = db.Column(db.String(50), nullable=True)
+    cashier_reviewed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False, index=True)
+
 class Staff(db.Model):
     __tablename__ = 'staff'
     id = db.Column(db.Integer, primary_key=True)
@@ -867,6 +893,21 @@ def run_schema_migrations():
         'craft_comment': [
             ('ip_address', 'VARCHAR(64)'),
         ],
+        'investor_interest': [
+            ('offer_code', "VARCHAR(40) DEFAULT 'GENERAL'"),
+            ('payout_option', 'VARCHAR(30)'),
+            ('proposed_amount', 'FLOAT'),
+            ('monthly_rate_percent', 'FLOAT'),
+            ('term_months', 'INTEGER'),
+            ('monthly_interest_amount', 'FLOAT'),
+            ('total_interest_amount', 'FLOAT'),
+            ('maturity_payment_amount', 'FLOAT'),
+            ('total_contract_amount', 'FLOAT'),
+            ('is_counter_offer', 'BOOLEAN DEFAULT FALSE'),
+            ('cashier_notes', 'TEXT'),
+            ('cashier_reviewed_by', 'VARCHAR(50)'),
+            ('cashier_reviewed_at', 'TIMESTAMP'),
+        ],
     }
 
     inspector = inspect(db.engine)
@@ -892,6 +933,9 @@ def run_schema_migrations():
             conn.execute(text("UPDATE promotion_tracker SET portal_only = FALSE WHERE portal_only IS NULL"))
         if 'product' in tables:
             conn.execute(text("UPDATE product SET allow_custom_amount = FALSE WHERE allow_custom_amount IS NULL"))
+        if 'investor_interest' in tables:
+            conn.execute(text("UPDATE investor_interest SET offer_code = 'GENERAL' WHERE offer_code IS NULL OR offer_code = ''"))
+            conn.execute(text("UPDATE investor_interest SET is_counter_offer = FALSE WHERE is_counter_offer IS NULL"))
 
 def run_db_setup():
     global _DB_INITIALIZED
@@ -2086,6 +2130,18 @@ def marketing_setting(key, default=''):
     return row.value if row else default
 
 def save_marketing_setting(key, value):
+    value = str(value)
+    row = StoreSetting.query.filter_by(key=key).first()
+    if row:
+        row.value = value
+    else:
+        db.session.add(StoreSetting(key=key, value=value))
+
+def investor_setting(key, default=''):
+    row = StoreSetting.query.filter_by(key=key).first()
+    return row.value if row else default
+
+def save_investor_setting(key, value):
     value = str(value)
     row = StoreSetting.query.filter_by(key=key).first()
     if row:
@@ -4798,6 +4854,475 @@ def marketing_cron_run():
     except Exception as exc:
         app.logger.exception('Scheduled AI marketing run failed')
         return jsonify({'ok': False, 'message': str(exc)}), 500
+
+
+# ==================== BUSINESS EXPANSION & INVESTOR INTEREST ====================
+
+INVESTOR_CONTACT_CHOICES = {
+    'PHONE': 'Phone / SMS',
+    'MESSENGER': 'Facebook Messenger',
+    'EMAIL': 'Email',
+}
+INVESTOR_SUPPORT_AREAS = {
+    'WHOLE_BUSINESS': 'Whole business expansion',
+    'FOOD_HOUSE': 'Food House',
+    'CRAFTS': 'Crafts and document services',
+    'DIGITAL': 'Future digital assets',
+    'EQUIPMENT': 'Equipment, seating, or supplier support',
+}
+INVESTOR_FUNDING_RANGES = {
+    'DISCUSS_PRIVATELY': 'Prefer to discuss privately',
+    'PHP_5K_20K': '₱5,000–₱20,000',
+    'PHP_20K_50K': '₱20,001–₱50,000',
+    'PHP_50K_100K': '₱50,001–₱100,000',
+    'PHP_100K_PLUS': 'Above ₱100,000',
+    'NON_CASH': 'Equipment, services, or another partnership',
+}
+INVESTOR_LEAD_STATUSES = {
+    'NEW': 'New',
+    'CONTACTED': 'Contacted',
+    'REVIEWING': 'Private discussion / due diligence',
+    'CLOSED': 'Closed',
+}
+INVESTOR_PAYOUT_OPTIONS = {
+    'LUMP_SUM': 'Lump sum at maturity',
+    'MONTHLY_INTEREST': 'Monthly interest + whole principal at maturity',
+}
+INVESTOR_OFFER_OPTIONS = {
+    'PHP_50K_24M': {
+        'label': '₱50,000 · 1.5% monthly · 2 years',
+        'amount': 50000.0,
+        'monthly_rate_percent': 1.5,
+        'term_months': 24,
+        'payout_options': ('LUMP_SUM',),
+        'rate_note': 'Fixed proposed discussion rate',
+    },
+    'PHP_100K_24M': {
+        'label': '₱100,000 · 1.5% monthly · 2 years',
+        'amount': 100000.0,
+        'monthly_rate_percent': 1.5,
+        'term_months': 24,
+        'payout_options': ('LUMP_SUM', 'MONTHLY_INTEREST'),
+        'rate_note': 'Fixed proposed discussion rate',
+    },
+    'PHP_250K_24M': {
+        'label': '₱250,000 · 2% monthly · 2 years',
+        'amount': 250000.0,
+        'monthly_rate_percent': 2.0,
+        'term_months': 24,
+        'payout_options': ('LUMP_SUM', 'MONTHLY_INTEREST'),
+        'rate_note': 'Fixed proposed discussion rate',
+    },
+    'PHP_500K_36M': {
+        'label': '₱500,000 · up to 2% monthly · 3 years',
+        'amount': 500000.0,
+        'monthly_rate_percent': 2.0,
+        'term_months': 36,
+        'payout_options': ('LUMP_SUM', 'MONTHLY_INTEREST'),
+        'rate_note': 'Maximum proposed discussion rate; final rate may be lower',
+    },
+}
+
+def calculate_investor_terms(amount, monthly_rate_percent, term_months, payout_option):
+    """Return non-compounding/simple-interest figures for a proposal snapshot."""
+    amount = round(max(0.0, parse_float(amount, 0.0)), 2)
+    monthly_rate_percent = round(max(0.0, parse_float(monthly_rate_percent, 0.0)), 4)
+    term_months = max(0, parse_int(term_months, 0))
+    if payout_option not in INVESTOR_PAYOUT_OPTIONS:
+        raise OrderValidationError('Please choose a valid payout option.')
+    monthly_interest = round(amount * monthly_rate_percent / 100.0, 2)
+    total_interest = round(monthly_interest * term_months, 2)
+    total_contract = round(amount + total_interest, 2)
+    maturity_payment = total_contract if payout_option == 'LUMP_SUM' else round(amount + monthly_interest, 2)
+    return {
+        'amount': amount,
+        'monthly_rate_percent': monthly_rate_percent,
+        'term_months': term_months,
+        'monthly_interest_amount': monthly_interest,
+        'total_interest_amount': total_interest,
+        'maturity_payment_amount': maturity_payment,
+        'total_contract_amount': total_contract,
+    }
+
+def investor_offer_view_options():
+    rows = {}
+    for code, offer in INVESTOR_OFFER_OPTIONS.items():
+        payout_rows = {}
+        for payout in offer['payout_options']:
+            payout_rows[payout] = calculate_investor_terms(
+                offer['amount'], offer['monthly_rate_percent'], offer['term_months'], payout
+            )
+        rows[code] = {**offer, 'calculations': payout_rows}
+    return rows
+
+def private_offer_access_valid():
+    raw = session.get('investor_private_access_at')
+    if not raw:
+        return False
+    try:
+        granted_at = datetime.fromisoformat(raw)
+    except (TypeError, ValueError):
+        session.pop('investor_private_access_at', None)
+        return False
+    if utc_now() - granted_at > timedelta(hours=4):
+        session.pop('investor_private_access_at', None)
+        return False
+    return True
+
+def public_investor_settings():
+    goal = max(0.0, parse_float(investor_setting('investor_funding_goal', '0'), 0.0))
+    committed = max(0.0, parse_float(investor_setting('investor_funds_committed', '0'), 0.0))
+    return {
+        'headline': investor_setting(
+            'investor_headline',
+            "Help Macleen's grow from a neighborhood food house into a stronger physical and online marketplace.",
+        ).strip(),
+        'summary': investor_setting(
+            'investor_summary',
+            'We are strengthening customer choice, comfort, and convenience while keeping our offers affordable.',
+        ).strip(),
+        'contact_phone': investor_setting('investor_contact_phone', '0955 218 7601').strip(),
+        'facebook_url': investor_setting('investor_facebook_url', '').strip(),
+        'funding_goal': goal,
+        'funds_committed': committed,
+        'funding_progress': min(100.0, (committed / goal * 100.0) if goal else 0.0),
+        'show_funding_numbers': investor_setting('investor_show_funding_numbers', 'false') == 'true',
+        'private_offer_enabled': bool(investor_setting('investor_private_access_hash', '').strip()),
+    }
+
+@app.route('/investor-deck')
+@app.route('/investor')
+@app.route('/investors')
+def investor_opportunity():
+    session['investor_form_token'] = secrets.token_urlsafe(24)
+    return render_template(
+        'investor_deck.html',
+        investor=public_investor_settings(),
+        form_token=session['investor_form_token'],
+        active_food_count=Product.query.filter_by(is_active=True).count(),
+        active_craft_count=CraftItem.query.filter_by(is_active=True).count(),
+        support_areas=INVESTOR_SUPPORT_AREAS,
+        funding_ranges=INVESTOR_FUNDING_RANGES,
+        contact_choices=INVESTOR_CONTACT_CHOICES,
+        offers=INVESTOR_OFFER_OPTIONS,
+        payout_options=INVESTOR_PAYOUT_OPTIONS,
+    )
+
+@app.route('/investors/interest', methods=['POST'])
+def submit_investor_interest():
+    supplied_token = request.form.get('form_token', '')
+    expected_token = session.pop('investor_form_token', '')
+    if not supplied_token or not expected_token or not secrets.compare_digest(supplied_token, expected_token):
+        flash('The form expired. Please review the page and submit again.', 'error')
+        return redirect(url_for('investor_opportunity') + '#connect')
+
+    # Quietly accept bot-filled honeypot submissions without saving them.
+    if request.form.get('website', '').strip():
+        return redirect(url_for('investor_opportunity') + '?submitted=1#connect')
+
+    name = re.sub(r'\s+', ' ', request.form.get('name', '').strip())[:120]
+    contact = re.sub(r'\s+', ' ', request.form.get('contact', '').strip())[:160]
+    preferred_contact = request.form.get('preferred_contact', 'PHONE').strip().upper()
+    business_area = request.form.get('business_area', 'WHOLE_BUSINESS').strip().upper()
+    funding_range = request.form.get('funding_range', 'DISCUSS_PRIVATELY').strip().upper()
+    message = request.form.get('message', '').strip()[:2000]
+
+    if len(name) < 2 or len(contact) < 5:
+        flash('Please enter your name and a valid phone, Messenger, or email contact.', 'error')
+        return redirect(url_for('investor_opportunity') + '#connect')
+    if preferred_contact not in INVESTOR_CONTACT_CHOICES:
+        preferred_contact = 'PHONE'
+    if business_area not in INVESTOR_SUPPORT_AREAS:
+        business_area = 'WHOLE_BUSINESS'
+    if funding_range not in INVESTOR_FUNDING_RANGES:
+        funding_range = 'DISCUSS_PRIVATELY'
+    if request.form.get('privacy_acknowledged') != 'yes':
+        flash('Please confirm that Macleen\'s may contact you about a private business discussion.', 'error')
+        return redirect(url_for('investor_opportunity') + '#connect')
+
+    recent_duplicate = InvestorInterest.query.filter(
+        db.func.lower(InvestorInterest.contact) == contact.lower(),
+        InvestorInterest.created_at >= utc_now() - timedelta(minutes=10),
+    ).first()
+    if recent_duplicate:
+        flash('Your interest was already received. Macleen\'s will contact you privately.', 'success')
+        return redirect(url_for('investor_opportunity') + '?submitted=1#connect')
+
+    db.session.add(InvestorInterest(
+        name=name,
+        contact=contact,
+        preferred_contact=preferred_contact,
+        business_area=business_area,
+        funding_range=funding_range,
+        message=message,
+    ))
+    db.session.commit()
+    flash('Thank you. Your private introduction request has been received.', 'success')
+    return redirect(url_for('investor_opportunity') + '?submitted=1#connect')
+
+@app.route('/investors/private-offer', methods=['GET', 'POST'])
+def investor_private_offer():
+    investor = public_investor_settings()
+    if request.method == 'POST':
+        configured_hash = investor_setting('investor_private_access_hash', '').strip()
+        lock_until_raw = session.get('investor_private_lock_until')
+        try:
+            lock_until = datetime.fromisoformat(lock_until_raw) if lock_until_raw else None
+        except (TypeError, ValueError):
+            lock_until = None
+        if lock_until and utc_now() < lock_until:
+            flash('Too many access attempts. Please wait 15 minutes or contact Macleen\'s.', 'error')
+            return redirect(url_for('investor_private_offer'))
+
+        access_code = request.form.get('access_code', '').strip()
+        if configured_hash and access_code and check_password_hash(configured_hash, access_code):
+            session['investor_private_access_at'] = utc_now().isoformat()
+            session.pop('investor_private_attempts', None)
+            session.pop('investor_private_lock_until', None)
+            flash('Private proposal options unlocked for this session.', 'success')
+            return redirect(url_for('investor_private_offer'))
+
+        attempts = parse_int(session.get('investor_private_attempts'), 0) + 1
+        if attempts >= 5:
+            session['investor_private_attempts'] = 0
+            session['investor_private_lock_until'] = (utc_now() + timedelta(minutes=15)).isoformat()
+        else:
+            session['investor_private_attempts'] = attempts
+        flash('The private access code is not valid.', 'error')
+        return redirect(url_for('investor_private_offer'))
+
+    unlocked = private_offer_access_valid() and investor['private_offer_enabled']
+    form_token = ''
+    if unlocked:
+        form_token = secrets.token_urlsafe(24)
+        session['investor_proposal_form_token'] = form_token
+    return render_template(
+        'investor_private_offer.html',
+        investor=investor,
+        unlocked=unlocked,
+        form_token=form_token,
+        offers=investor_offer_view_options(),
+        payout_options=INVESTOR_PAYOUT_OPTIONS,
+        support_areas=INVESTOR_SUPPORT_AREAS,
+        contact_choices=INVESTOR_CONTACT_CHOICES,
+    )
+
+@app.route('/investors/private-offer/submit', methods=['POST'])
+def submit_private_investor_offer():
+    if not private_offer_access_valid() or not investor_setting('investor_private_access_hash', '').strip():
+        flash('Private proposal access expired. Enter the access code again.', 'error')
+        return redirect(url_for('investor_private_offer'))
+    supplied_token = request.form.get('form_token', '')
+    expected_token = session.pop('investor_proposal_form_token', '')
+    if not supplied_token or not expected_token or not secrets.compare_digest(supplied_token, expected_token):
+        flash('The proposal form expired. Please review the terms and submit again.', 'error')
+        return redirect(url_for('investor_private_offer'))
+    if request.form.get('website', '').strip():
+        return redirect(url_for('investor_private_offer') + '?submitted=1')
+
+    name = re.sub(r'\s+', ' ', request.form.get('name', '').strip())[:120]
+    contact = re.sub(r'\s+', ' ', request.form.get('contact', '').strip())[:160]
+    preferred_contact = request.form.get('preferred_contact', 'PHONE').strip().upper()
+    business_area = request.form.get('business_area', 'WHOLE_BUSINESS').strip().upper()
+    offer_code = request.form.get('offer_code', '').strip().upper()
+    payout_option = request.form.get('payout_option', '').strip().upper()
+    message = request.form.get('message', '').strip()[:2000]
+
+    if len(name) < 2 or len(contact) < 5:
+        flash('Please enter your name and a valid contact detail.', 'error')
+        return redirect(url_for('investor_private_offer'))
+    if preferred_contact not in INVESTOR_CONTACT_CHOICES:
+        preferred_contact = 'PHONE'
+    if business_area not in INVESTOR_SUPPORT_AREAS:
+        business_area = 'WHOLE_BUSINESS'
+    if request.form.get('privacy_acknowledged') != 'yes' or request.form.get('proposal_acknowledged') != 'yes':
+        flash('Please confirm the contact permission and non-binding proposal notice.', 'error')
+        return redirect(url_for('investor_private_offer'))
+
+    is_counter_offer = offer_code == 'COUNTER_OFFER'
+    try:
+        if is_counter_offer:
+            amount = parse_float(request.form.get('counter_amount'), 0.0)
+            monthly_rate = parse_float(request.form.get('counter_monthly_rate'), 0.0)
+            term_months = parse_int(request.form.get('counter_term_months'), 0)
+            if amount < 5000.0 or amount > 5000000.0:
+                raise OrderValidationError('Counteroffer amount must be from ₱5,000 to ₱5,000,000.')
+            if monthly_rate <= 0.0 or monthly_rate > 2.0:
+                raise OrderValidationError('Counteroffer monthly rate must be above 0% and not more than 2%.')
+            if term_months < 6 or term_months > 60:
+                raise OrderValidationError('Counteroffer term must be from 6 to 60 months.')
+        else:
+            offer = INVESTOR_OFFER_OPTIONS.get(offer_code)
+            if not offer:
+                raise OrderValidationError('Please choose one proposal option or Counteroffer.')
+            if payout_option not in offer['payout_options']:
+                raise OrderValidationError('That payout method is not available for the selected proposal.')
+            amount = offer['amount']
+            monthly_rate = offer['monthly_rate_percent']
+            term_months = offer['term_months']
+        terms = calculate_investor_terms(amount, monthly_rate, term_months, payout_option)
+    except OrderValidationError as exc:
+        flash(str(exc), 'error')
+        return redirect(url_for('investor_private_offer'))
+
+    recent_duplicate = InvestorInterest.query.filter(
+        db.func.lower(InvestorInterest.contact) == contact.lower(),
+        InvestorInterest.offer_code == offer_code,
+        InvestorInterest.created_at >= utc_now() - timedelta(minutes=10),
+    ).first()
+    if recent_duplicate:
+        flash('This proposal was already received and is waiting for cashier review.', 'success')
+        return redirect(url_for('investor_private_offer') + '?submitted=1')
+
+    db.session.add(InvestorInterest(
+        name=name,
+        contact=contact,
+        preferred_contact=preferred_contact,
+        business_area=business_area,
+        funding_range=offer_code,
+        offer_code=offer_code,
+        payout_option=payout_option,
+        proposed_amount=terms['amount'],
+        monthly_rate_percent=terms['monthly_rate_percent'],
+        term_months=terms['term_months'],
+        monthly_interest_amount=terms['monthly_interest_amount'],
+        total_interest_amount=terms['total_interest_amount'],
+        maturity_payment_amount=terms['maturity_payment_amount'],
+        total_contract_amount=terms['total_contract_amount'],
+        is_counter_offer=is_counter_offer,
+        message=message,
+    ))
+    db.session.commit()
+    flash('Proposal received and sent to the cashier review queue. This is not yet an agreement.', 'success')
+    return redirect(url_for('investor_private_offer') + '?submitted=1')
+
+@app.route('/pos/investor-proposals')
+@require_cashier
+def cashier_investor_proposals():
+    proposals = InvestorInterest.query.order_by(InvestorInterest.created_at.desc()).limit(200).all()
+    return render_template(
+        'cashier_investor_proposals.html',
+        proposals=proposals,
+        offers=INVESTOR_OFFER_OPTIONS,
+        payout_options=INVESTOR_PAYOUT_OPTIONS,
+        lead_statuses=INVESTOR_LEAD_STATUSES,
+        support_areas=INVESTOR_SUPPORT_AREAS,
+        contact_choices=INVESTOR_CONTACT_CHOICES,
+        new_count=sum(1 for row in proposals if row.status == 'NEW'),
+    )
+
+@app.route('/pos/investor-proposals/<int:lead_id>/review', methods=['POST'])
+@require_cashier
+def cashier_review_investor_proposal(lead_id):
+    lead = InvestorInterest.query.get_or_404(lead_id)
+    status_value = request.form.get('status', '').strip().upper()
+    notes = request.form.get('cashier_notes', '').strip()[:2000]
+    if status_value not in INVESTOR_LEAD_STATUSES:
+        flash('Invalid investor-proposal status.', 'error')
+    else:
+        lead.status = status_value
+        lead.cashier_notes = notes
+        lead.cashier_reviewed_by = session.get('cashier_user') or session.get('admin_user') or 'Staff'
+        lead.cashier_reviewed_at = utc_now()
+        db.session.commit()
+        flash(f'Updated {lead.name}\'s proposal.', 'success')
+    return redirect(url_for('cashier_investor_proposals') + f'#proposal-{lead.id}')
+
+@app.route('/investor/dashboard')
+@app.route('/admin/investors')
+@require_admin
+def investor_dashboard():
+    month_ago = utc_now() - timedelta(days=30)
+    all_completed = Order.query.filter_by(status='COMPLETED').all()
+    month_completed = Order.query.filter(Order.status == 'COMPLETED', Order.created_at >= month_ago).all()
+    all_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).scalar() or 0.0
+    month_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(VaultDrop.created_at >= month_ago).scalar() or 0.0
+    month_expenses = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(Expense.created_at >= month_ago).scalar() or 0.0
+
+    total_sales = sum((o.total_amount or 0.0) for o in all_completed) + all_vault
+    month_sales = sum((o.total_amount or 0.0) for o in month_completed) + month_vault
+    month_cogs = sum(
+        (item.cost_price or 0.0) * (item.quantity or 0)
+        for order in month_completed for item in order.items
+    )
+    month_net_estimate = month_sales - month_cogs - month_expenses
+    total_ar = db.session.query(db.func.coalesce(db.func.sum(Customer.outstanding_ar), 0.0)).scalar() or 0.0
+    inventory_val = sum((p.cost or 0.0) * max(0, p.stock or 0) for p in Product.query.all())
+    inventory_val += sum((item.cost or 0.0) * max(0, item.stock_quantity or 0) for item in CraftItem.query.all())
+    leads = InvestorInterest.query.order_by(InvestorInterest.created_at.desc()).limit(150).all()
+
+    return render_template(
+        'investor_dashboard.html',
+        investor=public_investor_settings(),
+        total_sales=total_sales,
+        total_orders=len(all_completed),
+        month_sales=month_sales,
+        month_net_estimate=month_net_estimate,
+        total_ar=total_ar,
+        inventory_val=inventory_val,
+        total_customers=Customer.query.count(),
+        active_products=Product.query.filter_by(is_active=True).count(),
+        active_crafts=CraftItem.query.filter_by(is_active=True).count(),
+        leads=leads,
+        lead_statuses=INVESTOR_LEAD_STATUSES,
+        support_areas=INVESTOR_SUPPORT_AREAS,
+        funding_ranges=INVESTOR_FUNDING_RANGES,
+        contact_choices=INVESTOR_CONTACT_CHOICES,
+        offers=INVESTOR_OFFER_OPTIONS,
+        payout_options=INVESTOR_PAYOUT_OPTIONS,
+    )
+
+@app.route('/admin/investors/settings', methods=['POST'])
+@require_admin
+def save_investor_settings():
+    headline = re.sub(r'\s+', ' ', request.form.get('headline', '').strip())[:180]
+    summary = re.sub(r'\s+', ' ', request.form.get('summary', '').strip())[:500]
+    contact_phone = re.sub(r'\s+', ' ', request.form.get('contact_phone', '').strip())[:50]
+    facebook_url = request.form.get('facebook_url', '').strip()[:300]
+    funding_goal = max(0.0, parse_float(request.form.get('funding_goal'), 0.0))
+    funds_committed = max(0.0, parse_float(request.form.get('funds_committed'), 0.0))
+    private_access_code = request.form.get('private_access_code', '').strip()
+    if not headline or not summary:
+        flash('Investor headline and summary are required.', 'error')
+        return redirect(url_for('investor_dashboard'))
+    if facebook_url and not re.match(r'^https://(www\.)?facebook\.com/', facebook_url, flags=re.I):
+        flash('Facebook URL must begin with https://facebook.com/ or https://www.facebook.com/.', 'error')
+        return redirect(url_for('investor_dashboard'))
+    if private_access_code and len(private_access_code) < 6:
+        flash('Private proposal access code must contain at least 6 characters.', 'error')
+        return redirect(url_for('investor_dashboard'))
+
+    values = {
+        'investor_headline': headline,
+        'investor_summary': summary,
+        'investor_contact_phone': contact_phone,
+        'investor_facebook_url': facebook_url,
+        'investor_funding_goal': f'{funding_goal:.2f}',
+        'investor_funds_committed': f'{funds_committed:.2f}',
+        'investor_show_funding_numbers': 'true' if request.form.get('show_funding_numbers') else 'false',
+    }
+    for key, value in values.items():
+        save_investor_setting(key, value)
+    if request.form.get('disable_private_access'):
+        save_investor_setting('investor_private_access_hash', '')
+    elif private_access_code:
+        save_investor_setting('investor_private_access_hash', generate_password_hash(private_access_code))
+    db.session.commit()
+    flash('Investor page settings updated.', 'success')
+    return redirect(url_for('investor_dashboard'))
+
+@app.route('/admin/investors/interest/<int:lead_id>/status', methods=['POST'])
+@require_admin
+def update_investor_interest_status(lead_id):
+    lead = InvestorInterest.query.get_or_404(lead_id)
+    status_value = request.form.get('status', '').strip().upper()
+    if status_value not in INVESTOR_LEAD_STATUSES:
+        flash('Invalid investor-interest status.', 'error')
+    else:
+        lead.status = status_value
+        db.session.commit()
+        flash(f'Updated {lead.name}\'s inquiry.', 'success')
+    return redirect(url_for('investor_dashboard') + '#inquiries')
 
 
 # ==================== MASTER ADMIN, CONTROLS & SETTINGS ====================

@@ -59,6 +59,14 @@ REQUIRED_DB_COLUMNS = {
         "insight_link_clicks", "insight_new_followers", "insight_spend", "insight_notes",
         "insight_analysis", "insight_ai_model", "insights_updated_at", "insights_analyzed_at",
     },
+    "investor_interest": {
+        "id", "name", "contact", "preferred_contact", "business_area",
+        "funding_range", "offer_code", "payout_option", "proposed_amount",
+        "monthly_rate_percent", "term_months", "monthly_interest_amount",
+        "total_interest_amount", "maturity_payment_amount", "total_contract_amount",
+        "is_counter_offer", "message", "status", "cashier_notes",
+        "cashier_reviewed_by", "cashier_reviewed_at", "created_at",
+    },
 }
 
 
@@ -367,6 +375,46 @@ def main() -> int:
     if "cash_flow_portal" not in admin_template or "Cash Flow Manager" not in admin_template:
         fail("admin header is missing the Cash Flow Manager portal button")
     ok("admin header links to the cash-flow portal")
+
+    investor_markers = [
+        "class InvestorInterest(db.Model):",
+        "@app.route('/investors')",
+        "@app.route('/investors/interest', methods=['POST'])",
+        "@app.route('/admin/investors')",
+        "INVESTOR_LEAD_STATUSES",
+        "INVESTOR_OFFER_OPTIONS",
+        "calculate_investor_terms",
+        "@app.route('/investors/private-offer', methods=['GET', 'POST'])",
+        "@app.route('/investors/private-offer/submit', methods=['POST'])",
+        "@app.route('/pos/investor-proposals')",
+        "@app.route('/pos/investor-proposals/<int:lead_id>/review', methods=['POST'])",
+        "No investment is accepted through this website",
+    ]
+    investor_template = (TEMPLATES / "investor_deck.html").read_text(encoding="utf-8")
+    investor_admin_template = (TEMPLATES / "investor_dashboard.html").read_text(encoding="utf-8")
+    investor_bundle = source + investor_template + investor_admin_template
+    missing_investor = [marker for marker in investor_markers if marker not in investor_bundle]
+    if missing_investor:
+        fail("investor-center safeguards are missing: " + ", ".join(missing_investor))
+    if "url_for('investor_dashboard')" not in admin_template:
+        fail("Master Admin does not link to the Investor Center")
+    if "url_for('investor_opportunity')" not in storefront:
+        fail("public storefront does not link to the expansion vision")
+    investor_private_template = (TEMPLATES / "investor_private_offer.html").read_text(encoding="utf-8")
+    cashier_investor_template = (TEMPLATES / "cashier_investor_proposals.html").read_text(encoding="utf-8")
+    for marker in ["Private access required", "Send a counteroffer", "straight-line simple interest", "Send proposal to Cashier for review"]:
+        if marker not in investor_private_template:
+            fail(f"private investor proposal page is missing: {marker}")
+    for marker in ["Investor Proposals Queue", "Do not collect investment money", "cashier_notes"]:
+        if marker not in cashier_investor_template + source:
+            fail(f"cashier investor-proposal workflow is missing: {marker}")
+    cashier_template = (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")
+    if "url_for('cashier_investor_proposals')" not in cashier_template:
+        fail("Cashier POS does not link to the Investor Proposals queue")
+    for forbidden in ["8% per month", "guaranteed return", "Series Seed / Growth Deck", "invest@macleensfoodhouse.com"]:
+        if forbidden.lower() in investor_template.lower():
+            fail(f"public investor page contains unsafe or unsupported wording: {forbidden}")
+    ok("public expansion page and private admin Investor Center are active without public return promises")
 
     cashflow_template = TEMPLATES / "cash_flow_portal.html"
     if not cashflow_template.exists():

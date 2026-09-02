@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Private Proposal Discussion · Macleen's</title>
+  <meta name="robots" content="noindex,nofollow">
+  <style>
+    :root { --wine:#831843; --pink:#ec4899; --line:#fbcfe8; --ink:#1e293b; --muted:#64748b; --green:#047857; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#fff7fb; color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; line-height:1.5; }
+    .wrap { max-width:1080px; margin:auto; padding:22px; }
+    header { display:flex; justify-content:space-between; align-items:center; gap:16px; padding:14px 0 22px; }
+    .brand { display:flex; gap:10px; align-items:center; color:var(--wine); font-weight:900; text-decoration:none; }
+    .brand img { width:44px; height:44px; object-fit:cover; border-radius:50%; border:2px solid var(--pink); }
+    .back { color:#475569; text-decoration:none; font-size:.8rem; font-weight:800; }
+    .hero { background:linear-gradient(135deg,#500724,#9d174d,#ec4899); color:white; border-radius:22px; padding:34px; margin-bottom:18px; }
+    .hero small { text-transform:uppercase; letter-spacing:.1em; font-weight:900; color:#fbcfe8; }
+    h1 { margin:7px 0 8px; font-size:clamp(1.8rem,4vw,3rem); line-height:1.1; }
+    .hero p { margin:0; color:#ffe4ef; max-width:800px; }
+    .notice { border-radius:12px; padding:13px 15px; margin:12px 0; font-size:.8rem; }
+    .notice.warning { background:#fffbeb; border:1px solid #fde68a; color:#92400e; }
+    .notice.info { background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; }
+    .flash { padding:11px 13px; border-radius:9px; margin-bottom:12px; font-size:.82rem; font-weight:800; }
+    .flash.success { background:#dcfce7; color:#166534; }
+    .flash.error { background:#fee2e2; color:#991b1b; }
+    .locked { max-width:520px; margin:45px auto; background:white; border:1px solid var(--line); border-radius:18px; padding:28px; box-shadow:0 16px 40px rgba(88,28,57,.08); }
+    .locked h2,.section h2 { margin:0 0 7px; color:var(--wine); }
+    .locked p,.section > p { color:var(--muted); font-size:.84rem; }
+    label { display:block; color:#475569; font-size:.76rem; font-weight:900; margin-bottom:5px; }
+    input,select,textarea { width:100%; padding:10px; border:1px solid #cbd5e1; border-radius:8px; font:inherit; font-size:.86rem; background:white; }
+    input:focus,select:focus,textarea:focus { outline:3px solid #fbcfe8; border-color:var(--pink); }
+    textarea { min-height:100px; resize:vertical; }
+    .btn { display:inline-flex; justify-content:center; align-items:center; border:0; border-radius:9px; padding:10px 15px; font-weight:900; cursor:pointer; text-decoration:none; font-size:.85rem; }
+    .btn-primary { background:var(--pink); color:white; }
+    .section { background:white; border:1px solid var(--line); border-radius:17px; padding:22px; margin-bottom:18px; }
+    .offer-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:13px; margin-top:16px; }
+    .offer { display:block; border:2px solid #e2e8f0; border-radius:14px; padding:17px; cursor:pointer; transition:.15s; }
+    .offer:hover { border-color:#f9a8d4; transform:translateY(-1px); }
+    .offer:has(input:checked) { border-color:var(--pink); background:#fff1f2; box-shadow:0 0 0 3px #fce7f3; }
+    .offer input { width:auto; margin-right:6px; }
+    .offer h3 { display:inline; color:var(--wine); font-size:1rem; }
+    .offer .terms { margin-top:8px; color:#475569; font-size:.79rem; }
+    .offer .calc { margin-top:10px; padding:9px; background:#f8fafc; border-radius:8px; font-size:.72rem; color:#64748b; }
+    .counter { border-style:dashed; }
+    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:13px; }
+    .full { grid-column:1/-1; }
+    .counter-fields { display:none; padding:14px; background:#f8fafc; border:1px dashed #94a3b8; border-radius:10px; }
+    .summary { background:#0f172a; color:white; border-radius:14px; padding:18px; margin:14px 0; }
+    .summary h3 { margin:0 0 9px; color:#f9a8d4; }
+    .summary-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; }
+    .summary-grid div { background:#1e293b; border-radius:8px; padding:10px; }
+    .summary-grid small { display:block; color:#94a3b8; font-size:.65rem; text-transform:uppercase; font-weight:900; }
+    .summary-grid strong { display:block; margin-top:3px; color:white; font-size:.9rem; }
+    .check { display:flex; gap:8px; align-items:flex-start; color:#64748b; font-size:.76rem; font-weight:500; }
+    .check input { width:auto; margin-top:3px; }
+    .honeypot { position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
+    .foot { color:#94a3b8; font-size:.72rem; margin-top:15px; }
+    @media(max-width:760px) { .offer-grid,.form-grid,.summary-grid{grid-template-columns:1fr}.full{grid-column:auto}.hero{padding:24px}.wrap{padding:14px} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a class="brand" href="{{ url_for('investor_opportunity') }}"><img src="{{ store_logo }}" onerror="this.onerror=null;this.src='/static/logo.png';" alt="Macleen's logo"><span>Macleen's Private Discussion</span></a>
+      <a class="back" href="{{ url_for('investor_opportunity') }}">← Expansion page</a>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category,message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    {% if not unlocked %}
+      <section class="locked">
+        <h2>Private access required</h2>
+        {% if investor.private_offer_enabled %}
+          <p>Exact proposed discussion terms are available only to invited contacts. Enter the code provided by Macleen's.</p>
+          <form method="post" action="{{ url_for('investor_private_offer') }}">
+            <label for="access_code">Private access code</label>
+            <input id="access_code" name="access_code" type="password" autocomplete="one-time-code" required>
+            <button class="btn btn-primary" type="submit" style="width:100%;margin-top:12px;">Unlock proposal options</button>
+          </form>
+        {% else %}
+          <p>The private proposal briefing is not currently enabled. Please contact Macleen's Food House for a private business discussion.</p>
+          <a class="btn btn-primary" href="{{ url_for('investor_opportunity') }}#connect">Request an introduction</a>
+        {% endif %}
+        <p class="foot">Access does not constitute an offer, approval, or agreement. Do not send money through this page.</p>
+      </section>
+    {% else %}
+      <section class="hero">
+        <small>Private · non-binding · for discussion</small>
+        <h1>Select a proposed package or send a counteroffer</h1>
+        <p>Figures below use straight-line simple interest: principal × monthly rate × number of months. Interest does not compound in these illustrations.</p>
+      </section>
+
+      <div class="notice warning"><strong>Important:</strong> These are proposed discussion terms, not guaranteed returns, an approved investment, or a request to transfer money. Final rate, legality, disclosures, documents, payment controls, and business capacity must be reviewed before a signed agreement.</div>
+      <div class="notice info">For monthly-interest options, the displayed interest is paid each month and the whole principal is due at the end. The “final payment” includes the last scheduled monthly interest plus the principal.</div>
+
+      <form method="post" action="{{ url_for('submit_private_investor_offer') }}" class="section" id="proposalForm">
+        <input type="hidden" name="form_token" value="{{ form_token }}">
+        <div class="honeypot" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
+        <h2>1. Choose one option</h2>
+        <p>Your selection goes to the Cashier Investor Proposals queue for review and follow-up.</p>
+        <div class="offer-grid">
+          {% for code,offer in offers.items() %}
+          <label class="offer">
+            <input type="radio" name="offer_code" value="{{ code }}" required>
+            <h3>{{ offer.label }}</h3>
+            <div class="terms">{{ offer.rate_note }} · {{ offer.term_months }} months · {{ offer.payout_options|length }} payout choice{{ '' if offer.payout_options|length == 1 else 's' }}</div>
+            <div class="calc">
+              Monthly interest at displayed rate: ₱{{ "{:,.2f}".format(offer.calculations[offer.payout_options[0]].monthly_interest_amount) }}<br>
+              Total interest: ₱{{ "{:,.2f}".format(offer.calculations[offer.payout_options[0]].total_interest_amount) }}<br>
+              Total principal + interest: ₱{{ "{:,.2f}".format(offer.calculations[offer.payout_options[0]].total_contract_amount) }}
+            </div>
+          </label>
+          {% endfor %}
+          <label class="offer counter">
+            <input type="radio" name="offer_code" value="COUNTER_OFFER" required>
+            <h3>Send a counteroffer</h3>
+            <div class="terms">Propose ₱5,000–₱5,000,000, up to 2% monthly, for 6–60 months.</div>
+            <div class="calc">The system calculates the same simple-interest snapshot and sends it to Cashier.</div>
+          </label>
+        </div>
+
+        <div style="margin-top:16px;">
+          <label for="payout_option">Preferred payout method *</label>
+          <select id="payout_option" name="payout_option" required><option value="">Choose a proposal first</option></select>
+        </div>
+
+        <div class="counter-fields form-grid" id="counterFields" style="margin-top:13px;">
+          <div><label for="counter_amount">Proposed principal (₱)</label><input id="counter_amount" name="counter_amount" type="number" min="5000" max="5000000" step="0.01" value="50000"></div>
+          <div><label for="counter_monthly_rate">Monthly simple interest (%)</label><input id="counter_monthly_rate" name="counter_monthly_rate" type="number" min="0.01" max="2" step="0.01" value="1"></div>
+          <div class="full"><label for="counter_term_months">Term in months</label><input id="counter_term_months" name="counter_term_months" type="number" min="6" max="60" step="1" value="24"></div>
+        </div>
+
+        <div class="summary" id="termSummary">
+          <h3>Illustrative calculation</h3>
+          <div class="summary-grid">
+            <div><small>Principal</small><strong id="sumPrincipal">Choose an option</strong></div>
+            <div><small>Monthly interest</small><strong id="sumMonthly">—</strong></div>
+            <div><small>Total interest</small><strong id="sumInterest">—</strong></div>
+            <div><small>Final payment</small><strong id="sumMaturity">—</strong></div>
+          </div>
+          <div style="margin-top:9px;font-size:.76rem;color:#cbd5e1;" id="sumExplanation">No proposal selected.</div>
+        </div>
+
+        <h2 style="margin-top:25px;">2. Your contact and message</h2>
+        <div class="form-grid">
+          <div><label for="name">Name *</label><input id="name" name="name" maxlength="120" required></div>
+          <div><label for="contact">Phone, Messenger, or email *</label><input id="contact" name="contact" maxlength="160" required></div>
+          <div><label for="preferred_contact">Preferred contact</label><select id="preferred_contact" name="preferred_contact">{% for value,label in contact_choices.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+          <div><label for="business_area">Area of interest</label><select id="business_area" name="business_area">{% for value,label in support_areas.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+          <div class="full"><label for="message">Questions or counteroffer explanation</label><textarea id="message" name="message" maxlength="2000"></textarea></div>
+          <label class="check full"><input type="checkbox" name="privacy_acknowledged" value="yes" required><span>I allow Macleen's staff to use these details to contact me privately about this request.</span></label>
+          <label class="check full"><input type="checkbox" name="proposal_acknowledged" value="yes" required><span>I understand that submitting this form does not create an agreement, guarantee a return, reserve a slot, or authorize any transfer of funds.</span></label>
+        </div>
+        <button class="btn btn-primary" type="submit" style="width:100%;margin-top:15px;">Send proposal to Cashier for review</button>
+        <p class="foot">No payment details are collected here. Any final arrangement requires identity verification, due diligence, applicable filings/approvals, professional review, and a separate signed agreement.</p>
+      </form>
+    {% endif %}
+  </div>
+
+  {% if unlocked %}
+  <script>
+    const offers = {{ offers|tojson }};
+    const payoutLabels = {{ payout_options|tojson }};
+    const payoutSelect = document.getElementById('payout_option');
+    const counterFields = document.getElementById('counterFields');
+    const counterInputs = ['counter_amount','counter_monthly_rate','counter_term_months'].map(id => document.getElementById(id));
+
+    function peso(value) {
+      return new Intl.NumberFormat('en-PH', {style:'currency',currency:'PHP',minimumFractionDigits:2}).format(Number(value || 0));
+    }
+
+    function selectedCode() {
+      const checked = document.querySelector('input[name="offer_code"]:checked');
+      return checked ? checked.value : '';
+    }
+
+    function payoutOptionsFor(code) {
+      if (code === 'COUNTER_OFFER') return ['LUMP_SUM','MONTHLY_INTEREST'];
+      return offers[code] ? offers[code].payout_options : [];
+    }
+
+    function rebuildPayouts(code) {
+      const previous = payoutSelect.value;
+      const options = payoutOptionsFor(code);
+      payoutSelect.innerHTML = '<option value="">Choose payout method</option>' + options.map(value => '<option value="' + value + '">' + payoutLabels[value] + '</option>').join('');
+      if (options.includes(previous)) payoutSelect.value = previous;
+      else if (options.length === 1) payoutSelect.value = options[0];
+    }
+
+    function currentTerms() {
+      const code = selectedCode();
+      const payout = payoutSelect.value;
+      let amount = 0, rate = 0, months = 0;
+      if (code === 'COUNTER_OFFER') {
+        amount = Number(counterInputs[0].value || 0);
+        rate = Number(counterInputs[1].value || 0);
+        months = Number(counterInputs[2].value || 0);
+      } else if (offers[code]) {
+        amount = Number(offers[code].amount);
+        rate = Number(offers[code].monthly_rate_percent);
+        months = Number(offers[code].term_months);
+      }
+      const monthly = amount * rate / 100;
+      const totalInterest = monthly * months;
+      const total = amount + totalInterest;
+      const maturity = payout === 'MONTHLY_INTEREST' ? amount + monthly : total;
+      return {code,payout,amount,rate,months,monthly,totalInterest,total,maturity};
+    }
+
+    function updateSummary() {
+      const row = currentTerms();
+      counterFields.style.display = row.code === 'COUNTER_OFFER' ? 'grid' : 'none';
+      document.getElementById('sumPrincipal').textContent = row.code ? peso(row.amount) : 'Choose an option';
+      document.getElementById('sumMonthly').textContent = row.code ? peso(row.monthly) : '—';
+      document.getElementById('sumInterest').textContent = row.code ? peso(row.totalInterest) : '—';
+      document.getElementById('sumMaturity').textContent = row.code && row.payout ? peso(row.maturity) : 'Choose payout';
+      const explanation = document.getElementById('sumExplanation');
+      if (!row.code) explanation.textContent = 'No proposal selected.';
+      else if (!row.payout) explanation.textContent = 'Choose a payout method to complete the illustration.';
+      else if (row.payout === 'MONTHLY_INTEREST') explanation.textContent = peso(row.monthly) + ' monthly for ' + row.months + ' months; final scheduled payment ' + peso(row.maturity) + ' includes the last interest payment and whole principal. Total cash across the term: ' + peso(row.total) + '.';
+      else explanation.textContent = 'One payment of ' + peso(row.total) + ' at month ' + row.months + ', consisting of principal plus simple interest.';
+    }
+
+    document.querySelectorAll('input[name="offer_code"]').forEach(input => input.addEventListener('change', () => {
+      rebuildPayouts(input.value);
+      updateSummary();
+    }));
+    payoutSelect.addEventListener('change', updateSummary);
+    counterInputs.forEach(input => input.addEventListener('input', updateSummary));
+  </script>
+  {% endif %}
+</body>
+</html>
