@@ -103,68 +103,28 @@
   <div class="card" id="sales-projection" style="border:2px solid #c4b5fd;">
     <div class="section-title">
       <div>
-        <h2>📈 Blank-Day Sales Projection</h2>
-        <p>Actual sales are never replaced. These settings apply only to days with no actual recorded sales.</p>
+        <h2>📈 Break-Even + Lifetime Actual-Sales Projection</h2>
+        <p>Actual sales are never replaced. All historical actual sales are used; blank days use the higher of the filtered break-even requirement or the average of every historical actual positive-sales day.</p>
       </div>
-      {% if projection_mode == 'MANUAL' %}
-      <form method="post" action="{{ url_for('cash_flow_projection_save') }}">
-        <input type="hidden" name="projection_mode" value="AVERAGE">
-        <input type="hidden" name="average_window" value="{{ average_window }}">
-        <input type="hidden" name="manual_daily_sales" value="{{ manual_daily_sales }}">
-        <input type="hidden" name="manual_start_date" value="{{ manual_start_date.strftime('%Y-%m-%d') }}">
-        <input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}">
-        <input type="hidden" name="view_month" value="{{ detail_month.strftime('%Y-%m') }}">
-        <input type="hidden" name="view_years" value="{{ horizon_years }}">
-        <button class="btn btn-green" type="submit">↩ Use Average Again</button>
-      </form>
-      {% endif %}
     </div>
-    <form method="post" action="{{ url_for('cash_flow_projection_save') }}">
-      <input type="hidden" name="view_start" value="{{ period_start.strftime('%Y-%m') }}">
-      <input type="hidden" name="view_month" value="{{ detail_month.strftime('%Y-%m') }}">
-        <input type="hidden" name="view_years" value="{{ horizon_years }}">
-      <div class="form-grid">
-        <div class="field">
-          <label>Projection Method</label>
-          <select class="control" name="projection_mode" id="projection_mode" onchange="updateProjectionFields()">
-            <option value="AVERAGE" {% if projection_mode == 'AVERAGE' %}selected{% endif %}>Use Actual Sales Average</option>
-            <option value="MANUAL" {% if projection_mode == 'MANUAL' %}selected{% endif %}>Use Specific Daily Sales Amount</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Average Range</label>
-          <select class="control" name="average_window" id="average_window">
-            <option value="3" {% if average_window == '3' %}selected{% endif %}>3-Day Average</option>
-            <option value="7" {% if average_window == '7' %}selected{% endif %}>7-Day Average</option>
-            <option value="15" {% if average_window == '15' %}selected{% endif %}>15-Day Average</option>
-            <option value="30" {% if average_window == '30' %}selected{% endif %}>30-Day Average</option>
-            <option value="LIFETIME" {% if average_window == 'LIFETIME' %}selected{% endif %}>Lifetime Average</option>
-          </select>
-          <div class="small">Uses the most recent actual positive-sales days. Blank/no-sale days are not counted in the average.</div>
-        </div>
-        <div class="field" id="manualProjectionField">
-          <label>Specific Daily Sales Amount (₱)</label>
-          <input class="control" type="number" name="manual_daily_sales" min="0" max="100000000" step="0.01" value="{{ '%.2f'|format(manual_daily_sales) }}" placeholder="e.g. 8000.00">
-          <div class="small">Actual sales always override this projection.</div>
-        </div>
-        <div class="field" id="manualStartDateField">
-          <label>Specific Amount Starting Date</label>
-          <input class="control" type="date" name="manual_start_date" id="manual_start_date" value="{{ manual_start_date.strftime('%Y-%m-%d') }}">
-          <div class="small">Blank days before this date keep using the selected actual-sales average. The specific amount starts on this date.</div>
-        </div>
-      </div>
-      <button class="btn btn-pink" type="submit" style="margin-top:10px;width:100%;">Save Sales Projection Settings</button>
-    </form>
+    <div class="notice" style="margin-top:10px;">
+      <strong>Analysis exclusions:</strong> expenses matching Tet, Joy, Delro, Motorcycle, Kevin, or Investor; and income/sales matching “Sample work.” Source records remain available for audit and are not deleted.
+    </div>
     <div class="formula">
-      <div><strong>Current mode</strong><br>{{ projection_source_label }}</div>
-      <div><strong>Calculated average</strong><br>₱{{ "{:,.2f}".format(average_daily_sales) }}</div>
-      <div><strong>Projection used</strong><br>₱{{ "{:,.2f}".format(projection_daily_sales) }}</div>
-      <div><strong>{% if projection_mode == 'MANUAL' %}Specific amount starts{% else %}Actual days used{% endif %}</strong><br>{% if projection_mode == 'MANUAL' %}{{ manual_start_date.strftime('%b %d, %Y') }}{% else %}{{ average_sales_day_count }} / {{ lifetime_actual_sales_day_count }} lifetime{% endif %}</div>
+      <div><strong>Current method</strong><br>{{ projection_source_label }}</div>
+      <div><strong>Lifetime actual-sales average</strong><br>₱{{ "{:,.2f}".format(average_daily_sales) }}</div>
+      <div><strong>Highest monthly break-even/day</strong><br>₱{{ "{:,.2f}".format(break_even_daily_sales) }}</div>
+      <div><strong>Historical actual days used</strong><br>{{ average_sales_day_count }} / {{ lifetime_actual_sales_day_count }}</div>
     </div>
+    {% if excluded_plans or excluded_window_sales > 0 or excluded_historical_sales > 0 %}
+    <div class="small" style="margin-top:10px;color:#7c2d12;">
+      Exclusion audit: {{ excluded_plans|length }} active schedule{{ '' if excluded_plans|length == 1 else 's' }} excluded · ₱{{ "{:,.2f}".format(excluded_window_sales) }} excluded from the viewed sales window · ₱{{ "{:,.2f}".format(excluded_historical_sales) }} excluded from historical actual sales.
+    </div>
+    {% endif %}
   </div>
 
   <div class="summary">
-    <div class="metric"><div class="label">Projection Used for Blank Days</div><div class="value" style="color:var(--purple);">₱{{ "{:,.2f}".format(projection_daily_sales) }}</div><div class="small">{{ projection_source_label }}{% if projection_mode == 'MANUAL' %} · average is used before the start date{% endif %}</div></div>
+    <div class="metric"><div class="label">Projection Used for Blank Days</div><div class="value" style="color:var(--purple);">₱{{ "{:,.2f}".format(projection_daily_sales) }}</div><div class="small">{{ projection_source_label }}</div></div>
     <div class="metric"><div class="label">Calculated Daily Average</div><div class="value" style="color:#6d28d9;">₱{{ "{:,.2f}".format(average_daily_sales) }}</div><div class="small">{{ average_window_label }} · {{ average_sales_day_count }} actual day{{ '' if average_sales_day_count == 1 else 's' }}</div></div>
     <div class="metric"><div class="label">{{ horizon_years }}-Year Sales (Actual + Projected)</div><div class="value" style="color:var(--green);">₱{{ "{:,.2f}".format(totals.sales) }}</div></div>
     <div class="metric"><div class="label">COGS @ 60%</div><div class="value" style="color:var(--red);">₱{{ "{:,.2f}".format(totals.cogs) }}</div></div>
@@ -255,7 +215,7 @@
           </div>
         </div>
         <div style="font-size:.76rem;margin-bottom:10px;color:var(--muted);">
-          Active scheduled amounts within this {{ horizon_years }}-year planning window: <strong style="color:var(--green)">+₱{{ "{:,.2f}".format(active_income_total) }}</strong> income · <strong style="color:var(--red)">−₱{{ "{:,.2f}".format(active_expense_total) }}</strong> expenses
+          Included analysis amounts within this {{ horizon_years }}-year planning window: <strong style="color:var(--green)">+₱{{ "{:,.2f}".format(active_income_total) }}</strong> income · <strong style="color:var(--red)">−₱{{ "{:,.2f}".format(active_expense_total) }}</strong> expenses
         </div>
         <div class="table-wrap" style="max-height:500px;">
           <table class="plan-table">
@@ -266,6 +226,7 @@
                 <td>
                   <span class="pill {{ 'income' if p.entry_type == 'INCOME' else 'expense' }}">{{ 'INCOME' if p.entry_type == 'INCOME' else 'EXPENSE' }}</span>
                   {% if not p.is_active %}<span class="pill paused">PAUSED</span>{% endif %}
+                  {% if p in excluded_plans %}<span class="pill paused">EXCLUDED FROM ANALYSIS</span>{% endif %}
                   <div style="font-weight:900;margin-top:4px;">{{ p.title }}</div>
                   {% if p.category %}<div class="small">{{ p.category }}</div>{% endif %}
                   {% if p.notes %}<div class="small">{{ p.notes }}</div>{% endif %}
@@ -369,19 +330,6 @@
 </div>
 <script>
   const maxDurations = { DAILY: {{ max_duration.DAILY }}, WEEKLY: {{ max_duration.WEEKLY }}, BIWEEKLY: {{ max_duration.BIWEEKLY }}, MONTHLY: {{ max_duration.MONTHLY }} };
-  function updateProjectionFields(){
-    const mode = document.getElementById('projection_mode');
-    const manualField = document.getElementById('manualProjectionField');
-    const manualStartField = document.getElementById('manualStartDateField');
-    const manualStartInput = document.getElementById('manual_start_date');
-    const averageField = document.getElementById('average_window');
-    if (!mode || !manualField || !manualStartField || !manualStartInput || !averageField) return;
-    const manual = mode.value === 'MANUAL';
-    manualField.style.opacity = manual ? '1' : '.58';
-    manualStartField.style.opacity = manual ? '1' : '.58';
-    manualStartInput.required = manual;
-    averageField.disabled = false; // keep the chosen average window ready for blank days before manual start / instant switch-back
-  }
   function updateDurationHelp(){
     const frequency = document.getElementById('frequency').value;
     const input = document.getElementById('duration_count');
@@ -402,7 +350,6 @@
     document.getElementById('durationHelp').textContent = `1–${max} ${unit} (one charge/income entry each ${periodName}) or choose Indefinite.`;
   }
   updateDurationHelp();
-  updateProjectionFields();
 </script>
 </body>
 </html>

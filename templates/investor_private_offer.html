@@ -62,8 +62,8 @@
 <body>
   <div class="wrap">
     <header>
-      <a class="brand" href="{{ url_for('investor_opportunity') }}"><img src="{{ store_logo }}" onerror="this.onerror=null;this.src='/static/logo.png';" alt="Macleen's logo"><span>Macleen's Private Discussion</span></a>
-      <a class="back" href="{{ url_for('investor_opportunity') }}">← Expansion page</a>
+      <a class="brand" href="{{ url_for('store_catalog') }}"><img src="{{ store_logo }}" onerror="this.onerror=null;this.src='/static/logo.png';" alt="Macleen's logo"><span>Macleen's Private Discussion</span></a>
+      <a class="back" href="{{ url_for('store_catalog') }}">← Food House storefront</a>
     </header>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -82,7 +82,7 @@
           </form>
         {% else %}
           <p>The private proposal briefing is not currently enabled. Please contact Macleen's Food House for a private business discussion.</p>
-          <a class="btn btn-primary" href="{{ url_for('investor_opportunity') }}#connect">Request an introduction</a>
+          <p class="foot">Private discussions are arranged directly by the owner. There is no public investor application page.</p>
         {% endif %}
         <p class="foot">Access does not constitute an offer, approval, or agreement. Do not send money through this page.</p>
       </section>

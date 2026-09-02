@@ -1,21 +1,20 @@
 # Macleen's Investor Center Update
 
-## What was added
+## Private-only investor workflow
 
-- Public expansion page: `/investors`
-- Private introduction form saved to the system
+- No investor or expansion link is shown on the Food House storefront.
+- Legacy investor URLs redirect to the access-code invitation page.
 - Admin-only Investor Center: `/admin/investors`
-- Funding goal and recorded-commitment settings (hidden publicly by default)
+- Private access-code invitation page: `/investors/private-offer`
+- Funding goal and recorded-commitment settings for private materials
 - Internal investor-readiness checklist
 - Recorded performance, inventory, customer, and inquiry overview
 - Investor Center button in Master Admin
-- Expansion Vision button on the Food House storefront
-- Private access-code page for proposed financing discussions
 - Four selectable proposal packages with simple-interest calculations
 - Counteroffer form routed to a Cashier Investor Proposals queue
 - Cashier notes, status updates, reviewer name, and review timestamp
 
-## Public story
+## Private business story
 
 The page now explains:
 
@@ -33,9 +32,7 @@ The page now explains:
 
 ## Important investor-safety design
 
-The public page does not publish returns, interest rates, or guaranteed outcomes. It does not accept money. It collects only a request for a private introduction.
-
-Exact proposed terms are kept behind an Admin-set private access code. The private page clearly states that selections are non-binding discussion requests and that no money is accepted through the website.
+The storefront does not advertise investor access. Exact proposed terms are kept behind an Admin-set private access code and shared only with selected contacts. The private page states that selections are non-binding discussion requests, no money is accepted through the website, and final arrangements require due diligence, professional review, and a separate signed agreement.
 
 ## Private proposal options
 
@@ -63,14 +60,26 @@ Before accepting funds, reconcile the system figures and prepare:
 3. Open **Investor Center**.
 4. Edit the headline, summary, contact details, and funding figures.
 5. Set a private proposal access code with at least 6 characters.
-6. Leave **Show goal and recorded commitments** off until the amounts are verified.
-7. Open the public page and share `/investors` only with appropriate contacts.
-8. Give the private access code only to known prospects.
+6. Leave funding figures hidden until the amounts are verified.
+7. Share `/investors/private-offer` only with selected contacts.
+8. Give the private access code only through a direct private conversation.
 9. Cashier opens **Investor Proposals** from POS to review selections and counteroffers.
 10. Admin completes due diligence and professional review before any money or agreement.
 
 ## Deployment
 
-Double-clicking the run script starts the system locally. It does not deploy automatically. To put this update online, replace the existing project contents in the connected deployment repository, commit/push the changes, and redeploy on Render.
+Double-clicking `RUN_MACLEENS.bat` starts the system locally. It does not deploy automatically.
+
+To deploy through the existing VS Code → GitHub → Render workflow:
+
+1. Put the replacement contents inside the GitHub-connected project folder.
+2. Double-click `DEPLOY_TO_RENDER.bat`.
+3. Review the displayed repository and changed files.
+4. Type `DEPLOY` when asked.
+5. Enter a commit message or press Enter for the default.
+6. Sign in to GitHub if requested.
+7. Watch the Render Events page until the new deployment is Live.
+
+The deployment script stops if it is not inside a Git repository, is not on `main`, has no `origin`, or fails the safety check. It never force-pushes and does not contain a Render deploy hook or secret.
 
 Keep `SECRET_KEY`, database credentials, and AI keys in Render Environment settings, not inside source files.

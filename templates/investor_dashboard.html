@@ -66,7 +66,7 @@
         <div><h1>📈 Investor Center</h1><p>Private planning, lead follow-up, and business-readiness overview</p></div>
       </div>
       <div class="actions">
-        <a class="btn btn-primary" href="{{ url_for('investor_opportunity') }}" target="_blank">Open public expansion page</a>
+        <a class="btn btn-primary" href="{{ url_for('investor_private_offer') }}" target="_blank">Open private invitation page</a>
         <a class="btn btn-soft" href="{{ url_for('admin_dashboard') }}">Master Admin</a>
         <a class="btn btn-dark" href="{{ url_for('staff_logout') }}">Log out</a>
       </div>
@@ -91,8 +91,8 @@
 
     <div class="grid">
       <section class="card">
-        <h2>Public page settings</h2>
-        <p>Keep public wording factual. Funding numbers stay hidden unless you deliberately enable them.</p>
+        <h2>Private invitation settings</h2>
+        <p>Share the access-code page only with selected contacts. Final arrangements require a separately reviewed and signed private agreement.</p>
         <form method="post" action="{{ url_for('save_investor_settings') }}">
           <div class="form-grid">
             <div class="full"><label>Headline</label><input name="headline" maxlength="180" value="{{ investor.headline }}" required></div>
@@ -101,14 +101,14 @@
             <div><label>Facebook page URL</label><input name="facebook_url" maxlength="300" value="{{ investor.facebook_url }}" placeholder="https://facebook.com/..."></div>
             <div><label>Funding goal (₱)</label><input type="number" min="0" step="0.01" name="funding_goal" value="{{ '%.2f'|format(investor.funding_goal) }}"></div>
             <div><label>Recorded commitments (₱)</label><input type="number" min="0" step="0.01" name="funds_committed" value="{{ '%.2f'|format(investor.funds_committed) }}"></div>
-            <label class="check full"><input type="checkbox" name="show_funding_numbers" {% if investor.show_funding_numbers %}checked{% endif %}><span>Show goal and recorded commitments on the public page. Enable only after the amounts and wording are verified.</span></label>
+            <label class="check full"><input type="checkbox" name="show_funding_numbers" {% if investor.show_funding_numbers %}checked{% endif %}><span>Show goal and recorded commitments inside the private invitation materials only after verification.</span></label>
             <div class="full"><label>New private proposal access code</label><input type="password" name="private_access_code" minlength="6" autocomplete="new-password" placeholder="Leave blank to keep the existing code"></div>
             <div class="full" style="padding:9px;background:#f8fafc;border-radius:8px;font-size:.75rem;color:#475569;"><strong>Private terms page:</strong> {{ 'Enabled' if investor.private_offer_enabled else 'Disabled until an access code is set' }} · <a href="{{ url_for('investor_private_offer') }}" target="_blank" style="color:#6d28d9;font-weight:900;">Open page</a></div>
             <label class="check full"><input type="checkbox" name="disable_private_access"><span>Disable private proposal access and invalidate the current code.</span></label>
           </div>
           <div class="progress-row"><span>Recorded funding progress</span><strong>{{ investor.funding_progress|round|int }}%</strong></div>
           <div class="bar"><span style="width:{{ investor.funding_progress }}%;"></span></div>
-          <button class="btn btn-primary" type="submit" style="margin-top:14px;">Save public page settings</button>
+          <button class="btn btn-primary" type="submit" style="margin-top:14px;">Save private invitation settings</button>
         </form>
       </section>
 
@@ -195,7 +195,7 @@
           </tbody>
         </table>
         {% else %}
-          <div class="empty">No private introduction requests yet. Share the public expansion page only with appropriate contacts.</div>
+          <div class="empty">No private proposals yet. Share the access-code invitation only with selected contacts.</div>
         {% endif %}
       </div>
       <p class="footnote">Other recorded balance: customer accounts receivable ₱{{ "{:,.2f}".format(total_ar) }}. Keep this internal unless it has been reconciled and is relevant to due diligence.</p>

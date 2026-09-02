@@ -3,6 +3,7 @@ __pycache__/
 .env
 .env.*
 .venv/
+.venv_macleens/
 venv/
 instance/*.db
 *.zip

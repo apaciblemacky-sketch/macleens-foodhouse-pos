@@ -127,6 +127,33 @@ def main() -> int:
         fail(f"manifest.json is invalid JSON: {exc}")
     ok("PWA manifest and service worker files exist")
 
+    deploy_script = ROOT / "DEPLOY_TO_RENDER.bat"
+    if not deploy_script.exists():
+        fail("DEPLOY_TO_RENDER.bat is missing")
+    deploy_text = deploy_script.read_text(encoding="utf-8")
+    for marker in [
+        "scripts\\predeploy_check.py",
+        'git push origin "%DEPLOY_BRANCH%"',
+        "Type DEPLOY to commit and push these changes",
+        "This script never force-pushes",
+        "https://dashboard.render.com/",
+    ]:
+        if marker not in deploy_text:
+            fail(f"deployment script safeguard is missing: {marker}")
+    for forbidden in ["git push --force", "git push -f", "RENDER_DEPLOY_HOOK_URL="]:
+        if forbidden in deploy_text:
+            fail(f"deployment script contains unsafe or secret-prone behavior: {forbidden}")
+    ok("Windows GitHub-to-Render deployment script is present and guarded")
+
+    gitignore = ROOT / ".gitignore"
+    if not gitignore.exists():
+        fail(".gitignore is missing")
+    ignored_text = gitignore.read_text(encoding="utf-8")
+    for marker in [".env", ".venv/", ".venv_macleens/", "instance/*.db", "*.zip"]:
+        if marker not in ignored_text:
+            fail(f".gitignore is missing deployment safeguard: {marker}")
+    ok("local secrets, virtual environments, databases, and ZIP files are Git-ignored")
+
     # The static fallback icon is optional because the store logo may come from StoreSetting,
     # but warn clearly if PWA icon fallbacks still point to a missing file.
     if not (STATIC / "logo.png").exists():
@@ -398,8 +425,8 @@ def main() -> int:
         fail("investor-center safeguards are missing: " + ", ".join(missing_investor))
     if "url_for('investor_dashboard')" not in admin_template:
         fail("Master Admin does not link to the Investor Center")
-    if "url_for('investor_opportunity')" not in storefront:
-        fail("public storefront does not link to the expansion vision")
+    if "url_for('investor_opportunity')" in storefront or "Our Expansion Vision" in storefront:
+        fail("public storefront still exposes an investor/expansion link")
     investor_private_template = (TEMPLATES / "investor_private_offer.html").read_text(encoding="utf-8")
     cashier_investor_template = (TEMPLATES / "cashier_investor_proposals.html").read_text(encoding="utf-8")
     for marker in ["Private access required", "Send a counteroffer", "straight-line simple interest", "Send proposal to Cashier for review"]:
@@ -414,7 +441,11 @@ def main() -> int:
     for forbidden in ["8% per month", "guaranteed return", "Series Seed / Growth Deck", "invest@macleensfoodhouse.com"]:
         if forbidden.lower() in investor_template.lower():
             fail(f"public investor page contains unsafe or unsupported wording: {forbidden}")
-    ok("public expansion page and private admin Investor Center are active without public return promises")
+    if "return redirect(url_for('investor_private_offer'))" not in source:
+        fail("legacy investor URLs do not redirect to private access")
+    if "Open private invitation page" not in investor_admin_template:
+        fail("Investor Center does not link to the private invitation page")
+    ok("investor access is private-only and the storefront has no investor link")
 
     cashflow_template = TEMPLATES / "cash_flow_portal.html"
     if not cashflow_template.exists():
@@ -447,22 +478,22 @@ def main() -> int:
         "actual_sales_days",
         "cashflow_sales_for_day",
         "projection_daily_sales",
-        "@app.route('/admin/cash-flow/projection/save', methods=['POST'])",
-        "cashflow_projection_mode",
-        "cashflow_average_window",
-        "cashflow_manual_daily_sales",
-        "cashflow_manual_start_date",
-        "manual_start_date",
+        "cashflow_break_even_sales_for_month",
+        "break_even_daily_sales",
+        "CASH_FLOW_EXCLUDED_EXPENSE_TERMS",
+        "CASH_FLOW_EXCLUDED_INCOME_TERMS",
+        "cashflow_order_is_excluded",
     ]
     missing_projection = [marker for marker in projection_markers if marker not in source]
     if missing_projection:
         fail("cash-flow average-sales projection is missing: " + ", ".join(missing_projection))
-    for marker in ["Blank-Day Sales Projection", "Use Specific Daily Sales Amount", "Specific Amount Starting Date", "3-Day Average", "7-Day Average", "15-Day Average", "30-Day Average", "Lifetime Average", "Use Average Again", "Actual / Projected"]:
+    for marker in ["Break-Even + Lifetime Actual-Sales Projection", "All historical actual sales", "Analysis exclusions", "Highest monthly break-even/day", "Actual / Projected"]:
         if marker not in cashflow_html:
             fail(f"cash-flow projection controls UI is missing: {marker}")
-    if "day >= manual_start_date" not in source or "average is used before the start date" not in cashflow_html:
-        fail("cash-flow manual projection start-date behavior is missing")
-    ok("cash-flow projection supports a manual start date plus 3/7/15/30/lifetime actual-sales averages")
+    for marker in ["'tet'", "'joy'", "'delro'", "'motorcycle'", "'kevin'", "'investor'", "'sample work'"]:
+        if marker not in source:
+            fail(f"cash-flow analysis exclusion is missing: {marker}")
+    ok("cash-flow projection uses filtered break-even sales plus all historical actual-sales days")
 
     # Guard against accidentally copying monthly-only fields into the daily table.
     daily_marker = "{% for row in daily_rows %}"

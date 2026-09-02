@@ -94,7 +94,7 @@ class StoreSetting(db.Model):
     value = db.Column(db.Text, nullable=False)
 
 class InvestorInterest(db.Model):
-    """Private introduction requests submitted from the public expansion page."""
+    """Private proposal requests submitted by selected invitees."""
     __tablename__ = 'investor_interest'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
@@ -4069,6 +4069,46 @@ def craft_record_transaction():
 
 # ==================== FLEXIBLE-HORIZON CASH FLOW PORTAL ====================
 
+CASH_FLOW_EXCLUDED_EXPENSE_TERMS = (
+    'tet',
+    'joy',
+    'delro',
+    'motorcycle',
+    'kevin',
+    'investor',
+)
+CASH_FLOW_EXCLUDED_INCOME_TERMS = ('sample work',)
+
+
+def cashflow_text_matches_term(text, term):
+    pattern = r'(?<!\w)' + re.escape(term) + (r's?' if term == 'investor' else '') + r'(?!\w)'
+    return bool(re.search(pattern, text, flags=re.IGNORECASE))
+
+
+def cashflow_plan_exclusion_reason(plan):
+    """Keep source schedules intact while excluding owner-requested items from analysis."""
+    haystack = ' '.join(
+        str(value or '')
+        for value in (plan.title, plan.category, plan.notes, plan.created_by)
+    ).casefold()
+    if plan.entry_type == 'EXPENSE':
+        match = next((term for term in CASH_FLOW_EXCLUDED_EXPENSE_TERMS if cashflow_text_matches_term(haystack, term)), None)
+        return f'Excluded expense: {match}' if match else ''
+    if plan.entry_type == 'INCOME':
+        match = next((term for term in CASH_FLOW_EXCLUDED_INCOME_TERMS if cashflow_text_matches_term(haystack, term)), None)
+        return f'Excluded income: {match}' if match else ''
+    return ''
+
+
+def cashflow_order_is_excluded(order):
+    """Exclude Sample work from actual-sales history without deleting the order."""
+    item_names = ' '.join(str(item.product_name or '') for item in order.items)
+    haystack = ' '.join(
+        str(value or '')
+        for value in (order.order_type, order.customer_name, order.notes, item_names)
+    ).casefold()
+    return any(cashflow_text_matches_term(haystack, term) for term in CASH_FLOW_EXCLUDED_INCOME_TERMS)
+
 @app.route('/admin/cash-flow')
 @app.route('/admin/cashflow')
 @require_admin
@@ -4098,6 +4138,8 @@ def cash_flow_portal():
         Order.created_at >= utc_start,
         Order.created_at < utc_end,
     ).all()
+    excluded_window_orders = [order for order in completed_orders if cashflow_order_is_excluded(order)]
+    completed_orders = [order for order in completed_orders if not cashflow_order_is_excluded(order)]
     vault_drops = VaultDrop.query.filter(
         VaultDrop.created_at >= utc_start,
         VaultDrop.created_at < utc_end,
@@ -4127,6 +4169,8 @@ def cash_flow_portal():
         Order.status == 'COMPLETED',
         Order.created_at < history_end_utc,
     ).all()
+    excluded_historical_orders = [order for order in historical_orders if cashflow_order_is_excluded(order)]
+    historical_orders = [order for order in historical_orders if not cashflow_order_is_excluded(order)]
     historical_vault_drops = VaultDrop.query.filter(
         VaultDrop.created_at < history_end_utc,
     ).all()
@@ -4140,75 +4184,69 @@ def cash_flow_portal():
         amount = max(0.0, parse_float(drop.amount, 0.0))
         historical_daily_sales[day] = historical_daily_sales.get(day, 0.0) + amount
 
-    # Projection controls are stored as normal StoreSetting rows so this feature does not
-    # require another database migration. The averaging window always means the most
-    # recent N ACTUAL positive-sales days (blank/no-sale days are excluded), preserving
-    # the original projection policy while allowing 3/7/15/30-day or lifetime averages.
-    projection_mode_setting = StoreSetting.query.filter_by(key='cashflow_projection_mode').first()
-    average_window_setting = StoreSetting.query.filter_by(key='cashflow_average_window').first()
-    manual_sales_setting = StoreSetting.query.filter_by(key='cashflow_manual_daily_sales').first()
-    manual_start_setting = StoreSetting.query.filter_by(key='cashflow_manual_start_date').first()
-
-    projection_mode = (projection_mode_setting.value if projection_mode_setting else 'AVERAGE').strip().upper()
-    if projection_mode not in ('AVERAGE', 'MANUAL'):
-        projection_mode = 'AVERAGE'
-    average_window = (average_window_setting.value if average_window_setting else 'LIFETIME').strip().upper()
-    if average_window not in ('3', '7', '15', '30', 'LIFETIME'):
-        average_window = 'LIFETIME'
-    manual_daily_sales = max(0.0, parse_float(manual_sales_setting.value if manual_sales_setting else 0.0, 0.0))
-    manual_start_raw = (manual_start_setting.value if manual_start_setting else '').strip()
-    try:
-        manual_start_date = datetime.strptime(manual_start_raw, '%Y-%m-%d').date() if manual_start_raw else period_start
-    except (TypeError, ValueError):
-        # Backward compatibility for installs that used manual projection before this
-        # start-date control existed: preserve the old behavior by starting at the
-        # beginning of the currently viewed cash-flow period.
-        manual_start_date = period_start
-
+    # Every recorded actual positive-sales day is used. Older manual settings, including
+    # a stored ₱5,000 amount, remain in the database for audit history but are ignored.
     actual_sales_entries = sorted(
         ((day, amount) for day, amount in historical_daily_sales.items() if amount > 0),
         key=lambda item: item[0],
     )
     lifetime_actual_sales_day_count = len(actual_sales_entries)
-    if average_window == 'LIFETIME':
-        selected_average_entries = actual_sales_entries
-        average_window_label = 'Lifetime'
-    else:
-        average_limit = int(average_window)
-        selected_average_entries = actual_sales_entries[-average_limit:]
-        average_window_label = f'Last {average_limit} actual sales days'
-
-    actual_sales_days = [amount for _, amount in selected_average_entries]
+    actual_sales_days = [amount for _, amount in actual_sales_entries]
     average_daily_sales = (sum(actual_sales_days) / len(actual_sales_days)) if actual_sales_days else 0.0
-    projection_daily_sales = manual_daily_sales if projection_mode == 'MANUAL' else average_daily_sales
-    projection_source_label = (
-        f'Specific Daily Sales Amount from {manual_start_date.strftime("%b %d, %Y")}'
-        if projection_mode == 'MANUAL'
-        else f'{average_window_label} Average'
-    )
-    projection_badge = 'SPECIFIC PROJECTION' if projection_mode == 'MANUAL' else 'AVG PROJECTION'
-
-    def cashflow_sales_for_day(day):
-        actual = max(0.0, parse_float(daily_sales.get(day), 0.0))
-        if actual > 0:
-            return actual, False, 'ACTUAL'
-        # A manually specified daily sales amount only takes effect on/after its
-        # chosen start date. Blank days before that date continue using the chosen
-        # actual-sales average so the selected cash-flow horizon remains fully populated.
-        if projection_mode == 'MANUAL' and day >= manual_start_date:
-            return manual_daily_sales, True, 'SPECIFIC PROJECTION'
-        return average_daily_sales, True, 'AVG PROJECTION'
-
     plans = CashFlowPlan.query.order_by(CashFlowPlan.entry_type.asc(), CashFlowPlan.start_date.asc(), CashFlowPlan.id.asc()).all()
+    included_plans = []
+    excluded_plans = []
     daily_income = {}
     daily_expenses = {}
     for plan in plans:
         if not plan.is_active:
             continue
+        exclusion_reason = cashflow_plan_exclusion_reason(plan)
+        plan.analysis_exclusion_reason = exclusion_reason
+        if exclusion_reason:
+            excluded_plans.append(plan)
+            continue
+        included_plans.append(plan)
         amount = max(0.0, parse_float(plan.amount, 0.0))
         target = daily_income if plan.entry_type == 'INCOME' else daily_expenses
         for occurrence in cashflow_occurrence_dates(plan, period_start, period_end):
             target[occurrence] = target.get(occurrence, 0.0) + amount
+
+    contribution_margin_rate = max(0.0001, 1.0 - CASH_FLOW_COGS_RATE)
+
+    def cashflow_break_even_sales_for_month(month_start):
+        month_end = cashflow_add_months(month_start, 1)
+        month_days = max(1, (month_end - month_start).days)
+        expense_total = income_total = 0.0
+        cursor = month_start
+        while cursor < month_end:
+            expense_total += daily_expenses.get(cursor, 0.0)
+            income_total += daily_income.get(cursor, 0.0)
+            cursor += timedelta(days=1)
+        required_contribution = max(0.0, expense_total - income_total)
+        return required_contribution / contribution_margin_rate / month_days
+
+    break_even_daily_by_month = {
+        cashflow_add_months(period_start, month_index): cashflow_break_even_sales_for_month(
+            cashflow_add_months(period_start, month_index)
+        )
+        for month_index in range(horizon_months)
+    }
+    break_even_daily_sales = max(break_even_daily_by_month.values(), default=0.0)
+    projection_mode = 'BREAK_EVEN_ACTUALS'
+    average_window = 'LIFETIME'
+    average_window_label = 'All historical actual sales'
+    projection_daily_sales = max(average_daily_sales, break_even_daily_sales)
+    projection_source_label = 'Higher of lifetime actual-sales average and filtered break-even sales'
+    projection_badge = 'BREAK-EVEN + ACTUALS'
+
+    def cashflow_sales_for_day(day):
+        actual = max(0.0, parse_float(daily_sales.get(day), 0.0))
+        if actual > 0:
+            return actual, False, 'ACTUAL'
+        month_start = date(day.year, day.month, 1)
+        break_even_target = break_even_daily_by_month.get(month_start, 0.0)
+        return max(average_daily_sales, break_even_target), True, 'BREAK-EVEN + ACTUALS'
 
     monthly_rows = []
     running_net = 0.0
@@ -4316,10 +4354,10 @@ def cash_flow_portal():
         return max(0.0, parse_float(plan.amount, 0.0)) * plan_occurrences_in_view(plan)
 
     active_expense_total = sum(
-        plan_window_total(p) for p in plans if p.is_active and p.entry_type == 'EXPENSE'
+        plan_window_total(p) for p in included_plans if p.entry_type == 'EXPENSE'
     )
     active_income_total = sum(
-        plan_window_total(p) for p in plans if p.is_active and p.entry_type == 'INCOME'
+        plan_window_total(p) for p in included_plans if p.entry_type == 'INCOME'
     )
 
     return render_template(
@@ -4343,14 +4381,16 @@ def cash_flow_portal():
         average_window=average_window,
         average_window_label=average_window_label,
         projection_mode=projection_mode,
-        manual_daily_sales=manual_daily_sales,
-        manual_start_date=manual_start_date,
+        break_even_daily_sales=break_even_daily_sales,
         projection_daily_sales=projection_daily_sales,
         projection_source_label=projection_source_label,
         projection_badge=projection_badge,
         max_duration=CASH_FLOW_MAX_DURATION,
         active_expense_total=active_expense_total,
         active_income_total=active_income_total,
+        excluded_plans=excluded_plans,
+        excluded_window_sales=sum(max(0.0, parse_float(o.total_amount, 0.0)) for o in excluded_window_orders),
+        excluded_historical_sales=sum(max(0.0, parse_float(o.total_amount, 0.0)) for o in excluded_historical_orders),
         plan_end_date=cashflow_plan_end_date,
         plan_occurrences_in_view=plan_occurrences_in_view,
         plan_window_total=plan_window_total,
@@ -4994,6 +5034,8 @@ def public_investor_settings():
 @app.route('/investor')
 @app.route('/investors')
 def investor_opportunity():
+    flash('Investor discussions are private and available to selected invitees only.', 'info')
+    return redirect(url_for('investor_private_offer'))
     session['investor_form_token'] = secrets.token_urlsafe(24)
     return render_template(
         'investor_deck.html',
@@ -5010,6 +5052,8 @@ def investor_opportunity():
 
 @app.route('/investors/interest', methods=['POST'])
 def submit_investor_interest():
+    flash('Public investor applications are closed. Private agreements are handled by invitation.', 'info')
+    return redirect(url_for('investor_private_offer'))
     supplied_token = request.form.get('form_token', '')
     expected_token = session.pop('investor_form_token', '')
     if not supplied_token or not expected_token or not secrets.compare_digest(supplied_token, expected_token):
