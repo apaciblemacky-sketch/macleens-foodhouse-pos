@@ -92,6 +92,37 @@ def rendered_templates(source: str) -> set[str]:
     return result
 
 
+def route_endpoint_methods(source: str) -> dict[str, set[str]]:
+    """Read Flask route methods without importing Flask or touching the database."""
+    tree = ast.parse(source)
+    endpoints: dict[str, set[str]] = {}
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        methods: set[str] = set()
+        routed = False
+        for decorator in node.decorator_list:
+            if not isinstance(decorator, ast.Call) or not isinstance(decorator.func, ast.Attribute):
+                continue
+            if decorator.func.attr != "route":
+                continue
+            if not isinstance(decorator.func.value, ast.Name) or decorator.func.value.id != "app":
+                continue
+            routed = True
+            declared = None
+            for keyword in decorator.keywords:
+                if keyword.arg == "methods" and isinstance(keyword.value, (ast.List, ast.Tuple)):
+                    declared = {
+                        str(item.value).upper()
+                        for item in keyword.value.elts
+                        if isinstance(item, ast.Constant) and isinstance(item.value, str)
+                    }
+            methods.update(declared or {"GET"})
+        if routed:
+            endpoints[node.name] = methods
+    return endpoints
+
+
 def main() -> int:
     if not APP.exists():
         fail("app.py is missing")
@@ -117,6 +148,36 @@ def main() -> int:
         fail("missing render_template targets: " + ", ".join(missing_templates))
     ok("all render_template targets exist")
 
+    endpoint_methods = route_endpoint_methods(source)
+    form_mismatches: list[str] = []
+    for template in TEMPLATES.rglob("*.html"):
+        template_text = template.read_text(encoding="utf-8", errors="replace")
+        for tag in re.findall(r"<(?:form|button|input)\b[^>]*>", template_text, flags=re.I | re.S):
+            endpoint_match = re.search(r"url_for\(\s*['\"]([^'\"]+)", tag)
+            if not endpoint_match:
+                continue
+            endpoint = endpoint_match.group(1)
+            if endpoint not in endpoint_methods:
+                continue
+            is_form = bool(re.match(r"<form\b", tag, flags=re.I))
+            method_match = re.search(
+                r"formmethod\s*=\s*['\"]([^'\"]+)" if not is_form else r"method\s*=\s*['\"]([^'\"]+)",
+                tag,
+                flags=re.I,
+            )
+            if not is_form and not method_match:
+                # A button without formmethod inherits its containing form. The
+                # lightweight source checker cannot pair nested HTML reliably.
+                continue
+            method = (method_match.group(1) if method_match else "GET").upper()
+            if method not in endpoint_methods[endpoint]:
+                form_mismatches.append(
+                    f"{template.relative_to(ROOT)} calls {endpoint} with {method}; route allows {sorted(endpoint_methods[endpoint])}"
+                )
+    if form_mismatches:
+        fail("template form/route method mismatches: " + "; ".join(form_mismatches))
+    ok("template form methods match their Flask route methods")
+
     manifest = STATIC / "manifest.json"
     service_worker = STATIC / "sw.js"
     if not manifest.exists() or not service_worker.exists():
@@ -131,7 +192,10 @@ def main() -> int:
     if not live_ui.exists():
         fail("static/live-ui.js is missing")
     live_text = live_ui.read_text(encoding="utf-8")
-    for marker in ["MacleensLiveUI", "macleens:page-updated", "fetch(url", "document.body.replaceWith"]:
+    for marker in [
+        "MacleensLiveUI", "macleens:page-updated", "fetch(url", "document.body.replaceWith",
+        "form.getAttribute('method')", "response.status === 405", "HTMLFormElement.prototype.submit.call",
+    ]:
         if marker not in live_text:
             fail(f"progressive no-refresh UI marker is missing: {marker}")
     if "add_live_ui_progressive_enhancement" not in source or "data-macleens-live" not in source:

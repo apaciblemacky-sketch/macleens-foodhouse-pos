@@ -21,6 +21,33 @@
     return true;
   }
 
+  function formRequestSpec(form, submitter) {
+    // Read the actual HTML attributes. DOM properties on a submit button can
+    // report browser defaults (GET/current URL) when no override was declared,
+    // which can turn an original POST form into a 405 request.
+    const buttonAction = submitter ? submitter.getAttribute('formaction') : '';
+    const buttonMethod = submitter ? submitter.getAttribute('formmethod') : '';
+    const rawAction = buttonAction || form.getAttribute('action') || location.href;
+    const rawMethod = buttonMethod || form.getAttribute('method') || 'GET';
+    return {
+      action: new URL(rawAction, location.href).href,
+      method: String(rawMethod).trim().toUpperCase() || 'GET'
+    };
+  }
+
+  function hardSubmit(form, submitter, spec) {
+    spec = spec || formRequestSpec(form, submitter);
+    form.dataset.liveBypass = '1';
+    form.setAttribute('action', spec.action);
+    form.setAttribute('method', spec.method);
+    if (submitter && submitter.name) {
+      const hidden = document.createElement('input');
+      hidden.type = 'hidden'; hidden.name = submitter.name; hidden.value = submitter.value;
+      form.appendChild(hidden);
+    }
+    HTMLFormElement.prototype.submit.call(form);
+  }
+
   function loading(active) {
     let bar = document.getElementById('macleens-live-progress');
     if (!bar) {
@@ -111,10 +138,11 @@
 
   async function submitForm(form, submitter) {
     if (busy) return;
-    const action = (submitter && submitter.formAction) || form.action || location.href;
-    const method = ((submitter && submitter.formMethod) || form.method || 'GET').toUpperCase();
+    const spec = formRequestSpec(form, submitter);
+    const action = spec.action;
+    const method = spec.method;
     if (!sameOrigin(action) || !canHandleUrl(action) || form.dataset.noLive !== undefined || form.target) {
-      form.dataset.liveBypass = '1'; form.submit(); return;
+      hardSubmit(form, submitter, spec); return;
     }
     busy = true; loading(true);
     const button = submitter || form.querySelector('[type="submit"],button:not([type])');
@@ -131,6 +159,13 @@
         url = parsed.href;
       } else fetchOptions.body = data;
       const response = await fetch(url, fetchOptions);
+      if (response.status === 405) {
+        // A legacy or browser-specific form cannot safely use the live layer.
+        // No mutation occurred on a 405, so return it to its exact original
+        // submission behavior instead of leaving the user with an error toast.
+        hardSubmit(form, submitter, spec);
+        return;
+      }
       const type = response.headers.get('content-type') || '';
       if (type.includes('application/json')) {
         const payload = await response.json();

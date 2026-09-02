@@ -1085,7 +1085,7 @@ def add_live_ui_progressive_enhancement(response):
         html = response.get_data(as_text=True)
         marker = 'data-macleens-live'
         if marker not in html and '</body>' in html.lower():
-            script = '<script data-macleens-live src="/static/live-ui.js?v=2"></script>'
+            script = '<script data-macleens-live src="/static/live-ui.js?v=3"></script>'
             closing = html.lower().rfind('</body>')
             html = html[:closing] + script + html[closing:]
             response.set_data(html)
