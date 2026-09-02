@@ -71,6 +71,7 @@
         <div class="form-grid">
           <div><label>Business</label><select name="business"><option value="AUTO">Let AI Decide</option><option value="FOODHOUSE">Food House</option><option value="CRAFT">Crafts</option></select></div>
           <div><label>Post Purpose</label><select name="post_type"><option value="AUTO">Let AI Decide</option>{% for pt in post_types %}<option value="{{ pt }}">{{ pt.replace('_',' ').title() }}</option>{% endfor %}</select></div>
+          <div><label>Food Product</label><select name="product_id"><option value="">Let AI choose an active product</option>{% for product in active_products %}<option value="{{ product.id }}" {% if product.stock|int <= 0 %}disabled{% endif %}>{{ product.name }}{% if product.stock|int <= 0 %} — out of stock{% endif %}</option>{% endfor %}</select></div>
         </div>
         <p class="muted" style="margin:10px 0">The AI may intentionally choose not to create a post if the current data does not support a useful, truthful promotion.</p>
         <button class="btn btn-blue" type="submit">✨ Generate Marketing Draft</button>
@@ -95,6 +96,12 @@
 
   <section class="card">
     <h2>📊 Meta Post Insights + AI Analysis</h2>
+    <div id="meta-import" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:14px;margin:12px 0">
+      <h3>Upload Meta Business Suite Export</h3>
+      <p class="muted">Upload a CSV or XLSX export (maximum 8 MB). The system reads aggregate post performance, matches captions to your active products, and recommends products and visibility times. The raw file is not stored.</p>
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('marketing_import_insights') }}"><input type="file" name="meta_export" accept=".csv,.xlsx" required><button class="btn btn-blue" style="margin-top:8px">Upload & Analyze</button></form>
+      {% for report in insight_imports %}<details style="margin-top:10px"><summary><strong>{{ report.filename }}</strong> — {{ report.row_count }} rows · {{ report.created_at|ph_datetime('%b %d, %Y %I:%M %p') }}</summary><div class="caption" style="white-space:pre-wrap;margin-top:8px">{{ report.analysis }}</div></details>{% endfor %}
+    </div>
     <p class="muted">After a post is marked as posted, copy its aggregate results from Meta Business Suite. Save the numbers, then let the selected AI provider explain what worked and what to try next. No Facebook login or customer-level information is sent.</p>
     {% set ns = namespace(count=0) %}
     {% for post in posts %}

@@ -1,0 +1,22 @@
+MACLEEN'S FOOD HOUSE - FULL REPLACEMENT UPDATE
+
+This ZIP is intentionally ROOT-LEVEL / FLAT.
+When opened, you should immediately see:
+  app.py
+  requirements.txt
+  templates
+  static
+  RUN_MACLEENS.bat
+  DEPLOY_TO_RENDER.bat
+
+INSTALL AND DEPLOY
+1. Open the local GitHub-connected Macleen's project folder.
+2. Keep the hidden .git folder and any private .env file.
+3. Copy all contents of this ZIP into that project folder and approve Replace All.
+4. Double-click RUN_MACLEENS.bat to test locally.
+5. Double-click DEPLOY_TO_RENDER.bat and type DEPLOY when prompted.
+6. After Render reports a successful deployment, open:
+   https://macleens-foodhouse-pos.onrender.com/digital
+
+If /digital still shows 404 after Render finishes, check the GitHub root. app.py
+must be at the repository root and must not be inside another mfh_final folder.

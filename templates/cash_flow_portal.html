@@ -59,6 +59,7 @@
       <img src="{{ store_logo }}" alt="Logo" style="width:50px;height:50px;border-radius:50%;object-fit:cover;border:2px solid var(--pink);">
       <div>
         <h1>💵 Cash Flow Manager</h1>
+        <a class="btn btn-pink" href="{{ url_for('cashflow_payables') }}">🧾 Confirm Expense Payments</a>
         <p>{{ period_start.strftime('%b %Y') }} to {{ period_last_day.strftime('%b %Y') }} · {{ horizon_years }} year{{ '' if horizon_years == 1 else 's' }} / {{ horizon_months }} calendar months</p>
       </div>
     </div>

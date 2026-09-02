@@ -252,7 +252,7 @@
     if(!data.success)return alert(data.message||'Could not apply points.');
     const refundNote=data.refund_due>0?`\nShow this to the cashier. Refund/change due: ₱${data.refund_due.toFixed(2)}`:'';
     alert(`Points applied!\nDiscount: ₱${data.discount.toFixed(2)}\nNew total: ₱${data.total.toFixed(2)}${refundNote}`);
-    window.location.reload();
+    if(window.MacleensLiveUI)window.MacleensLiveUI.refresh();else window.location.reload();
   }
   syncCustomerCardPreview();
 </script>

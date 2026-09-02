@@ -127,6 +127,35 @@ def main() -> int:
         fail(f"manifest.json is invalid JSON: {exc}")
     ok("PWA manifest and service worker files exist")
 
+    live_ui = STATIC / "live-ui.js"
+    if not live_ui.exists():
+        fail("static/live-ui.js is missing")
+    live_text = live_ui.read_text(encoding="utf-8")
+    for marker in ["MacleensLiveUI", "macleens:page-updated", "fetch(url", "document.body.replaceWith"]:
+        if marker not in live_text:
+            fail(f"progressive no-refresh UI marker is missing: {marker}")
+    if "add_live_ui_progressive_enhancement" not in source or "data-macleens-live" not in source:
+        fail("live UI is not injected into rendered HTML pages")
+    ok("progressive no-refresh UI is present and globally attached")
+
+    digital_markers = [
+        "class DigitalItem(db.Model):",
+        "class DigitalOrder(db.Model):",
+        "@app.route('/digital')",
+        "@app.route('/digital/item/<int:item_id>'",
+        "@app.route('/digital/order/<token>')",
+        "@app.route('/admin/digital')",
+        "create_main_digital_order",
+        "sync_digital_order_after_main_verification",
+    ]
+    missing = [marker for marker in digital_markers if marker not in source]
+    if missing:
+        fail("Digital Business portal markers missing: " + ", ".join(missing))
+    for name in ["digital/base.html", "digital/index.html", "digital/item.html", "digital/order_status.html", "digital/admin.html"]:
+        if not (TEMPLATES / name).exists():
+            fail(f"Digital Business template is missing: {name}")
+    ok("Digital Business catalog, checkout, tracking, admin, and cashier sync are present")
+
     deploy_script = ROOT / "DEPLOY_TO_RENDER.bat"
     if not deploy_script.exists():
         fail("DEPLOY_TO_RENDER.bat is missing")
@@ -265,6 +294,21 @@ def main() -> int:
     if "Specific Product Amount" not in cashier_template or "minimumAmount" not in cashier_template:
         fail("cashier specific-amount UI is missing")
     ok("cashier specific amounts are product-controlled and minimum-enforced")
+
+    storefront_amount_markers = [
+        "allow_storefront_custom_amount=True",
+        "collectSpecificAmount",
+        "Specific amount available",
+        "cart[id].customAmount ? { unit_price:",
+        "Amount cannot be below",
+    ]
+    missing_storefront_amount = [
+        marker for marker in storefront_amount_markers
+        if marker not in source + storefront
+    ]
+    if missing_storefront_amount:
+        fail("storefront specific-amount safeguards are missing: " + ", ".join(missing_storefront_amount))
+    ok("storefront specific amounts appear after sub-options and remain minimum-enforced")
 
     option_markers = [
         "option_schema = db.Column",

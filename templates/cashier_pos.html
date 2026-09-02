@@ -1344,7 +1344,7 @@
           alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\nPoints Used: ${Number(data.points_redeemed || 0).toFixed(2)}\n${rewardLine}`);
           clearPosCart();
           document.getElementById('posCashBill').value = '';
-          window.location.reload();
+          if (window.MacleensLiveUI) window.MacleensLiveUI.refresh(); else window.location.reload();
         } else {
           alert(data.message || "Failed to record sale.");
         }
@@ -1365,7 +1365,7 @@
       const data = await res.json();
       if (!data.success) return alert(data.message || 'Could not apply points.');
       alert(`Points applied to Order #${orderId}.\nDiscount: ₱${data.discount.toFixed(2)}\nNew total: ₱${data.total.toFixed(2)}\nRefund/change due: ₱${data.refund_due.toFixed(2)}`);
-      window.location.reload();
+      if (window.MacleensLiveUI) window.MacleensLiveUI.refresh(); else window.location.reload();
     }
 
     function triggerThermalPrint(contentHtml) {
@@ -1461,15 +1461,16 @@
     }
 
     let lastPendingCount = {{ pending_orders|length }};
-    setInterval(async () => {
+    if (window.macleensCashierQueueTimer) clearInterval(window.macleensCashierQueueTimer);
+    window.macleensCashierQueueTimer = setInterval(async () => {
       try {
         const res = await fetch('/api/queue-counts');
         const data = await res.json();
         if (data.pending_cashier > lastPendingCount) {
           playCashierBeep();
-          setTimeout(() => { window.location.reload(); }, 600);
+          setTimeout(() => { if (window.MacleensLiveUI) window.MacleensLiveUI.refresh(); else window.location.reload(); }, 600);
         } else if (data.pending_cashier !== lastPendingCount) {
-          window.location.reload();
+          if (window.MacleensLiveUI) window.MacleensLiveUI.refresh(); else window.location.reload();
         }
       } catch(e) {}
     }, 1500);

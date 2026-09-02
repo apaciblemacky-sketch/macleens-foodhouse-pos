@@ -2,6 +2,7 @@ import io
 import json
 import base64
 import calendar
+import csv
 import logging
 import os
 import re
@@ -280,6 +281,23 @@ class CashFlowPlan(db.Model):
     created_by = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
+class CashFlowExpensePayment(db.Model):
+    __tablename__ = 'cash_flow_expense_payment'
+    __table_args__ = (UniqueConstraint('plan_id', 'occurrence_date', name='uq_cashflow_expense_occurrence'),)
+    id = db.Column(db.Integer, primary_key=True)
+    plan_id = db.Column(db.Integer, db.ForeignKey('cash_flow_plan.id', ondelete='CASCADE'), nullable=False)
+    occurrence_date = db.Column(db.Date, nullable=False)
+    due_date = db.Column(db.Date, nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    status = db.Column(db.String(20), default='PAYABLE', nullable=False)
+    paid_at = db.Column(db.DateTime, nullable=True)
+    paid_by = db.Column(db.String(50), nullable=True)
+    payment_method = db.Column(db.String(20), nullable=True)
+    reference = db.Column(db.String(100), nullable=True)
+    notes = db.Column(db.String(255), nullable=True)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
+    plan = db.relationship('CashFlowPlan', lazy=True)
+
 class VaultDrop(db.Model):
     __tablename__ = 'vault_drop'
     id = db.Column(db.Integer, primary_key=True)
@@ -538,6 +556,69 @@ class CraftLedger(db.Model):
     expense_id = db.Column(db.Integer, db.ForeignKey('expense.id', ondelete='SET NULL'), nullable=True)
     notes = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class DigitalCategory(db.Model):
+    __tablename__ = 'digital_category'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), unique=True, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+
+class DigitalItem(db.Model):
+    __tablename__ = 'digital_item'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    category_name = db.Column(db.String(80), default='General', nullable=False)
+    product_type = db.Column(db.String(30), default='DOWNLOAD', nullable=False)
+    price = db.Column(db.Float, nullable=False)
+    cost = db.Column(db.Float, default=0.0)
+    image_url = db.Column(db.Text, nullable=True)
+    sample_url = db.Column(db.Text, nullable=True)
+    file_format = db.Column(db.String(80), nullable=True)
+    license_terms = db.Column(db.Text, nullable=True)
+    turnaround_days = db.Column(db.Integer, default=0)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    is_featured = db.Column(db.Boolean, default=False)
+    views = db.Column(db.Integer, default=0)
+    orders_count = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=utc_now)
+
+class DigitalOrder(db.Model):
+    __tablename__ = 'digital_order'
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('digital_item.id'), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
+    customer_name = db.Column(db.String(100), nullable=False)
+    contact_number = db.Column(db.String(50), nullable=False)
+    email = db.Column(db.String(120), nullable=False)
+    quantity = db.Column(db.Integer, default=1, nullable=False)
+    unit_price = db.Column(db.Float, nullable=False)
+    unit_cost = db.Column(db.Float, default=0.0)
+    total_price = db.Column(db.Float, nullable=False)
+    payment_method = db.Column(db.String(20), nullable=False)
+    payment_status = db.Column(db.String(20), default='PENDING')
+    gcash_ref = db.Column(db.String(30), nullable=True)
+    status = db.Column(db.String(30), default='PENDING_PAYMENT', nullable=False)
+    requirements = db.Column(db.Text, nullable=True)
+    fulfillment_url = db.Column(db.Text, nullable=True)
+    license_key = db.Column(db.String(255), nullable=True)
+    fulfillment_notes = db.Column(db.Text, nullable=True)
+    tracking_token = db.Column(db.String(64), unique=True, nullable=False, default=lambda: secrets.token_urlsafe(24))
+    main_order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='SET NULL'), nullable=True, unique=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    item = db.relationship('DigitalItem', lazy=True)
+    main_order = db.relationship('Order', lazy=True, foreign_keys=[main_order_id])
+
+class MarketingInsightImport(db.Model):
+    __tablename__ = 'marketing_insight_import'
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), nullable=False)
+    row_count = db.Column(db.Integer, default=0)
+    summary_json = db.Column(db.Text, nullable=False)
+    analysis = db.Column(db.Text, nullable=False)
+    uploaded_by = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
 
@@ -993,6 +1074,24 @@ def app_startup_and_session_handler():
         except Exception:
             db.session.rollback()
             app.logger.exception('Could not update customer last_active_at for customer_id=%s', session.get('customer_id'))
+
+@app.after_request
+def add_live_ui_progressive_enhancement(response):
+    """Load one safe, shared AJAX-navigation layer on every rendered HTML page."""
+    content_type = (response.headers.get('Content-Type') or '').lower()
+    if response.direct_passthrough or 'text/html' not in content_type:
+        return response
+    try:
+        html = response.get_data(as_text=True)
+        marker = 'data-macleens-live'
+        if marker not in html and '</body>' in html.lower():
+            script = '<script data-macleens-live src="/static/live-ui.js?v=2"></script>'
+            closing = html.lower().rfind('</body>')
+            html = html[:closing] + script + html[closing:]
+            response.set_data(html)
+    except Exception:
+        app.logger.exception('Could not attach progressive live UI script')
+    return response
 
 # ==================== HELPERS & GUARDS ====================
 
@@ -1574,7 +1673,12 @@ def customer_available_credit(cust, include_pending=True):
         used += float(pending)
     return max(0.0, limit - used)
 
-def validate_and_lock_cart(raw_items, require_available=True, allow_cashier_custom_amount=False):
+def validate_and_lock_cart(
+    raw_items,
+    require_available=True,
+    allow_cashier_custom_amount=False,
+    allow_storefront_custom_amount=False,
+):
     """Validate quantities, options, products and stock using server-side truth.
 
     Products may define required sub-options such as Sauce (Hot/Sweet) or Flavor.
@@ -1597,7 +1701,8 @@ def validate_and_lock_cart(raw_items, require_available=True, allow_cashier_cust
             raise OrderValidationError('Item quantity is too large.')
 
         requested_price = None
-        if allow_cashier_custom_amount and raw.get('unit_price') not in (None, ''):
+        custom_amount_channel = allow_cashier_custom_amount or allow_storefront_custom_amount
+        if custom_amount_channel and raw.get('unit_price') not in (None, ''):
             requested_price = round(parse_float(raw.get('unit_price'), -1.0), 2)
             if requested_price <= 0:
                 raise OrderValidationError('Specific amount must be greater than ₱0.00.')
@@ -1638,10 +1743,10 @@ def validate_and_lock_cart(raw_items, require_available=True, allow_cashier_cust
 
         requested_price = entry['requested_price']
         if requested_price is not None:
-            if not allow_cashier_custom_amount:
-                raise OrderValidationError('Specific amounts are only available at the Cashier POS.')
+            if not (allow_cashier_custom_amount or allow_storefront_custom_amount):
+                raise OrderValidationError('Specific amounts are not available for this checkout channel.')
             if not bool(getattr(prod, 'allow_custom_amount', False)):
-                raise OrderValidationError(f'{prod.name} does not allow a specific cashier amount.')
+                raise OrderValidationError(f'{prod.name} does not allow a specific selling amount.')
             configured_min = getattr(prod, 'minimum_order_amount', None)
             min_amount = round(parse_float(configured_min, unit_price), 2)
             if min_amount <= 0:
@@ -2116,6 +2221,109 @@ def create_main_craft_order(craft_order):
     craft_order.main_order_id = main_order.id
     return main_order
 
+def create_main_digital_order(digital_order):
+    main_order = Order(
+        order_type='DIGITAL', dining_option='TAKEOUT', customer_id=digital_order.customer_id,
+        customer_name=digital_order.customer_name, contact_number=digital_order.contact_number,
+        subtotal=digital_order.total_price, delivery_fee=0.0, total_amount=digital_order.total_price,
+        payment_method=digital_order.payment_method, payment_verified=False, status='VERIFICATION',
+        gcash_ref=digital_order.gcash_ref,
+        notes=f'[DIGITAL BUSINESS] Digital Order #{digital_order.id}: {digital_order.requirements or "No customization requirements"}',
+    )
+    db.session.add(main_order); db.session.flush()
+    db.session.add(OrderItem(
+        order_id=main_order.id, product_id=None, product_name=f'[Digital] {digital_order.item.name}',
+        unit_price=digital_order.unit_price, cost_price=digital_order.unit_cost,
+        quantity=digital_order.quantity, subtotal=digital_order.total_price,
+    ))
+    digital_order.main_order_id = main_order.id
+    return main_order
+
+def sync_digital_order_after_main_verification(main_order, accepted):
+    if not main_order or str(main_order.order_type or '').upper() != 'DIGITAL':
+        return
+    digital_order = DigitalOrder.query.filter_by(main_order_id=main_order.id).first()
+    if not digital_order:
+        return
+    if accepted:
+        digital_order.payment_status = 'PAID'
+        digital_order.status = 'IN_PROGRESS' if digital_order.item.product_type == 'CUSTOM_SERVICE' else 'PAID'
+    else:
+        digital_order.payment_status = 'CANCELLED'
+        digital_order.status = 'CANCELLED'
+
+def _meta_number(value):
+    try:
+        return float(str(value or '0').replace(',', '').replace('%', '').strip() or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+def parse_meta_insight_upload(upload):
+    """Read aggregate CSV/XLSX exports in memory; raw Meta files are never retained."""
+    filename = (upload.filename or '').strip()
+    raw = upload.read(8_000_001)
+    if not filename or len(raw) > 8_000_000:
+        raise OrderValidationError('Choose a Meta CSV/XLSX export no larger than 8 MB.')
+    ext = os.path.splitext(filename.lower())[1]
+    if ext == '.csv':
+        text_data = raw.decode('utf-8-sig', errors='replace')
+        rows = list(csv.DictReader(io.StringIO(text_data)))
+    elif ext == '.xlsx':
+        try:
+            from openpyxl import load_workbook
+            sheet = load_workbook(io.BytesIO(raw), read_only=True, data_only=True).active
+            values = list(sheet.iter_rows(values_only=True))
+            headers = [str(x or '').strip() for x in (values[0] if values else [])]
+            rows = [dict(zip(headers, row)) for row in values[1:]]
+        except Exception as exc:
+            raise OrderValidationError(f'Could not read the XLSX export: {exc}')
+    else:
+        raise OrderValidationError('Meta insight upload must be a .csv or .xlsx file.')
+    if not rows:
+        raise OrderValidationError('The Meta export did not contain any insight rows.')
+    products = Product.query.filter_by(is_active=True).all()
+    aliases = {
+        'reach': ('reach', 'people reached'), 'impressions': ('impressions', 'views'),
+        'reactions': ('reactions', 'likes'), 'comments': ('comments',), 'shares': ('shares',),
+        'clicks': ('link clicks', 'clicks'), 'date': ('publish time', 'date', 'created time'),
+        'text': ('description', 'post message', 'title', 'caption'),
+    }
+    totals = {k: 0 for k in ('reach','impressions','reactions','comments','shares','clicks')}
+    by_product, by_hour = {}, {}
+    for row in rows[:5000]:
+        normalized = {str(k or '').strip().casefold(): v for k, v in row.items()}
+        def pick(field):
+            for candidate in aliases[field]:
+                for key, value in normalized.items():
+                    if candidate in key:
+                        return value
+            return ''
+        metrics = {k: _meta_number(pick(k)) for k in totals}
+        for key, value in metrics.items(): totals[key] += value
+        message = str(pick('text') or '').casefold()
+        matched = [p.name for p in products if p.name.casefold() in message]
+        for name in matched:
+            bucket = by_product.setdefault(name, {'posts': 0, 'reach': 0, 'engagement': 0, 'clicks': 0})
+            bucket['posts'] += 1; bucket['reach'] += metrics['reach']; bucket['clicks'] += metrics['clicks']
+            bucket['engagement'] += metrics['reactions'] + metrics['comments'] + metrics['shares']
+        raw_date = str(pick('date') or '')
+        hour_match = re.search(r'(?:\s|T)([01]?\d|2[0-3]):', raw_date)
+        if hour_match:
+            hour = f'{int(hour_match.group(1)):02d}:00'
+            bucket = by_hour.setdefault(hour, {'posts': 0, 'reach': 0, 'engagement': 0})
+            bucket['posts'] += 1; bucket['reach'] += metrics['reach']
+            bucket['engagement'] += metrics['reactions'] + metrics['comments'] + metrics['shares']
+    top_products = sorted(by_product.items(), key=lambda x: (x[1]['reach'] + x[1]['engagement'] * 5), reverse=True)[:8]
+    top_hours = sorted(by_hour.items(), key=lambda x: (x[1]['reach'] / max(1, x[1]['posts'])), reverse=True)[:5]
+    summary = {'rows': len(rows), 'totals': totals, 'products': dict(top_products), 'best_hours': dict(top_hours)}
+    if top_products:
+        product_text = ', '.join(f'{name} ({int(stats["reach"])} reach, {int(stats["engagement"])} engagements)' for name, stats in top_products[:3])
+    else:
+        product_text = 'No active product names were reliably matched in the exported captions.'
+    time_text = ', '.join(f'{hour} ({int(stats["reach"] / max(1, stats["posts"]))} average reach)' for hour, stats in top_hours[:3]) or 'No publish-time column was detected.'
+    analysis = f'Product interest: {product_text}\n\nBest visibility times: {time_text}\n\nSuggestion: feature the strongest matched product during the best-performing time, then compare reach and engagement after the next post.'
+    return filename[:255], summary, analysis
+
 
 # ==================== AI MARKETING HELPERS ====================
 
@@ -2318,8 +2526,20 @@ def validate_marketing_decision(decision):
         'model': str(decision.get('model') or '').strip(),
     }
 
-def create_ai_marketing_post(business_hint='AUTO', post_type_hint='AUTO', group=None):
+def create_ai_marketing_post(business_hint='AUTO', post_type_hint='AUTO', group=None, product_id=None):
     context = build_marketing_context()
+    selected_product = None
+    if product_id:
+        selected_product = db.session.get(Product, parse_int(product_id, 0))
+        if not selected_product or not selected_product.is_active:
+            raise OrderValidationError('The selected product is no longer active.')
+        if parse_int(selected_product.stock, 0) <= 0:
+            raise OrderValidationError('The selected active product is currently out of stock.')
+        context['foodhouse_products'] = [row for row in context['foodhouse_products'] if row['id'] == selected_product.id]
+        context['craft_items'] = []
+        business_hint = 'FOODHOUSE'
+        if post_type_hint == 'AUTO':
+            post_type_hint = 'PRODUCT_SPOTLIGHT'
     target_type = 'FACEBOOK_PAGE'
     group_context = None
     if group:
@@ -2337,6 +2557,10 @@ def create_ai_marketing_post(business_hint='AUTO', post_type_hint='AUTO', group=
         context, business_hint, post_type_hint, group_context,
         provider=marketing_settings().get('ai_provider', 'GEMINI'),
     )
+    if selected_product and decision.get('should_post'):
+        decision['business'] = 'FOODHOUSE'
+        decision['source_kind'] = 'PRODUCT'
+        decision['source_id'] = selected_product.id
     if not decision.get('should_post'):
         post = MarketingPost(
             target_type=target_type,
@@ -2635,7 +2859,11 @@ def api_storefront_checkout():
         return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400
 
     try:
-        lines = validate_and_lock_cart(data.get('items', []), require_available=True)
+        lines = validate_and_lock_cart(
+            data.get('items', []),
+            require_available=True,
+            allow_storefront_custom_amount=True,
+        )
         subtotal = cart_subtotal(lines)
         points_redeemed, points_discount = calculate_points_redemption(cust, data.get('redeem_points'), subtotal)
         total = max(0.0, subtotal + delivery_fee - points_discount)
@@ -3627,6 +3855,7 @@ def verify_order(order_id):
                         ))
                     apply_member_marketing_rewards(cust, order)
         sync_craft_order_after_main_verification(order, accepted=True)
+        sync_digital_order_after_main_verification(order, accepted=True)
         db.session.commit()
         if order.payment_method == 'CREDIT':
             flash(f'Order #{order.id} accepted as A/R Credit and added to Member Credit AR.', 'success')
@@ -3650,6 +3879,7 @@ def verify_order(order_id):
                     prod.stock = parse_int(prod.stock, 0) + item.quantity
         order.status = 'CANCELLED'
         sync_craft_order_after_main_verification(order, accepted=False)
+        sync_digital_order_after_main_verification(order, accepted=False)
         db.session.commit()
         flash(f'Order #{order.id} cancelled and reserved stock restored.', 'info')
     else:
@@ -4066,6 +4296,130 @@ def craft_record_transaction():
     except Exception:
         db.session.rollback(); app.logger.exception('Craft transaction sync failed'); flash('Could not record craft transaction.', 'error')
     return redirect(url_for('craft_admin_dashboard'))
+
+# ==================== DIGITAL BUSINESS PORTAL ====================
+
+@app.route('/digital')
+def digital_store():
+    category = request.args.get('category', '').strip()
+    query = DigitalItem.query.filter_by(is_active=True)
+    if category:
+        query = query.filter_by(category_name=category)
+    return render_template('digital/index.html', items=query.order_by(DigitalItem.is_featured.desc(), DigitalItem.name.asc()).all(),
+                           categories=DigitalCategory.query.filter_by(is_active=True).order_by(DigitalCategory.name).all(), selected_category=category)
+
+@app.route('/digital/item/<int:item_id>', methods=['GET', 'POST'])
+def digital_item_detail(item_id):
+    item = DigitalItem.query.filter_by(id=item_id, is_active=True).first_or_404()
+    if request.method == 'GET':
+        item.views = parse_int(item.views, 0) + 1; db.session.commit()
+        return render_template('digital/item.html', item=item)
+    name = request.form.get('customer_name', '').strip()[:100]
+    contact = request.form.get('contact_number', '').strip()[:50]
+    email = request.form.get('email', '').strip()[:120]
+    qty = max(1, min(100, parse_int(request.form.get('quantity'), 1)))
+    method = request.form.get('payment_method', 'GCASH').upper()
+    ref = request.form.get('gcash_ref', '').strip()[:30] or None
+    if not name or not contact or '@' not in email or method not in CRAFT_PAYMENT_METHODS:
+        flash('Name, contact number, a valid delivery email, and payment method are required.', 'error')
+        return redirect(url_for('digital_item_detail', item_id=item.id))
+    order = DigitalOrder(item_id=item.id, customer_name=name, contact_number=contact, email=email,
+        quantity=qty, unit_price=item.price, unit_cost=item.cost or 0, total_price=item.price * qty,
+        payment_method=method, gcash_ref=ref, requirements=request.form.get('requirements','').strip()[:3000] or None)
+    db.session.add(order); db.session.flush(); create_main_digital_order(order)
+    item.orders_count = parse_int(item.orders_count, 0) + qty; db.session.commit()
+    return redirect(url_for('digital_order_status', token=order.tracking_token))
+
+@app.route('/digital/order/<token>')
+def digital_order_status(token):
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    can_download = order.payment_status == 'PAID' and order.status in ('READY', 'DELIVERED')
+    return render_template('digital/order_status.html', order=order, can_download=can_download)
+
+@app.route('/admin/digital')
+@require_admin
+def digital_admin():
+    return render_template('digital/admin.html', items=DigitalItem.query.order_by(DigitalItem.is_active.desc(), DigitalItem.name).all(),
+        categories=DigitalCategory.query.order_by(DigitalCategory.name).all(), orders=DigitalOrder.query.order_by(DigitalOrder.created_at.desc()).limit(200).all())
+
+@app.route('/admin/digital/category/add', methods=['POST'])
+@require_admin
+def digital_category_add():
+    name = request.form.get('name','').strip()[:80]
+    if name and not DigitalCategory.query.filter(db.func.lower(DigitalCategory.name) == name.lower()).first():
+        db.session.add(DigitalCategory(name=name)); db.session.commit(); flash('Digital category added.', 'success')
+    return redirect(url_for('digital_admin'))
+
+@app.route('/admin/digital/item/save', methods=['POST'])
+@require_admin
+def digital_item_save():
+    item_id = parse_int(request.form.get('item_id'), 0)
+    item = db.session.get(DigitalItem, item_id) if item_id else DigitalItem()
+    price = parse_float(request.form.get('price'), 0)
+    if not request.form.get('name','').strip() or price <= 0:
+        flash('Enter a name and price greater than zero.', 'error'); return redirect(url_for('digital_admin'))
+    item.name=request.form['name'].strip()[:120]; item.description=request.form.get('description','').strip()[:5000]
+    item.category_name=request.form.get('category_name','General').strip()[:80] or 'General'
+    item.product_type=request.form.get('product_type','DOWNLOAD').upper(); item.price=price
+    item.cost=max(0,parse_float(request.form.get('cost'),0)); item.image_url=request.form.get('image_url','').strip() or CRAFT_DEFAULT_IMAGE
+    item.sample_url=request.form.get('sample_url','').strip() or None; item.file_format=request.form.get('file_format','').strip()[:80] or None
+    item.license_terms=request.form.get('license_terms','').strip()[:3000] or None
+    item.turnaround_days=max(0,parse_int(request.form.get('turnaround_days'),0)); item.is_active=bool(request.form.get('is_active', '1'))
+    item.is_featured=bool(request.form.get('is_featured'))
+    if not item_id: db.session.add(item)
+    db.session.commit(); flash('Digital offer saved.', 'success'); return redirect(url_for('digital_admin'))
+
+@app.route('/admin/digital/order/<int:order_id>/update', methods=['POST'])
+@require_admin
+def digital_order_update(order_id):
+    order = DigitalOrder.query.get_or_404(order_id)
+    status = request.form.get('status','').upper()
+    if status not in ('PENDING_PAYMENT','PAID','IN_PROGRESS','READY','DELIVERED','CANCELLED'):
+        flash('Invalid digital fulfillment status.', 'error'); return redirect(url_for('digital_admin'))
+    if order.payment_status != 'PAID' and status in ('READY','DELIVERED'):
+        flash('Cashier must confirm payment before releasing a digital product.', 'error'); return redirect(url_for('digital_admin'))
+    order.status=status; order.fulfillment_url=request.form.get('fulfillment_url','').strip() or None
+    order.license_key=request.form.get('license_key','').strip()[:255] or None
+    order.fulfillment_notes=request.form.get('fulfillment_notes','').strip()[:3000] or None
+    if status == 'DELIVERED': order.completed_at=utc_now()
+    db.session.commit(); flash('Digital order updated.', 'success'); return redirect(url_for('digital_admin'))
+
+# ==================== EXPENSE PAYMENT CENTER ====================
+
+@app.route('/admin/cashflow/payables')
+@require_admin
+def cashflow_payables():
+    today = ph_today(); start = today - timedelta(days=60); end = today + timedelta(days=91)
+    plans = CashFlowPlan.query.filter_by(entry_type='EXPENSE', is_active=True).all()
+    saved = {(x.plan_id, x.occurrence_date): x for x in CashFlowExpensePayment.query.filter(CashFlowExpensePayment.occurrence_date >= start, CashFlowExpensePayment.occurrence_date < end).all()}
+    rows=[]
+    for plan in plans:
+        if cashflow_plan_exclusion_reason(plan): continue
+        for occurrence in cashflow_occurrence_dates(plan, start, end):
+            payment=saved.get((plan.id, occurrence))
+            rows.append({'plan':plan,'occurrence_date':occurrence,'due_date':payment.due_date if payment else occurrence,
+                         'amount':payment.amount if payment else plan.amount,'status':payment.status if payment else 'PAYABLE','payment':payment})
+    rows.sort(key=lambda x:(x['status']=='PAID', x['due_date'], x['plan'].title))
+    return render_template('cash_flow_payables.html', rows=rows, today=today)
+
+@app.route('/admin/cashflow/payables/update', methods=['POST'])
+@require_admin
+def cashflow_payable_update():
+    plan = CashFlowPlan.query.get_or_404(parse_int(request.form.get('plan_id'),0))
+    occurrence = date.fromisoformat(request.form.get('occurrence_date',''))
+    payment = CashFlowExpensePayment.query.filter_by(plan_id=plan.id, occurrence_date=occurrence).first()
+    if not payment:
+        payment=CashFlowExpensePayment(plan_id=plan.id, occurrence_date=occurrence, due_date=occurrence, amount=plan.amount)
+        db.session.add(payment)
+    payment.due_date=date.fromisoformat(request.form.get('due_date') or occurrence.isoformat())
+    payment.status='PAID' if request.form.get('status')=='PAID' else 'PAYABLE'
+    payment.payment_method=request.form.get('payment_method','').strip()[:20] or None
+    payment.reference=request.form.get('reference','').strip()[:100] or None
+    payment.notes=request.form.get('notes','').strip()[:255] or None
+    payment.paid_at=utc_now() if payment.status=='PAID' else None
+    payment.paid_by=(session.get('admin_user') or 'admin') if payment.status=='PAID' else None
+    db.session.commit(); flash(f'{plan.title} marked {payment.status.lower()}.', 'success')
+    return redirect(url_for('cashflow_payables'))
 
 # ==================== FLEXIBLE-HORIZON CASH FLOW PORTAL ====================
 
@@ -4591,6 +4945,8 @@ def marketing_admin():
         openai_model=os.environ.get('OPENAI_MARKETING_MODEL', 'gpt-5.5'),
         cron_ready=bool(os.environ.get('MARKETING_CRON_TOKEN')),
         post_types=MARKETING_POST_TYPES,
+        active_products=Product.query.filter_by(is_active=True).order_by(Product.name.asc()).all(),
+        insight_imports=MarketingInsightImport.query.order_by(MarketingInsightImport.created_at.desc()).limit(10).all(),
     )
 
 @app.route('/admin/marketing/settings', methods=['POST'])
@@ -4647,6 +5003,7 @@ def marketing_generate():
         post = create_ai_marketing_post(
             business_hint=request.form.get('business', 'AUTO').upper(),
             post_type_hint=request.form.get('post_type', 'AUTO').upper(),
+            product_id=request.form.get('product_id'),
         )
         if post.status == 'SKIPPED':
             flash(f'AI chose not to create a promotional post: {post.reason}', 'info')
@@ -4730,6 +5087,25 @@ def marketing_save_insights(post_id):
     db.session.commit()
     flash(f'Meta insights saved for Post #{post.id}.', 'success')
     return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
+
+@app.route('/admin/marketing/insights/import', methods=['POST'])
+@require_admin
+def marketing_import_insights():
+    upload = request.files.get('meta_export')
+    if not upload:
+        flash('Choose a Meta Business Suite CSV or XLSX export.', 'error')
+        return redirect(url_for('marketing_admin') + '#meta-import')
+    try:
+        filename, summary, analysis = parse_meta_insight_upload(upload)
+        db.session.add(MarketingInsightImport(filename=filename, row_count=summary['rows'],
+            summary_json=json.dumps(summary), analysis=analysis, uploaded_by=session.get('admin_user') or 'admin'))
+        db.session.commit()
+        flash(f'Meta export analyzed: {summary["rows"]} post row(s).', 'success')
+    except (OrderValidationError, Exception) as exc:
+        db.session.rollback()
+        if not isinstance(exc, OrderValidationError): app.logger.exception('Meta insight import failed')
+        flash(str(exc) if isinstance(exc, OrderValidationError) else 'Could not analyze that Meta export.', 'error')
+    return redirect(url_for('marketing_admin') + '#meta-import')
 
 @app.route('/admin/marketing/post/<int:post_id>/analyze-insights', methods=['POST'])
 @require_admin
