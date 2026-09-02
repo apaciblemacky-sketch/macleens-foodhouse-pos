@@ -1,0 +1,70 @@
+{% set lc_theme = card_theme or card_customer.card_theme or 'pink-classic' %}
+{% set lc_logo_scale = card_customer.card_logo_scale or 1.0 %}
+{% set lc_photo_scale = card_customer.card_photo_scale or 1.0 %}
+{% set lc_qr_scale = card_customer.card_qr_scale or 1.0 %}
+{% set lc_text_scale = card_customer.card_text_scale or 1.0 %}
+{% set lc_info_scale = card_customer.card_info_scale or 1.0 %}
+<div class="loyalty-card-pair" data-loyalty-card-pair
+     style="--logo-scale:{{ '%.2f'|format(lc_logo_scale) }};--photo-scale:{{ '%.2f'|format(lc_photo_scale) }};--qr-scale:{{ '%.2f'|format(lc_qr_scale) }};--text-scale:{{ '%.2f'|format(lc_text_scale) }};--info-scale:{{ '%.2f'|format(lc_info_scale) }};">
+  <div class="loyalty-card lc-member-side {{ lc_theme }}" data-card-theme>
+    <div class="lc-member-header">
+      <img src="{{ store_logo }}" class="lc-logo" alt="Macleen's Food House">
+      <div class="lc-member-heading">
+        <div class="lc-brand-title">MACLEEN'S</div>
+        <div class="lc-brand-subtitle">LOYALTY REWARDS MEMBER</div>
+      </div>
+    </div>
+
+    <div class="lc-member-main">
+      <div class="lc-photo-shell card-photo-area">
+        {% if card_customer.profile_image %}
+          <img src="{{ card_customer.profile_image }}" class="lc-photo" alt="Member photo">
+        {% else %}
+          <div class="lc-photo-fallback">🎀</div>
+        {% endif %}
+      </div>
+      <div class="lc-person-text">
+        <div class="lc-name">{{ card_customer.name }}</div>
+        <div class="lc-card-id">{{ card_customer.card_number or 'MFH-0000' }}</div>
+        <div class="lc-validity card-expiry-area">
+          {% if card_customer.card_expires_at %}Valid until {{ card_customer.card_expires_at.strftime('%b %d, %Y') }}{% else %}Active Rewards Member{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="lc-qr-main card-qr-area">
+      <div class="lc-qr-shell">
+        {% if card_qr_data %}<img src="{{ card_qr_data }}" class="lc-qr" alt="Rewards login QR">{% endif %}
+      </div>
+      <div class="lc-scan">SCAN TO LOGIN</div>
+    </div>
+
+    <div class="lc-fb-footer">
+      <span class="lc-fb-icon" aria-hidden="true"></span>
+      <span>fb.com/macleens</span>
+    </div>
+  </div>
+
+  <div class="loyalty-card lc-info-side {{ lc_theme }}" data-card-theme>
+    <div class="lc-info-header">
+      <img src="{{ store_logo }}" class="lc-logo" alt="Macleen's Food House">
+      <div class="lc-info-heading">
+        <div class="lc-info-title">Macleen's Food House</div>
+        <div class="lc-info-subtitle">LOYALTY REWARDS MEMBER</div>
+      </div>
+    </div>
+
+    <div class="lc-info-rules">
+      <div class="lc-info-row"><span class="lc-info-icon">🛍️</span><span>Use your card when ordering or claiming member perks.</span></div>
+      <div class="lc-info-row"><span class="lc-info-icon">🔐</span><span>Keep your 4-digit PIN private. Card ID: <strong>{{ card_customer.card_number or 'MFH-0000' }}</strong>.</span></div>
+      <div class="lc-info-row"><span class="lc-info-icon">🪪</span><span>Manage your profile, card theme, and member deals in the Customer Portal.</span></div>
+      <div class="lc-info-row"><span class="lc-info-icon">💌</span><span>If found, please return to Macleen's Food House.</span></div>
+    </div>
+
+
+    <div class="lc-info-footer">
+      <div class="lc-validity-note">Card validity follows the member account status.</div>
+      <div class="lc-info-fb"><span class="lc-fb-icon" aria-hidden="true"></span><span>fb.com/macleens</span></div>
+    </div>
+  </div>
+</div>

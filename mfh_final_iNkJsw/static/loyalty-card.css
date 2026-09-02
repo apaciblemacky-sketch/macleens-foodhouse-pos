@@ -1,0 +1,324 @@
+/* Shared renderer for customer preview + admin print output. */
+.loyalty-card-pair{
+  --logo-scale:1;
+  --photo-scale:1;
+  --qr-scale:1;
+  --text-scale:1;
+  --info-scale:1;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:14px;
+}
+.loyalty-card{
+  width:85.6mm;
+  height:54mm;
+  max-width:100%;
+  border-radius:4mm;
+  position:relative;
+  overflow:hidden;
+  box-shadow:0 8px 20px rgba(15,23,42,.16);
+  print-color-adjust:exact;
+  -webkit-print-color-adjust:exact;
+  color:#733b12;
+  isolation:isolate;
+}
+.loyalty-card::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  z-index:0;
+  background:
+    radial-gradient(circle at 15% 20%,rgba(255,255,255,.55),transparent 30%),
+    linear-gradient(135deg,rgba(255,255,255,.30),transparent 42%,rgba(255,255,255,.10));
+}
+.loyalty-card .lc-logo{
+  width:calc(12.5mm * var(--logo-scale));
+  height:calc(12.5mm * var(--logo-scale));
+  flex:none;
+  object-fit:contain;
+  border-radius:50%;
+  background:rgba(255,255,255,.85);
+  padding:.5mm;
+  box-shadow:0 0 0 .35mm rgba(255,255,255,.42);
+}
+
+/* ---------- MEMBER / QR SIDE ---------- */
+.loyalty-card.lc-member-side{
+  padding:3.8mm 4.2mm 3.1mm;
+  display:grid;
+  grid-template-columns:47% 53%;
+  grid-template-rows:12.5mm minmax(0,1fr) 5.2mm;
+  column-gap:3mm;
+  row-gap:1.1mm;
+}
+.lc-member-side .lc-member-header{
+  position:relative;
+  z-index:1;
+  grid-column:1 / -1;
+  display:flex;
+  align-items:flex-start;
+  gap:2.7mm;
+  min-width:0;
+}
+.lc-member-side .lc-member-heading{
+  padding-top:.55mm;
+  min-width:0;
+  transform-origin:left top;
+  transform:scale(var(--text-scale));
+}
+.lc-member-side .lc-brand-title{
+  font-size:5.25mm;
+  line-height:.94;
+  font-weight:1000;
+  text-transform:uppercase;
+  letter-spacing:.05mm;
+  white-space:nowrap;
+}
+.lc-member-side .lc-brand-subtitle{
+  font-size:2.65mm;
+  line-height:1.05;
+  font-weight:1000;
+  text-transform:uppercase;
+  letter-spacing:.02mm;
+  margin-top:1mm;
+  white-space:nowrap;
+}
+.lc-member-side .lc-member-main{
+  position:relative;
+  z-index:1;
+  grid-column:1;
+  grid-row:2;
+  min-height:0;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+}
+.lc-member-side .lc-photo-shell{
+  width:calc(20.2mm * var(--photo-scale));
+  height:calc(20.2mm * var(--photo-scale));
+  max-width:25mm;
+  max-height:25mm;
+  border-radius:50%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex:none;
+  background:rgba(255,255,255,.82);
+  padding:1.2mm;
+  box-shadow:0 0 0 .55mm rgba(255,255,255,.48);
+}
+.lc-member-side .lc-photo,
+.lc-member-side .lc-photo-fallback{
+  width:100%;
+  height:100%;
+  border-radius:50%;
+}
+.lc-member-side .lc-photo{object-fit:cover;}
+.lc-member-side .lc-photo-fallback{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:9mm;
+  background:rgba(255,255,255,.72);
+}
+.lc-member-side .lc-person-text{
+  transform-origin:center top;
+  transform:scale(var(--text-scale));
+  margin-top:1.25mm;
+  width:calc(100% / var(--text-scale));
+}
+.lc-member-side .lc-name{
+  font-size:4.65mm;
+  line-height:1;
+  font-weight:1000;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+.lc-member-side .lc-card-id{
+  font-size:2.85mm;
+  line-height:1;
+  font-weight:1000;
+  margin-top:.7mm;
+  letter-spacing:.12mm;
+}
+.lc-member-side .lc-validity{
+  font-size:2.22mm;
+  line-height:1.05;
+  font-weight:780;
+  margin-top:.75mm;
+}
+.lc-member-side .lc-qr-main{
+  position:relative;
+  z-index:1;
+  grid-column:2;
+  grid-row:2;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  min-width:0;
+  min-height:0;
+}
+.lc-member-side .lc-qr-shell{
+  width:calc(27.5mm * var(--qr-scale));
+  height:calc(27.5mm * var(--qr-scale));
+  max-width:33mm;
+  max-height:33mm;
+  border-radius:3.2mm;
+  background:rgba(255,255,255,.92);
+  padding:2.3mm;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  box-shadow:0 0 0 .35mm rgba(255,255,255,.34);
+}
+.lc-member-side .lc-qr{width:100%;height:100%;object-fit:contain;}
+.lc-member-side .lc-scan{
+  font-size:3.35mm;
+  line-height:1;
+  font-weight:1000;
+  text-transform:uppercase;
+  letter-spacing:.05mm;
+  margin-top:1.4mm;
+  transform:scale(var(--text-scale));
+  transform-origin:center top;
+}
+.lc-member-side .lc-fb-footer{
+  position:relative;
+  z-index:1;
+  grid-column:1 / -1;
+  grid-row:3;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:1.5mm;
+  border-top:.25mm solid rgba(232,121,150,.55);
+  font-size:2.55mm;
+  font-weight:900;
+  padding-top:1.15mm;
+  transform-origin:center bottom;
+}
+.lc-fb-icon{
+  width:4.4mm;
+  height:4.4mm;
+  border-radius:50%;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  font-size:3.6mm;
+  line-height:1;
+  font-weight:1000;
+  background:currentColor;
+  color:inherit;
+  position:relative;
+}
+.lc-fb-icon::after{content:"f";color:#fff;position:absolute;font-family:Arial,sans-serif;font-size:3.5mm;font-weight:1000;top:.15mm;}
+
+/* ---------- INFORMATION SIDE ---------- */
+.loyalty-card.lc-info-side{
+  padding:4mm 4.7mm 3.4mm;
+  display:grid;
+  grid-template-rows:13mm minmax(0,1fr) 5.2mm;
+  gap:1.15mm;
+}
+.lc-info-side .lc-info-header{
+  position:relative;
+  z-index:1;
+  display:flex;
+  align-items:center;
+  gap:2.8mm;
+  min-width:0;
+}
+.lc-info-side .lc-info-heading{
+  transform:scale(var(--text-scale));
+  transform-origin:left center;
+  min-width:0;
+}
+.lc-info-side .lc-info-title{
+  font-size:5.25mm;
+  line-height:.95;
+  font-weight:1000;
+  white-space:nowrap;
+}
+.lc-info-side .lc-info-subtitle{
+  font-size:2.75mm;
+  line-height:1.05;
+  font-weight:1000;
+  text-transform:uppercase;
+  margin-top:1.1mm;
+  white-space:nowrap;
+}
+.lc-info-side .lc-info-rules{
+  position:relative;
+  z-index:1;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  gap:1.55mm;
+  font-size:calc(2.65mm * var(--info-scale));
+  line-height:1.18;
+  font-weight:820;
+}
+.lc-info-side .lc-info-row{display:grid;grid-template-columns:4mm 1fr;gap:1.4mm;align-items:start;}
+.lc-info-side .lc-info-icon{font-size:calc(3mm * var(--info-scale));line-height:1;text-align:center;}
+.lc-info-side .lc-return{
+  position:relative;
+  z-index:1;
+  align-self:center;
+  border-radius:1.3mm;
+  padding:1.2mm 2mm;
+  font-size:calc(2.7mm * var(--info-scale));
+  line-height:1.08;
+  font-weight:1000;
+  background:rgba(255,255,255,.24);
+}
+.lc-info-side .lc-info-footer{
+  position:relative;
+  z-index:1;
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:2mm;
+  align-items:end;
+  border-top:.25mm solid rgba(232,121,150,.55);
+  padding-top:1mm;
+}
+.lc-info-side .lc-validity-note{
+  font-size:calc(2.15mm * var(--info-scale));
+  line-height:1.08;
+  font-style:italic;
+  font-weight:760;
+}
+.lc-info-side .lc-info-fb{
+  display:flex;
+  align-items:center;
+  gap:1.2mm;
+  font-size:calc(2.35mm * var(--info-scale));
+  font-weight:1000;
+  white-space:nowrap;
+}
+
+/* Themes */
+.loyalty-card.pink-classic{background:linear-gradient(135deg,#e94f9b,#f4778f 56%,#f9d1df);color:#fff;}
+.loyalty-card.cafe-cream{background:linear-gradient(135deg,#fff7eb 0%,#f8d9b3 58%,#f3bd7f 100%);color:#733b12;}
+.loyalty-card.midnight-gold{background:linear-gradient(135deg,#0f172a,#1f2937 58%,#374151);color:#fde9aa;}
+.loyalty-card.mint-fresh{background:linear-gradient(135deg,#effdf7,#b8efd8 58%,#7bdcb5);color:#075f49;}
+.loyalty-card.purple-craft{background:linear-gradient(135deg,#7c3aed,#a855f7 58%,#efb5fb);color:#fff;}
+.loyalty-card.pink-classic .lc-qr-shell,
+.loyalty-card.purple-craft .lc-qr-shell{background:rgba(255,255,255,.94);}
+.loyalty-card.midnight-gold .lc-qr-shell{background:#fff;}
+.loyalty-card.cafe-cream .lc-return{background:rgba(255,255,255,.28);}
+.loyalty-card.midnight-gold .lc-return{background:rgba(253,233,170,.13);}
+
+@media screen and (max-width:520px){
+  .loyalty-card-pair{align-items:flex-start;}
+}
+
+@media print{
+  .loyalty-card{box-shadow:none;max-width:none;}
+  .loyalty-card-pair{gap:8mm;align-items:flex-start;}
+}

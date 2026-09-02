@@ -1,0 +1,208 @@
+{% extends 'base.html' %}
+{% block content %}
+  <!-- Pink Themed Hero Banner -->
+  <div style="background: linear-gradient(135deg, #ec4899 0%, #be185d 100%); color: white; padding: 1.8rem 1.2rem; border-radius: 16px; margin-bottom: 1.8rem; text-align: center; box-shadow: 0 8px 16px rgba(236, 72, 153, 0.12);">
+    <h1 style="font-size: 1.8rem; margin-bottom: 0.2rem; font-weight: 800;">🎨 Macleen's Crafts</h1>
+    <p style="font-size: 0.95rem; font-weight: 600; opacity: 0.95;">by Macleen's Food House</p>
+    <p style="font-size: 0.85rem; margin-top: 0.4rem; opacity: 0.9;">Custom prints & handcrafted crafts • Pickup at <strong>Macleen's Food House</strong></p>
+    
+    <!-- Visitor Counter Badge -->
+    <div style="display: inline-block; background: rgba(255, 255, 255, 0.2); padding: 4px 14px; border-radius: 20px; margin-top: 0.8rem; font-size: 0.8rem; font-weight: 700;">
+      👀 Website Visitors: <span>{{ "{:,}".format(site_visits) }}</span>
+    </div>
+  </div>
+
+  <!-- Staff / Admin Controls Section: Operating Hours & Password Change -->
+  {% if current_user.is_authenticated %}
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 2rem;">
+    
+    <!-- 1. Store & Delivery Schedule Management -->
+    <div style="background: white; border: 2px solid #fbcfe8; border-radius: 14px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+      <h3 style="color: #831843; font-size: 1rem; font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+        ⏰ Store & Delivery Schedule
+      </h3>
+      <form action="/admin/settings/hours" method="POST">
+        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+          <div style="flex: 1;">
+            <label style="font-size: 0.75rem; font-weight: bold; color: #475569;">Store Hours</label>
+            <div style="display: flex; gap: 4px;">
+              <input type="time" name="store_open_time" value="{{ status.settings.store_open_time if status else '08:00' }}" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+              <input type="time" name="store_close_time" value="{{ status.settings.store_close_time if status else '19:00' }}" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+            </div>
+          </div>
+          <div style="flex: 1;">
+            <label style="font-size: 0.75rem; font-weight: bold; color: #475569;">Delivery Hours</label>
+            <div style="display: flex; gap: 4px;">
+              <input type="time" name="delivery_open_time" value="{{ status.settings.delivery_open_time if status else '09:00' }}" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+              <input type="time" name="delivery_close_time" value="{{ status.settings.delivery_close_time if status else '17:00' }}" style="width: 100%; padding: 6px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 14px; margin-bottom: 12px; font-size: 0.8rem; font-weight: bold; color: #334155;">
+          <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+            <input type="checkbox" name="is_store_open" {% if not status or status.settings.is_store_open == 'true' %}checked{% endif %}> Store Online
+          </label>
+          <label style="display: flex; align-items: center; gap: 4px; cursor: pointer;">
+            <input type="checkbox" name="is_delivery_enabled" {% if not status or status.settings.is_delivery_enabled == 'true' %}checked{% endif %}> Delivery Online
+          </label>
+        </div>
+
+        <button type="submit" style="background: #ec4899; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-weight: bold; font-size: 0.8rem; width: 100%; cursor: pointer;">
+          Save Schedule Settings
+        </button>
+      </form>
+    </div>
+
+    <!-- 2. Staff / Admin Password Update -->
+    <div style="background: white; border: 2px solid #fbcfe8; border-radius: 14px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+      <h3 style="color: #831843; font-size: 1rem; font-weight: 800; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;">
+        🔒 Change Staff Password
+      </h3>
+      <form action="/auth/change-password" method="POST">
+        <div style="margin-bottom: 6px;">
+          <input type="password" name="old_password" placeholder="Current Password" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+        </div>
+        <div style="display: flex; gap: 6px; margin-bottom: 12px;">
+          <input type="password" name="new_password" minlength="6" placeholder="New Password" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+          <input type="password" name="confirm_password" minlength="6" placeholder="Confirm" style="width: 100%; padding: 6px 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.8rem;" required>
+        </div>
+        <button type="submit" style="background: #334155; color: white; border: none; padding: 7px 14px; border-radius: 6px; font-weight: bold; font-size: 0.8rem; width: 100%; cursor: pointer;">
+          Update Account Password
+        </button>
+      </form>
+    </div>
+
+  </div>
+  {% endif %}
+
+  <!-- Featured Products Section -->
+  {% if featured_items and not selected_category %}
+    <div style="margin-bottom: 2.2rem;">
+      <h2 style="font-size: 1.25rem; color: #831843; margin-bottom: 0.8rem; display: flex; align-items: center; gap: 6px;">✨ Featured Products</h2>
+      <div class="product-grid">
+        {% for item in featured_items %}
+          <div class="product-card" style="border: 2px solid #a855f7;">
+            <div style="position: relative;">
+              <span style="position: absolute; top: 8px; left: 8px; background: #9333ea; color: white; padding: 3px 7px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">✨ FEATURED</span>
+              {% if item.availability_type == 'In Stock' %}
+                {% if item.stock_quantity > 0 %}
+                  <span style="position: absolute; top: 8px; right: 8px; background: #10b981; color: white; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">In Stock ({{ item.stock_quantity }})</span>
+                {% else %}
+                  <span style="position: absolute; top: 8px; right: 8px; background: #ef4444; color: white; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">Sold Out</span>
+                {% endif %}
+              {% else %}
+                <span style="position: absolute; top: 8px; right: 8px; background: #8b5cf6; color: white; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">Pre-Order</span>
+              {% endif %}
+              <img src="{{ item.image_url }}" alt="{{ item.name }}" class="product-image">
+            </div>
+            <div class="product-body">
+              <small style="color: #9333ea; font-weight: bold; font-size: 0.75rem;">{{ item.category_name }}</small>
+              <h3 class="product-title">{{ item.name }}</h3>
+              <div class="product-price">₱{{ "{:,.2f}".format(item.price) }}</div>
+              <div style="margin-top: auto;">
+                <a href="{{ url_for('item_detail', item_id=item.id) }}" class="btn" style="background: #9333ea;">View & Reserve</a>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Top Sellers Section -->
+  {% if top_sellers and not selected_category %}
+    <div style="margin-bottom: 2.2rem;">
+      <h2 style="font-size: 1.25rem; color: #831843; margin-bottom: 0.8rem; display: flex; align-items: center; gap: 6px;">⭐ Top Sellers</h2>
+      <div class="product-grid">
+        {% for item in top_sellers %}
+          <div class="product-card" style="border: 2px solid #f472b6;">
+            <div style="position: relative;">
+              <span style="position: absolute; top: 8px; left: 8px; background: #ec4899; color: white; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">⭐ TOP PICK</span>
+              {% if item.availability_type == 'In Stock' %}
+                {% if item.stock_quantity > 0 %}
+                  <span style="position: absolute; top: 8px; right: 8px; background: #10b981; color: white; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">In Stock ({{ item.stock_quantity }})</span>
+                {% else %}
+                  <span style="position: absolute; top: 8px; right: 8px; background: #ef4444; color: white; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">Sold Out</span>
+                {% endif %}
+              {% else %}
+                <span style="position: absolute; top: 8px; right: 8px; background: #8b5cf6; color: white; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">Pre-Order</span>
+              {% endif %}
+              <img src="{{ item.image_url }}" alt="{{ item.name }}" class="product-image">
+            </div>
+            <div class="product-body">
+              <small style="color: #db2777; font-weight: bold; font-size: 0.75rem;">{{ item.category_name }}</small>
+              <h3 class="product-title">{{ item.name }}</h3>
+              <div class="product-price">₱{{ "{:,.2f}".format(item.price) }}</div>
+              <div style="margin-top: auto;">
+                <a href="{{ url_for('item_detail', item_id=item.id) }}" class="btn">View & Reserve</a>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Categories Showcase with Horizontal Mobile Scroll -->
+  <h2 style="font-size: 1.25rem; color: #831843; margin-bottom: 0.8rem;">🏷️ Categories</h2>
+  <div style="display: flex; gap: 0.8rem; overflow-x: auto; padding-bottom: 0.6rem; margin-bottom: 2rem; -webkit-overflow-scrolling: touch; scrollbar-width: none;">
+    <a href="/" style="text-decoration: none; flex-shrink: 0;">
+      <div style="background: white; border: 2px solid {% if not selected_category %}#ec4899{% else %}#fbcfe8{% endif %}; border-radius: 24px; padding: 0.5rem 1.1rem; font-weight: 700; color: #374151; font-size: 0.85rem;">
+        ✨ All Crafts
+      </div>
+    </a>
+    {% for cat in categories %}
+      <a href="/?category={{ cat.name }}" style="text-decoration: none; flex-shrink: 0;">
+        <div style="background: white; border: 2px solid {% if selected_category == cat.name %}#ec4899{% else %}#fbcfe8{% endif %}; border-radius: 24px; padding: 0.5rem 1.1rem; font-weight: 700; color: #374151; font-size: 0.85rem;">
+          <span>{{ cat.name }}</span>
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+
+  <!-- Product Catalog -->
+  <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: flex-end;">
+    <div>
+      <h2 style="font-size: 1.25rem; color: #831843;">
+        {% if selected_category %}{{ selected_category }}{% else %}Craft Catalog{% endif %}
+      </h2>
+      <p style="color: #6b7280; font-size: 0.85rem;">{{ items|length }} item(s) available</p>
+    </div>
+  </div>
+
+  <div class="product-grid">
+    {% for item in items %}
+      <div class="product-card">
+        <div style="position: relative;">
+          {% if item.availability_type == 'In Stock' %}
+            {% if item.stock_quantity > 0 %}
+              <span style="position: absolute; top: 8px; right: 8px; background: #10b981; color: white; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">In Stock ({{ item.stock_quantity }})</span>
+            {% else %}
+              <span style="position: absolute; top: 8px; right: 8px; background: #ef4444; color: white; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">Sold Out</span>
+            {% endif %}
+          {% else %}
+            <span style="position: absolute; top: 8px; right: 8px; background: #8b5cf6; color: white; padding: 3px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold;">Pre-Order</span>
+          {% endif %}
+          <img src="{{ item.image_url }}" alt="{{ item.name }}" class="product-image">
+        </div>
+        <div class="product-body">
+          <small style="color: #9ca3af; font-size: 0.75rem;">{{ item.category_name }}</small>
+          <h3 class="product-title">{{ item.name }}</h3>
+          <div class="product-price">₱{{ "{:,.2f}".format(item.price) }}</div>
+          <div class="product-stats">
+            <span>❤️ {{ item.likes }}</span>
+            <span>💬 {{ item.comments|length }}</span>
+          </div>
+          <div style="margin-top: auto;">
+            <a href="{{ url_for('item_detail', item_id=item.id) }}" class="btn">View & Reserve</a>
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div style="grid-column: 1 / -1; text-align: center; padding: 3rem 1rem; color: #9ca3af;">
+        <p>No crafts found in this category yet.</p>
+      </div>
+    {% endfor %}
+  </div>
+{% endblock %}

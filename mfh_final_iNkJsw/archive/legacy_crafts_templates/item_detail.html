@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% block content %}
+  <p style="margin-bottom: 1rem;"><a href="/" style="color: #db2777; font-weight: 600; text-decoration: none; font-size: 0.9rem;">← Back to Catalog</a></p>
+
+  <div style="background: white; padding: 1.2rem; border-radius: 16px; border: 1px solid #fbcfe8; display: flex; flex-direction: column; gap: 1.5rem;">
+    <div>
+      <img src="{{ item.image_url }}" alt="{{ item.name }}" style="width: 100%; border-radius: 12px; object-fit: cover; max-height: 380px;">
+    </div>
+    
+    <div>
+      <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 0.6rem; flex-wrap: wrap;">
+        <span style="background: #fce7f3; color: #be185d; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 0.8rem;">{{ item.category_name }}</span>
+        {% if item.availability_type == 'In Stock' %}
+          {% if item.stock_quantity > 0 %}
+            <span style="background: #dcfce7; color: #15803d; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 0.8rem;">✅ In Stock ({{ item.stock_quantity }} left)</span>
+          {% else %}
+            <span style="background: #fee2e2; color: #dc2626; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 0.8rem;">⚠️ Sold Out</span>
+          {% endif %}
+        {% else %}
+          <span style="background: #ede9fe; color: #6d28d9; padding: 3px 8px; border-radius: 6px; font-weight: bold; font-size: 0.8rem;">⏳ Pre-Order (Made to Order)</span>
+        {% endif %}
+      </div>
+
+      <h1 style="font-size: 1.6rem; color: #1e293b; margin-bottom: 0.3rem;">{{ item.name }}</h1>
+      <div style="font-size: 1.5rem; font-weight: 800; color: #db2777; margin-bottom: 1rem;">₱{{ "{:,.2f}".format(item.price) }}</div>
+      
+      <p style="color: #4b5563; font-size: 0.95rem; line-height: 1.6; margin-bottom: 1.5rem; white-space: pre-line;">{{ item.description }}</p>
+
+      <div style="display: flex; gap: 10px; margin-bottom: 1.8rem;">
+        {% if item.availability_type == 'In Stock' and item.stock_quantity == 0 %}
+          <button disabled class="btn" style="background: #9ca3af; cursor: not-allowed; flex: 1;">Sold Out</button>
+        {% else %}
+          <a href="{{ url_for('order_item', item_id=item.id) }}" class="btn" style="flex: 1;">
+            {% if item.availability_type == 'In Stock' %}Reserve & Pick Up{% else %}Pre-Order Now{% endif %}
+          </a>
+        {% endif %}
+        <form action="{{ url_for('like_item', item_id=item.id) }}" method="POST">
+          <button type="submit" class="btn btn-outline" style="width: auto; padding: 0.6rem 1rem;">❤️ {{ item.likes }}</button>
+        </form>
+      </div>
+
+      <div style="border-top: 1px solid #fbcfe8; padding-top: 1.2rem;">
+        <h3 style="color: #831843; font-size: 1.1rem; margin-bottom: 0.8rem;">Customer Comments & Q&A ({{ item.comments|length }})</h3>
+        
+        <form action="{{ url_for('add_comment', item_id=item.id) }}" method="POST" style="margin-bottom: 1.2rem;">
+          <input type="text" name="author" placeholder="Your Name" style="width: 100%; padding: 0.55rem; border: 1px solid #fbcfe8; border-radius: 6px; margin-bottom: 0.4rem; box-sizing: border-box; font-size: 0.9rem;">
+          <textarea name="content" required placeholder="Ask a question or leave feedback..." rows="2" style="width: 100%; padding: 0.55rem; border: 1px solid #fbcfe8; border-radius: 6px; margin-bottom: 0.4rem; box-sizing: border-box; font-size: 0.9rem;"></textarea>
+          <button type="submit" class="btn" style="width: auto; padding: 0.4rem 1rem; font-size: 0.85rem;">Submit</button>
+        </form>
+
+        {% for c in item.comments %}
+          <div style="background: #fff5f7; padding: 0.7rem; border-radius: 8px; margin-bottom: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <strong style="font-size: 0.85rem;">{{ c.author }}</strong>
+              <small style="color: #9ca3af; font-size: 0.75rem;">{{ c.timestamp.strftime('%b %d') }}</small>
+            </div>
+            <p style="margin-top: 2px; color: #374151; font-size: 0.85rem;">{{ c.content }}</p>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endblock %}

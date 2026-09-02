@@ -1,0 +1,23 @@
+services:
+  - type: web
+    # Keep the existing Render service name to avoid accidentally provisioning a second service.
+    name: macleens-foodhouse-pos
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    healthCheckPath: /healthz
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MARKETING_MODEL
+        value: gemini-3.5-flash-lite
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MARKETING_MODEL
+        value: gpt-5.5
+      - key: MARKETING_CRON_TOKEN
+        generateValue: true
+      - key: PUBLIC_BASE_URL
+        value: https://macleens-foodhouse-pos.onrender.com

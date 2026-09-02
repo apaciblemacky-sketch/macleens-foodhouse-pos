@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+  <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 2.5rem; max-width: 540px; margin: 2rem auto; text-align: center; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+    <h2 style="color: #2d5a27; font-size: 1.8rem; margin-bottom: 0.5rem;">🌿 Order Reserved!</h2>
+    <p style="color: #4a5568; font-size: 1rem; margin-bottom: 1.5rem;">Thank you, <strong>{{ order.customer_name }}</strong>! We have received your pickup reservation.</p>
+    
+    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 1.5rem; text-align: left; margin-bottom: 1.5rem; font-size: 0.95rem; line-height: 1.8;">
+      <p><strong>Order ID:</strong> #{{ order.id }}</p>
+      <p><strong>Item:</strong> {{ item.name }} (Qty: {{ order.quantity }})</p>
+      <p><strong>Total Amount to Pay:</strong> <span style="color: #2d5a27; font-weight: bold;">₱{{ "{:,.2f}".format(order.total_price) }}</span></p>
+      <p><strong>Pickup Location:</strong> 📍 Macleen's Food House</p>
+      <hr style="margin: 0.8rem 0; border: none; border-top: 1px solid #e2e8f0;">
+      <p><strong>Contact Number:</strong> {{ order.contact_number }}</p>
+      <p><strong>Confirmation Details:</strong> Sent via Facebook (<code>{{ order.fb_account }}</code>) and email (<code>{{ order.email }}</code>).</p>
+    </div>
+
+    <a href="/" class="btn" style="width: auto; padding: 0.7rem 1.8rem;">Back to Hedera Store</a>
+  </div>
+{% endblock %}

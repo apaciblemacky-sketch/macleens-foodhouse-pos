@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Investor Center</title>
+  <style>
+    :root { --wine:#831843; --pink:#ec4899; --line:#fbcfe8; --ink:#1e293b; --muted:#64748b; --green:#047857; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#fff7fb; color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+    a { color:inherit; }
+    .wrap { max-width:1200px; margin:auto; padding:22px; }
+    header { display:flex; justify-content:space-between; gap:18px; align-items:center; background:white; border:1px solid var(--line); border-radius:16px; padding:18px; margin-bottom:18px; }
+    .brand { display:flex; align-items:center; gap:10px; }
+    .brand img { width:48px; height:48px; border-radius:50%; object-fit:cover; border:2px solid var(--pink); }
+    h1 { margin:0; color:var(--wine); font-size:1.45rem; }
+    header p { margin:2px 0 0; color:var(--muted); font-size:.8rem; }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+    .btn { border:0; border-radius:8px; padding:9px 13px; font-weight:900; font-size:.78rem; text-decoration:none; cursor:pointer; display:inline-block; }
+    .btn-primary { background:var(--pink); color:white; }
+    .btn-dark { background:#1e293b; color:white; }
+    .btn-soft { background:#f3e8ff; color:#6b21a8; }
+    .notice { background:#fffbeb; color:#92400e; border:1px solid #fde68a; border-radius:12px; padding:12px 15px; margin-bottom:18px; font-size:.79rem; }
+    .flash { padding:10px 13px; border-radius:9px; margin-bottom:12px; font-size:.82rem; font-weight:800; }
+    .flash.success { background:#dcfce7; color:#166534; }
+    .flash.error { background:#fee2e2; color:#991b1b; }
+    .metrics { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:18px; }
+    .metric { background:white; border:1px solid var(--line); border-radius:13px; padding:17px; }
+    .metric small { display:block; color:var(--muted); font-weight:900; text-transform:uppercase; letter-spacing:.04em; font-size:.67rem; }
+    .metric strong { display:block; margin-top:4px; color:var(--wine); font-size:1.35rem; }
+    .metric span { display:block; color:#94a3b8; font-size:.7rem; margin-top:3px; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-bottom:18px; }
+    .card { background:white; border:1px solid var(--line); border-radius:14px; padding:20px; }
+    .card h2 { margin:0 0 4px; color:var(--wine); font-size:1.12rem; }
+    .card > p { color:var(--muted); font-size:.77rem; margin:0 0 16px; }
+    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:11px; }
+    .full { grid-column:1/-1; }
+    label { display:block; font-size:.72rem; color:#475569; font-weight:900; margin-bottom:4px; }
+    input,textarea,select { width:100%; border:1px solid #cbd5e1; border-radius:7px; padding:8px; font:inherit; font-size:.8rem; background:white; }
+    textarea { min-height:76px; resize:vertical; }
+    .check { display:flex; gap:8px; align-items:flex-start; font-size:.75rem; color:#475569; }
+    .check input { width:auto; margin-top:2px; }
+    .progress-row { display:flex; justify-content:space-between; gap:10px; font-size:.78rem; margin-top:14px; }
+    .bar { height:10px; background:#f1f5f9; border-radius:99px; overflow:hidden; margin-top:8px; }
+    .bar span { display:block; height:100%; background:linear-gradient(90deg,var(--pink),var(--wine)); }
+    .checklist { list-style:none; margin:0; padding:0; display:grid; gap:8px; }
+    .checklist li { display:grid; grid-template-columns:25px 1fr; gap:8px; color:#475569; font-size:.8rem; }
+    .checklist li span { color:var(--green); font-weight:900; }
+    .table-wrap { overflow:auto; }
+    table { width:100%; border-collapse:collapse; min-width:1000px; font-size:.77rem; }
+    th { background:#fdf2f8; color:var(--wine); text-align:left; padding:9px; border:1px solid var(--line); white-space:nowrap; }
+    td { padding:9px; border:1px solid #fce7f3; vertical-align:top; }
+    .status { padding:3px 6px; border-radius:999px; background:#f1f5f9; font-size:.68rem; font-weight:900; white-space:nowrap; }
+    .message { max-width:280px; white-space:pre-wrap; color:#475569; }
+    .empty { padding:28px; text-align:center; color:#94a3b8; }
+    .footnote { color:#94a3b8; font-size:.7rem; margin-top:12px; }
+    @media(max-width:900px) { .metrics{grid-template-columns:repeat(2,1fr)} .grid{grid-template-columns:1fr} }
+    @media(max-width:600px) { .wrap{padding:12px} header{align-items:flex-start;flex-direction:column}.actions{justify-content:flex-start}.metrics,.form-grid{grid-template-columns:1fr}.full{grid-column:auto} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="brand">
+        <img src="{{ store_logo }}" onerror="this.onerror=null;this.src='/static/logo.png';" alt="Macleen's logo">
+        <div><h1>📈 Investor Center</h1><p>Private planning, lead follow-up, and business-readiness overview</p></div>
+      </div>
+      <div class="actions">
+        <a class="btn btn-primary" href="{{ url_for('investor_private_offer') }}" target="_blank">Open private invitation page</a>
+        <a class="btn btn-soft" href="{{ url_for('admin_dashboard') }}">Master Admin</a>
+        <a class="btn btn-dark" href="{{ url_for('staff_logout') }}">Log out</a>
+      </div>
+    </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category,message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}
+    {% endwith %}
+
+    <div class="notice"><strong>Internal note:</strong> These figures come from current system records and are not audited financial statements. Reconcile them with bank, GCash, receipts, taxes, inventory counts, and accounting records before sharing them.</div>
+
+    <div class="metrics">
+      <div class="metric"><small>Recorded all-time gross sales</small><strong>₱{{ "{:,.2f}".format(total_sales) }}</strong><span>Completed orders + configured vault-drop policy</span></div>
+      <div class="metric"><small>Recorded 30-day gross</small><strong>₱{{ "{:,.2f}".format(month_sales) }}</strong><span>Current system window</span></div>
+      <div class="metric"><small>30-day net estimate</small><strong>₱{{ "{:,.2f}".format(month_net_estimate) }}</strong><span>Gross less recorded COGS and expenses</span></div>
+      <div class="metric"><small>Completed orders</small><strong>{{ total_orders }}</strong><span>All-time system total</span></div>
+      <div class="metric"><small>Customer accounts</small><strong>{{ total_customers }}</strong><span>Registered loyalty/customer records</span></div>
+      <div class="metric"><small>Active food/service offers</small><strong>{{ active_products }}</strong><span>Visible active catalog entries</span></div>
+      <div class="metric"><small>Active craft products</small><strong>{{ active_crafts }}</strong><span>Visible active craft entries</span></div>
+      <div class="metric"><small>Recorded inventory value</small><strong>₱{{ "{:,.2f}".format(inventory_val) }}</strong><span>Entered unit cost × current stock</span></div>
+    </div>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Private invitation settings</h2>
+        <p>Share the access-code page only with selected contacts. Final arrangements require a separately reviewed and signed private agreement.</p>
+        <form method="post" action="{{ url_for('save_investor_settings') }}">
+          <div class="form-grid">
+            <div class="full"><label>Headline</label><input name="headline" maxlength="180" value="{{ investor.headline }}" required></div>
+            <div class="full"><label>Summary</label><textarea name="summary" maxlength="500" required>{{ investor.summary }}</textarea></div>
+            <div><label>Contact phone</label><input name="contact_phone" maxlength="50" value="{{ investor.contact_phone }}"></div>
+            <div><label>Facebook page URL</label><input name="facebook_url" maxlength="300" value="{{ investor.facebook_url }}" placeholder="https://facebook.com/..."></div>
+            <div><label>Funding goal (₱)</label><input type="number" min="0" step="0.01" name="funding_goal" value="{{ '%.2f'|format(investor.funding_goal) }}"></div>
+            <div><label>Recorded commitments (₱)</label><input type="number" min="0" step="0.01" name="funds_committed" value="{{ '%.2f'|format(investor.funds_committed) }}"></div>
+            <label class="check full"><input type="checkbox" name="show_funding_numbers" {% if investor.show_funding_numbers %}checked{% endif %}><span>Show goal and recorded commitments inside the private invitation materials only after verification.</span></label>
+            <div class="full"><label>New private proposal access code</label><input type="password" name="private_access_code" minlength="6" autocomplete="new-password" placeholder="Leave blank to keep the existing code"></div>
+            <div class="full" style="padding:9px;background:#f8fafc;border-radius:8px;font-size:.75rem;color:#475569;"><strong>Private terms page:</strong> {{ 'Enabled' if investor.private_offer_enabled else 'Disabled until an access code is set' }} · <a href="{{ url_for('investor_private_offer') }}" target="_blank" style="color:#6d28d9;font-weight:900;">Open page</a></div>
+            <label class="check full"><input type="checkbox" name="disable_private_access"><span>Disable private proposal access and invalidate the current code.</span></label>
+          </div>
+          <div class="progress-row"><span>Recorded funding progress</span><strong>{{ investor.funding_progress|round|int }}%</strong></div>
+          <div class="bar"><span style="width:{{ investor.funding_progress }}%;"></span></div>
+          <button class="btn btn-primary" type="submit" style="margin-top:14px;">Save private invitation settings</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Investor-readiness checklist</h2>
+        <p>Prepare these before moving a serious conversation toward an agreement.</p>
+        <ul class="checklist">
+          <li><span>1</span><div><strong>Exact funding request.</strong> Use supplier quotations and a line-item budget—not a rough total.</div></li>
+          <li><span>2</span><div><strong>12-month operating history.</strong> Reconcile sales, COGS, expenses, owner withdrawals, GCash, and bank records.</div></li>
+          <li><span>3</span><div><strong>Unit economics.</strong> Show price, direct cost, gross margin, sales volume, spoilage, and labor assumptions by product line.</div></li>
+          <li><span>4</span><div><strong>Milestones.</strong> Define what is purchased, when it launches, and which customer or revenue measure will prove progress.</div></li>
+          <li><span>5</span><div><strong>Ownership and controls.</strong> State who manages funds, approvals, reporting, inventory, and cash reconciliation.</div></li>
+          <li><span>6</span><div><strong>Risk and downside plan.</strong> Explain seasonality, slow-selling products, equipment delays, competition, and online acquisition cost.</div></li>
+          <li><span>7</span><div><strong>Professional review.</strong> Have the final structure, disclosures, permits, taxes, and written agreement reviewed locally before accepting funds.</div></li>
+        </ul>
+        <p class="footnote">Suggested reporting: monthly profit-and-loss summary, cash reconciliation, inventory count, use-of-funds update, and milestone progress.</p>
+      </section>
+    </div>
+
+    <section class="card">
+      <h2>Configured private discussion options</h2>
+      <p>Simple, non-compounding calculations at the displayed proposed rate. These are selectable discussion requests—not accepted investments or guaranteed returns.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Option</th><th>Available payout</th><th>Monthly interest</th><th>Total interest</th><th>Total principal + interest</th><th>Payment at maturity</th></tr></thead>
+          <tbody>
+            {% for code,offer in offers.items() %}
+              {% for payout in offer.payout_options %}
+                {% set calc_amount = offer.amount * offer.monthly_rate_percent / 100 %}
+                {% set calc_interest = calc_amount * offer.term_months %}
+                <tr>
+                  <td><strong>{{ offer.label }}</strong><br><small>{{ offer.rate_note }}</small></td>
+                  <td>{{ payout_options[payout] }}</td>
+                  <td>₱{{ "{:,.2f}".format(calc_amount) }} × {{ offer.term_months }} months</td>
+                  <td>₱{{ "{:,.2f}".format(calc_interest) }}</td>
+                  <td>₱{{ "{:,.2f}".format(offer.amount + calc_interest) }}</td>
+                  <td>₱{{ "{:,.2f}".format((offer.amount + calc_interest) if payout == 'LUMP_SUM' else (offer.amount + calc_amount)) }}</td>
+                </tr>
+              {% endfor %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card" id="inquiries">
+      <h2>Private introduction and proposal requests</h2>
+      <p>Follow up outside the public website. Do not send return promises before the business information and legal structure have been reviewed.</p>
+      <a class="btn btn-soft" href="{{ url_for('cashier_investor_proposals') }}" target="_blank" style="margin-bottom:12px;">Open Cashier Proposal Queue</a>
+      <div class="table-wrap">
+        {% if leads %}
+        <table>
+          <thead><tr><th>Date</th><th>Name / Contact</th><th>Interest</th><th>Selected proposal</th><th>Calculation snapshot</th><th>Message / Cashier notes</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for lead in leads %}
+            <tr>
+              <td>{{ lead.created_at.strftime('%Y-%m-%d %H:%M') if lead.created_at else '' }}</td>
+              <td><strong>{{ lead.name }}</strong><br>{{ lead.contact }}<br><small>{{ contact_choices.get(lead.preferred_contact, lead.preferred_contact) }}</small></td>
+              <td>{{ support_areas.get(lead.business_area, lead.business_area) }}</td>
+              <td>
+                {% if lead.offer_code and lead.offer_code != 'GENERAL' %}
+                  <strong>{{ 'Counteroffer' if lead.is_counter_offer else offers.get(lead.offer_code, {}).get('label', lead.offer_code) }}</strong><br>
+                  <small>{{ payout_options.get(lead.payout_option, lead.payout_option or '—') }}</small>
+                {% else %}General introduction{% endif %}
+              </td>
+              <td>
+                {% if lead.proposed_amount %}
+                  ₱{{ "{:,.2f}".format(lead.proposed_amount) }} @ {{ "{:,.2f}".format(lead.monthly_rate_percent or 0) }}%/month · {{ lead.term_months }} months<br>
+                  Monthly interest: ₱{{ "{:,.2f}".format(lead.monthly_interest_amount or 0) }}<br>
+                  Total interest: ₱{{ "{:,.2f}".format(lead.total_interest_amount or 0) }}<br>
+                  Total: ₱{{ "{:,.2f}".format(lead.total_contract_amount or 0) }}
+                {% else %}—{% endif %}
+              </td>
+              <td class="message">{{ lead.message or '—' }}{% if lead.cashier_notes %}<hr><strong>Cashier:</strong> {{ lead.cashier_notes }}{% endif %}</td>
+              <td>
+                <form method="post" action="{{ url_for('update_investor_interest_status', lead_id=lead.id) }}">
+                  <select name="status" onchange="this.form.submit()" aria-label="Status for {{ lead.name }}">
+                    {% for value,label in lead_statuses.items() %}<option value="{{ value }}" {% if lead.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+                  </select>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <div class="empty">No private proposals yet. Share the access-code invitation only with selected contacts.</div>
+        {% endif %}
+      </div>
+      <p class="footnote">Other recorded balance: customer accounts receivable ₱{{ "{:,.2f}".format(total_ar) }}. Keep this internal unless it has been reconciled and is relevant to due diligence.</p>
+    </section>
+  </div>
+</body>
+</html>

@@ -1,0 +1,54 @@
+<div class="mfh-card-set">
+  <div class="mfh-card mfh-card-front {{ card_theme or 'cafe-cream' }}" data-loyalty-card>
+    <div class="mfh-front-left">
+      <div class="mfh-front-heading">
+        <img src="{{ store_logo }}" class="mfh-logo" alt="Macleen's Food House">
+        <div>
+          <div class="mfh-front-title">MACLEEN'S</div>
+          <div class="mfh-front-subtitle">LOYALTY REWARDS MEMBER</div>
+        </div>
+      </div>
+
+      <div class="mfh-member-stack">
+        <div class="mfh-photo-frame" data-card-photo>
+          {% if card_member.profile_image %}<img src="{{ card_member.profile_image }}" class="mfh-photo" alt="Member photo">{% else %}<div class="mfh-photo-fallback">🎀</div>{% endif %}
+        </div>
+        <div class="mfh-member-copy">
+          <div class="mfh-member-name">{{ card_member.name }}</div>
+          <div class="mfh-member-id">{{ card_member.card_number or 'MFH-0000' }}</div>
+          <div class="mfh-validity" data-card-expiry>{% if card_member.card_expires_at %}Valid until {{ card_member.card_expires_at.strftime('%b %d, %Y') }}{% else %}Active Rewards Member{% endif %}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mfh-front-right" data-card-qr>
+      <div class="mfh-qr-panel">
+        {% if card_qr_data %}<img src="{{ card_qr_data }}" class="mfh-qr" alt="Secure Rewards login QR">{% endif %}
+      </div>
+      <div class="mfh-scan">SCAN TO LOGIN</div>
+    </div>
+
+    <div class="mfh-front-footer"><span class="mfh-fb-badge" aria-hidden="true"></span><span>fb.com/macleens</span></div>
+  </div>
+
+  <div class="mfh-card mfh-card-back {{ card_theme or 'cafe-cream' }}" data-loyalty-card>
+    <div class="mfh-back-heading">
+      <img src="{{ store_logo }}" class="mfh-logo" alt="Macleen's Food House">
+      <div>
+        <div class="mfh-back-title">Macleen's Food House</div>
+        <div class="mfh-back-subtitle">LOYALTY REWARDS MEMBER</div>
+      </div>
+    </div>
+
+    <div class="mfh-info-list">
+      <div class="mfh-info-row"><span class="mfh-info-icon">🛍️</span><span>Use your card when ordering or claiming member perks.</span></div>
+      <div class="mfh-info-row"><span class="mfh-info-icon">🔐</span><span>Keep your 4-digit PIN private. Card ID: <strong>{{ card_member.card_number or 'MFH-0000' }}</strong>.</span></div>
+      <div class="mfh-info-row"><span class="mfh-info-icon">🪪</span><span>Manage your profile, card theme, and member deals in the Customer Portal.</span></div>
+      <div class="mfh-info-row"><span class="mfh-info-icon">💌</span><span>If found, please return to Macleen's Food House.</span></div>
+    </div>
+
+    <div class="mfh-back-divider"></div>
+    <div class="mfh-back-validity">Card validity follows the member account status.</div>
+    <div class="mfh-back-footer"><span class="mfh-fb-badge" aria-hidden="true"></span><span>fb.com/macleens</span></div>
+  </div>
+</div>

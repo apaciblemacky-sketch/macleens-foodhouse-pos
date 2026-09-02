@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Loyalty Card Printing Portal</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='loyalty-card.css') }}?v=2">
+  <style>
+    *{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+    body{margin:0;background:#fff5f7;color:#1e293b;padding:18px}
+    .topbar{max-width:1250px;margin:0 auto 14px;background:white;border:1.5px solid #fbcfe8;border-radius:14px;padding:12px 14px;display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+    .topbar h1{font-size:1.15rem;color:#831843;margin:0}.topbar p{font-size:.75rem;color:#64748b;margin:3px 0 0}
+    .btn{border:none;border-radius:8px;padding:9px 12px;font-weight:900;text-decoration:none;cursor:pointer;display:inline-block}.btn-pink{background:#ec4899;color:white}.btn-soft{background:#fdf2f8;color:#831843;border:1px solid #fbcfe8}.btn-dark{background:#1e293b;color:white}.btn-reset{background:#f8fafc;color:#475569;border:1px solid #cbd5e1}
+    .layout{max-width:1250px;margin:auto;display:grid;grid-template-columns:minmax(300px,390px) 1fr;gap:14px;align-items:start}
+    .panel{background:white;border:1.5px solid #fbcfe8;border-radius:14px;padding:14px;box-shadow:0 5px 18px rgba(236,72,153,.08)}
+    label{display:block;font-size:.74rem;font-weight:900;color:#831843;margin:8px 0 4px}.control{width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:8px;background:white}
+    .note{font-size:.7rem;color:#64748b;line-height:1.45}.flash{max-width:1250px;margin:0 auto 10px;padding:9px 12px;border-radius:9px;background:#ecfdf5;color:#166534;font-weight:800;font-size:.78rem}
+    .theme-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:7px}.theme-chip{border:1.5px solid #e2e8f0;border-radius:9px;padding:8px;font-size:.72rem;font-weight:900;cursor:pointer;background:white}.theme-chip.active{outline:3px solid rgba(236,72,153,.16);border-color:#ec4899}
+    .preview-wrap{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:14px;padding:16px;overflow:auto;min-height:300px}
+    .range-row{display:grid;grid-template-columns:1fr 62px;gap:8px;align-items:center;margin-top:7px}.range-row input[type=range]{width:100%;accent-color:#ec4899}.range-value{font-size:.72rem;font-weight:1000;color:#831843;text-align:right;background:#fdf2f8;border:1px solid #fbcfe8;padding:5px 6px;border-radius:7px}
+    .size-box{margin-top:11px;padding:10px;border:1px solid #fce7f3;background:#fff7fb;border-radius:10px}.size-title{font-size:.82rem;font-weight:1000;color:#831843}.zoom-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.zoom-row input{width:180px;accent-color:#ec4899}
+    @media(max-width:900px){.layout{grid-template-columns:1fr}.topbar{align-items:flex-start}}
+    @media print{
+      body{background:white;padding:0}.topbar,.controls-panel,.flash,.screen-only{display:none!important}.layout{display:block;max-width:none}.preview-panel{border:none;box-shadow:none;padding:0}.preview-wrap{border:none;background:white;padding:0;overflow:visible}.loyalty-card-pair{zoom:1!important;gap:8mm}.loyalty-card{box-shadow:none;page-break-inside:avoid}@page{size:A4;margin:10mm}
+    }
+  </style>
+</head>
+<body>
+{% with messages=get_flashed_messages() %}{% for message in messages %}<div class="flash">{{ message }}</div>{% endfor %}{% endwith %}
+<div class="topbar">
+  <div><h1>🎫 Loyalty Rewards Card Printing Portal</h1><p>Front and back use one shared renderer at standard CR80/PVC size (85.6 × 54 mm), so the live preview is the same layout that prints.</p></div>
+  <div><a href="/admin" class="btn btn-soft">← Master Admin</a> {% if selected %}<button type="button" class="btn btn-pink" onclick="window.print()">🖨️ Print Card</button>{% endif %}</div>
+</div>
+<div class="layout">
+  <div class="panel controls-panel">
+    <h3 style="margin:0;color:#831843;font-size:.95rem;">1. Select Member</h3>
+    {% if customers %}
+    <form method="GET" action="/admin/loyalty-cards">
+      <select class="control" name="customer_id" onchange="this.form.submit()">
+        {% for c in customers %}<option value="{{ c.id }}" {% if selected and c.id == selected.id %}selected{% endif %}>{{ c.name }} — {{ c.card_number or c.contact }}</option>{% endfor %}
+      </select>
+    </form>
+    {% else %}<p class="note">No registered members yet.</p>{% endif %}
+
+    {% if selected %}
+    <form action="/admin/loyalty-cards/{{ selected.id }}/save" method="POST" enctype="multipart/form-data" id="cardSaveForm">
+      <h3 style="margin:15px 0 0;color:#831843;font-size:.95rem;">2. Theme & Photo</h3>
+      <label>Card Theme</label>
+      <select class="control" name="theme" id="themeSelect" onchange="applyTheme(this.value)">
+        {% for key,label in themes.items() %}<option value="{{ key }}" {% if key == theme %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+      <div class="theme-grid">
+        {% for key,label in themes.items() %}<button class="theme-chip {% if key == theme %}active{% endif %}" type="button" data-theme="{{ key }}" onclick="pickTheme('{{ key }}')">{{ label }}</button>{% endfor %}
+      </div>
+      <label>Update Member Photo from Phone / Gallery</label>
+      <input class="control" type="file" name="profile_photo" accept="image/png,image/jpeg,image/webp,image/gif">
+      <div class="note">The customer's portal photo is used automatically. Maximum upload size: 2.5 MB.</div>
+      <label>Or Photo URL</label><input class="control" type="url" name="profile_image" placeholder="Optional image URL">
+
+      <div class="size-box">
+        <div class="size-title">3. Element Sizes</div>
+        <div class="note">Increase only the element you want. The card itself stays standard CR80/PVC size.</div>
+
+        <label>Logo size</label>
+        <div class="range-row"><input type="range" name="card_logo_scale" id="logoScale" min="0.80" max="1.45" step="0.05" value="{{ selected.card_logo_scale or 1.0 }}" oninput="applyCardSizes()"><span class="range-value" id="logoScaleValue"></span></div>
+
+        <label>Profile photo size</label>
+        <div class="range-row"><input type="range" name="card_photo_scale" id="photoScale" min="0.80" max="1.45" step="0.05" value="{{ selected.card_photo_scale or 1.0 }}" oninput="applyCardSizes()"><span class="range-value" id="photoScaleValue"></span></div>
+
+        <label>QR code size</label>
+        <div class="range-row"><input type="range" name="card_qr_scale" id="qrScale" min="0.80" max="1.45" step="0.05" value="{{ selected.card_qr_scale or 1.0 }}" oninput="applyCardSizes()"><span class="range-value" id="qrScaleValue"></span></div>
+
+        <label>Headings / Member text size</label>
+        <div class="range-row"><input type="range" name="card_text_scale" id="textScale" min="0.80" max="1.45" step="0.05" value="{{ selected.card_text_scale or 1.0 }}" oninput="applyCardSizes()"><span class="range-value" id="textScaleValue"></span></div>
+
+        <label>Back information text size</label>
+        <div class="range-row"><input type="range" name="card_info_scale" id="infoScale" min="0.80" max="1.45" step="0.05" value="{{ selected.card_info_scale or 1.0 }}" oninput="applyCardSizes()"><span class="range-value" id="infoScaleValue"></span></div>
+
+        <button type="button" class="btn btn-reset" style="width:100%;margin-top:10px" onclick="resetCardSizes()">Reset Sizes to 100%</button>
+      </div>
+
+      <button class="btn btn-dark" style="width:100%;margin-top:10px;" type="submit">Save Card Design</button>
+      <div class="note" style="margin-top:7px;">Saved sizes are remembered per customer and are also used by that customer's live portal preview.</div>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="panel preview-panel">
+    {% if selected %}
+      <div class="screen-only" style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
+        <div><strong>Actual card preview:</strong> {{ selected.name }} <span class="note">• {{ themes[theme] }}</span></div>
+        <div class="zoom-row"><span class="note"><strong>Preview Zoom</strong></span><input id="previewZoom" type="range" min="0.80" max="1.50" step="0.05" value="1.15" oninput="applyPreviewZoom()"><span class="range-value" id="previewZoomValue">115%</span><button class="btn btn-pink" onclick="window.print()">🖨️ Print Front + Back</button></div>
+      </div>
+      <div class="preview-wrap">
+        <div id="previewZoomTarget">
+          {% set card_customer = selected %}
+          {% set card_theme = theme %}
+          {% set card_qr_data = qr_data %}
+          {% include '_loyalty_card_pair.html' %}
+        </div>
+      </div>
+    {% else %}<div style="padding:30px;text-align:center;color:#64748b;">Register a customer first, then return here to design and print their loyalty card.</div>{% endif %}
+  </div>
+</div>
+<script>
+function applyTheme(theme){
+  document.querySelectorAll('[data-card-theme]').forEach(card=>{
+    card.classList.remove('pink-classic','cafe-cream','midnight-gold','mint-fresh','purple-craft');
+    card.classList.add(theme);
+  });
+  document.querySelectorAll('.theme-chip').forEach(chip=>chip.classList.toggle('active',chip.dataset.theme===theme));
+}
+function pickTheme(theme){const select=document.getElementById('themeSelect');if(select)select.value=theme;applyTheme(theme);}
+function percent(value){return Math.round(parseFloat(value||1)*100)+'%';}
+function applyCardSizes(){
+  const map=[['logoScale','--logo-scale','logoScaleValue'],['photoScale','--photo-scale','photoScaleValue'],['qrScale','--qr-scale','qrScaleValue'],['textScale','--text-scale','textScaleValue'],['infoScale','--info-scale','infoScaleValue']];
+  document.querySelectorAll('[data-loyalty-card-pair]').forEach(pair=>{
+    map.forEach(([id,prop,labelId])=>{const input=document.getElementById(id);if(!input)return;pair.style.setProperty(prop,input.value);const label=document.getElementById(labelId);if(label)label.textContent=percent(input.value);});
+  });
+}
+function resetCardSizes(){['logoScale','photoScale','qrScale','textScale','infoScale'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='1.00';});applyCardSizes();}
+function applyPreviewZoom(){const input=document.getElementById('previewZoom');const target=document.getElementById('previewZoomTarget');if(!input||!target)return;target.style.zoom=input.value;const label=document.getElementById('previewZoomValue');if(label)label.textContent=percent(input.value);}
+applyCardSizes();applyPreviewZoom();
+</script>
+</body>
+</html>

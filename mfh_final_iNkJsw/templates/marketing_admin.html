@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Marketing — Macleen's</title>
+  <style>
+    :root{--pink:#ff4fa3;--dark:#831843;--border:#fbcfe8;--bg:#fff0f5;--blue:#2563eb;--green:#15803d;--amber:#b45309;--red:#b91c1c}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:#1f2937;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+    .wrap{max-width:1450px;margin:auto;padding:20px}.header,.card{background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:0 4px 18px rgba(131,24,67,.05)}
+    .header{padding:16px 20px;display:flex;justify-content:space-between;gap:14px;align-items:center;margin-bottom:16px}.header h1{margin:0;color:var(--dark);font-size:1.45rem}.header p{margin:4px 0 0;color:#64748b;font-size:.85rem}
+    .card{padding:16px;margin-bottom:16px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.grid-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px}
+    h2{font-size:1.05rem;color:var(--dark);margin:0 0 12px} h3{font-size:.95rem;margin:0 0 10px}.muted{font-size:.78rem;color:#64748b}.status{display:inline-block;padding:3px 8px;border-radius:999px;font-size:.72rem;font-weight:800}.ok{background:#dcfce7;color:#166534}.warn{background:#fef3c7;color:#92400e}.bad{background:#fee2e2;color:#991b1b}.info{background:#dbeafe;color:#1d4ed8}
+    .btn{border:0;border-radius:8px;padding:9px 13px;font-weight:800;cursor:pointer;text-decoration:none;display:inline-block;font-size:.8rem}.btn-pink{background:var(--pink);color:white}.btn-dark{background:#1f2937;color:#fff}.btn-blue{background:#2563eb;color:#fff}.btn-green{background:#16a34a;color:#fff}.btn-light{background:#f1f5f9;color:#334155}.btn-red{background:#fee2e2;color:#991b1b}.btn-amber{background:#f59e0b;color:#fff}
+    label{display:block;font-size:.75rem;font-weight:800;color:#475569;margin-bottom:4px}input,select,textarea{width:100%;border:1px solid #cbd5e1;border-radius:8px;padding:8px;background:#fff;font:inherit;font-size:.82rem}textarea{min-height:90px;resize:vertical}.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.actions{display:flex;gap:7px;flex-wrap:wrap;align-items:center}.flash{padding:10px 12px;border-radius:8px;margin-bottom:10px;background:#f8fafc;border:1px solid #e2e8f0;font-size:.82rem}
+    table{width:100%;border-collapse:collapse;font-size:.78rem}th,td{border-bottom:1px solid #e5e7eb;padding:9px 7px;text-align:left;vertical-align:top}th{background:#fdf2f8;color:var(--dark);position:sticky;top:0}.scroll{overflow:auto;max-height:620px}.caption{white-space:pre-wrap;line-height:1.45;max-width:540px}.reason{font-size:.72rem;color:#64748b;max-width:420px}.metric{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:12px}.metric strong{display:block;font-size:1.05rem;margin-top:4px}.connection{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}.group-row{border:1px solid #e2e8f0;border-radius:10px;padding:12px;margin-bottom:8px}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#0f172a;color:#e2e8f0;padding:9px;border-radius:7px;font-size:.75rem;overflow:auto}.tiny{font-size:.7rem}.checkline{display:flex;gap:8px;align-items:center}.checkline input{width:auto}.notice{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:12px;color:#1e3a8a;font-size:.82rem}
+    @media(max-width:700px){.wrap{padding:10px}.header{align-items:flex-start;flex-direction:column}.grid-2{grid-template-columns:1fr}.card{padding:12px}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header class="header">
+    <div>
+      <h1>📣 Macleen's AI Marketing</h1>
+      <p>AI-assisted Facebook post planning and manual Page/Group posting — no Meta Developer connection required.</p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-light" href="{{ url_for('admin_dashboard') }}">← Master Admin</a>
+      <a class="btn btn-light" href="/">🍲 Food House</a>
+      <a class="btn btn-light" href="/craft">🎨 Crafts</a>
+    </div>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}<div class="flash"><strong>{{ category|upper }}</strong> — {{ message }}</div>{% endfor %}
+  {% endwith %}
+
+  <div class="notice" style="margin-bottom:16px"><strong>Manual Facebook mode:</strong> Macleen's never logs in to Facebook, stores no Facebook access token, and does not need a Meta Developer App ID or App Secret. Generate/edit a post here, copy it, open your Page or Group, paste it, then click <strong>Mark Posted</strong> so the AI remembers your posting history.</div>
+
+  <div class="grid">
+    <div class="metric"><span class="muted">AI Provider</span><strong>{{ settings.ai_provider }}</strong><span class="status info">Gemini Free is default</span></div>
+    <div class="metric"><span class="muted">Gemini</span><strong>{{ 'READY' if gemini_ready else 'NO KEY YET' }}</strong><span class="status {{ 'ok' if gemini_ready else 'warn' }}">{{ gemini_model if gemini_ready else 'Add GEMINI_API_KEY' }}</span></div>
+    <div class="metric"><span class="muted">Facebook Posting</span><strong>MANUAL</strong><span class="status ok">No Meta API needed</span></div>
+    <div class="metric"><span class="muted">Scheduled Draft Queue</span><strong>{{ 'ON' if settings.enabled else 'PAUSED' }}</strong><span class="status {{ 'ok' if settings.enabled else 'warn' }}">Drafts only</span></div>
+    <div class="metric"><span class="muted">Scheduler endpoint</span><strong>{{ 'READY' if cron_ready else 'OPTIONAL' }}</strong><span class="status {{ 'ok' if cron_ready else 'info' }}">MARKETING_CRON_TOKEN</span></div>
+  </div>
+
+  <div class="grid-2" style="margin-top:16px">
+    <section class="card">
+      <h2>🤖 AI Draft Controls</h2>
+      <form action="{{ url_for('marketing_save_settings') }}" method="post">
+        <div class="checkline" style="margin-bottom:12px"><input type="checkbox" name="enabled" id="enabled" {% if settings.enabled %}checked{% endif %}><label for="enabled" style="margin:0">Enable scheduled AI draft creation</label></div>
+        <div class="form-grid">
+          <div><label>AI Provider</label><select name="ai_provider"><option value="GEMINI" {% if settings.ai_provider=='GEMINI' %}selected{% endif %}>Gemini Free (Recommended)</option><option value="AUTO" {% if settings.ai_provider=='AUTO' %}selected{% endif %}>Auto: Gemini → OpenAI → Template</option><option value="OPENAI" {% if settings.ai_provider=='OPENAI' %}selected{% endif %}>OpenAI (Optional)</option><option value="TEMPLATE" {% if settings.ai_provider=='TEMPLATE' %}selected{% endif %}>Smart Template — No API</option></select></div>
+          <div><label>Business Pool</label><select name="business_scope"><option value="BOTH" {% if settings.business_scope=='BOTH' %}selected{% endif %}>Food + Crafts</option><option value="FOODHOUSE" {% if settings.business_scope=='FOODHOUSE' %}selected{% endif %}>Food House only</option><option value="CRAFT" {% if settings.business_scope=='CRAFT' %}selected{% endif %}>Crafts only</option></select></div>
+          <div><label>Target Drafts / Week</label><input type="number" min="1" max="7" name="posts_per_week" value="{{ settings.posts_per_week }}"></div>
+          <div><label>Max Drafts / Day</label><input type="number" min="1" max="3" name="max_posts_per_day" value="{{ settings.max_posts_per_day }}"></div>
+          <div><label>Draft Window From</label><input type="time" name="start_hour" value="{{ settings.start_hour }}"></div>
+          <div><label>Draft Window Until</label><input type="time" name="end_hour" value="{{ settings.end_hour }}"></div>
+          <div><label>Same Product Cooldown (days)</label><input type="number" min="0" max="90" name="repeat_cooldown_days" value="{{ settings.repeat_cooldown_days }}"></div>
+        </div>
+        <p class="muted" style="margin:10px 0">The scheduler only prepares drafts. It can never publish to Facebook. External AI receives business/product summaries only — not customer names, phone numbers, addresses, PINs, or payment details.</p>
+        <button class="btn btn-pink" type="submit">Save AI Settings</button>
+        <button class="btn btn-dark" type="submit" formaction="{{ url_for('marketing_run_agent_now') }}" formmethod="post" style="margin-left:6px">▶ Run Due-Check Now</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>🧠 Generate a Post Now</h2>
+      <form action="{{ url_for('marketing_generate') }}" method="post">
+        <div class="form-grid">
+          <div><label>Business</label><select name="business"><option value="AUTO">Let AI Decide</option><option value="FOODHOUSE">Food House</option><option value="CRAFT">Crafts</option></select></div>
+          <div><label>Post Purpose</label><select name="post_type"><option value="AUTO">Let AI Decide</option>{% for pt in post_types %}<option value="{{ pt }}">{{ pt.replace('_',' ').title() }}</option>{% endfor %}</select></div>
+          <div><label>Food Product</label><select name="product_id"><option value="">Let AI choose an active product</option>{% for product in active_products %}<option value="{{ product.id }}" {% if product.stock|int <= 0 %}disabled{% endif %}>{{ product.name }}{% if product.stock|int <= 0 %} — out of stock{% endif %}</option>{% endfor %}</select></div>
+        </div>
+        <p class="muted" style="margin:10px 0">The AI may intentionally choose not to create a post if the current data does not support a useful, truthful promotion.</p>
+        <button class="btn btn-blue" type="submit">✨ Generate Marketing Draft</button>
+      </form>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>📘 Facebook Page — Manual Posting Shortcut</h2>
+    <p class="muted">Save your Page link once. This does not connect your Facebook account; it only gives you a quick <strong>Open Page</strong> button beside each draft.</p>
+    <form action="{{ url_for('marketing_save_facebook_page') }}" method="post">
+      <div class="form-grid">
+        <div><label>Page Name</label><input name="page_name" value="{{ settings.facebook_page_name }}" placeholder="Macleen's Food House"></div>
+        <div><label>Facebook Page URL</label><input name="page_url" value="{{ settings.facebook_page_url }}" placeholder="https://www.facebook.com/yourpage"></div>
+      </div>
+      <div class="actions" style="margin-top:10px">
+        <button class="btn btn-pink">Save Page Shortcut</button>
+        {% if settings.facebook_page_url %}<a class="btn btn-light" href="{{ settings.facebook_page_url }}" target="_blank" rel="noopener">Open Page ↗</a>{% else %}<a class="btn btn-light" href="https://www.facebook.com/" target="_blank" rel="noopener">Open Facebook ↗</a>{% endif %}
+      </div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>📊 Meta Post Insights + AI Analysis</h2>
+    <div id="meta-import" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:14px;margin:12px 0">
+      <h3>Upload Meta Business Suite Export</h3>
+      <p class="muted">Upload a CSV or XLSX export (maximum 8 MB). The system reads aggregate post performance, matches captions to your active products, and recommends products and visibility times. The raw file is not stored.</p>
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('marketing_import_insights') }}"><input type="file" name="meta_export" accept=".csv,.xlsx" required><button class="btn btn-blue" style="margin-top:8px">Upload & Analyze</button></form>
+      {% for report in insight_imports %}<details style="margin-top:10px"><summary><strong>{{ report.filename }}</strong> — {{ report.row_count }} rows · {{ report.created_at|ph_datetime('%b %d, %Y %I:%M %p') }}</summary><div class="caption" style="white-space:pre-wrap;margin-top:8px">{{ report.analysis }}</div></details>{% endfor %}
+    </div>
+    <p class="muted">After a post is marked as posted, copy its aggregate results from Meta Business Suite. Save the numbers, then let the selected AI provider explain what worked and what to try next. No Facebook login or customer-level information is sent.</p>
+    {% set ns = namespace(count=0) %}
+    {% for post in posts %}
+      {% if post.status == 'POSTED' %}
+        {% set ns.count = ns.count + 1 %}
+        <details id="insights-{{ post.id }}" class="group-row" {% if post.insights_updated_at and not post.insight_analysis %}open{% endif %}>
+          <summary style="cursor:pointer;font-weight:900;color:var(--dark);">
+            Post #{{ post.id }} — {{ post.business }} / {{ post.post_type.replace('_',' ').title() }}
+            {% if post.insights_updated_at %}<span class="status ok">INSIGHTS SAVED</span>{% else %}<span class="status warn">ADD INSIGHTS</span>{% endif %}
+          </summary>
+          <div class="caption" style="margin:10px 0;max-width:none;background:#f8fafc;padding:9px;border-radius:8px;">{{ post.caption }}</div>
+          <form method="post" action="{{ url_for('marketing_save_insights', post_id=post.id) }}">
+            <div class="form-grid">
+              <div><label>Reach</label><input type="number" min="0" step="1" name="reach" value="{{ post.insight_reach or 0 }}"></div>
+              <div><label>Impressions / Views</label><input type="number" min="0" step="1" name="impressions" value="{{ post.insight_impressions or 0 }}"></div>
+              <div><label>Reactions</label><input type="number" min="0" step="1" name="reactions" value="{{ post.insight_reactions or 0 }}"></div>
+              <div><label>Comments</label><input type="number" min="0" step="1" name="comments" value="{{ post.insight_comments or 0 }}"></div>
+              <div><label>Shares</label><input type="number" min="0" step="1" name="shares" value="{{ post.insight_shares or 0 }}"></div>
+              <div><label>Saves</label><input type="number" min="0" step="1" name="saves" value="{{ post.insight_saves or 0 }}"></div>
+              <div><label>Link Clicks</label><input type="number" min="0" step="1" name="link_clicks" value="{{ post.insight_link_clicks or 0 }}"></div>
+              <div><label>New Followers</label><input type="number" min="0" step="1" name="new_followers" value="{{ post.insight_new_followers or 0 }}"></div>
+              <div><label>Ad Spend (₱, optional)</label><input type="number" min="0" step="0.01" name="spend" value="{{ '%.2f'|format(post.insight_spend or 0) }}"></div>
+            </div>
+            <label style="margin-top:9px">Notes from Meta / Your Observation</label>
+            <textarea name="insight_notes" placeholder="Example: Posted at 6 PM; photo post; customers asked about delivery.">{{ post.insight_notes or '' }}</textarea>
+            <div class="actions" style="margin-top:8px">
+              <button class="btn btn-green" type="submit">Save Meta Insights</button>
+              <button class="btn btn-blue" type="submit" formaction="{{ url_for('marketing_analyze_insights', post_id=post.id) }}">🤖 Analyze with AI</button>
+            </div>
+          </form>
+          {% if post.insight_analysis %}
+            <div style="margin-top:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:9px;padding:11px;white-space:pre-wrap;line-height:1.5;font-size:.82rem;"><strong>AI Analysis — {{ post.insight_ai_model }}</strong><br>{{ post.insight_analysis }}</div>
+          {% endif %}
+        </details>
+      {% endif %}
+    {% endfor %}
+    {% if ns.count == 0 %}<p class="muted">No posted marketing entries yet. Mark a Facebook post as posted first.</p>{% endif %}
+  </section>
+
+  <section class="card">
+    <h2>👥 Joined Facebook Groups — Manual Posting</h2>
+    <p class="muted">Save each group so AI can adapt captions to its purpose/rules. Use Copy Post + Open Group, post manually, then Mark Posted.</p>
+    <form action="{{ url_for('marketing_group_add') }}" method="post">
+      <div class="form-grid">
+        <div><label>Group Name</label><input name="name" required placeholder="Binalbagan Buy & Sell"></div>
+        <div><label>Facebook Group URL</label><input name="group_url" required placeholder="https://www.facebook.com/groups/..."></div>
+        <div><label>Business</label><select name="business_scope"><option value="BOTH">Food + Crafts</option><option value="FOODHOUSE">Food House</option><option value="CRAFT">Crafts</option></select></div>
+        <div><label>Cooldown Days</label><input type="number" name="cooldown_days" value="7" min="0" max="90"></div>
+        <div><label>Preferred Post Types</label><input name="post_types" placeholder="Food deals, value posts, new crafts"></div>
+        <div><label>Group Rules / Tone Notes</label><input name="notes" placeholder="No repeated posts; friendly local tone"></div>
+      </div>
+      <button class="btn btn-pink" style="margin-top:10px">Add Group</button>
+    </form>
+
+    <div style="margin-top:14px">
+      {% for group in groups %}
+      <div class="group-row">
+        <div class="connection">
+          <div><strong>{{ group.name }}</strong> <span class="status {{ 'ok' if group.is_active else 'warn' }}">{{ 'ACTIVE' if group.is_active else 'PAUSED' }}</span><br><span class="muted">{{ group.business_scope }} · {{ group.cooldown_days }}-day cooldown{% if group.last_posted_at %} · last marked posted {{ group.last_posted_at }}{% endif %}</span>{% if group.notes %}<div class="tiny">{{ group.notes }}</div>{% endif %}</div>
+          <div class="actions">
+            <form method="post" action="{{ url_for('marketing_group_generate', group_id=group.id) }}"><button class="btn btn-blue" {% if not group.is_active %}disabled{% endif %}>Marketing Draft</button></form>
+            <a href="{{ group.group_url }}" class="btn btn-light" target="_blank" rel="noopener">Open Group ↗</a>
+            <form method="post" action="{{ url_for('marketing_group_toggle', group_id=group.id) }}"><button class="btn btn-light">{{ 'Pause' if group.is_active else 'Resume' }}</button></form>
+            <form method="post" action="{{ url_for('marketing_group_delete', group_id=group.id) }}" onsubmit="return confirm('Remove this group from the assistant?')"><button class="btn btn-red">Delete</button></form>
+          </div>
+        </div>
+      </div>
+      {% else %}<p class="muted">No Facebook groups saved yet.</p>{% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>📝 AI Marketing Memory & Manual Posting Queue</h2>
+    <div class="scroll"><table>
+      <thead><tr><th>ID / Status</th><th>Target</th><th>AI Decision</th><th>Caption</th><th>Manual Actions</th></tr></thead>
+      <tbody>
+      {% for post in posts %}
+        <tr>
+          <td><strong>#{{ post.id }}</strong><br><span class="status {% if post.status=='POSTED' %}ok{% elif post.status in ['FAILED','SKIPPED'] %}bad{% else %}warn{% endif %}">{{ post.status }}</span><br><span class="tiny">{{ post.created_at }}</span></td>
+          <td><strong>{{ post.business }}</strong><br>{{ 'FACEBOOK PAGE' if post.target_type=='FACEBOOK_PAGE' else 'FACEBOOK GROUP' }}{% if post.group %}<br><span class="tiny">{{ post.group.name }}</span>{% endif %}<br><span class="tiny">{{ post.source_kind }}{% if post.source_id %} #{{ post.source_id }}{% endif %}</span></td>
+          <td>{{ post.post_type.replace('_',' ').title() }}{% if post.ai_model %}<div class="tiny"><strong>Engine:</strong> {{ post.ai_model }}</div>{% endif %}<div class="reason">{{ post.reason }}</div>{% if post.error_message %}<div class="reason" style="color:#b91c1c">{{ post.error_message }}</div>{% endif %}</td>
+          <td>
+            {% if post.status not in ['POSTED','SKIPPED'] %}
+              <form method="post" action="{{ url_for('marketing_edit_post', post_id=post.id) }}"><textarea name="caption">{{ post.caption }}</textarea><button class="btn btn-light" style="margin-top:5px">Save Edit</button></form>
+            {% else %}<div class="caption">{{ post.caption }}</div>{% endif %}
+            {% if post.link_url %}<a href="{{ post.link_url }}" target="_blank" rel="noopener" class="tiny">{{ post.link_url }}</a>{% endif %}
+            {% if post.status != 'SKIPPED' %}<textarea id="copy-{{ post.id }}" style="position:absolute;left:-9999px">{{ post.caption }}{% if post.link_url %}\n\n{{ post.link_url }}{% endif %}</textarea>{% endif %}
+          </td>
+          <td>
+            <div class="actions">
+            {% if post.status not in ['POSTED','SKIPPED'] %}
+              <button type="button" class="btn btn-blue" onclick="copyMarketingPost({{ post.id }})">Copy Post</button>
+              {% if post.target_type == 'GROUP_ASSIST' and post.group %}
+                <a class="btn btn-light" target="_blank" rel="noopener" href="{{ post.group.group_url }}">Open Group ↗</a>
+                <form method="post" action="{{ url_for('marketing_group_mark_posted', post_id=post.id) }}"><button class="btn btn-green">Mark Posted</button></form>
+              {% elif post.target_type == 'FACEBOOK_PAGE' %}
+                <a class="btn btn-light" target="_blank" rel="noopener" href="{{ settings.facebook_page_url or 'https://www.facebook.com/' }}">{{ 'Open Page ↗' if settings.facebook_page_url else 'Open Facebook ↗' }}</a>
+                <form method="post" action="{{ url_for('marketing_page_mark_posted', post_id=post.id) }}"><button class="btn btn-green">Mark Posted</button></form>
+              {% endif %}
+            {% endif %}
+            {% if post.status != 'POSTED' %}<form method="post" action="{{ url_for('marketing_delete_post', post_id=post.id) }}"><button class="btn btn-red">Remove</button></form>{% endif %}
+            </div>
+          </td>
+        </tr>
+      {% else %}<tr><td colspan="5" class="muted">No AI marketing decisions yet.</td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="card">
+    <h2>⏰ Optional Scheduled Drafts</h2>
+    <p class="muted">Your scheduler/UptimeRobot may call this protected endpoint to create drafts when the cadence is due. <strong>It never publishes to Facebook.</strong> You still copy/open/post/mark manually.</p>
+    <div class="code">GET {{ request.url_root.rstrip('/') }}/tasks/marketing/run?token=YOUR_MARKETING_CRON_TOKEN</div>
+  </section>
+</div>
+<script>
+async function copyMarketingPost(id){
+  const el=document.getElementById('copy-'+id); if(!el)return;
+  try{await navigator.clipboard.writeText(el.value); alert('Caption + verified link copied. Open Facebook and paste it.');}
+  catch(e){el.select();document.execCommand('copy');alert('Post copied.');}
+}
+</script>
+</body>
+</html>

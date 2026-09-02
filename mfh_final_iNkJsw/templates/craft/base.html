@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" id="viewportMeta" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>{% block title %}Macleen's Crafts by Macleen's Food House{% endblock %}</title>
+  {% block social_meta %}
+  <meta name="description" content="Macleen's Crafts by Macleen's Food House — handcrafted gifts, custom prints, and made-to-order creations.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Macleen's Crafts">
+  <meta property="og:title" content="Macleen's Crafts by Macleen's Food House">
+  <meta property="og:description" content="Handcrafted gifts, custom prints, and made-to-order creations from Macleen's Crafts.">
+  <link rel="canonical" href="{{ url_for('craft_store', _external=True) }}">
+  <meta property="og:url" content="{{ url_for('craft_store', _external=True) }}">
+  <meta property="og:image" content="{{ url_for('static', filename='social/craft-share-header.png', _external=True) }}">
+  <meta property="og:image:secure_url" content="{{ url_for('static', filename='social/craft-share-header.png', _external=True) }}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Macleen's Crafts header">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Macleen's Crafts by Macleen's Food House">
+  <meta name="twitter:description" content="Handcrafted gifts, custom prints, and made-to-order creations.">
+  <meta name="twitter:image" content="{{ url_for('static', filename='social/craft-share-header.png', _external=True) }}">
+  {% endblock %}
+  <style>
+    :root{--pink-primary:#ec4899;--pink-dark:#be185d;--pink-deep:#831843;--pink-light:#fff5f7;--pink-border:#fbcfe8;--pink-accent:#f472b6;--purple:#9333ea;--green:#059669;--text-main:#1f2937;--text-muted:#6b7280}
+    *{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:var(--pink-light);color:var(--text-main);line-height:1.5;-webkit-tap-highlight-color:transparent;padding-bottom:70px}
+    body.force-desktop{min-width:1100px!important;overflow-x:auto!important}body.force-desktop .container{width:1100px!important;max-width:1100px!important}body.force-desktop .product-grid{grid-template-columns:repeat(4,1fr)!important}
+    header{background:#fff;border-bottom:2px solid var(--pink-accent);position:sticky;top:0;z-index:100;box-shadow:0 4px 6px -1px rgba(244,114,182,.1)}
+    .navbar{max-width:1100px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;padding:.75rem 1rem;gap:10px}.brand-container{display:flex;flex-direction:column;text-decoration:none}.brand-title{font-size:1.25rem;font-weight:800;color:#db2777;line-height:1.1}.brand-sub{font-size:.72rem;font-weight:700;color:var(--pink-dark);letter-spacing:.4px;text-transform:uppercase}.nav-links{display:flex;gap:.45rem;align-items:center;flex-wrap:wrap;justify-content:flex-end}.nav-link,.share-nav{color:#4b5563;text-decoration:none;font-weight:700;padding:.4rem .7rem;border-radius:8px;font-size:.86rem;transition:.2s;border:0;background:transparent;cursor:pointer}.nav-link:hover,.share-nav:hover{background:#fdf2f8;color:#db2777}.share-nav{border:1px solid var(--pink-border);background:#fff}
+    .container{max-width:1100px;margin:1.2rem auto;padding:0 1rem}.product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1.2rem}.product-card{background:#fff;border:1px solid var(--pink-border);border-radius:14px;overflow:hidden;box-shadow:0 4px 8px rgba(219,39,119,.04);display:flex;flex-direction:column;transition:transform .2s,box-shadow .2s}.product-card:hover{transform:translateY(-2px);box-shadow:0 8px 16px rgba(219,39,119,.1)}.product-image{width:100%;height:180px;object-fit:cover;background:#fdf2f8}.product-body{padding:.9rem;display:flex;flex-direction:column;flex-grow:1}.product-title{font-size:1.05rem;font-weight:700;color:#1e293b;margin-bottom:.2rem;line-height:1.3}.product-price{font-size:1.15rem;font-weight:800;color:#db2777;margin-bottom:.5rem}.product-stats{display:flex;gap:.65rem;flex-wrap:wrap;color:#9ca3af;font-size:.78rem;margin-bottom:.8rem}.card{background:#fff;border:1px solid var(--pink-border);border-radius:14px;padding:1.2rem;margin-bottom:1.2rem;box-shadow:0 4px 10px rgba(219,39,119,.04)}
+    .btn{display:inline-block;text-align:center;background:var(--pink-primary);color:#fff;padding:.6rem 1rem;border-radius:8px;text-decoration:none;font-weight:700;border:none;cursor:pointer;font-size:.9rem;touch-action:manipulation}.btn:hover{background:var(--pink-dark)}.btn-outline{background:transparent;border:1px solid var(--pink-primary);color:var(--pink-primary)}.btn-outline:hover{background:#fdf2f8}.btn-purple{background:#9333ea}.btn-light{background:#fff;color:#4b5563;border:1px solid var(--pink-border)}.btn-danger{background:#f43f5e}.btn-green{background:#059669}.btn:disabled{opacity:.58;cursor:not-allowed}
+    .badge{padding:3px 7px;border-radius:5px;font-size:.72rem;font-weight:800;display:inline-block}.badge-pending{background:#fef3c7;color:#d97706}.badge-ready{background:#e0e7ff;color:#4338ca}.badge-completed,.stock{background:#dcfce7;color:#15803d}.badge-cancelled,.sold{background:#fee2e2;color:#dc2626}.pre{background:#ede9fe;color:#6d28d9}.muted{color:var(--text-muted);font-size:.82rem}
+    input,select,textarea{width:100%;padding:.58rem;border:1px solid var(--pink-border);border-radius:6px;font:inherit;background:#fff}label{display:block;font-size:.8rem;font-weight:700;color:#4b5563;margin-bottom:4px}.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}.table-wrap{overflow:auto;max-height:560px;border:1px solid #fce7f3;border-radius:10px}table{width:100%;border-collapse:collapse;font-size:.8rem}th{background:#fdf2f8;color:var(--pink-deep);text-align:left;padding:9px;position:sticky;top:0;z-index:2}td{padding:9px;border-top:1px solid #fce7f3;vertical-align:top}.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:1rem;margin:1rem 0 2rem}.metric-card{background:#fff;padding:1.1rem;border-radius:12px;border:1px solid var(--pink-border);text-align:center}.metric-card h2{margin:.35rem 0 0;font-size:1.35rem}
+    .flash{padding:10px 12px;border-radius:8px;margin-bottom:10px;font-weight:700}.flash-success{background:#dcfce7;color:#166534}.flash-error{background:#fee2e2;color:#991b1b}.flash-info{background:#e0f2fe;color:#075985}
+    .view-mode-bar{position:fixed;bottom:0;left:0;width:100%;background:#fff;border-top:1px solid var(--pink-border);padding:8px 16px;display:flex;justify-content:space-between;align-items:center;z-index:1000;box-shadow:0 -2px 10px rgba(0,0,0,.05);font-size:.85rem}.toggle-pill-container{display:flex;background:#f3f4f6;border-radius:20px;padding:2px;border:1px solid #e5e7eb}.toggle-pill-btn{border:none;background:transparent;padding:4px 12px;font-size:.8rem;font-weight:600;border-radius:16px;cursor:pointer;color:#6b7280}.toggle-pill-btn.active{background:var(--pink-primary);color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.1)}
+    @media(max-width:600px){.product-grid{grid-template-columns:repeat(2,1fr);gap:.8rem}.product-image{height:140px}.product-title{font-size:.95rem}.nav-link,.share-nav{font-size:.74rem;padding:.38rem .55rem}.brand-title{font-size:1.05rem}.brand-sub{font-size:.62rem}.container{padding:0 .65rem}.metric-grid{grid-template-columns:repeat(2,1fr)}}
+  </style>
+</head>
+<body>
+<header><div class="navbar"><a href="{{ url_for('craft_store') }}" class="brand-container"><span class="brand-title">🎀 Macleen's Crafts</span><span class="brand-sub">by Macleen's Food House</span></a><nav class="nav-links"><a href="{{ url_for('craft_store') }}" class="nav-link">Catalog</a><a href="{{ url_for('store_catalog') }}" class="nav-link">🍲 Food House</a><button type="button" class="share-nav" onclick="shareLink('Macleen\'s Crafts', '{{ url_for('craft_store') }}')">↗ Share Crafts</button></nav></div></header>
+<main class="container">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash flash-{{ category }}">{{ message }}</div>{% endfor %}{% endwith %}{% block content %}{% endblock %}</main>
+<div class="view-mode-bar"><span style="color:var(--text-muted);font-size:.8rem">📱 Display View:</span><div class="toggle-pill-container"><button class="toggle-pill-btn" id="btnMobileView" onclick="setViewMode('mobile')">📱 Mobile</button><button class="toggle-pill-btn" id="btnDesktopView" onclick="setViewMode('desktop')">💻 PC / Desktop</button></div></div>
+<script src="{{ url_for('static', filename='share-helper.js') }}?v=6"></script>
+<script>
+function shareLink(title, path){
+  if (!window.MacleensShare || typeof window.MacleensShare.open !== 'function') {
+    var url = new URL(path || window.location.href, window.location.origin).href;
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(url).then(function(){ alert('Link copied: ' + url); }).catch(function(){ window.prompt('Copy this link:', url); });
+    } else {
+      window.prompt('Copy this link:', url);
+    }
+    return;
+  }
+  return window.MacleensShare.open(title, path);
+}
+
+document.addEventListener('click', function(event){
+  var button = event.target.closest('.craft-share-btn');
+  if (!button) return;
+  event.preventDefault();
+  event.stopPropagation();
+  shareLink(button.dataset.shareTitle || 'Macleen\'s Crafts', button.dataset.shareUrl || window.location.href);
+});
+function setViewMode(mode){localStorage.setItem('craft_site_view_mode',mode);applyViewMode(mode)}function applyViewMode(mode){const viewport=document.getElementById('viewportMeta'),body=document.body,m=document.getElementById('btnMobileView'),d=document.getElementById('btnDesktopView');if(mode==='desktop'){viewport.setAttribute('content','width=1100, initial-scale=0.35, user-scalable=yes');body.classList.add('force-desktop');d.classList.add('active');m.classList.remove('active')}else{viewport.setAttribute('content','width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');body.classList.remove('force-desktop');m.classList.add('active');d.classList.remove('active')}}document.addEventListener('DOMContentLoaded',()=>{const saved=localStorage.getItem('craft_site_view_mode');applyViewMode(saved||(window.innerWidth<=768?'mobile':'desktop'))});
+</script>
+</body></html>

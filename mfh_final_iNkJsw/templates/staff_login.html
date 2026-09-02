@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Staff Station Login — Macleen's</title>
+  <style>
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-light: #fff0f5; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
+    
+    .login-card { background: #1e293b; border-radius: 12px; border: 2px solid #334155; padding: 2rem; width: 100%; max-width: 380px; box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+    .form-group { margin-bottom: 12px; }
+    .form-group label { display: block; font-size: 0.8rem; font-weight: bold; margin-bottom: 4px; color: #cbd5e1; }
+    .form-control { width: 100%; padding: 10px; border: 1px solid #475569; border-radius: 6px; background: #0f172a; color: white; font-size: 1rem; }
+    .btn-login { width: 100%; background: var(--hk-pink); color: white; border: none; padding: 12px; border-radius: 6px; font-weight: 900; font-size: 1rem; cursor: pointer; margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+  <div class="login-card">
+    <div style="text-align:center; margin-bottom:1.5rem;">
+      <h2 style="color:var(--hk-pink);">🎀 MACLEEN'S POS</h2>
+      <p style="font-size:0.8rem; color:#94a3b8; margin-top:4px;">Universal Staff & Station Access</p>
+    </div>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div style="background:#fee2e2; color:#991b1b; padding:8px; border-radius:6px; font-size:0.82rem; margin-bottom:12px; font-weight:bold;">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <form method="POST" action="/staff/login">
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" name="username" class="form-control" required placeholder="admin / cashier1 / kitchen1 / rider1">
+      </div>
+
+      <div class="form-group">
+        <label>PIN / Password</label>
+        <input type="password" name="pin" class="form-control" required placeholder="Enter PIN">
+      </div>
+
+      <button type="submit" class="btn-login">LOGIN TO STATION</button>
+    </form>
+  </div>
+
+</body>
+</html>

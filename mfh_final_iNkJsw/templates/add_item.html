@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block content %}
+  <p style="margin-bottom: 1.5rem;"><a href="/admin" style="color: #db2777; font-weight: 600; text-decoration: none;">← Back to Admin</a></p>
+
+  <div style="background: #ffffff; border: 1px solid #fbcfe8; border-radius: 12px; padding: 2rem; max-width: 550px; margin: 0 auto;">
+    <h2 style="color: #831843; margin-bottom: 0.5rem;">Upload New Craft</h2>
+    
+    <form method="POST" enctype="multipart/form-data">
+      <label style="display:block; margin-top: 1rem; font-weight: 600;">Category</label>
+      <select name="category_name" style="width: 100%; padding: 0.6rem; margin-top: 0.3rem; border: 1px solid #fbcfe8; border-radius: 6px;">
+        {% for cat in categories %}
+          <option value="{{ cat.name }}">{{ cat.name }}</option>
+        {% endfor %}
+      </select>
+
+      <label style="display:block; margin-top: 1rem; font-weight: 600;">Availability Type</label>
+      <select name="availability_type" id="availType" onchange="toggleStockField()" style="width: 100%; padding: 0.6rem; margin-top: 0.3rem; border: 1px solid #fbcfe8; border-radius: 6px;">
+        <option value="In Stock">In Stock (Track Inventory)</option>
+        <option value="Pre-Order">Pre-Order (Made to Order)</option>
+      </select>
+
+      <div id="stockFieldDiv" style="display: block; margin-top: 1rem;">
+        <label style="display:block; font-weight: 600;">Available Stock Quantity</label>
+        <input type="number" name="stock_quantity" value="10" min="0" style="width: 100%; padding: 0.6rem; margin-top: 0.3rem; border: 1px solid #fbcfe8; border-radius: 6px; box-sizing: border-box;">
+      </div>
+
+      <!-- Top Seller & Featured Checkboxes -->
+      <div style="background: #fff5f7; border: 1px solid #fbcfe8; border-radius: 8px; padding: 1rem; margin-top: 1.2rem; display: flex; flex-direction: column; gap: 8px;">
+        <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer;">
+          <input type="checkbox" name="is_top_seller" value="1"> ⭐ Mark as Top Seller
+        </label>
+        <label style="display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; color: #9333ea;">
+          <input type="checkbox" name="is_featured" value="1"> ✨ Mark as Featured Product
+        </label>
+      </div>
+
+      <label style="display:block; margin-top: 1rem; font-weight: 600;">Craft Title</label>
+      <input type="text" name="name" required placeholder="e.g. Handmade Pink Coaster" style="width: 100%; padding: 0.6rem; margin-top: 0.3rem; border: 1px solid #fbcfe8; border-radius: 6px; box-sizing: border-box;">
+
+      <label style="display:block; margin-top: 1rem; font-weight: 600;">Description</label>
+      <textarea name="description" required rows="3" style="width: 100%; padding: 0.6rem; margin-top: 0.3rem; border: 1px solid #fbcfe8; border-radius: 6px; box-sizing: border-box;"></textarea>
+
+      <label style="display:block; margin-top: 1rem; font-weight: 600;">Price (₱ PHP)</label>
+      <input type="number" step="0.01" name="price" required placeholder="150.00" style="width: 100%; padding: 0.6rem; margin-top: 0.3rem; border: 1px solid #fbcfe8; border-radius: 6px; box-sizing: border-box;">
+
+      <label style="display:block; margin-top: 1rem; font-weight: 600;">Item Picture</label>
+      <input type="file" name="image" accept="image/*" style="display: block; margin-top: 0.4rem; padding: 0.4rem; border: 1px dashed #fbcfe8; width: 100%; border-radius: 6px; box-sizing: border-box;">
+
+      <button class="btn" type="submit" style="margin-top: 1.5rem;">Publish Craft</button>
+    </form>
+  </div>
+
+  <script>
+    function toggleStockField() {
+      var val = document.getElementById('availType').value;
+      document.getElementById('stockFieldDiv').style.display = (val === 'In Stock') ? 'block' : 'none';
+    }
+  </script>
+{% endblock %}

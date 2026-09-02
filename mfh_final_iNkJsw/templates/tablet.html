@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Macleen's Tablet Kiosk</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#ff69b4">
+  <style>
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-user-select: none; user-select: none; }
+    body { background: #0f172a; color: #1e293b; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    header { background: #1e293b; color: white; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #334155; }
+    .kiosk-grid { display: grid; grid-template-columns: 1fr 340px 220px; flex: 1; height: calc(100vh - 45px); }
+
+    /* Left Menu & Categories */
+    .menu-pane { background: #0f172a; padding: 10px; display: flex; flex-direction: column; overflow-y: auto; }
+    .cat-strip { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; flex-shrink: 0; }
+    .cat-btn { background: #334155; color: white; border: none; padding: 10px 14px; border-radius: 6px; font-weight: 800; font-size: 0.78rem; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+    .cat-btn.active { background: var(--hk-pink); }
+
+    .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; flex: 1; }
+    .dish-tile { background: white; border: 2px solid #cbd5e1; border-radius: 6px; padding: 8px; height: 95px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; }
+    .dish-tile:active { background: #ffebf3; border-color: var(--hk-pink); }
+
+    /* Center Bill */
+    .bill-pane { background: #1e293b; border-left: 2px solid #334155; display: flex; flex-direction: column; padding: 10px; }
+    .receipt { background: white; border-radius: 6px; flex: 1; padding: 10px; overflow-y: auto; }
+
+    /* Right Keypad */
+    .keypad-pane { background: #1e293b; border-left: 2px solid #334155; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .pad-key { background: #334155; color: white; border: 1px solid #475569; border-radius: 6px; font-size: 1.2rem; font-weight: 900; height: 50px; display: flex; justify-content: center; align-items: center; cursor: pointer; }
+    .pad-key:active { background: var(--hk-pink); }
+  </style>
+</head>
+<body>
+
+  <header>
+    <strong style="color:var(--hk-pink); font-size:1.1rem;">🎀 MACLEEN'S TABLET TOUCH KIOSK</strong>
+    <button onclick="resetTicket()" style="background:#ef4444; color:white; border:none; padding:4px 10px; border-radius:4px; font-weight:bold; cursor:pointer;">CLEAR ALL</button>
+  </header>
+
+  <div class="kiosk-grid">
+    <!-- Categories + Dishes -->
+    <div class="menu-pane">
+      <div class="cat-strip">
+        <button class="cat-btn active" onclick="filterCat('ALL', this)">ALL MENU</button>
+        {% for cat in categories %}
+          <button class="cat-btn" onclick="filterCat('{{ cat.name }}', this)">{{ cat.name }}</button>
+        {% endfor %}
+      </div>
+
+      <div class="dish-grid">
+        {% for p in products %}
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_choice_groups(p.option_schema, p.size_schema)|tojson }})' >
+          <div style="font-size:0.8rem; font-weight:900; line-height:1.2;">{{ p.name }}</div>
+          <div>
+            <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div>
+            {% if p.size_schema %}<div style="font-size:0.58rem; color:#f472b6; font-weight:800;">Priced sizes available</div>{% endif %}
+            {% if p.option_schema %}<div style="font-size:0.58rem; color:#d97706; font-weight:800;">Choices available</div>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Receipt Bill -->
+    <div class="bill-pane">
+      <div class="receipt" id="receiptBox">
+        <p style="color:#94a3b8; text-align:center; padding-top:40px;">Tap items to add.</p>
+      </div>
+
+      <div style="background:#0f172a; padding:10px; border-radius:6px; margin-top:10px; color:white;">
+        <div style="display:flex; justify-content:space-between; font-weight:900; font-size:1.3rem;">
+          <span>TOTAL</span>
+          <span style="color:var(--hk-pink);" id="kioskTotal">₱0.00</span>
+        </div>
+        <button onclick="submitKiosk()" style="width:100%; background:var(--hk-pink); color:white; border:none; padding:12px; border-radius:6px; font-weight:900; margin-top:8px; font-size:1rem; cursor:pointer;">SEND TO CASHIER</button>
+      </div>
+    </div>
+
+    <!-- Member ID + real PIN keypad -->
+    <div class="keypad-pane">
+      <div style="font-size:0.72rem; color:#cbd5e1; font-weight:bold;">Optional Member Login</div>
+      <input type="text" id="memberIdentifier" placeholder="Mobile / Card ID" autocomplete="off" onclick="setActiveField('memberIdentifier')" style="background:#0f172a; color:white; border:1px solid #64748b; padding:8px; border-radius:6px; text-align:center; font-weight:bold; font-size:0.9rem;">
+      <input type="password" id="memberPin" placeholder="4-digit PIN" inputmode="numeric" maxlength="4" autocomplete="off" onclick="setActiveField('memberPin')" style="background:#0f172a; color:white; border:1px solid #64748b; padding:8px; border-radius:6px; text-align:center; font-weight:bold; font-size:0.9rem; margin-bottom:2px;">
+      <div style="display:flex; gap:4px; margin-bottom:4px;">
+        <button type="button" onclick="setActiveField('memberIdentifier')" style="flex:1; background:#475569; color:white; border:none; border-radius:4px; padding:4px; font-size:0.68rem;">Edit ID</button>
+        <button type="button" onclick="setActiveField('memberPin')" style="flex:1; background:#475569; color:white; border:none; border-radius:4px; padding:4px; font-size:0.68rem;">Edit PIN</button>
+      </div>
+      <div style="font-size:0.66rem; color:#94a3b8; margin-bottom:4px;">Leave both blank for guest. Member ID + PIN are verified by the server.</div>
+      <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:6px;">
+        <div class="pad-key" onclick="pressKey('1')">1</div>
+        <div class="pad-key" onclick="pressKey('2')">2</div>
+        <div class="pad-key" onclick="pressKey('3')">3</div>
+        <div class="pad-key" onclick="pressKey('4')">4</div>
+        <div class="pad-key" onclick="pressKey('5')">5</div>
+        <div class="pad-key" onclick="pressKey('6')">6</div>
+        <div class="pad-key" onclick="pressKey('7')">7</div>
+        <div class="pad-key" onclick="pressKey('8')">8</div>
+        <div class="pad-key" onclick="pressKey('9')">9</div>
+        <div class="pad-key" onclick="pressKey('C')" style="color:#f87171;">C</div>
+        <div class="pad-key" onclick="pressKey('0')">0</div>
+        <div class="pad-key" onclick="pressKey('OK')" style="color:#4ade80;">OK</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let kCart = {};
+    let activeKioskField = 'memberIdentifier';
+
+    function setActiveField(id) {
+      activeKioskField = id;
+      document.getElementById(id).focus();
+    }
+
+    function filterCat(cat, btn) {
+      document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.dish-tile').forEach(d => {
+        d.style.display = (cat === 'ALL' || d.dataset.cat === cat) ? 'flex' : 'none';
+      });
+    }
+
+    function pressKey(k) {
+      const inp = document.getElementById(activeKioskField);
+      if (k === 'C') {
+        inp.value = '';
+      } else if (k === 'OK') {
+        if (activeKioskField === 'memberIdentifier') {
+          setActiveField('memberPin');
+        } else {
+          const identifier = document.getElementById('memberIdentifier').value.trim();
+          const pin = document.getElementById('memberPin').value.trim();
+          if ((identifier && pin.length !== 4) || (!identifier && pin)) {
+            alert('Enter your member mobile/card ID and exact 4-digit PIN, or leave both blank.');
+          } else {
+            alert(identifier ? 'Member credentials ready. They will be verified when you send the order.' : 'Guest checkout selected.');
+          }
+        }
+      } else {
+        if (activeKioskField === 'memberPin' && inp.value.length >= 4) return;
+        inp.value += k;
+      }
+    }
+
+    function escapeOptionHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+    }
+
+    function ensureProductOptionsPicker() {
+      if (document.getElementById('productOptionsPicker')) return;
+      const style = document.createElement('style');
+      style.textContent = `
+        .po-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.72);z-index:20000;align-items:center;justify-content:center;padding:14px}
+        .po-card{width:min(520px,96vw);max-height:88vh;overflow:auto;background:#fff;color:#1e293b;border-radius:14px;padding:16px;border:2px solid #ff69b4;box-shadow:0 18px 45px rgba(0,0,0,.35)}
+        .po-group{border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin:10px 0;background:#f8fafc}
+        .po-group-title{font-weight:900;color:#831843;margin-bottom:6px}
+        .po-help{font-size:.72rem;color:#64748b;margin-bottom:7px}
+        .po-choice{display:flex;align-items:center;gap:9px;padding:8px 9px;margin:5px 0;background:#fff;border:1px solid #cbd5e1;border-radius:8px;cursor:pointer;font-weight:700}
+        .po-choice input{width:18px;height:18px;accent-color:#ec4899;flex:0 0 auto}
+        .po-actions{display:flex;gap:8px;margin-top:12px}
+        .po-actions button{flex:1;border:none;border-radius:8px;padding:10px;font-weight:900;cursor:pointer}
+        .po-confirm{background:#ec4899;color:#fff}.po-cancel{background:#e2e8f0;color:#334155}
+        .po-error{min-height:18px;color:#dc2626;font-size:.78rem;font-weight:800;margin-top:6px}
+      `;
+      document.head.appendChild(style);
+      const overlay = document.createElement('div');
+      overlay.id = 'productOptionsPicker';
+      overlay.className = 'po-overlay';
+      overlay.innerHTML = `
+        <div class="po-card" role="dialog" aria-modal="true" aria-labelledby="poTitle">
+          <h3 id="poTitle" style="color:#831843;margin-bottom:4px;">Choose options</h3>
+          <div id="poProductName" style="font-size:.8rem;color:#64748b;margin-bottom:8px;"></div>
+          <div id="poGroups"></div>
+          <div id="poError" class="po-error"></div>
+          <div class="po-actions">
+            <button type="button" id="poCancel" class="po-cancel">CANCEL</button>
+            <button type="button" id="poConfirm" class="po-confirm">ADD / CONFIRM</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+    }
+
+    function collectProductOptions(productName, groups) {
+      groups = Array.isArray(groups) ? groups : [];
+      if (!groups.length) return Promise.resolve({});
+      ensureProductOptionsPicker();
+
+      return new Promise(resolve => {
+        const overlay = document.getElementById('productOptionsPicker');
+        const body = document.getElementById('poGroups');
+        const error = document.getElementById('poError');
+        document.getElementById('poProductName').textContent = productName;
+        error.textContent = '';
+
+        body.innerHTML = groups.map((group, gi) => {
+          const choices = Array.isArray(group.choices) ? group.choices : [];
+          const multiple = !!group.multiple;
+          const type = multiple ? 'checkbox' : 'radio';
+          const helper = multiple ? 'Select one or more.' : 'Select one.';
+          const inputs = choices.map((choice, ci) => {
+            const rawPrice = group.prices && Object.prototype.hasOwnProperty.call(group.prices, choice) ? Number(group.prices[choice]) : null;
+            const priceText = Number.isFinite(rawPrice) && rawPrice > 0 ? ` <strong style="color:#ec4899;">• ₱${rawPrice.toFixed(2)}</strong>` : '';
+            return `
+            <label class="po-choice">
+              <input type="${type}" name="po_group_${gi}" data-choice-index="${ci}">
+              <span>${escapeOptionHtml(choice)}${priceText}</span>
+            </label>`;
+          }).join('');
+          return `<div class="po-group" data-group-index="${gi}">
+            <div class="po-group-title">${escapeOptionHtml(group.name)}</div>
+            <div class="po-help">${helper}</div>${inputs}</div>`;
+        }).join('');
+
+        const finish = value => {
+          overlay.style.display = 'none';
+          document.getElementById('poConfirm').onclick = null;
+          document.getElementById('poCancel').onclick = null;
+          resolve(value);
+        };
+
+        document.getElementById('poCancel').onclick = () => finish(null);
+        document.getElementById('poConfirm').onclick = () => {
+          const selected = {};
+          for (let gi = 0; gi < groups.length; gi++) {
+            const group = groups[gi];
+            const choices = Array.isArray(group.choices) ? group.choices : [];
+            const checked = [...body.querySelectorAll(`input[name="po_group_${gi}"]:checked`)];
+            if (!checked.length) {
+              error.textContent = `Please choose ${group.multiple ? 'at least one' : 'one'} ${group.name}.`;
+              return;
+            }
+            const values = checked.map(el => choices[parseInt(el.dataset.choiceIndex, 10)]).filter(Boolean);
+            selected[group.name] = group.multiple ? values : values[0];
+          }
+          finish(selected);
+        };
+
+        overlay.style.display = 'flex';
+      });
+    }
+
+    function optionSummary(options) {
+      if (!options || typeof options !== 'object') return '';
+      return Object.entries(options).map(([k,v]) => `${k}: ${Array.isArray(v) ? v.join(' + ') : v}`).join(' • ');
+    }
+
+    function selectedPriceForOptions(basePrice, groups, options) {
+      let resolved = parseFloat(basePrice);
+      (Array.isArray(groups) ? groups : []).forEach(group => {
+        if (!group || !group.priced || !group.prices) return;
+        let choice = (options || {})[group.name];
+        if (Array.isArray(choice)) choice = choice[0];
+        if (!choice) return;
+        const candidate = Number(group.prices[choice]);
+        if (Number.isFinite(candidate) && candidate > 0) resolved = candidate;
+      });
+      return resolved;
+    }
+
+    function cartKeyFor(productId, options) {
+      const pairs = Object.entries(options || {}).sort((a,b) => a[0].localeCompare(b[0]));
+      return pairs.length ? `${productId}::${encodeURIComponent(JSON.stringify(Object.fromEntries(pairs)))}` : String(productId);
+    }
+
+    async function addItem(id, name, price, optionGroups=[]) {
+      const options = await collectProductOptions(name, optionGroups);
+      if (options === null) return;
+      const key = cartKeyFor(id, options);
+      if (kCart[key]) kCart[key].qty += 1;
+      else kCart[key] = { productId: parseInt(id), name, price: selectedPriceForOptions(price, optionGroups, options), qty: 1, options };
+      renderKiosk();
+    }
+
+    function changeItemQty(id, delta) {
+      if (kCart[id]) {
+        kCart[id].qty += delta;
+        if (kCart[id].qty <= 0) delete kCart[id];
+      }
+      renderKiosk();
+    }
+
+    function removeItem(id) {
+      delete kCart[id];
+      renderKiosk();
+    }
+
+    function renderKiosk() {
+      const r = document.getElementById('receiptBox');
+      const keys = Object.keys(kCart);
+      if (keys.length === 0) {
+        r.innerHTML = '<p style="color:#94a3b8; text-align:center; padding-top:40px;">Tap items to add.</p>';
+        document.getElementById('kioskTotal').innerText = '₱0.00';
+        return;
+      }
+
+      let html = '';
+      let total = 0;
+      keys.forEach(id => {
+        const item = kCart[id];
+        const row = item.price * item.qty;
+        total += row;
+        html += `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #cbd5e1; font-size:0.82rem;">
+            <div>
+              <strong>${item.name}</strong>
+              ${optionSummary(item.options) ? `<div style="font-size:0.70rem; color:#b45309;">${optionSummary(item.options)}</div>` : ''}
+              <div style="font-size:0.75rem; color:#64748b;">₱${item.price.toFixed(2)}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:4px;">
+              <button onclick="changeItemQty('${id}', -1)" style="padding:2px 6px; border:1px solid #cbd5e1; border-radius:3px; background:white; font-weight:bold;">-</button>
+              <strong>${item.qty}</strong>
+              <button onclick="changeItemQty('${id}', 1)" style="padding:2px 6px; border:1px solid #cbd5e1; border-radius:3px; background:white; font-weight:bold;">+</button>
+              <button onclick="removeItem('${id}')" style="background:#fee2e2; color:#ef4444; border:none; padding:2px 5px; border-radius:3px; font-weight:bold; cursor:pointer;">✕</button>
+            </div>
+          </div>`;
+      });
+
+      r.innerHTML = html;
+      document.getElementById('kioskTotal').innerText = `₱${total.toFixed(2)}`;
+    }
+
+    function resetTicket() {
+      kCart = {};
+      document.getElementById('memberIdentifier').value = '';
+      document.getElementById('memberPin').value = '';
+      activeKioskField = 'memberIdentifier';
+      renderKiosk();
+    }
+
+    async function submitKiosk() {
+      const keys = Object.keys(kCart);
+      if (keys.length === 0) return alert("Ticket is empty.");
+
+      const memberIdentifier = document.getElementById('memberIdentifier').value.trim();
+      const memberPin = document.getElementById('memberPin').value.trim();
+      if ((memberIdentifier && memberPin.length !== 4) || (!memberIdentifier && memberPin)) {
+        return alert('Enter both member ID/mobile and exact 4-digit PIN, or leave both blank for guest.');
+      }
+
+      const payload = {
+        items: keys.map(id => ({ product_id: kCart[id].productId || parseInt(id), quantity: kCart[id].qty, options: kCart[id].options || {} })),
+        payment_method: 'CASH',
+        member_identifier: memberIdentifier,
+        member_pin: memberPin,
+        table_number: 'Table Counter',
+        notes: 'Tablet Self-Order'
+      };
+
+      try {
+        const res = await fetch('/api/tablet-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          const memberMsg = data.member_name ? `\nMember: ${data.member_name}` : '\nGuest order';
+          alert(`🎉 Order #${data.order_id} sent to Cashier!\nTotal: ₱${data.total.toFixed(2)}${memberMsg}\nPlease proceed to pay at the cashier.`);
+          resetTicket();
+        } else {
+          alert(data.message || "Failed to send order.");
+        }
+      } catch(e) {
+        alert("Server error connecting to cashier queue.");
+      }
+    }
+  </script>
+</body>
+</html>

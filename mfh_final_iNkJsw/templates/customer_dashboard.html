@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Macleen's Rewards</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="{{ url_for('static', filename='loyalty-card.css') }}?v=2">
+  <meta name="theme-color" content="#ff69b4">
+  <style>
+    :root { --pink:#ff69b4; --dark:#831843; --border:#fbcfe8; --bg:#fff0f5; --muted:#64748b; }
+    * { box-sizing:border-box; margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+    html { scroll-behavior:smooth; }
+    body { background:var(--bg); color:#1e293b; padding:12px; }
+    .wrap { width:100%; max-width:760px; margin:0 auto; }
+    .card { background:#fff; border:1.5px solid var(--border); border-radius:16px; padding:16px; margin-bottom:12px; box-shadow:0 4px 12px rgba(251,207,232,.35); }
+    .profile { display:flex; gap:12px; align-items:center; }
+    .avatar { width:64px; height:64px; border-radius:50%; border:3px solid var(--pink); object-fit:cover; background:#ffe4e6; display:flex; align-items:center; justify-content:center; font-size:1.8rem; flex:none; }
+    .name { color:var(--dark); font-size:1.2rem; font-weight:900; }
+    .muted { color:var(--muted); font-size:.76rem; }
+    .flash { padding:10px 12px; border-radius:10px; margin-bottom:10px; font-size:.82rem; font-weight:700; }
+    .flash-success { background:#dcfce7; color:#166534; }
+    .flash-info { background:#e0f2fe; color:#075985; }
+    .flash-error { background:#fee2e2; color:#991b1b; }
+    .action-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin-top:12px; }
+    .action { text-decoration:none; border:1.5px solid var(--border); border-radius:12px; padding:12px 8px; text-align:center; background:#fff7fb; color:var(--dark); font-weight:900; font-size:.82rem; }
+    .action span { display:block; font-size:1.5rem; margin-bottom:4px; }
+    .section-title { color:var(--dark); font-size:1rem; font-weight:900; margin-bottom:8px; }
+    .points { font-size:2rem; font-weight:900; color:var(--pink); }
+    .progress { height:12px; background:#fce7f3; border-radius:999px; overflow:hidden; margin:8px 0; }
+    .progress > div { height:100%; background:linear-gradient(90deg,#ff69b4,#ec4899); }
+    .btn { width:100%; display:block; border:none; border-radius:9px; padding:10px; text-align:center; text-decoration:none; font-weight:900; cursor:pointer; font-size:.82rem; }
+    .btn-pink { background:var(--pink); color:#fff; }
+    .btn-red { background:#e11d48; color:#fff; }
+    .btn-amber { background:#d97706; color:#fff; }
+    .btn-outline { background:#fff; border:1.5px solid #cbd5e1; color:#475569; }
+    .btn-soft { background:#fdf2f8; border:1px solid var(--border); color:var(--dark); }
+    .deal { border:1.5px dashed #f43f5e; border-radius:12px; padding:12px; margin-top:8px; background:#fff1f2; }
+    .bonus { border:1.5px solid #fde68a; border-radius:12px; padding:12px; margin-top:8px; background:#fffbeb; }
+    .row { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+    .history { max-height:190px; overflow-y:auto; }
+    .history-row { padding:7px 0; border-bottom:1px dashed #fce7f3; font-size:.75rem; }
+    .refbox { background:#fdf2f8; border:1.5px dashed var(--pink); border-radius:12px; padding:12px; }
+    .copy-row { display:flex; gap:5px; margin-top:7px; }
+    .copy-row input { flex:1; min-width:0; padding:8px; border:1px solid #cbd5e1; border-radius:7px; font-size:.7rem; }
+    .copy-row button { width:auto; padding:8px 10px; }
+    .secondary-order { background:#f8fafc; border-color:#e2e8f0; }
+    .suggest-box { width:100%; min-height:120px; resize:vertical; padding:12px; border:1.5px solid var(--border); border-radius:10px; font-size:.9rem; outline:none; background:#fff; color:#1e293b; }
+    .suggest-box:focus { border-color:var(--pink); box-shadow:0 0 0 3px rgba(255,105,180,.12); }
+    .card-theme-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px; }
+    .card-theme-option { position:relative; display:block; cursor:pointer; }
+    .card-theme-option input { position:absolute; opacity:0; pointer-events:none; }
+    .theme-preview { min-height:76px; border-radius:12px; padding:10px; border:2px solid transparent; box-shadow:0 3px 9px rgba(15,23,42,.08); transition:.15s ease; display:flex; flex-direction:column; justify-content:space-between; }
+    .card-theme-option input:checked + .theme-preview { outline:3px solid rgba(236,72,153,.20); border-color:#ec4899; transform:translateY(-1px); }
+    .theme-preview strong { font-size:.78rem; } .theme-preview small { font-size:.62rem; font-weight:800; opacity:.88; }
+    .theme-preview.pink-classic { background:linear-gradient(135deg,#e94f9b,#f4778f 56%,#f9d1df); color:white; }
+    .theme-preview.cafe-cream { background:linear-gradient(135deg,#fff7eb,#f8d9b3 58%,#f3bd7f); color:#733b12; }
+    .theme-preview.midnight-gold { background:linear-gradient(135deg,#0f172a,#1f2937 58%,#374151); color:#fde9aa; }
+    .theme-preview.mint-fresh { background:linear-gradient(135deg,#effdf7,#b8efd8 58%,#7bdcb5); color:#075f49; }
+    .theme-preview.purple-craft { background:linear-gradient(135deg,#7c3aed,#a855f7 58%,#efb5fb); color:white; }
+    .preview-shell{margin-top:12px;background:#fff8fb;border:1px dashed var(--border);border-radius:14px;padding:12px;overflow:auto}
+    .preview-title{font-size:.78rem;font-weight:900;color:var(--dark);margin-bottom:8px}
+    .card-preview-stack{display:flex;justify-content:center;overflow:auto;padding:4px 0 8px}
+    .card-preview-stack .loyalty-card-pair{zoom:1.22}
+    @media(max-width:560px){ .action-grid{grid-template-columns:1fr 1fr;} .card-theme-grid{grid-template-columns:1fr;} .row{align-items:flex-start; flex-direction:column;} .card-preview-stack{justify-content:flex-start}.card-preview-stack .loyalty-card-pair{zoom:1} }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+      <div class="flash flash-{{ category if category in ['success','info','error'] else 'info' }}">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="card">
+    <div class="profile">
+      {% if cust.profile_image %}<img src="{{ cust.profile_image }}" class="avatar">{% else %}<div class="avatar">🎀</div>{% endif %}
+      <div style="flex:1;">
+        <div class="name">{{ cust.name }}</div>
+        <div class="muted">Member {{ cust.card_number or 'MFH-0000' }} • {{ cust.card_status or 'ACTIVE' }}</div>
+        <div class="muted">🔥 Login streak: Day {{ cust.login_streak or 1 }}</div>
+      </div>
+    </div>
+
+    <div class="action-grid">
+      <a class="action" href="#rewards"><span>🎁</span>My Rewards</a>
+      <a class="action" href="#cardDesign"><span>🎫</span>My Card Theme</a>
+      <a class="action" href="#suggest"><span>💡</span>Suggest a Product</a>
+      <a class="action" href="#deals"><span>🔥</span>Today's Member Deals</a>
+      <a class="action" href="/"><span>🛍️</span>Order / View Menu</a>
+    </div>
+  </div>
+
+  <div class="card" id="rewards">
+    <div class="section-title">🎁 My Rewards</div>
+    <div class="row">
+      <div>
+        <div class="points">{{ "{:,.1f}".format(cust.points_balance or 0.0) }} pts</div>
+        <div class="muted">Earn 1 point per ₱30 spend • +0.5 daily login</div>
+      </div>
+      <div style="text-align:right; font-size:.75rem; font-weight:900; color:var(--dark);">
+        {% if points_to_reward > 0 %}{{ "{:.1f}".format(points_to_reward) }} pts to 20-point milestone{% else %}20-point milestone reached!{% endif %}
+      </div>
+    </div>
+    <div class="progress"><div style="width:{{ reward_progress_pct|round(1) }}%;"></div></div>
+    <div class="muted">Your walk-in purchases earn points too. Tell the cashier you're a member before payment.</div>
+
+    {% if recent_rewards %}
+      <div style="margin-top:12px; font-size:.78rem; font-weight:900; color:var(--dark);">Recent reward activity</div>
+      {% for r in recent_rewards %}
+        <div class="history-row row"><span>{{ r.reason }}</span><strong style="color:{{ '#16a34a' if r.points_change >= 0 else '#dc2626' }};">{{ '+' if r.points_change >= 0 else '' }}{{ "{:.1f}".format(r.points_change) }}</strong></div>
+      {% endfor %}
+    {% endif %}
+  </div>
+
+  <div class="card" id="suggest">
+    <div class="section-title">💡 What would you like to buy from our shop?</div>
+    <div class="muted" style="margin-bottom:10px;">Tell us anything you'd like us to offer — past products, current products, or something completely new.</div>
+    <form action="/portal/suggest-product" method="POST">
+      <textarea class="suggest-box" name="suggestion" maxlength="500" required placeholder="Example: Bring back palabok, mango shake, chicken wings, corndog..."></textarea>
+      <button class="btn btn-pink" type="submit" style="margin-top:8px;">SUBMIT SUGGESTION</button>
+    </form>
+  </div>
+
+  <div class="card" id="cardDesign">
+    <div class="section-title">🎫 Choose My Loyalty Card Theme</div>
+    <div class="muted">Choose how your physical Macleen's Loyalty Rewards Card will look. The live preview below shows the actual front and back landscape card before staff prints it. Points are not shown on the printed card.</div>
+    <form action="/portal/card-theme" method="POST" style="margin-top:10px;" id="cardThemeForm">
+      <div class="card-theme-grid">
+        {% for key, label in loyalty_card_themes.items() %}
+          <label class="card-theme-option">
+            <input type="radio" name="theme" value="{{ key }}" {% if (cust.card_theme or 'pink-classic') == key %}checked{% endif %} onchange="syncCustomerCardPreview()">
+            <span class="theme-preview {{ key }}">
+              <strong>{{ label }}</strong>
+              <small>{{ cust.card_number or 'MFH-0000' }} • {{ cust.name }}</small>
+            </span>
+          </label>
+        {% endfor %}
+      </div>
+      <button class="btn btn-pink" type="submit" style="margin-top:10px;">SAVE MY CARD THEME</button>
+    </form>
+    <div class="preview-shell">
+      <div class="preview-title">Live card preview — the same renderer used by staff printing</div>
+      <div class="card-preview-stack">
+        {% set card_customer = cust %}
+        {% set card_theme = cust.card_theme or 'pink-classic' %}
+        {% set card_qr_data = qr_data %}
+        {% include '_loyalty_card_pair.html' %}
+      </div>
+    </div>
+    <div class="muted" style="margin-top:8px;">Your profile photo is also used on the printed card. You can update it below from your phone/gallery.</div>
+  </div>
+
+  <div class="card" id="deals">
+    <div class="section-title">🔥 Today's Member Deals</div>
+
+    {% for campaign in bonus_campaigns %}
+      <div class="bonus">
+        <div style="font-weight:900; color:#92400e;">⭐ {{ campaign.title }}</div>
+        {% if campaign.description %}<div class="muted" style="margin-top:3px;">{{ campaign.description }}</div>{% endif %}
+        <div style="font-size:.76rem; margin-top:6px; font-weight:800; color:#b45309;">
+          {% if campaign.points_multiplier and campaign.points_multiplier > 1 %}{{ "{:.1f}".format(campaign.points_multiplier) }}× base points{% endif %}
+          {% if campaign.bonus_points and campaign.bonus_points > 0 %}{% if campaign.points_multiplier and campaign.points_multiplier > 1 %} + {% endif %}+{{ "{:.1f}".format(campaign.bonus_points) }} bonus pts{% endif %}
+          {% if campaign.min_spend and campaign.min_spend > 0 %} • Min ₱{{ "{:,.2f}".format(campaign.min_spend) }}{% endif %}
+          {% if campaign.start_time or campaign.end_time %} • {{ campaign.start_time or '00:00' }}–{{ campaign.end_time or '23:59' }}{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+
+    {% for promo in active_promos %}
+      <div class="deal">
+        <div style="font-size:.68rem; font-weight:900; color:#e11d48;">{{ 'PORTAL-ONLY MEMBER DEAL' if promo.portal_only else 'MEMBER DEAL' }}</div>
+        <div style="font-weight:900; color:#9f1239; margin-top:3px;">{{ promo.title }}</div>
+        {% if promo.description %}<div class="muted" style="margin-top:3px;">{{ promo.description }}</div>{% endif %}
+        <div style="font-size:1.25rem; font-weight:900; color:#e11d48; margin:7px 0;">₱{{ "{:,.2f}".format(promo.promo_price) }}</div>
+        <form action="/portal/reserve-promo/{{ promo.promo_code }}" method="POST" onsubmit="return confirm('Reserve this member deal and queue it at the cashier?');"><button type="submit" class="btn btn-red">⚡ Reserve • Pay at Counter</button></form>
+      </div>
+    {% endfor %}
+
+    {% if not active_promos and not bonus_campaigns %}<div class="muted" style="text-align:center; padding:12px;">No member deal is active right now. Check again later.</div>{% endif %}
+  </div>
+
+  <div class="card">
+    <div class="section-title">🎁 Invite a Friend</div>
+    <div class="refbox">
+      <div style="font-size:.8rem; font-weight:900; color:var(--dark);">Both get rewarded after the first real purchase</div>
+      <div class="muted" style="margin-top:4px;">Share your personal link. When your friend registers and completes their first paid purchase, both accounts receive +2 points. Successful referral rewards: <strong>{{ referral_rewards_count }}</strong>.</div>
+      <div class="copy-row">
+        <input id="refLinkInput" value="{{ request.url_root }}portal/register?ref={{ cust.card_number or cust.contact }}" readonly>
+        <button class="btn btn-pink" type="button" onclick="copyInviteLink()">📋 Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card secondary-order">
+    <div class="row" style="margin-bottom:9px;">
+      <div class="section-title" style="margin:0;">📦 Purchases & Orders</div>
+      <a class="btn btn-pink" style="width:auto; padding:7px 11px;" href="/">Order Online</a>
+    </div>
+    <div class="muted" style="margin-bottom:8px;">Online ordering is optional. Your walk-in purchases still count when the cashier links your member account.</div>
+    {% if orders %}
+      <div class="history">
+        {% for o in orders %}
+          <div class="history-row">
+            <div class="row"><strong>#{{ o.id }} • {{ o.order_type }}</strong><strong style="color:var(--pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</strong></div>
+            <div class="muted">{{ o.status }} • {{ o.dining_option or 'DINE-IN' }}</div>
+            {% if o.status in ['VERIFICATION', 'COMPLETED'] and not (o.points_redeemed or 0) and (cust.points_balance or 0) >= 20 %}
+              <button type="button" class="btn btn-pink" style="width:auto;padding:5px 8px;margin-top:5px;font-size:.7rem;" onclick="applyPointsToOrder({{ o.id }})">Use Points as Discount</button>
+            {% elif (o.points_redeemed or 0) > 0 %}
+              <div style="color:#059669;font-weight:900;margin-top:3px;font-size:.72rem;">✓ {{ "{:,.2f}".format(o.points_redeemed) }} points used (₱{{ "{:,.2f}".format(o.points_discount or 0) }} discount)</div>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}<div class="muted" style="text-align:center; padding:10px;">No purchases linked to this member yet.</div>{% endif %}
+  </div>
+
+  <div class="card" id="account">
+    <div class="section-title">⚙️ Account & Card Photo</div>
+    <form action="/portal/update-profile-pic" method="POST" enctype="multipart/form-data">
+      <label style="display:block;font-size:.78rem;font-weight:900;color:var(--dark);margin-bottom:4px;">Upload photo from phone/gallery</label>
+      <input type="file" name="profile_photo" accept="image/png,image/jpeg,image/webp,image/gif" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:7px; margin-bottom:7px;background:white;">
+      <div class="muted" style="margin-bottom:7px;">PNG/JPG/WEBP/GIF up to 2.5 MB. This photo is also used by the Loyalty Card Printing portal.</div>
+      <input type="url" name="profile_image" placeholder="Or paste an optional photo URL" style="width:100%; padding:9px; border:1px solid #cbd5e1; border-radius:7px; margin-bottom:7px;">
+      <button class="btn btn-soft" type="submit">Save Profile Photo</button>
+    </form>
+    <a href="/portal/logout" class="btn btn-outline" style="margin-top:7px;">Log Out</a>
+  </div>
+</div>
+<script>
+  function copyInviteLink(){
+    const el=document.getElementById('refLinkInput');
+    el.select(); el.setSelectionRange(0,99999);
+    navigator.clipboard.writeText(el.value).then(()=>alert('Invite link copied!'));
+  }
+  function syncCustomerCardPreview(){
+    const selected=document.querySelector('input[name="theme"]:checked');
+    const theme=selected ? selected.value : 'pink-classic';
+    document.querySelectorAll('[data-loyalty-card-pair] [data-card-theme]').forEach(card=>{
+      card.classList.remove('pink-classic','cafe-cream','midnight-gold','mint-fresh','purple-craft');
+      card.classList.add(theme);
+    });
+  }
+  async function applyPointsToOrder(orderId){
+    const raw=prompt('How many points would you like to use?\nMinimum: 20 points • 1 point = ₱1');
+    if(raw===null)return;
+    const points=parseFloat(raw);
+    if(!Number.isFinite(points)||points<=0)return alert('Please enter a valid number of points.');
+    const res=await fetch('/api/redeem-order-points',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:orderId,redeem_points:points})});
+    const data=await res.json();
+    if(!data.success)return alert(data.message||'Could not apply points.');
+    const refundNote=data.refund_due>0?`\nShow this to the cashier. Refund/change due: ₱${data.refund_due.toFixed(2)}`:'';
+    alert(`Points applied!\nDiscount: ₱${data.discount.toFixed(2)}\nNew total: ₱${data.total.toFixed(2)}${refundNote}`);
+    window.location.reload();
+  }
+  syncCustomerCardPreview();
+</script>
+</body>
+</html>

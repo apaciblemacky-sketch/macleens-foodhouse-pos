@@ -1,0 +1,12 @@
+[33m1859280[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Revert "Revert store catalog to clean food-only menu system"
+[33m4ab419f[m Revert store catalog to clean food-only menu system
+[33m16adc6d[m Fix food category pills, center desktop grid, and handle missing dish images with cute emoji placeholders
+[33m24cbe74[m Split food catalog and dedicated printing services section on storefront
+[33mcaec08f[m Award 5 bonus points to the first 11 registered customers
+[33m265878e[m Restore cashier Wi-Fi voucher claim notifications panel
+[33m85a4b26[m Add customer PIN reset capability in admin dashboard
+[33md91956c[m Fix dashboard 500 error, add safe customer null checks, and patch missing db columns
+[33m05ca91d[m Deploy full standalone PWA manifest, sw routes, and complete templates
+[33m0ac373f[m Add full HTML headers and PWA service worker to standalone templates
+[33m7ea24cf[m Fix 0.00 payable total, format 3.5x5 receipt, add logo setting, catalog sorting, and 1s audio chimes
+[33m4caac46[m Deploy delivery zones, 2-way delivery confirmation, grey/pink accumulated likes, and thermal print fix

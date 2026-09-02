@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Macleen's Food House</title>
+  <meta name="description" content="Macleen's Food House — fresh meals, drinks, snacks, rewards, and convenient ordering.">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Macleen's Food House">
+  <meta property="og:title" content="Macleen's Food House">
+  <meta property="og:description" content="Fresh meals, drinks, snacks, rewards, and convenient ordering from Macleen's Food House.">
+  <link rel="canonical" href="{{ url_for('store_catalog', _external=True) }}">
+  <meta property="og:url" content="{{ url_for('store_catalog', _external=True) }}">
+  <meta property="og:image" content="{{ url_for('static', filename='social/foodhouse-share-header.png', _external=True) }}">
+  <meta property="og:image:secure_url" content="{{ url_for('static', filename='social/foodhouse-share-header.png', _external=True) }}">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Macleen's Food House header">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Macleen's Food House">
+  <meta name="twitter:description" content="Fresh meals, drinks, snacks, rewards, and convenient ordering.">
+  <meta name="twitter:image" content="{{ url_for('static', filename='social/foodhouse-share-header.png', _external=True) }}">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#ff69b4">
+  <script src="{{ url_for('static', filename='share-helper.js') }}?v=6"></script>
+<script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js');
+    }
+  </script>
+  <style>
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; --hk-light: #fff0f5; --hk-border: #fbcfe8; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: var(--hk-light); color: #1e293b; padding-bottom: 90px; }
+
+    header { background: white; border-bottom: 2px solid var(--hk-pink); padding: 8px 16px; position: sticky; top: 0; z-index: 50; display: flex; justify-content: space-between; align-items: center; }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 900; color: var(--hk-dark); font-size: 1.1rem; }
+    .brand-logo { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--hk-pink); }
+    .nav-btn { background: var(--hk-pink); color: white; padding: 6px 12px; border-radius: 20px; text-decoration: none; font-weight: bold; font-size: 0.78rem; }
+
+    .hero { background: linear-gradient(135deg, #ff69b4, #ec4899, #831843); color: white; padding: 1.5rem 1rem; text-align: center; border-bottom-left-radius: 20px; border-bottom-right-radius: 20px; }
+    .hero img { width: 85px; height: 85px; border-radius: 50%; background: white; padding: 3px; margin-bottom: 6px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); }
+    
+    .container { max-width: 1100px; margin: 0 auto; padding: 12px; }
+    .section-title { font-size: 1rem; font-weight: 900; color: var(--hk-dark); margin: 16px 0 10px; display: flex; justify-content: space-between; align-items: center; }
+
+    .carousel-header-controls { display: flex; align-items: center; gap: 6px; }
+    .scroll-btn { 
+      background: white; 
+      border: 1.5px solid var(--hk-pink); 
+      color: var(--hk-dark); 
+      width: 28px; 
+      height: 28px; 
+      border-radius: 50%; 
+      font-weight: 900; 
+      font-size: 0.85rem; 
+      display: inline-flex; 
+      align-items: center; 
+      justify-content: center; 
+      cursor: pointer; 
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05); 
+      transition: all 0.2s;
+    }
+    .scroll-btn:hover { background: var(--hk-pink); color: white; transform: scale(1.05); }
+
+    .carousel-track { 
+      display: flex; 
+      gap: 10px; 
+      overflow-x: auto; 
+      padding-bottom: 12px; 
+      scroll-behavior: smooth;
+      -webkit-overflow-scrolling: touch; 
+    }
+    .carousel-track::-webkit-scrollbar { height: 8px; }
+    .carousel-track::-webkit-scrollbar-track { background: #fce7f3; border-radius: 10px; }
+    .carousel-track::-webkit-scrollbar-thumb { background: #ec4899; border-radius: 10px; }
+    .carousel-track::-webkit-scrollbar-thumb:hover { background: var(--hk-dark); }
+
+    .carousel-card { min-width: 175px; max-width: 175px; background: white; border: 2px solid var(--hk-pink); border-radius: 12px; padding: 10px; flex-shrink: 0; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 2px 6px rgba(255,105,180,0.1); }
+
+    .cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+    @media(min-width:768px){ .cat-grid { grid-template-columns: repeat(6, 1fr); gap: 12px; } }
+    .cat-card { background: white; border: 2px solid var(--hk-border); border-radius: 12px; padding: 14px 6px; text-align: center; font-weight: 800; font-size: 0.8rem; cursor: pointer; color: var(--hk-dark); }
+    .cat-card.active { background: var(--hk-pink); color: white; border-color: var(--hk-pink); }
+
+    .product-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    @media(min-width:768px){ .product-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; } }
+    
+    .product-card { background: white; border: 1px solid var(--hk-border); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; }
+    .p-img { width: 100%; height: 115px; border-radius: 8px; object-fit: cover; margin-bottom: 6px; background: #fdf2f8; }
+    .p-title { font-size: 0.88rem; font-weight: 800; margin: 4px 0; line-height: 1.25; }
+    .p-price { font-size: 1.1rem; font-weight: 900; color: var(--hk-pink); margin-bottom: 6px; }
+
+    .interaction-bar { display: flex; gap: 6px; margin-bottom: 8px; }
+    .btn-like { flex: 1; border-radius: 20px; padding: 6px 8px; font-weight: 900; font-size: 0.78rem; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 4px; border: 1.5px solid #cbd5e1; background: #f8fafc; color: #64748b; }
+    .btn-like.liked { border-color: var(--hk-pink); background: #fdf2f8; color: var(--hk-pink); }
+    .btn-review { background: #f1f5f9; border: 1px solid #cbd5e1; color: #475569; padding: 6px 10px; border-radius: 20px; font-size: 0.78rem; text-decoration: none; font-weight: 700; }
+
+    .btn-add { background: var(--hk-pink); color: white; border: none; border-radius: 8px; padding: 8px; font-weight: 900; width: 100%; cursor: pointer; font-size: 0.85rem; }
+
+    .floating-bar { position: fixed; bottom: 0; left: 0; right: 0; background: white; border-top: 2px solid var(--hk-pink); padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 60; }
+    .btn-checkout { background: var(--hk-pink); color: white; border: none; padding: 10px 18px; border-radius: 20px; font-weight: 900; font-size: 0.88rem; cursor: pointer; }
+
+    .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100; display: none; }
+    .drawer { position: fixed; bottom: 0; right: 0; top: 0; width: 100%; max-width: 440px; background: white; z-index: 101; display: flex; flex-direction: column; transform: translateX(100%); transition: transform 0.2s; }
+    .drawer-open .drawer-overlay { display: block; }
+    .drawer-open .drawer { transform: translateX(0); }
+    .form-control { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; margin-top: 4px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <img src="{{ store_logo }}" onerror="this.onerror=null; this.src='/static/logo.png';" class="brand-logo">
+      <span>MACLEEN'S FOOD HOUSE</span>
+    </div>
+    <div style="display:flex; gap:6px;">
+      {% if cust %}
+        <a href="/portal/dashboard" class="nav-btn">👤 {{ cust.name.split(' ')[0] }}</a>
+      {% else %}
+        <a href="/portal/login" class="nav-btn">Log In / Register</a>
+      {% endif %}
+      <a href="{{ url_for('craft_store') }}" class="nav-btn" style="background:#7c3aed;">🎨 Crafts</a>
+      <a href="{{ url_for('digital_store') }}" class="nav-btn" style="background:#0891b2;">💻 Digital</a>
+      <button type="button" class="nav-btn" style="border:none;cursor:pointer;background:#0f766e;color:white;" onclick="shareStoreLink()">↗ Share</button>
+    </div>
+  </header>
+
+  <div class="hero">
+    <img src="{{ store_logo }}" onerror="this.onerror=null; this.src='/static/logo.png';">
+    <h1>Macleen's Food House</h1>
+    <p style="font-size:0.82rem;">Fresh Delicious Meals & Doorstep Barangay Delivery</p>
+    <a href="{{ url_for('craft_store') }}" style="display:inline-block;margin-top:8px;background:white;color:#7c3aed;text-decoration:none;font-weight:900;padding:7px 13px;border-radius:18px;font-size:.78rem;">🎨 Visit Macleen's Craft Shop</a>
+  </div>
+
+  <div class="container">
+
+    <!-- 🎁 ACTIVE PROMOTIONAL DROPS CAROUSEL (Burger & Beefy Nachos) -->
+    {% if active_promos %}
+    <div class="section-title">
+      <span style="color:#e11d48;">🎁 Active 3-Day Promotional Drops</span>
+      <div class="carousel-header-controls">
+        <button class="scroll-btn" style="border-color:#e11d48;" onclick="slideCarousel('promoTrack', -300)">‹</button>
+        <button class="scroll-btn" style="border-color:#e11d48;" onclick="slideCarousel('promoTrack', 300)">›</button>
+      </div>
+    </div>
+    <div class="carousel-track" id="promoTrack">
+      {% for pr in active_promos %}
+      <div class="carousel-card" style="border-color: {% if 'NACHOS' in pr.promo_code %}#f59e0b{% else %}#e11d48{% endif %}; background: {% if 'NACHOS' in pr.promo_code %}#fffbeb{% else %}#fff1f2{% endif %};">
+        <div>
+          <span style="background: {% if 'NACHOS' in pr.promo_code %}#d97706{% else %}#e11d48{% endif %}; color:white; padding:2px 6px; border-radius:4px; font-size:0.65rem; font-weight:bold; display:inline-block; margin-bottom:4px;">PROMO DEAL</span>
+          <div style="font-size:0.85rem; font-weight:900; line-height:1.2; margin-bottom:4px;">{{ pr.title }}</div>
+          <div style="font-size:1.15rem; font-weight:900; color:{% if 'NACHOS' in pr.promo_code %}#b45309{% else %}#be123c{% endif %};">₱{{ "{:,.2f}".format(pr.promo_price) }}</div>
+        </div>
+        <div style="margin-top:8px;">
+          <a href="/portal/dashboard" class="btn-add" style="background:{% if 'NACHOS' in pr.promo_code %}#d97706{% else %}#e11d48{% endif %}; text-align:center; text-decoration:none; display:block; padding:5px; font-size:0.75rem;">⚡ Reserve (₱{{ "{:,.2f}".format(pr.promo_price) }})</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    
+    <!-- TOP CAROUSEL: Featured Specials -->
+    {% if featured %}
+    <div class="section-title">
+      <span>✨ Chef's Featured Specials</span>
+      <div class="carousel-header-controls">
+        <button class="scroll-btn" onclick="slideCarousel('featuredTrack', -300)" title="Scroll Left">‹</button>
+        <button class="scroll-btn" onclick="slideCarousel('featuredTrack', 300)" title="Scroll Right">›</button>
+      </div>
+    </div>
+    <div class="carousel-track" id="featuredTrack">
+      {% for f in featured %}
+      <div class="carousel-card">
+        <div>
+          {% if f.image_url %}
+            <img src="{{ f.image_url }}" referrerpolicy="no-referrer" loading="eager" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
+          {% endif %}
+          <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ f.name }}</div>
+          <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">{% if f.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(f)) }}</div>
+        </div>
+        <div style="display:flex;gap:5px;margin-top:6px;">
+          {% if product_is_available_now(f) %}
+          <button class="btn-add" style="padding:4px; font-size:0.75rem; margin-top:0; flex:1;" onclick='addToCart({{ f.id }}, {{ f.name|tojson }}, {{ f.price }}, {{ product_choice_groups(f.option_schema, f.size_schema)|tojson }})'>+ Add</button>
+          {% else %}
+          <button class="btn-add" type="button" disabled style="padding:4px;font-size:0.7rem;margin-top:0;flex:1;background:#94a3b8;cursor:not-allowed;">⏰ Scheduled</button>
+          {% endif %}
+          <button type="button" class="btn-review food-share-btn" style="cursor:pointer;min-width:36px;" data-share-title="{{ f.name|e }}" data-share-url="{{ url_for('product_detail', product_id=f.id)|e }}" aria-label="Share {{ f.name|e }}">↗</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- TOP CAROUSEL: Best Sellers -->
+    {% if top_sellers %}
+    <div class="section-title">
+      <span>🔥 Best Sellers</span>
+      <div class="carousel-header-controls">
+        <button class="scroll-btn" style="border-color:#f59e0b;" onclick="slideCarousel('bestSellerTrack', -300)" title="Scroll Left">‹</button>
+        <button class="scroll-btn" style="border-color:#f59e0b;" onclick="slideCarousel('bestSellerTrack', 300)" title="Scroll Right">›</button>
+      </div>
+    </div>
+    <div class="carousel-track" id="bestSellerTrack">
+      {% for b in top_sellers %}
+      <div class="carousel-card" style="border-color:#f59e0b;">
+        <div>
+          {% if b.image_url %}
+            <img src="{{ b.image_url }}" referrerpolicy="no-referrer" loading="eager" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
+          {% endif %}
+          <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ b.name }}</div>
+          <div style="font-size:0.95rem; font-weight:900; color:#d97706;">{% if b.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(b)) }}</div>
+        </div>
+        <div style="display:flex;gap:5px;margin-top:6px;">
+          {% if product_is_available_now(b) %}
+          <button class="btn-add" style="background:#d97706;padding:4px;font-size:0.75rem;margin-top:0;flex:1;" onclick='addToCart({{ b.id }}, {{ b.name|tojson }}, {{ b.price }}, {{ product_choice_groups(b.option_schema, b.size_schema)|tojson }})'>+ Add</button>
+          {% else %}
+          <button class="btn-add" type="button" disabled style="padding:4px;font-size:0.7rem;margin-top:0;flex:1;background:#94a3b8;cursor:not-allowed;">⏰ Scheduled</button>
+          {% endif %}
+          <button type="button" class="btn-review food-share-btn" style="cursor:pointer;min-width:36px;" data-share-title="{{ b.name|e }}" data-share-url="{{ url_for('product_detail', product_id=b.id)|e }}" aria-label="Share {{ b.name|e }}">↗</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- CATEGORY FILTER BAR -->
+    <div class="section-title">📂 Menu Categories</div>
+    <div class="cat-grid">
+      <div class="cat-card active" onclick="showCategory('ALL', this)">ALL MENU</div>
+      {% for c in categories %}
+        <div class="cat-card" onclick="showCategory('{{ c.name }}', this)">{{ c.name }}</div>
+      {% endfor %}
+    </div>
+
+    <!-- MAIN DISH CATALOG -->
+    <div class="section-title">🍽️ All Dishes</div>
+    <div class="product-grid" id="productGrid">
+      {% for p in products %}
+      <div class="product-card" data-cat="{{ p.category_name }}">
+        <div>
+          {% if p.image_url %}
+            <img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="eager" class="p-img" onerror="this.onerror=null; this.src='https://via.placeholder.com/200x120?text=Macleens+Dish';">
+          {% else %}
+            <div class="p-img" style="display:flex; justify-content:center; align-items:center; font-size:2.5rem;">🍲</div>
+          {% endif %}
+          <span style="font-size:0.68rem; font-weight:bold; color:#ec4899;">{{ p.category_name }}</span>
+          <div class="p-title">{{ p.name }}</div>
+          <div class="p-price">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div>
+          {% if p.size_schema %}<div style="font-size:0.68rem; color:#be185d; font-weight:800; margin-bottom:3px;">Choose size • priced per size</div>{% endif %}
+          {% if p.option_schema %}<div style="font-size:0.68rem; color:#b45309; font-weight:800; margin-bottom:5px;">Choose sauce / flavor</div>{% endif %}
+        </div>
+        
+        <div>
+          <div class="interaction-bar">
+            <button class="btn-like {% if p.id in liked_ids %}liked{% endif %}" id="like-btn-{{ p.id }}" onclick="toggleLike({{ p.id }})">
+              ❤️ <span id="like-{{ p.id }}">{{ p.total_likes }}</span>
+            </button>
+            <a href="/product/{{ p.id }}" class="btn-review">
+              💬 {{ p.comments|length }}
+            </a>
+            <button type="button" class="btn-review food-share-btn" style="cursor:pointer" data-share-title="{{ p.name|e }}" data-share-url="{{ url_for('product_detail', product_id=p.id)|e }}" aria-label="Share {{ p.name|e }}">↗</button>
+          </div>
+
+          {% if product_is_available_now(p) %}
+          <button class="btn-add" onclick='addToCart({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_choice_groups(p.option_schema, p.size_schema)|tojson }})'>+ Add to Basket</button>
+          {% else %}
+          <div style="font-size:0.7rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:5px 7px;margin-bottom:5px;font-weight:800;text-align:center;">⏰ Visible now • ordering follows its availability schedule{% if p.available_start_time and p.available_end_time %}: {{ p.available_start_time }}–{{ p.available_end_time }}{% endif %}</div>
+          <button class="btn-add" type="button" disabled style="background:#94a3b8;cursor:not-allowed;">Not Available to Order Now</button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+  </div>
+
+  <div class="floating-bar">
+    <div>
+      <div style="font-size:0.7rem; color:#64748b; font-weight:bold;">TOTAL BASKET</div>
+      <div style="font-size:1.15rem; font-weight:900; color:var(--hk-dark);" id="barTotal">₱0.00 (<span id="barCount">0</span>)</div>
+    </div>
+    <button class="btn-checkout" onclick="openDrawer()">CHECKOUT</button>
+  </div>
+
+  <!-- Cart Drawer -->
+  <div id="drawerWrap">
+    <div class="drawer-overlay" onclick="closeDrawer()"></div>
+    <div class="drawer">
+      <div style="padding:14px; border-bottom:2px solid var(--hk-pink); display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="color:var(--hk-dark); font-size:1rem;">🛒 Your Cart</h3>
+        <button onclick="closeDrawer()" style="border:none; background:none; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+
+      <div style="flex:1; overflow-y:auto; padding:14px;" id="cartForm">
+        <div id="cartItemsList" style="margin-bottom:12px;"></div>
+
+        {% if not cust %}
+          <div style="background:#fee2e2; border:1px solid #f87171; color:#991b1b; padding:10px; border-radius:8px; font-size:0.85rem; margin-bottom:12px; text-align:center;">
+            <strong>⚠️ Registration Required</strong><br>
+            Please <a href="/portal/login" style="color:#b91c1c; font-weight:bold; text-decoration:underline;">Log In</a> or <a href="/portal/register" style="color:#b91c1c; font-weight:bold; text-decoration:underline;">Register</a> before checkout.
+          </div>
+        {% endif %}
+
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Order Type *</label>
+          <select id="orderType" class="form-control" onchange="renderCart()">
+            {% if status and status.store_open %}
+              <option value="PICKUP">In-Store Pickup / Takeout ({{ status.settings.store_open_time }} - {{ status.settings.store_close_time }})</option>
+            {% else %}
+              <option value="PICKUP" {% if status and not status.store_open %}disabled{% endif %}>In-Store Pickup (CLOSED NOW)</option>
+            {% endif %}
+
+            {% if status and status.delivery_open %}
+              <option value="DELIVERY">Doorstep Barangay Delivery ({{ status.settings.delivery_open_time }} - {{ status.settings.delivery_close_time }})</option>
+            {% else %}
+              <option value="DELIVERY" disabled>Doorstep Barangay Delivery (UNAVAILABLE / CLOSED)</option>
+            {% endif %}
+          </select>
+        </div>
+
+        <div id="deliveryZoneBox" style="display:none; margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);">Delivery Barangay / Zone *</label>
+          <select id="deliveryZone" class="form-control" onchange="onZoneChanged()">
+            {% for z in delivery_zones %}
+              <option value="{{ z.id }}" data-rate="{{ z.rate }}" data-brgy="{{ z.barangay }}" data-place="{{ z.place_name }}">{{ z.place_name }} ({{ z.barangay }}) — ₱{{ "{:,.2f}".format(z.rate) }} [{{ z.distance }}]</option>
+            {% endfor %}
+          </select>
+
+          <div style="margin-top:6px; display:flex; align-items:center; gap:6px;">
+            <input type="checkbox" id="hideDetailAddress" onchange="toggleDetailedAddress()" style="cursor:pointer;" checked>
+            <label for="hideDetailAddress" style="font-size:0.75rem; color:#64748b; font-weight:bold; cursor:pointer;">Hide detailed Purok & Landmark (Use chosen Barangay Zone)</label>
+          </div>
+        </div>
+
+        <div id="deliveryFields" style="display:none; margin-bottom:10px;">
+          <div id="detailedAddressInputs" style="display:none;">
+            <label style="font-size:0.8rem; font-weight:bold;">Purok / Street Address</label>
+            <input type="text" id="deliveryAddress" class="form-control" value="{{ cust.default_address if cust else '' }}" placeholder="Purok Mahogany">
+            
+            <label style="font-size:0.8rem; font-weight:bold; margin-top:6px; display:block;">Landmark</label>
+            <input type="text" id="landmark" class="form-control" value="{{ cust.default_landmark if cust else '' }}" placeholder="Near Elementary School, Blue Gate">
+          </div>
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Specific Target Time *</label>
+          <input type="text" id="targetTime" class="form-control" placeholder="e.g. 12:30 PM or ASAP (20 mins)" required>
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Payment Method *</label>
+          <select id="payMethod" class="form-control" onchange="checkPayMethod()">
+            <option value="CASH">Cash on Counter / Cash on Delivery</option>
+            <option value="GCASH">GCash</option>
+            {% if cust and cust.is_credit_eligible %}
+              <option value="CREDIT">A/R Credit — Available ₱{{ "{:,.2f}".format(credit_available or 0.0) }}</option>
+            {% endif %}
+          </select>
+        </div>
+
+        {% if cust %}
+        <div style="margin-bottom:10px;background:#fff5f7;border:1px solid #fbcfe8;padding:10px;border-radius:8px;">
+          <label style="font-size:0.8rem;font-weight:bold;color:var(--hk-dark);">Use Loyalty Points as Discount</label>
+          <div style="font-size:0.72rem;color:#64748b;margin:3px 0 6px;">Available: <strong>{{ "{:,.2f}".format(cust.points_balance or 0) }} points</strong> • Minimum 20 points • 1 point = ₱1</div>
+          <input type="number" id="redeemPoints" class="form-control" min="0" step="0.01" max="{{ cust.points_balance or 0 }}" value="0" oninput="renderCart()">
+        </div>
+        {% endif %}
+
+        <div id="cashChangeFields" style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);">Cash Bill / Amount to Pay (₱)</label>
+          <input type="number" step="1" id="changeFor" class="form-control" placeholder="e.g. 500, 1000, or Exact Amount" oninput="calculateChangePreview()">
+          <div id="changePreview" style="font-size:0.75rem; color:#059669; font-weight:bold; margin-top:4px; display:none;"></div>
+        </div>
+
+        <div id="evalFields" style="display:none; margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);">Facebook / Messenger Account *</label>
+          <input type="text" id="fbMessenger" class="form-control" value="{{ cust.fb_messenger if cust else '' }}" placeholder="fb.com/username">
+        </div>
+
+        <div id="gcashFields" style="display:none; margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold; color:#0284c7;">Last 6 Digits of GCash Ref # *</label>
+          <input type="text" id="gcashRef" maxlength="6" class="form-control" placeholder="e.g. 849201">
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <label style="font-size:0.8rem; font-weight:bold;">Preparation Notes *</label>
+          <input type="text" id="orderNotes" class="form-control" value="None" required>
+        </div>
+      </div>
+
+      <div style="padding:14px; background:var(--hk-light); border-top:2px solid var(--hk-border);">
+        <div style="display:flex; justify-content:space-between; font-weight:900; font-size:1.15rem; color:var(--hk-dark); margin-bottom:8px;">
+          <span>PAYABLE TOTAL</span>
+          <span id="drawerTotal">₱0.00</span>
+        </div>
+        <button class="btn-checkout" style="width:100%; border-radius:8px;" onclick="submitOrder()">PLACE ORDER NOW</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let cart = JSON.parse(localStorage.getItem('mfh_cart') || '{}');
+
+    function saveCart() {
+      localStorage.setItem('mfh_cart', JSON.stringify(cart));
+    }
+
+    function slideCarousel(trackId, offset) {
+      const track = document.getElementById(trackId);
+      if (track) {
+        track.scrollBy({ left: offset, behavior: 'smooth' });
+      }
+    }
+
+    function showCategory(cat, btn) {
+      document.querySelectorAll('.cat-card').forEach(c => c.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.product-card').forEach(p => {
+        p.style.display = (cat === 'ALL' || p.dataset.cat === cat) ? 'flex' : 'none';
+      });
+    }
+
+    function escapeOptionHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+    }
+
+    function ensureProductOptionsPicker() {
+      if (document.getElementById('productOptionsPicker')) return;
+      const style = document.createElement('style');
+      style.textContent = `
+        .po-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.72);z-index:20000;align-items:center;justify-content:center;padding:14px}
+        .po-card{width:min(520px,96vw);max-height:88vh;overflow:auto;background:#fff;color:#1e293b;border-radius:14px;padding:16px;border:2px solid #ff69b4;box-shadow:0 18px 45px rgba(0,0,0,.35)}
+        .po-group{border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin:10px 0;background:#f8fafc}
+        .po-group-title{font-weight:900;color:#831843;margin-bottom:6px}
+        .po-help{font-size:.72rem;color:#64748b;margin-bottom:7px}
+        .po-choice{display:flex;align-items:center;gap:9px;padding:8px 9px;margin:5px 0;background:#fff;border:1px solid #cbd5e1;border-radius:8px;cursor:pointer;font-weight:700}
+        .po-choice input{width:18px;height:18px;accent-color:#ec4899;flex:0 0 auto}
+        .po-actions{display:flex;gap:8px;margin-top:12px}
+        .po-actions button{flex:1;border:none;border-radius:8px;padding:10px;font-weight:900;cursor:pointer}
+        .po-confirm{background:#ec4899;color:#fff}.po-cancel{background:#e2e8f0;color:#334155}
+        .po-error{min-height:18px;color:#dc2626;font-size:.78rem;font-weight:800;margin-top:6px}
+      `;
+      document.head.appendChild(style);
+      const overlay = document.createElement('div');
+      overlay.id = 'productOptionsPicker';
+      overlay.className = 'po-overlay';
+      overlay.innerHTML = `
+        <div class="po-card" role="dialog" aria-modal="true" aria-labelledby="poTitle">
+          <h3 id="poTitle" style="color:#831843;margin-bottom:4px;">Choose options</h3>
+          <div id="poProductName" style="font-size:.8rem;color:#64748b;margin-bottom:8px;"></div>
+          <div id="poGroups"></div>
+          <div id="poError" class="po-error"></div>
+          <div class="po-actions">
+            <button type="button" id="poCancel" class="po-cancel">CANCEL</button>
+            <button type="button" id="poConfirm" class="po-confirm">ADD / CONFIRM</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+    }
+
+    function collectProductOptions(productName, groups) {
+      groups = Array.isArray(groups) ? groups : [];
+      if (!groups.length) return Promise.resolve({});
+      ensureProductOptionsPicker();
+
+      return new Promise(resolve => {
+        const overlay = document.getElementById('productOptionsPicker');
+        const body = document.getElementById('poGroups');
+        const error = document.getElementById('poError');
+        document.getElementById('poProductName').textContent = productName;
+        error.textContent = '';
+
+        body.innerHTML = groups.map((group, gi) => {
+          const choices = Array.isArray(group.choices) ? group.choices : [];
+          const multiple = !!group.multiple;
+          const type = multiple ? 'checkbox' : 'radio';
+          const helper = multiple ? 'Select one or more.' : 'Select one.';
+          const inputs = choices.map((choice, ci) => {
+            const rawPrice = group.prices && Object.prototype.hasOwnProperty.call(group.prices, choice) ? Number(group.prices[choice]) : null;
+            const priceText = Number.isFinite(rawPrice) && rawPrice > 0 ? ` <strong style="color:#ec4899;">• ₱${rawPrice.toFixed(2)}</strong>` : '';
+            return `
+            <label class="po-choice">
+              <input type="${type}" name="po_group_${gi}" data-choice-index="${ci}">
+              <span>${escapeOptionHtml(choice)}${priceText}</span>
+            </label>`;
+          }).join('');
+          return `<div class="po-group" data-group-index="${gi}">
+            <div class="po-group-title">${escapeOptionHtml(group.name)}</div>
+            <div class="po-help">${helper}</div>${inputs}</div>`;
+        }).join('');
+
+        const finish = value => {
+          overlay.style.display = 'none';
+          document.getElementById('poConfirm').onclick = null;
+          document.getElementById('poCancel').onclick = null;
+          resolve(value);
+        };
+
+        document.getElementById('poCancel').onclick = () => finish(null);
+        document.getElementById('poConfirm').onclick = () => {
+          const selected = {};
+          for (let gi = 0; gi < groups.length; gi++) {
+            const group = groups[gi];
+            const choices = Array.isArray(group.choices) ? group.choices : [];
+            const checked = [...body.querySelectorAll(`input[name="po_group_${gi}"]:checked`)];
+            if (!checked.length) {
+              error.textContent = `Please choose ${group.multiple ? 'at least one' : 'one'} ${group.name}.`;
+              return;
+            }
+            const values = checked.map(el => choices[parseInt(el.dataset.choiceIndex, 10)]).filter(Boolean);
+            selected[group.name] = group.multiple ? values : values[0];
+          }
+          finish(selected);
+        };
+
+        overlay.style.display = 'flex';
+      });
+    }
+
+    function optionSummary(options) {
+      if (!options || typeof options !== 'object') return '';
+      return Object.entries(options).map(([k,v]) => `${k}: ${Array.isArray(v) ? v.join(' + ') : v}`).join(' • ');
+    }
+
+    function selectedPriceForOptions(basePrice, groups, options) {
+      let resolved = parseFloat(basePrice);
+      (Array.isArray(groups) ? groups : []).forEach(group => {
+        if (!group || !group.priced || !group.prices) return;
+        let choice = (options || {})[group.name];
+        if (Array.isArray(choice)) choice = choice[0];
+        if (!choice) return;
+        const candidate = Number(group.prices[choice]);
+        if (Number.isFinite(candidate) && candidate > 0) resolved = candidate;
+      });
+      return resolved;
+    }
+
+    function cartKeyFor(productId, options) {
+      const pairs = Object.entries(options || {}).sort((a,b) => a[0].localeCompare(b[0]));
+      return pairs.length ? `${productId}::${encodeURIComponent(JSON.stringify(Object.fromEntries(pairs)))}` : String(productId);
+    }
+
+    async function addToCart(id, name, price, optionGroups=[]) {
+      const options = await collectProductOptions(name, optionGroups);
+      if (options === null) return;
+      const key = cartKeyFor(id, options);
+      const resolvedPrice = selectedPriceForOptions(price, optionGroups, options);
+      if (cart[key]) {
+        cart[key].qty += 1;
+      } else {
+        cart[key] = { productId: parseInt(id), name, price: resolvedPrice, qty: 1, options };
+      }
+      saveCart();
+      renderCart();
+    }
+
+    function updateQty(id, delta) {
+      id = String(id);
+      if (cart[id]) {
+        cart[id].qty += delta;
+        if (cart[id].qty <= 0) delete cart[id];
+      }
+      saveCart();
+      renderCart();
+    }
+
+    function openDrawer() { 
+      renderCart();
+      document.getElementById('drawerWrap').className = 'drawer-open'; 
+    }
+    function closeDrawer() { document.getElementById('drawerWrap').className = ''; }
+
+    function checkPayMethod() {
+      const p = document.getElementById('payMethod').value;
+      document.getElementById('evalFields').style.display = (p === 'GCASH' || p === 'CREDIT') ? 'block' : 'none';
+      document.getElementById('gcashFields').style.display = (p === 'GCASH') ? 'block' : 'none';
+      
+      const cashBox = document.getElementById('cashChangeFields');
+      if (cashBox) {
+        cashBox.style.display = (p === 'CASH') ? 'block' : 'none';
+      }
+      calculateChangePreview();
+    }
+
+    function calculateChangePreview() {
+      const p = document.getElementById('payMethod').value;
+      const changeInput = document.getElementById('changeFor');
+      const preview = document.getElementById('changePreview');
+      const drawerTotalEl = document.getElementById('drawerTotal');
+      
+      if (!changeInput || !preview || p !== 'CASH') {
+        if (preview) preview.style.display = 'none';
+        return;
+      }
+
+      const bill = parseFloat(changeInput.value) || 0;
+      const currentTotal = parseFloat(drawerTotalEl.innerText.replace(/[₱,]/g, '')) || 0;
+
+      if (bill > currentTotal && currentTotal > 0) {
+        const diff = bill - currentTotal;
+        preview.style.display = 'block';
+        preview.innerText = `💵 Change to prepare: ₱${diff.toFixed(2)}`;
+      } else if (bill === currentTotal && currentTotal > 0) {
+        preview.style.display = 'block';
+        preview.innerText = `💵 Exact amount provided (No change needed)`;
+      } else {
+        preview.style.display = 'none';
+      }
+    }
+
+    function toggleDetailedAddress() {
+      const hideCheck = document.getElementById('hideDetailAddress');
+      const details = document.getElementById('detailedAddressInputs');
+      if (details) {
+        details.style.display = (hideCheck && hideCheck.checked) ? 'none' : 'block';
+      }
+    }
+
+    function onZoneChanged() {
+      renderCart();
+    }
+
+    function renderCart() {
+      const container = document.getElementById('cartItemsList');
+      const barTotalEl = document.getElementById('barTotal');
+      const barCountEl = document.getElementById('barCount');
+      const drawerTotalEl = document.getElementById('drawerTotal');
+      
+      const keys = Object.keys(cart);
+      const orderTypeSelect = document.getElementById('orderType');
+      const isDelivery = orderTypeSelect ? (orderTypeSelect.value === 'DELIVERY') : false;
+      
+      const zoneBox = document.getElementById('deliveryZoneBox');
+      const delFields = document.getElementById('deliveryFields');
+      if (zoneBox) zoneBox.style.display = isDelivery ? 'block' : 'none';
+      if (delFields) delFields.style.display = isDelivery ? 'block' : 'none';
+
+      if (keys.length === 0) {
+        if (container) container.innerHTML = '<p style="text-align:center; color:#94a3b8; padding:15px;">Your basket is empty.</p>';
+        if (barTotalEl) barTotalEl.innerText = '₱0.00';
+        if (barCountEl) barCountEl.innerText = '0';
+        if (drawerTotalEl) drawerTotalEl.innerText = '₱0.00';
+        return;
+      }
+
+      let html = '';
+      let subtotal = 0;
+      let count = 0;
+      
+      keys.forEach(id => {
+        const item = cart[id];
+        const row = item.price * item.qty;
+        subtotal += row;
+        count += item.qty;
+        html += `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #fbcfe8;">
+            <div>
+              <strong style="font-size:0.85rem;">${item.name}</strong>
+              ${optionSummary(item.options) ? `<div style="font-size:0.72rem; color:#b45309;">${optionSummary(item.options)}</div>` : ''}
+              <div style="font-size:0.75rem; color:#64748b;">₱${item.price.toFixed(2)} ea</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:6px;">
+              <button onclick="updateQty('${id}', -1)" style="padding:2px 8px; border:1px solid #cbd5e1; border-radius:4px; background:white; font-weight:bold;">-</button>
+              <strong>${item.qty}</strong>
+              <button onclick="updateQty('${id}', 1)" style="padding:2px 8px; border:1px solid #cbd5e1; border-radius:4px; background:white; font-weight:bold;">+</button>
+              <span style="font-weight:900; width:60px; text-align:right;">₱${row.toFixed(2)}</span>
+            </div>
+          </div>
+        `;
+      });
+
+      let deliveryFee = 0.0;
+      if (isDelivery) {
+        const zSelect = document.getElementById('deliveryZone');
+        if (zSelect && zSelect.selectedOptions && zSelect.selectedOptions[0]) {
+          deliveryFee = parseFloat(zSelect.selectedOptions[0].dataset.rate || 40.0);
+        } else {
+          deliveryFee = 40.0;
+        }
+        html += `<div style="display:flex; justify-content:space-between; padding:8px 0; color:#831843; font-weight:bold;">
+          <span>Barangay Delivery Fee</span>
+          <span>₱${deliveryFee.toFixed(2)}</span>
+        </div>`;
+      }
+
+      const redeemEl = document.getElementById('redeemPoints');
+      const requestedPoints = redeemEl ? Math.max(0, parseFloat(redeemEl.value) || 0) : 0;
+      const pointsDiscount = Math.min(requestedPoints, subtotal);
+      if (pointsDiscount > 0) {
+        html += `<div style="display:flex;justify-content:space-between;padding:8px 0;color:#059669;font-weight:bold;"><span>Loyalty Points Discount</span><span>-₱${pointsDiscount.toFixed(2)}</span></div>`;
+      }
+      const total = Math.max(0, subtotal + deliveryFee - pointsDiscount);
+      if (container) container.innerHTML = html;
+      if (barTotalEl) barTotalEl.innerText = `₱${total.toFixed(2)}`;
+      if (barCountEl) barCountEl.innerText = count;
+      if (drawerTotalEl) drawerTotalEl.innerText = `₱${total.toFixed(2)}`;
+      
+      calculateChangePreview();
+    }
+
+    function shareAnyLink(title, path) {
+      const url = new URL(path || window.location.href, window.location.origin).href;
+      if (window.MacleensShare && typeof window.MacleensShare.open === 'function') {
+        return window.MacleensShare.open(title, url);
+      }
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(url).then(() => alert('Link copied: ' + url)).catch(() => window.prompt('Copy this link:', url));
+      } else {
+        window.prompt('Copy this link:', url);
+      }
+    }
+
+    function shareStoreLink() { return shareAnyLink("Macleen's Food House", '/'); }
+
+    // Delegated handler avoids fragile inline JavaScript when a product name
+    // contains apostrophes, quotes, emoji or other special characters.
+    document.addEventListener('click', function(event) {
+      const button = event.target.closest('.food-share-btn');
+      if (!button) return;
+      event.preventDefault();
+      event.stopPropagation();
+      shareAnyLink((button.dataset.shareTitle || 'Product') + " — Macleen's Food House", button.dataset.shareUrl || window.location.href);
+    });
+
+    async function toggleLike(id) {
+      const res = await fetch(`/api/toggle-like/${id}`, { method: 'POST' });
+      const data = await res.json();
+      document.getElementById(`like-${id}`).innerText = data.total_likes;
+      const btn = document.getElementById(`like-btn-${id}`);
+      if (data.liked) btn.classList.add('liked');
+      else btn.classList.remove('liked');
+    }
+
+    async function submitOrder() {
+      {% if not cust %}
+        alert("Please log in or register before placing an order.");
+        window.location.href = "/portal/login";
+        return;
+      {% endif %}
+
+      const keys = Object.keys(cart);
+      if (keys.length === 0) return alert("Cart is empty.");
+
+      const targetTime = document.getElementById('targetTime').value.trim();
+      const notes = document.getElementById('orderNotes').value.trim();
+      const orderType = document.getElementById('orderType').value;
+      const pay = document.getElementById('payMethod').value;
+      const fb = document.getElementById('fbMessenger').value.trim();
+      const gcash = document.getElementById('gcashRef').value.trim();
+      const hideCheck = document.getElementById('hideDetailAddress');
+      const changeForInput = document.getElementById('changeFor');
+      const changeForVal = (changeForInput && changeForInput.value) ? parseFloat(changeForInput.value) : null;
+      
+      let landmark = document.getElementById('landmark').value.trim();
+      let deliveryAddress = document.getElementById('deliveryAddress').value.trim();
+
+      if (orderType === 'DELIVERY') {
+        const zSelect = document.getElementById('deliveryZone');
+        const selectedZoneText = (zSelect && zSelect.selectedOptions[0]) ? zSelect.selectedOptions[0].text : 'Barangay Zone';
+        
+        if (hideCheck && hideCheck.checked) {
+          deliveryAddress = deliveryAddress || selectedZoneText;
+          landmark = landmark || 'Refer to Barangay Zone';
+        } else {
+          if (!deliveryAddress) deliveryAddress = selectedZoneText;
+          if (!landmark) landmark = 'Barangay Zone Drop';
+        }
+      }
+
+      if (!targetTime || !notes) return alert("Please fill in target time and notes.");
+      if ((pay === 'GCASH' || pay === 'CREDIT') && !fb) return alert("Facebook profile link required for evaluation.");
+      if (pay === 'GCASH' && gcash.length < 6) return alert("Please input the 6-digit GCash Reference Number.");
+
+      const payload = {
+        items: keys.map(id => ({ product_id: cart[id].productId || parseInt(id), quantity: cart[id].qty, options: cart[id].options || {} })),
+        order_type: orderType,
+        delivery_zone_id: orderType === 'DELIVERY' ? document.getElementById('deliveryZone').value : null,
+        target_time: targetTime,
+        fb_messenger: fb,
+        payment_method: pay,
+        gcash_ref: gcash,
+        change_for: changeForVal,
+        notes: notes,
+        delivery_address: deliveryAddress,
+        landmark: landmark,
+        redeem_points: document.getElementById('redeemPoints') ? (parseFloat(document.getElementById('redeemPoints').value) || 0) : 0
+      };
+
+      const res = await fetch('/api/storefront-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`🎉 Order #${data.order_id} placed!\nTotal: ₱${data.total.toFixed(2)}\nPoints Used: ${Number(data.points_redeemed || 0).toFixed(2)}`);
+        cart = {};
+        saveCart();
+        renderCart();
+        closeDrawer();
+        window.location.href = "/portal/dashboard";
+      } else {
+        alert(data.message);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", () => {
+      renderCart();
+      checkPayMethod();
+      toggleDetailedAddress();
+    });
+  </script>
+</body>
+</html>

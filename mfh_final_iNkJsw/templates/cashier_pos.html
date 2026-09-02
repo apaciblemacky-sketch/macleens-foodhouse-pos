@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Cashier POS</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#ff69b4">
+  <style>
+    :root { --hk-pink: #ff69b4; --hk-dark: #831843; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background: #0f172a; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    .pos-layout { display: grid; grid-template-columns: 340px 1fr 340px 310px; flex: 1; height: calc(100vh - 45px); }
+
+    .queue-panel { background: #1e293b; border-right: 2px solid #334155; padding: 10px; overflow-y: auto; }
+    .ticket-card { background: #334155; border-radius: 8px; padding: 10px; margin-bottom: 10px; border-left: 4px solid var(--hk-pink); font-size: 0.85rem; }
+
+    .catalog-panel { background: #0f172a; padding: 10px; display: flex; flex-direction: column; overflow-y: auto; }
+    .cat-bar { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; flex-shrink: 0; }
+    .cat-btn { background: #334155; color: white; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 800; font-size: 0.75rem; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+    .cat-btn.active { background: var(--hk-pink); }
+
+    .dish-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: 8px; }
+    .dish-tile { background: #1e293b; border: 1.5px solid #334155; border-radius: 8px; padding: 8px; height: 85px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; transition: all 0.1s; }
+    .dish-tile:hover { border-color: var(--hk-pink); background: #334155; transform: scale(1.02); }
+
+    .pos-cart-panel { background: #182234; border-left: 2px solid #334155; display: flex; flex-direction: column; padding: 10px; }
+    .cart-items-box { background: #0f172a; border-radius: 6px; border: 1px solid #334155; flex: 1; padding: 8px; overflow-y: auto; min-height: 120px; }
+
+    .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
+    .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
+    .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center; }
+    .modal-box { background: #1e293b; color: white; border: 2px solid #ec4899; border-radius: 12px; width: 90%; max-width: 520px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+    .form-input { width: 100%; background: #0f172a; border: 1px solid #475569; color: white; padding: 6px 8px; border-radius: 4px; font-size: 0.8rem; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <img src="{{ store_logo }}" style="width:32px; height:32px; border-radius:50%;">
+      <strong style="color:var(--hk-pink);">🖥️ CASHIER TERMINAL</strong>
+      <span id="liveStatusBadge" style="background:#16a34a; color:white; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold;">LIVE (1s)</span>
+    </div>
+    
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button onclick="openPromoModal('BURGER_FRIES_50', '🍔 Claim ₱50 Burger + Fries Deal', 50)" style="background:#e11d48; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🍔 + Burger (₱50)</button>
+      <button onclick="openPromoModal('BEEFY_NACHOS_75', '🧀 Claim ₱75 Beefy Nachos Deal', 75)" style="background:#d97706; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🧀 + Nachos (₱75)</button>
+      <button onclick="openModal('reservationModal')" style="background:#0284c7; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📌 + Reserve Item</button>
+      <button onclick="openModal('changeFundModal')" style="background:#065f46; color:#34d399; border:1px solid #059669; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💵 Change Fund</button>
+      <button onclick="openModal('collectionModal')" style="background:#f43f5e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📋 + For Collection</button>
+      <button onclick="openModal('miscModal')" style="background:#8b5cf6; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🖨️ Misc / Printing</button>
+      <button onclick="openModal('expenseModal')" style="background:#f59e0b; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💸 Expense</button>
+      <button onclick="openModal('vaultModal')" style="background:#10b981; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🏦 Vault Drop (#{{ next_drop_num }})</button>
+      <button onclick="openModal('memberQrModal')" style="background:#db2777; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🎁 New Member QR</button>
+      <a href="{{ url_for('cashier_investor_proposals') }}" style="background:#6d28d9; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem; font-weight:bold;">📈 Investor Proposals</a>
+      <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
+      <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Logout</a>
+    </div>
+  </header>
+
+  <div class="pos-layout">
+    <!-- 1. Verification Queue -->
+    <div class="queue-panel">
+      <h3 style="font-size:0.85rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
+      {% for o in pending_orders %}
+      <div class="ticket-card" id="ticket-{{ o.id }}">
+        <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;">
+          <span>#{{ o.id }} ({{ o.order_type }} • {{ o.dining_option or 'DINE-IN' }})</span>
+          <span style="color:var(--hk-pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</span>
+        </div>
+        <div style="color:#cbd5e1; font-size:0.75rem; margin-bottom:6px;">
+          👤 <span class="order-cust-name">{{ o.customer_name }}</span> | 📞 {{ o.contact_number }}<br>
+          💳 {{ o.payment_method }}{% if o.gcash_ref %} (Ref: {{ o.gcash_ref }}){% endif %}
+          
+          {% if o.change_for and o.change_for > o.total_amount %}
+            <span style="display:inline-block; background:#065f46; color:#34d399; padding:1px 5px; border-radius:4px; font-weight:bold; font-size:0.7rem; margin-top:2px;">
+              💵 Bill: ₱{{ "{:,.2f}".format(o.change_for) }} | Change: ₱{{ "{:,.2f}".format(o.change_for - o.total_amount) }}
+            </span>
+          {% endif %}
+          <br>
+          {% if o.delivery_address %}📍 {{ o.delivery_address }}<br>{% endif %}
+          {% if o.landmark %}🚩 Landmark: <strong>{{ o.landmark }}</strong><br>{% endif %}
+          📝 Notes: <strong>{{ o.notes }}</strong>
+          {% if o.change_for and o.payment_method == 'CASH' and o.change_for < o.total_amount %}
+            <div style="margin-top:5px; background:#7f1d1d; color:#fecaca; padding:4px 6px; border-radius:4px; font-weight:900;">
+              ⚠ Cash received/change-for ₱{{ "{:,.2f}".format(o.change_for) }} is below the adjusted total. Update before accepting.
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="order-items-box" style="background:#1e293b; padding:5px; border-radius:4px; margin-bottom:6px; font-size:0.72rem;">
+          {% for it in o.items %}
+            {% set is_cashier_addon = (not it.product_id) and it.product_name.startswith('[Cashier Add-on] ') %}
+            <div class="order-item-line" style="display:flex; justify-content:space-between; gap:5px; align-items:center; margin-bottom:2px;">
+              <span>
+                • {{ it.product_name.replace('[Cashier Add-on] ', '') if is_cashier_addon else it.product_name }} x{{ it.quantity }}
+                {% if it.selected_options %} — {{ it.selected_options|option_summary }}{% endif %}
+                <strong style="color:#f8fafc;"> — ₱{{ "{:,.2f}".format(it.subtotal) }}</strong>
+                {% if is_cashier_addon %}<span style="background:#d97706; color:white; border-radius:8px; padding:1px 5px; font-size:0.60rem; font-weight:900;">CASHIER ADD-ON</span>{% endif %}
+              </span>
+              {% if is_cashier_addon %}
+              <form action="/pos/adjust-order/{{ o.id }}" method="POST" onsubmit="return confirm('Remove this cashier-added charge?');">
+                <input type="hidden" name="action" value="REMOVE_LINE">
+                <input type="hidden" name="item_id" value="{{ it.id }}">
+                <button type="submit" title="Remove added charge" style="background:#7f1d1d; color:#fecaca; border:1px solid #ef4444; border-radius:3px; font-size:0.62rem; padding:1px 4px; cursor:pointer;">✕</button>
+              </form>
+              {% endif %}
+            </div>
+          {% endfor %}
+        </div>
+
+        <div style="display:flex; gap:4px;">
+          <form action="/pos/verify/{{ o.id }}" method="POST" style="flex:1;">
+            <input type="hidden" name="action" value="ACCEPT">
+            <button type="submit" class="btn-act" style="background:#16a34a; color:white; width:100%;">✓ ACCEPT & COMPLETE</button>
+          </form>
+          <button type="button" onclick='openOrderAdjustModal({{ o.id }}, {{ o.notes|tojson }}, {{ o.total_amount }}, {{ o.payment_method|tojson }}, {{ o.change_for if o.change_for else "null" }})' class="btn-act" style="background:#d97706; color:white;" title="Add item/service fee">＋₱ ADJUST</button>
+          <button type="button" onclick="printQueueSlip({{ o.id }}, '{{ o.order_type }}', {{ o.total_amount }})" class="btn-act" style="background:#0284c7; color:white;" title="Print Slip">🖨️</button>
+          <form action="/pos/verify/{{ o.id }}" method="POST">
+            <input type="hidden" name="action" value="REJECT">
+            <button type="submit" class="btn-act" style="background:#ef4444; color:white;">✕</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <!-- 2. Center Catalog -->
+    <div class="catalog-panel">
+      <div class="cat-bar">
+        <button class="cat-btn active" onclick="filterCat('ALL', this)">ALL</button>
+        {% for cat in categories %}
+          <button class="cat-btn" onclick="filterCat('{{ cat.name }}', this)">{{ cat.name }}</button>
+        {% endfor %}
+      </div>
+
+      <div class="dish-grid">
+        {% for p in products %}
+        <div class="dish-tile" data-cat="{{ p.category_name }}" onclick='addPosCartItem({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ 'true' if p.allow_custom_amount else 'false' }}, {{ p.minimum_order_amount if p.minimum_order_amount else 'null' }}, {{ product_choice_groups(p.option_schema, p.size_schema)|tojson }})'>
+          <div style="font-size:0.75rem; font-weight:bold; line-height:1.2;">{{ p.name }}</div>
+          <div>
+            <div style="font-size:0.85rem; font-weight:900; color:var(--hk-pink);">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div>
+            {% if p.allow_custom_amount %}
+              <div style="font-size:0.60rem; color:#38bdf8; font-weight:800; margin-top:1px;">Specific ≥ ₱{{ "{:,.2f}".format(p.minimum_order_amount or p.price) }}</div>
+            {% endif %}
+            {% if p.size_schema %}
+              <div style="font-size:0.58rem; color:#f472b6; font-weight:800; margin-top:1px;">Priced sizes</div>
+            {% endif %}
+            {% if p.option_schema %}
+              <div style="font-size:0.58rem; color:#fbbf24; font-weight:800; margin-top:1px;">Choices available</div>
+            {% endif %}
+          </div>
+        </div>
+        {% else %}
+        <div style="grid-column:1/-1; padding:24px; text-align:center; color:#94a3b8; font-size:0.8rem;">
+          No active products found. Add or reactivate products from Admin.
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- 3. Counter Cart Tray -->
+    <div class="pos-cart-panel">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <h3 style="font-size:0.85rem; color:#f472b6;">🛒 Counter Tray</h3>
+        <button onclick="clearPosCart()" style="background:#ef4444; color:white; border:none; padding:2px 6px; border-radius:4px; font-size:0.7rem; cursor:pointer;">Clear</button>
+      </div>
+
+      {% if active_bonus_campaigns %}
+      <div style="background:#422006; border:1px solid #f59e0b; border-radius:6px; padding:6px; margin-bottom:6px; font-size:0.68rem; color:#fde68a;">
+        <strong>⭐ MEMBER BONUS LIVE:</strong>
+        {% for bc in active_bonus_campaigns %}
+          {{ bc.title }}{% if bc.points_multiplier and bc.points_multiplier > 1 %} ({{ "{:.1f}".format(bc.points_multiplier) }}×){% endif %}{% if bc.bonus_points and bc.bonus_points > 0 %} (+{{ bc.bonus_points }} pts){% endif %}{% if not loop.last %} • {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <div style="background:#0f172a; padding:6px; border-radius:6px; border:1px solid #334155; margin-bottom:6px;">
+        <div style="display:flex; gap:4px; margin-bottom:4px;">
+          <div style="flex:1;">
+            <label style="font-size:0.68rem; color:#94a3b8; font-weight:bold;">Dining Option:</label>
+            <select id="posDiningOption" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;">
+              <option value="DINE-IN">🍽️ Dine-In</option>
+              <option value="TAKEOUT">🛍️ Takeout</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.68rem; color:#94a3b8; font-weight:bold;">Account Type:</label>
+            <select id="posCustType" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;" onchange="togglePosCustSelect()">
+              <option value="WALKIN">Anonymous Walk-in</option>
+              <option value="REGISTERED">Member (+Points)</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="posRegCustWrap" style="display:none; margin-bottom:4px;">
+          <select id="posRegCustSelect" class="form-input" style="margin-bottom:0; padding:3px; color:#38bdf8; font-size:0.75rem;" onchange="updateMemberQuickInfo()">
+            <option value="">-- Select Registered Member --</option>
+            {% for c in customers_list %}
+              <option value="{{ c.id }}" data-points="{{ c.points_balance or 0 }}" data-card="{{ c.card_number or '' }}">{{ c.name }} • {{ c.card_number or 'No Card' }} • {{ c.contact }} • {{ "{:.1f}".format(c.points_balance or 0) }} pts</option>
+            {% endfor %}
+          </select>
+          <div id="memberQuickInfo" style="font-size:0.68rem; color:#f9a8d4; margin-top:3px; min-height:14px;"></div>
+        </div>
+
+        <div id="posRedeemWrap" style="display:none; margin:4px 0;">
+          <label style="font-size:0.68rem; color:#f9a8d4; font-weight:bold;">Use Points as Discount (minimum 20 • 1 point = ₱1)</label>
+          <input type="number" id="posRedeemPoints" min="0" step="0.01" value="0" class="form-input" style="margin-bottom:0; padding:3px;" oninput="renderPosCart()">
+        </div>
+
+        <input type="text" id="posCustomName" placeholder="Customer Name / Remarks" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;">
+      </div>
+
+      <div class="cart-items-box" id="posCartList">
+        <p style="color:#64748b; font-size:0.75rem; text-align:center; padding-top:30px;">Tap items from menu to add to cart.</p>
+      </div>
+
+      <div style="margin-top:6px; border-top:1px solid #334155; padding-top:6px;">
+        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:1.05rem; color:var(--hk-pink); margin-bottom:6px;">
+          <span>TOTAL:</span>
+          <span id="posCartTotal">₱0.00</span>
+        </div>
+
+        <div style="display:flex; gap:4px; margin-bottom:4px;">
+          <select id="posPayMethod" class="form-input" style="margin-bottom:0; flex:1; font-size:0.75rem;">
+            <option value="CASH">Cash</option>
+            <option value="GCASH">GCash</option>
+          </select>
+          <input type="number" id="posCashBill" placeholder="Bill (₱)" class="form-input" style="margin-bottom:0; width:90px; font-size:0.75rem;" oninput="updatePosChangePreview()">
+        </div>
+
+        <div id="posChangePreview" style="font-size:0.72rem; color:#34d399; font-weight:bold; margin-bottom:4px; min-height:14px;"></div>
+
+        <button onclick="submitPosCartSale()" style="width:100%; background:#16a34a; color:white; border:none; padding:9px; border-radius:6px; font-weight:900; font-size:0.85rem; cursor:pointer;">RECORD SALE (PAID)</button>
+      </div>
+    </div>
+
+    <!-- 4. Right Status Panels: Online Users & Credit AR -->
+    <div class="pickup-panel">
+      <!-- 🟢 Online Members -->
+      <div style="background:#1e293b; border:1.5px solid #10b981; border-radius:8px; padding:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.8rem; color:#34d399; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+          <span>🟢 Online Members</span>
+          <span style="background:#059669; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ online_customers|length }}</span>
+        </h3>
+        <div style="max-height:80px; overflow-y:auto;">
+          {% for oc in online_customers %}
+          <div style="font-size:0.7rem; padding:2px 0; border-bottom:1px dashed #334155; color:#cbd5e1; display:flex; justify-content:space-between;">
+            <strong>{{ oc.name }}</strong>
+            <span style="color:#6ee7b7;">Active Now</span>
+          </div>
+          {% endfor %}
+          {% if not online_customers %}
+            <div style="font-size:0.7rem; color:#64748b; text-align:center;">No members browsing.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- 📋 Member Credit AR -->
+      <div style="background:#1e293b; border:1.5px solid #f43f5e; border-radius:8px; padding:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.8rem; color:#fb7185; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+          <span>📋 Member Credit AR</span>
+          <span style="background:#e11d48; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ credit_customers|length }}</span>
+        </h3>
+        <div style="max-height:100px; overflow-y:auto;">
+          {% for cc in credit_customers %}
+          <div style="font-size:0.72rem; padding:4px 0; border-bottom:1px dashed #475569; color:#cbd5e1;">
+            <div style="display:flex; justify-content:space-between; font-weight:bold;">
+              <span>{{ cc.name }}</span>
+              <span style="color:#f43f5e;">₱{{ "{:,.2f}".format(cc.outstanding_ar) }}</span>
+            </div>
+            <form action="/pos/settle-customer-credit/{{ cc.id }}" method="POST" style="display:flex; gap:3px; margin-top:3px;">
+              <input type="number" step="0.25" name="amount" value="{{ cc.outstanding_ar }}" style="width:60px; background:#0f172a; border:1px solid #475569; color:white; font-size:0.68rem; border-radius:3px; padding:1px;">
+              <select name="payment_method" style="flex:1; background:#0f172a; border:1px solid #475569; color:white; font-size:0.68rem; border-radius:3px; padding:1px;">
+                <option value="CASH">Cash</option>
+                <option value="GCASH">GCash</option>
+              </select>
+              <button type="submit" style="background:#10b981; color:white; border:none; padding:1px 6px; border-radius:3px; font-size:0.68rem; font-weight:bold; cursor:pointer;">Pay</button>
+            </form>
+          </div>
+          {% endfor %}
+          {% if not credit_customers %}
+            <div style="font-size:0.7rem; color:#64748b; text-align:center;">No pending receivables.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Unpaid Orders -->
+      <div style="background:#1e293b; border:1.5px solid #f97316; border-radius:8px; padding:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.8rem; color:#fdba74; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
+          <span>📦 Unpaid Orders</span>
+          <span style="background:#ea580c; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ unpaid_collections|length }}</span>
+        </h3>
+        <div style="max-height:100px; overflow-y:auto;">
+          {% for uc in unpaid_collections %}
+          <div style="font-size:0.72rem; padding:4px 0; border-bottom:1px dashed #475569; color:#cbd5e1;">
+            <div style="display:flex; justify-content:space-between; font-weight:bold;">
+              <span>#{{ uc.id }} - {{ uc.customer_name }}</span>
+              <span style="color:#fb923c;">₱{{ "{:,.2f}".format(uc.total_amount) }}</span>
+            </div>
+            <form action="/pos/settle-collection/{{ uc.id }}" method="POST" style="display:flex; gap:3px; margin-top:2px;">
+              <select name="payment_method" style="flex:1; background:#0f172a; border:1px solid #475569; color:white; font-size:0.68rem; border-radius:3px; padding:1px;">
+                <option value="CASH">Cash</option>
+                <option value="GCASH">GCash</option>
+              </select>
+              <button type="submit" style="background:#10b981; color:white; border:none; padding:1px 6px; border-radius:3px; font-size:0.68rem; font-weight:bold; cursor:pointer;">Settle</button>
+            </form>
+          </div>
+          {% endfor %}
+          {% if not unpaid_collections %}
+            <div style="font-size:0.7rem; color:#64748b; text-align:center;">No unpaid orders.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div style="background:#1e293b; border:1.5px solid #10b981; border-radius:8px; padding:8px; margin-bottom:10px;">
+        <h3 style="font-size:0.8rem; color:#6ee7b7; margin-bottom:6px;">🧾 Recent Purchases — Apply Points</h3>
+        <div style="max-height:150px; overflow-y:auto;">
+          {% for ro in completed_orders %}
+            {% if ro.customer_id and not (ro.points_redeemed or 0) %}
+            <div style="font-size:0.7rem; padding:5px 0; border-bottom:1px dashed #475569;">
+              <div><strong>#{{ ro.id }} {{ ro.customer_name }}</strong> — ₱{{ "{:,.2f}".format(ro.total_amount) }}</div>
+              <button onclick="applyRecentPoints({{ ro.id }})" style="margin-top:3px; background:#059669; color:white; border:0; border-radius:3px; padding:3px 7px; cursor:pointer;">Use Points</button>
+            </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1. CHANGE FUND MODAL -->
+  <div id="changeFundModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#10b981;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#34d399; font-size:1rem;">💵 Add Cashier Change Fund</h3>
+        <button onclick="closeModal('changeFundModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/record-change-fund" method="POST">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Fund Label</label>
+        <input type="text" name="fund_title" class="form-input" value="Cashier Opening Change Fund" required>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱) *</label>
+        <input type="number" step="0.25" name="amount" class="form-input" placeholder="e.g. 1000.00" required>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Drawer Notes</label>
+        <input type="text" name="notes" class="form-input" value="Drawer loose change fund (No profit impact)">
+
+        <button type="submit" style="background:#10b981; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Confirm Change Fund</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 2. PROMO DEAL CLAIM MODAL -->
+  <div id="promoClaimModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#e11d48;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 id="promoModalTitle" style="color:#f43f5e; font-size:1rem;">🍔 Claim Promo Deal</h3>
+        <button onclick="closeModal('promoClaimModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/claim-promo" method="POST">
+        <input type="hidden" name="promo_code" id="promoModalCode" value="BURGER_FRIES_50">
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Dining Option</label>
+        <select name="dining_option" class="form-input">
+          <option value="DINE-IN">🍽️ Dine-In</option>
+          <option value="TAKEOUT">🛍️ Takeout</option>
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Select Member (To credit points)</label>
+        <select name="registered_customer_id" class="form-input" required>
+          <option value="">-- Choose Registered Member --</option>
+          {% for c in customers_list %}
+            <option value="{{ c.id }}">{{ c.name }} ({{ c.contact }}) - Card: {{ c.card_number }}</option>
+          {% endfor %}
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Payment Method</label>
+        <select name="payment_method" class="form-input">
+          <option value="CASH">Cash</option>
+          <option value="GCASH">GCash</option>
+        </select>
+
+        <button type="submit" id="promoModalSubmitBtn" style="background:#e11d48; color:white; border:none; padding:9px; border-radius:6px; width:100%; font-weight:900; cursor:pointer; margin-top:6px;">RECORD PROMO SALE</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 3. IN-STORE ITEM RESERVATION MODAL -->
+  <div id="reservationModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#0284c7;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#38bdf8; font-size:1rem;">📌 Reserve Dish for Customer</h3>
+        <button onclick="closeModal('reservationModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/create-reservation" method="POST" id="reservationForm" onsubmit="prepareReservationOptions(event); return false;">
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Customer Type</label>
+            <select name="customer_type" id="resCustType" class="form-input" onchange="toggleResCustType()">
+              <option value="REGISTERED">Member Account</option>
+              <option value="CUSTOM">Walk-in / Custom</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Dining Option</label>
+            <select name="dining_option" class="form-input">
+              <option value="TAKEOUT">🛍️ Takeout</option>
+              <option value="DINE-IN">🍽️ Dine-In</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="resRegCustBox">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Select Registered Member *</label>
+          <select name="registered_customer_id" class="form-input">
+            <option value="">-- Choose Member --</option>
+            {% for c in customers_list %}
+              <option value="{{ c.id }}">{{ c.name }} ({{ c.contact }}) - Card: {{ c.card_number or 'MFH-0000' }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div id="resCustomCustBox" style="display:none;">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Customer Name *</label>
+          <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Kagawad Santos">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Contact Number</label>
+          <input type="text" name="custom_contact" class="form-input" placeholder="09xxxxxxxxx">
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <div style="flex:2;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Dish to Reserve *</label>
+            <select name="product_id" id="resProductSelect" class="form-input" onchange="updateResAmount()" required>
+              <option value="">-- Choose Dish --</option>
+              {% for p in products %}
+                <option value="{{ p.id }}" data-price="{{ p.price }}" data-name="{{ p.name|e }}" data-options='{{ product_choice_groups(p.option_schema, p.size_schema)|tojson }}'>{{ p.name }} ({% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}){% if p.size_schema %} • sizes{% endif %}{% if p.option_schema %} • choices{% endif %}</option>
+              {% endfor %}
+            </select>
+            <input type="hidden" name="selected_options" id="resSelectedOptions">
+            <div id="resOptionPreview" style="font-size:0.66rem; color:#fbbf24; margin-top:-5px; margin-bottom:5px;"></div>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Quantity *</label>
+            <input type="number" name="quantity" id="resQty" value="1" min="1" class="form-input" oninput="updateResAmount()" required>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#38bdf8; font-weight:bold;">Time to Get / Pick-up *</label>
+            <input type="text" name="target_time" class="form-input" placeholder="e.g. 5:30 PM" required>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Payment Plan</label>
+            <select name="payment_method" class="form-input">
+              <option value="CASH">Pay at Counter</option>
+              <option value="GCASH">GCash</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="background:#0f172a; padding:6px; border-radius:6px; border:1px solid #334155; margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:bold;">
+            <span>RESERVATION TOTAL:</span>
+            <span id="resCalculatedTotal" style="color:#38bdf8;">₱0.00</span>
+          </div>
+        </div>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Special Instructions</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g. Extra sauce, pack separately">
+
+        <button type="submit" style="background:#0284c7; color:white; border:none; padding:9px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">CONFIRM & QUEUE RESERVATION</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 4. MISCELLANEOUS SERVICE MODAL -->
+  <div id="miscModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#8b5cf6;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#c084fc; font-size:1rem;">🖨️ Record Miscellaneous / Printing Service</h3>
+        <button onclick="closeModal('miscModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/misc-sale" method="POST">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Link to Registered Customer (Optional)</label>
+        <select name="registered_customer_id" class="form-input">
+          <option value="">-- Anonymous / General Walk-in --</option>
+          {% for c in customers_list %}
+            <option value="{{ c.id }}">{{ c.name }} ({{ c.contact }})</option>
+          {% endfor %}
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Custom Customer Name</label>
+        <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Kagawad Cruz">
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Service Name *</label>
+        <input type="text" name="service_name" class="form-input" list="serviceSuggestions" placeholder="e.g., Document Printing" required>
+        <datalist id="serviceSuggestions">
+          <option value="Document Printing">
+          <option value="Photo Printing">
+          <option value="Scanning / Laminating">
+          <option value="Rush Service Fee">
+        </datalist>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱) *</label>
+        <input type="number" step="0.25" name="amount" class="form-input" placeholder="0.00" required>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Payment Method</label>
+        <select name="payment_method" class="form-input">
+          <option value="CASH">Cash</option>
+          <option value="GCASH">GCash</option>
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Notes / Specifics</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g., 10 pages black and white">
+
+        <button type="submit" style="background:#8b5cf6; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Service Sale</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 5. FOR COLLECTION MODAL -->
+  <div id="collectionModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#f43f5e;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#fb7185; font-size:1rem;">📋 Put Sale For Collection (Attributable)</h3>
+        <button onclick="closeModal('collectionModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/create-collection" method="POST" id="collectionForm" onsubmit="prepareCollectionOptions(event); return false;">
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Customer Type</label>
+            <select name="customer_type" id="collectionCustType" class="form-input" onchange="toggleCustInput()">
+              <option value="REGISTERED">Member Account</option>
+              <option value="CUSTOM">Custom Name</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Dining Option</label>
+            <select name="dining_option" class="form-input">
+              <option value="TAKEOUT">🛍️ Takeout</option>
+              <option value="DINE-IN">🍽️ Dine-In</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="regCustBox">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Select Registered Member</label>
+          <select name="registered_customer_id" class="form-input">
+            {% for c in customers_list %}
+              <option value="{{ c.id }}">{{ c.name }} ({{ c.contact }}) - Bal: ₱{{ "{:,.2f}".format(c.outstanding_ar or 0.0) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div id="customCustBox" style="display:none;">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Customer Name *</label>
+          <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Teacher Elena">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Contact</label>
+          <input type="text" name="custom_contact" class="form-input" placeholder="0917xxxxxxx">
+        </div>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Item Selection Mode</label>
+        <select name="item_choice_type" id="colItemChoiceType" class="form-input" onchange="toggleColItemType()">
+          <option value="PRODUCT">Specific Menu Product</option>
+          <option value="CUSTOM">Custom Service / Other</option>
+        </select>
+
+        <div id="colProductSelectBox">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Choose Specific Product</label>
+          <select name="product_id" id="colProductSelect" class="form-input" onchange="updateColProductAmount()">
+            <option value="">-- Choose Menu Item --</option>
+            {% for p in products %}
+              <option value="{{ p.id }}" data-price="{{ p.price }}" data-name="{{ p.name|e }}" data-options='{{ product_choice_groups(p.option_schema, p.size_schema)|tojson }}'>{{ p.name }} ({% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}){% if p.size_schema %} • sizes{% endif %}{% if p.option_schema %} • choices{% endif %}</option>
+            {% endfor %}
+          </select>
+          <input type="hidden" name="selected_options" id="colSelectedOptions">
+          <div id="colOptionPreview" style="font-size:0.66rem; color:#fbbf24; margin-top:-5px; margin-bottom:5px;"></div>
+
+          <label style="font-size:0.75rem; color:#cbd5e1;">Quantity</label>
+          <input type="number" name="quantity" id="colProductQty" class="form-input" value="1" min="1" oninput="updateColProductAmount()">
+        </div>
+
+        <div id="colCustomItemBox" style="display:none;">
+          <label style="font-size:0.75rem; color:#cbd5e1;">Custom Item Title *</label>
+          <input type="text" name="custom_title" class="form-input" placeholder="e.g. Special Catering">
+
+          <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱) *</label>
+          <input type="number" step="0.25" name="custom_amount" id="colCustomAmount" class="form-input" placeholder="0.00">
+        </div>
+
+        <div style="background:#0f172a; padding:6px; border-radius:6px; border:1px solid #334155; margin-bottom:8px;">
+          <div style="display:flex; justify-content:space-between; font-size:0.85rem; font-weight:bold;">
+            <span>TOTAL RECEIVABLE:</span>
+            <span id="colCalculatedTotal" style="color:#fb7185;">₱0.00</span>
+          </div>
+        </div>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Collection Notes</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g. Pay on payroll">
+
+        <button type="submit" style="background:#f43f5e; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Unpaid Collection</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 6. EXPENSES MODAL -->
+  <div id="expenseModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#f59e0b;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#fbbf24; font-size:1rem;">💸 Record Expense</h3>
+        <button onclick="closeModal('expenseModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/record-expense" method="POST">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Expense Description</label>
+        <input type="text" name="title" class="form-input" placeholder="e.g., Ice purchase" required>
+
+        <div style="display:flex; gap:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱)</label>
+            <input type="number" step="0.25" name="amount" class="form-input" placeholder="0.00" required>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.75rem; color:#cbd5e1;">Category</label>
+            <select name="category" class="form-input">
+              <option value="Ingredients">Ingredients</option>
+              <option value="Supplies">Supplies</option>
+              <option value="Utilities">Utilities</option>
+              <option value="Miscellaneous">Miscellaneous</option>
+            </select>
+          </div>
+        </div>
+
+        <button type="submit" style="background:#f59e0b; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Save Expense</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 7. SAFE VAULT DROPS MODAL -->
+  <div id="vaultModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#10b981; max-width:540px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#34d399; font-size:1rem;">🏦 Safe Vault Cash Drop</h3>
+        <button onclick="closeModal('vaultModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/record-vault-drop" method="POST" onsubmit="prepareVaultDropSubmission()">
+        <input type="hidden" name="cash_breakdown" id="vaultCashBreakdown">
+        
+        <div style="display:flex; gap:8px; margin-bottom:8px;">
+          <div style="flex:1;">
+            <label style="font-size:0.72rem; color:#cbd5e1;">Drop Sequence</label>
+            <select name="drop_number" class="form-input" style="margin-bottom:0;">
+              <option value="1" {% if next_drop_num == 1 %}selected{% endif %}>1st Drop</option>
+              <option value="2" {% if next_drop_num == 2 %}selected{% endif %}>2nd Drop</option>
+              <option value="3" {% if next_drop_num == 3 %}selected{% endif %}>3rd Drop</option>
+              <option value="4" {% if next_drop_num == 4 %}selected{% endif %}>4th Drop</option>
+              <option value="5" {% if next_drop_num >= 5 %}selected{% endif %}>5th Drop</option>
+            </select>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.72rem; color:#cbd5e1;">Calculated Total (₱)</label>
+            <input type="number" step="0.25" name="amount" id="vaultCalculatedAmount" class="form-input" style="font-weight:900; color:#34d399; margin-bottom:0;" required>
+          </div>
+        </div>
+
+        <div style="background:#0f172a; border:1px solid #334155; border-radius:6px; padding:8px; margin-bottom:8px;">
+          <div style="font-size:0.72rem; font-weight:bold; color:#38bdf8; margin-bottom:4px;">💵 Denomination Breakdown:</div>
+          <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:6px; font-size:0.72rem;">
+            <div>
+              <label>₱1,000 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="1000" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div>
+              <label>₱500 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="500" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div>
+              <label>₱200 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="200" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div>
+              <label>₱100 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="100" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div>
+              <label>₱50 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="50" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div>
+              <label>₱20 x</label>
+              <input type="number" min="0" class="form-input denom-input" data-val="20" oninput="calculateVaultTotal()" placeholder="0" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+            <div style="grid-column: span 3;">
+              <label>Coins Total (₱)</label>
+              <input type="number" step="0.25" min="0" class="form-input denom-input" data-val="1" oninput="calculateVaultTotal()" placeholder="0.00" style="padding:2px 4px; margin-bottom:0;">
+            </div>
+          </div>
+        </div>
+
+        <label style="font-size:0.72rem; color:#cbd5e1;">Witness Notes</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g., Verified shift transfer">
+
+        <button type="submit" style="background:#10b981; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Confirm Cash Drop</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- MEMBER REGISTRATION / BENEFITS QR MODAL -->
+  <!-- CASHIER SPECIFIC AMOUNT MODAL -->
+  <div id="customAmountModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#38bdf8; max-width:390px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <div>
+          <h3 style="color:#38bdf8; font-size:1rem;">💵 Specific Product Amount</h3>
+          <div id="customAmountProductName" style="font-size:0.75rem; color:#cbd5e1; margin-top:2px;"></div>
+        </div>
+        <button type="button" onclick="closeModal('customAmountModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <div style="background:#0f172a; border:1px solid #334155; border-radius:8px; padding:10px; margin-bottom:10px;">
+        <div style="font-size:0.7rem; color:#94a3b8;">Regular Price</div>
+        <div id="customAmountRegularPrice" style="font-size:1rem; font-weight:900; color:#f472b6;">₱0.00</div>
+        <div style="font-size:0.7rem; color:#94a3b8; margin-top:5px;">Minimum Order Amount</div>
+        <div id="customAmountMinimum" style="font-size:1rem; font-weight:900; color:#34d399;">₱0.00</div>
+      </div>
+      <label style="font-size:0.75rem; color:#cbd5e1; font-weight:bold;">Enter Specific Amount (₱)</label>
+      <input type="number" id="customAmountInput" min="0.01" step="0.01" class="form-input" style="font-size:1.1rem; font-weight:900; padding:10px; margin-top:4px;" onkeydown="if(event.key==='Enter'){ event.preventDefault(); confirmCustomAmount(); }">
+      <div id="customAmountError" style="min-height:18px; font-size:0.72rem; color:#fca5a5; font-weight:bold; margin-bottom:6px;"></div>
+      <button type="button" onclick="confirmCustomAmount()" style="width:100%; background:#0284c7; color:white; border:none; padding:10px; border-radius:6px; font-weight:900; cursor:pointer;">ADD WITH THIS AMOUNT</button>
+    </div>
+  </div>
+
+  <div id="memberQrModal" class="modal-backdrop">
+    <div class="modal-box" style="max-width:420px; text-align:center; border-color:#ec4899;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <h3 style="color:#f472b6; font-size:1rem;">🎁 Scan & Get Rewarded</h3>
+        <button onclick="closeModal('memberQrModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <img src="/marketing/qr/counter.svg" alt="Counter member registration QR" style="width:240px; height:240px; background:white; padding:8px; border-radius:12px;">
+      <div style="font-size:0.82rem; font-weight:900; margin-top:8px;">New customer? Scan before payment.</div>
+      <div style="font-size:0.72rem; color:#cbd5e1; margin-top:4px; line-height:1.4;">Join in about 20 seconds • Earn walk-in points • Suggest products • Member-only deals.</div>
+      <div style="font-size:0.68rem; color:#94a3b8; margin-top:8px;">After registration, refresh the Cashier page and select the new member before recording the sale.</div>
+    </div>
+  </div>
+
+  <!-- PENDING ORDER ADJUSTMENT MODAL -->
+  <div id="orderAdjustModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#f59e0b; max-width:560px;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:10px;">
+        <div>
+          <h3 id="orderAdjustTitle" style="color:#fbbf24; font-size:1rem;">＋₱ Adjust Pending Order</h3>
+          <div id="orderAdjustTotal" style="font-size:0.75rem; color:#cbd5e1; margin-top:2px;"></div>
+        </div>
+        <button type="button" onclick="closeModal('orderAdjustModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+
+      <div style="background:#0f172a; border:1px solid #475569; border-radius:6px; padding:8px; margin-bottom:10px;">
+        <div style="font-size:0.68rem; color:#94a3b8; font-weight:900; margin-bottom:3px;">CUSTOMER NOTE</div>
+        <div id="orderAdjustNote" style="font-size:0.78rem; color:#f8fafc; white-space:pre-wrap;"></div>
+      </div>
+
+      <p style="font-size:0.72rem; color:#cbd5e1; margin-bottom:10px; line-height:1.4;">
+        Use this when the customer's note requests an additional item or service that was not included in the original total.
+        The added fee becomes a separate order line and is included in the final sale before acceptance.
+      </p>
+
+      <form id="orderAdjustForm" method="POST">
+        <input type="hidden" name="action" value="ADD_CHARGE">
+
+        <label style="font-size:0.72rem; color:#cbd5e1; font-weight:bold;">Additional Item / Service *</label>
+        <input type="text" name="description" class="form-input" maxlength="100" placeholder="e.g. Extra rice / rush service / special packaging" required>
+
+        <div style="display:flex; gap:8px;">
+          <div style="width:110px;">
+            <label style="font-size:0.72rem; color:#cbd5e1; font-weight:bold;">Qty</label>
+            <input type="number" name="quantity" class="form-input" min="1" max="99" step="1" value="1" required>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.72rem; color:#cbd5e1; font-weight:bold;">Fee per Unit (₱) *</label>
+            <input type="number" name="unit_fee" class="form-input" min="0.01" step="0.01" placeholder="0.00" required>
+          </div>
+        </div>
+
+        <div id="orderAdjustCashWrap" style="display:none;">
+          <label style="font-size:0.72rem; color:#cbd5e1; font-weight:bold;">Cash Received / Change For (₱) <span style="font-weight:normal; color:#94a3b8;">(optional)</span></label>
+          <input type="number" id="orderAdjustCash" name="cash_received" class="form-input" min="0" step="0.01" placeholder="Update if added fee changes customer's cash bill">
+        </div>
+
+        <div id="orderAdjustPaymentWarning" style="font-size:0.70rem; background:#422006; color:#fde68a; padding:6px; border-radius:5px; margin-bottom:8px; display:none;"></div>
+
+        <button type="submit" style="background:#d97706; color:white; border:none; padding:9px; border-radius:6px; width:100%; font-weight:900; cursor:pointer;">＋ ADD CHARGE & UPDATE ORDER</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 8. SETTINGS MODAL -->
+  <div id="settingsModal" class="modal-backdrop">
+    <div class="modal-box">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#f472b6; font-size:1.05rem;">⚙️ Operating Hours</h3>
+        <button onclick="closeModal('settingsModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+
+      <form action="/admin/settings/hours" method="POST">
+        <div style="display:flex; gap:8px; margin-bottom:6px;">
+          <div style="flex:1;">
+            <label style="font-size:0.7rem; color:#94a3b8;">Store Open/Close</label>
+            <div style="display:flex; gap:3px;">
+              <input type="time" name="store_open_time" value="{{ status.settings.store_open_time if status else '08:00' }}" class="form-input" style="padding:3px;" required>
+              <input type="time" name="store_close_time" value="{{ status.settings.store_close_time if status else '19:00' }}" class="form-input" style="padding:3px;" required>
+            </div>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:0.7rem; color:#94a3b8;">Delivery Open/Close</label>
+            <div style="display:flex; gap:3px;">
+              <input type="time" name="delivery_open_time" value="{{ status.settings.delivery_open_time if status else '09:00' }}" class="form-input" style="padding:3px;" required>
+              <input type="time" name="delivery_close_time" value="{{ status.settings.delivery_close_time if status else '17:00' }}" class="form-input" style="padding:3px;" required>
+            </div>
+          </div>
+        </div>
+        <div style="display:flex; gap:12px; margin-bottom:8px; font-size:0.75rem;">
+          <label><input type="checkbox" name="is_store_open" {% if not status or status.settings.is_store_open == 'true' %}checked{% endif %}> Store Online</label>
+          <label><input type="checkbox" name="is_delivery_enabled" {% if not status or status.settings.is_delivery_enabled == 'true' %}checked{% endif %}> Delivery Online</label>
+        </div>
+        <button type="submit" style="background:#ec4899; color:white; border:none; padding:6px; border-radius:4px; width:100%; font-weight:bold; font-size:0.75rem; cursor:pointer;">Save Operating Schedule</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let posCart = {};
+
+    function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+    function openOrderAdjustModal(orderId, note, total, paymentMethod, changeFor) {
+      const form = document.getElementById('orderAdjustForm');
+      form.action = `/pos/adjust-order/${orderId}`;
+      form.reset();
+      form.querySelector('[name="quantity"]').value = '1';
+
+      document.getElementById('orderAdjustTitle').innerText = `＋₱ Adjust Order #${orderId}`;
+      document.getElementById('orderAdjustTotal').innerText = `Current total: ₱${Number(total || 0).toFixed(2)} • ${paymentMethod}`;
+      document.getElementById('orderAdjustNote').innerText = (note && String(note).trim()) ? note : 'No customer note.';
+
+      const cashWrap = document.getElementById('orderAdjustCashWrap');
+      const cashInput = document.getElementById('orderAdjustCash');
+      const warning = document.getElementById('orderAdjustPaymentWarning');
+      if (paymentMethod === 'CASH') {
+        cashWrap.style.display = 'block';
+        if (changeFor !== null && changeFor !== undefined) cashInput.value = Number(changeFor).toFixed(2);
+        warning.style.display = 'none';
+        warning.innerText = '';
+      } else {
+        cashWrap.style.display = 'none';
+        cashInput.value = '';
+        warning.style.display = 'block';
+        warning.innerText = paymentMethod === 'GCASH'
+          ? 'GCash order: collect/confirm the additional amount before clicking Accept & Complete.'
+          : 'Confirm how the additional charge will be collected before accepting the order.';
+      }
+      openModal('orderAdjustModal');
+    }
+
+    function openPromoModal(code, title, price) {
+      document.getElementById('promoModalCode').value = code;
+      document.getElementById('promoModalTitle').innerText = title;
+      document.getElementById('promoModalSubmitBtn').innerText = `RECORD PROMO SALE (₱${price.toFixed(2)})`;
+      openModal('promoClaimModal');
+    }
+
+    function toggleCustInput() {
+      const type = document.getElementById('collectionCustType').value;
+      document.getElementById('regCustBox').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      document.getElementById('customCustBox').style.display = (type === 'CUSTOM') ? 'block' : 'none';
+    }
+
+    function toggleResCustType() {
+      const type = document.getElementById('resCustType').value;
+      document.getElementById('resRegCustBox').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      document.getElementById('resCustomCustBox').style.display = (type === 'CUSTOM') ? 'block' : 'none';
+    }
+
+    function updateResAmount() {
+      const select = document.getElementById('resProductSelect');
+      const qty = parseInt(document.getElementById('resQty').value) || 1;
+      let total = 0.0;
+      if (select.selectedOptions[0] && select.selectedOptions[0].dataset.price) {
+        total = parseFloat(select.selectedOptions[0].dataset.price) * qty;
+      }
+      document.getElementById('resCalculatedTotal').innerText = `₱${total.toFixed(2)}`;
+    }
+
+    function toggleColItemType() {
+      const mode = document.getElementById('colItemChoiceType').value;
+      document.getElementById('colProductSelectBox').style.display = (mode === 'PRODUCT') ? 'block' : 'none';
+      document.getElementById('colCustomItemBox').style.display = (mode === 'CUSTOM') ? 'block' : 'none';
+      updateColProductAmount();
+    }
+
+    function updateColProductAmount() {
+      const mode = document.getElementById('colItemChoiceType').value;
+      let total = 0.0;
+      if (mode === 'PRODUCT') {
+        const select = document.getElementById('colProductSelect');
+        const qty = parseInt(document.getElementById('colProductQty').value) || 1;
+        if (select.selectedOptions[0] && select.selectedOptions[0].dataset.price) {
+          total = parseFloat(select.selectedOptions[0].dataset.price) * qty;
+        }
+      } else {
+        total = parseFloat(document.getElementById('colCustomAmount').value) || 0.0;
+      }
+      document.getElementById('colCalculatedTotal').innerText = `₱${total.toFixed(2)}`;
+    }
+
+    function calculateVaultTotal() {
+      let total = 0.0;
+      document.querySelectorAll('.denom-input').forEach(input => {
+        const val = parseFloat(input.dataset.val) || 0;
+        const count = parseFloat(input.value) || 0;
+        total += val * count;
+      });
+      document.getElementById('vaultCalculatedAmount').value = total > 0 ? total.toFixed(2) : '';
+    }
+
+    function prepareVaultDropSubmission() {
+      let details = [];
+      document.querySelectorAll('.denom-input').forEach(input => {
+        const val = input.dataset.val;
+        const count = input.value || 0;
+        if (parseFloat(count) > 0) {
+          details.push(`₱${val} x ${count}`);
+        }
+      });
+      document.getElementById('vaultCashBreakdown').value = details.join(', ');
+    }
+
+    function togglePosCustSelect() {
+      const type = document.getElementById('posCustType').value;
+      document.getElementById('posRegCustWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      document.getElementById('posRedeemWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      if (type !== 'REGISTERED') document.getElementById('posRedeemPoints').value = 0;
+      updateMemberQuickInfo();
+      renderPosCart();
+    }
+
+    function updateMemberQuickInfo() {
+      const sel = document.getElementById('posRegCustSelect');
+      const info = document.getElementById('memberQuickInfo');
+      if (!sel || !info || !sel.value) { if (info) info.innerText = ''; return; }
+      const opt = sel.options[sel.selectedIndex];
+      const pts = parseFloat(opt.dataset.points || '0');
+      const card = opt.dataset.card || 'No card';
+      const left = Math.max(0, 20 - pts);
+      info.innerText = `🎁 ${card} • ${pts.toFixed(1)} pts • ${left.toFixed(1)} pts to 20-point milestone`;
+      renderPosCart();
+    }
+
+    function filterCat(cat, btn) {
+      document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.dish-tile').forEach(d => {
+        d.style.display = (cat === 'ALL' || d.dataset.cat === cat) ? 'flex' : 'none';
+      });
+    }
+
+    function escapeOptionHtml(value) {
+      return String(value ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+    }
+
+    function ensureProductOptionsPicker() {
+      if (document.getElementById('productOptionsPicker')) return;
+      const style = document.createElement('style');
+      style.textContent = `
+        .po-overlay{display:none;position:fixed;inset:0;background:rgba(15,23,42,.72);z-index:20000;align-items:center;justify-content:center;padding:14px}
+        .po-card{width:min(520px,96vw);max-height:88vh;overflow:auto;background:#fff;color:#1e293b;border-radius:14px;padding:16px;border:2px solid #ff69b4;box-shadow:0 18px 45px rgba(0,0,0,.35)}
+        .po-group{border:1px solid #e2e8f0;border-radius:10px;padding:10px;margin:10px 0;background:#f8fafc}
+        .po-group-title{font-weight:900;color:#831843;margin-bottom:6px}
+        .po-help{font-size:.72rem;color:#64748b;margin-bottom:7px}
+        .po-choice{display:flex;align-items:center;gap:9px;padding:8px 9px;margin:5px 0;background:#fff;border:1px solid #cbd5e1;border-radius:8px;cursor:pointer;font-weight:700}
+        .po-choice input{width:18px;height:18px;accent-color:#ec4899;flex:0 0 auto}
+        .po-actions{display:flex;gap:8px;margin-top:12px}
+        .po-actions button{flex:1;border:none;border-radius:8px;padding:10px;font-weight:900;cursor:pointer}
+        .po-confirm{background:#ec4899;color:#fff}.po-cancel{background:#e2e8f0;color:#334155}
+        .po-error{min-height:18px;color:#dc2626;font-size:.78rem;font-weight:800;margin-top:6px}
+      `;
+      document.head.appendChild(style);
+      const overlay = document.createElement('div');
+      overlay.id = 'productOptionsPicker';
+      overlay.className = 'po-overlay';
+      overlay.innerHTML = `
+        <div class="po-card" role="dialog" aria-modal="true" aria-labelledby="poTitle">
+          <h3 id="poTitle" style="color:#831843;margin-bottom:4px;">Choose options</h3>
+          <div id="poProductName" style="font-size:.8rem;color:#64748b;margin-bottom:8px;"></div>
+          <div id="poGroups"></div>
+          <div id="poError" class="po-error"></div>
+          <div class="po-actions">
+            <button type="button" id="poCancel" class="po-cancel">CANCEL</button>
+            <button type="button" id="poConfirm" class="po-confirm">ADD / CONFIRM</button>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+    }
+
+    function collectProductOptions(productName, groups) {
+      groups = Array.isArray(groups) ? groups : [];
+      if (!groups.length) return Promise.resolve({});
+      ensureProductOptionsPicker();
+
+      return new Promise(resolve => {
+        const overlay = document.getElementById('productOptionsPicker');
+        const body = document.getElementById('poGroups');
+        const error = document.getElementById('poError');
+        document.getElementById('poProductName').textContent = productName;
+        error.textContent = '';
+
+        body.innerHTML = groups.map((group, gi) => {
+          const choices = Array.isArray(group.choices) ? group.choices : [];
+          const multiple = !!group.multiple;
+          const type = multiple ? 'checkbox' : 'radio';
+          const helper = multiple ? 'Select one or more.' : 'Select one.';
+          const inputs = choices.map((choice, ci) => {
+            const rawPrice = group.prices && Object.prototype.hasOwnProperty.call(group.prices, choice) ? Number(group.prices[choice]) : null;
+            const priceText = Number.isFinite(rawPrice) && rawPrice > 0 ? ` <strong style="color:#ec4899;">• ₱${rawPrice.toFixed(2)}</strong>` : '';
+            return `
+            <label class="po-choice">
+              <input type="${type}" name="po_group_${gi}" data-choice-index="${ci}">
+              <span>${escapeOptionHtml(choice)}${priceText}</span>
+            </label>`;
+          }).join('');
+          return `<div class="po-group" data-group-index="${gi}">
+            <div class="po-group-title">${escapeOptionHtml(group.name)}</div>
+            <div class="po-help">${helper}</div>${inputs}</div>`;
+        }).join('');
+
+        const finish = value => {
+          overlay.style.display = 'none';
+          document.getElementById('poConfirm').onclick = null;
+          document.getElementById('poCancel').onclick = null;
+          resolve(value);
+        };
+
+        document.getElementById('poCancel').onclick = () => finish(null);
+        document.getElementById('poConfirm').onclick = () => {
+          const selected = {};
+          for (let gi = 0; gi < groups.length; gi++) {
+            const group = groups[gi];
+            const choices = Array.isArray(group.choices) ? group.choices : [];
+            const checked = [...body.querySelectorAll(`input[name="po_group_${gi}"]:checked`)];
+            if (!checked.length) {
+              error.textContent = `Please choose ${group.multiple ? 'at least one' : 'one'} ${group.name}.`;
+              return;
+            }
+            const values = checked.map(el => choices[parseInt(el.dataset.choiceIndex, 10)]).filter(Boolean);
+            selected[group.name] = group.multiple ? values : values[0];
+          }
+          finish(selected);
+        };
+
+        overlay.style.display = 'flex';
+      });
+    }
+
+    function optionSummary(options) {
+      if (!options || typeof options !== 'object') return '';
+      return Object.entries(options).map(([k,v]) => `${k}: ${Array.isArray(v) ? v.join(' + ') : v}`).join(' • ');
+    }
+
+    function selectedPriceForOptions(basePrice, groups, options) {
+      let resolved = parseFloat(basePrice);
+      (Array.isArray(groups) ? groups : []).forEach(group => {
+        if (!group || !group.priced || !group.prices) return;
+        let choice = (options || {})[group.name];
+        if (Array.isArray(choice)) choice = choice[0];
+        if (!choice) return;
+        const candidate = Number(group.prices[choice]);
+        if (Number.isFinite(candidate) && candidate > 0) resolved = candidate;
+      });
+      return resolved;
+    }
+
+    function cartKeyFor(productId, options) {
+      const pairs = Object.entries(options || {}).sort((a,b) => a[0].localeCompare(b[0]));
+      if (!pairs.length) return String(productId);
+      return `${productId}::${encodeURIComponent(JSON.stringify(Object.fromEntries(pairs)))}`;
+    }
+
+    let pendingCustomAmountProduct = null;
+    let customAmountEditOnly = false;
+
+    async function addPosCartItem(id, name, price, allowCustomAmount=false, minimumAmount=null, optionGroups=[]) {
+      id = String(id);
+      const basePrice = parseFloat(price);
+      const options = await collectProductOptions(name, optionGroups);
+      if (options === null) return;
+      const regularPrice = selectedPriceForOptions(basePrice, optionGroups, options);
+      const configuredMin = minimumAmount === null || minimumAmount === undefined || minimumAmount === '' ? null : parseFloat(minimumAmount);
+      const minAmount = Number.isFinite(configuredMin) && configuredMin > 0 ? configuredMin : regularPrice;
+      const cartKey = cartKeyFor(id, options);
+
+      if (allowCustomAmount) {
+        pendingCustomAmountProduct = { id, cartKey, name, regularPrice, minAmount, options };
+        customAmountEditOnly = false;
+        document.getElementById('customAmountProductName').innerText = name + (optionSummary(options) ? ` — ${optionSummary(options)}` : '');
+        document.getElementById('customAmountRegularPrice').innerText = `₱${regularPrice.toFixed(2)}`;
+        document.getElementById('customAmountMinimum').innerText = `₱${minAmount.toFixed(2)}`;
+        const existing = posCart[cartKey];
+        document.getElementById('customAmountInput').value = (existing ? existing.price : regularPrice).toFixed(2);
+        document.getElementById('customAmountInput').min = minAmount.toFixed(2);
+        document.getElementById('customAmountError').innerText = '';
+        document.querySelector('#customAmountModal button[onclick="confirmCustomAmount()"]').innerText = 'ADD WITH THIS AMOUNT';
+        openModal('customAmountModal');
+        setTimeout(() => document.getElementById('customAmountInput').select(), 50);
+        return;
+      }
+
+      if (posCart[cartKey]) {
+        posCart[cartKey].qty += 1;
+      } else {
+        posCart[cartKey] = { productId: parseInt(id), name, price: regularPrice, qty: 1, customAmount: false, minAmount: regularPrice, options };
+      }
+      renderPosCart();
+    }
+
+    function confirmCustomAmount() {
+      if (!pendingCustomAmountProduct) return;
+      const input = document.getElementById('customAmountInput');
+      const error = document.getElementById('customAmountError');
+      const amount = parseFloat(input.value);
+      const p = pendingCustomAmountProduct;
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        error.innerText = 'Enter a valid amount.';
+        input.focus();
+        return;
+      }
+      if (amount + 0.004 < p.minAmount) {
+        error.innerText = `Minimum for ${p.name} is ₱${p.minAmount.toFixed(2)}.`;
+        input.focus();
+        input.select();
+        return;
+      }
+
+      if (posCart[p.cartKey]) {
+        posCart[p.cartKey].price = amount;
+        posCart[p.cartKey].regularPrice = p.regularPrice;
+        posCart[p.cartKey].customAmount = true;
+        posCart[p.cartKey].minAmount = p.minAmount;
+        posCart[p.cartKey].options = p.options || {};
+        if (!customAmountEditOnly) posCart[p.cartKey].qty += 1;
+      } else {
+        posCart[p.cartKey] = { productId: parseInt(p.id), name: p.name, price: amount, regularPrice: p.regularPrice, qty: 1, customAmount: true, minAmount: p.minAmount, options: p.options || {} };
+      }
+
+      closeModal('customAmountModal');
+      pendingCustomAmountProduct = null;
+      customAmountEditOnly = false;
+      renderPosCart();
+    }
+
+    function editPosCustomAmount(id) {
+      id = String(id);
+      const item = posCart[id];
+      if (!item || !item.customAmount) return;
+      pendingCustomAmountProduct = { id: String(item.productId), cartKey: id, name: item.name, regularPrice: item.regularPrice || item.price, minAmount: item.minAmount, options: item.options || {} };
+      customAmountEditOnly = true;
+      document.getElementById('customAmountProductName').innerText = item.name + (optionSummary(item.options) ? ` — ${optionSummary(item.options)}` : '');
+      document.getElementById('customAmountRegularPrice').innerText = `₱${(item.regularPrice || item.price).toFixed(2)}`;
+      document.getElementById('customAmountMinimum').innerText = `₱${item.minAmount.toFixed(2)}`;
+      document.getElementById('customAmountInput').value = item.price.toFixed(2);
+      document.getElementById('customAmountInput').min = item.minAmount.toFixed(2);
+      document.getElementById('customAmountError').innerText = '';
+      document.querySelector('#customAmountModal button[onclick="confirmCustomAmount()"]').innerText = 'UPDATE AMOUNT';
+      openModal('customAmountModal');
+      setTimeout(() => document.getElementById('customAmountInput').select(), 50);
+    }
+
+    function updatePosQty(id, delta) {
+      id = String(id);
+      if (posCart[id]) {
+        posCart[id].qty += delta;
+        if (posCart[id].qty <= 0) delete posCart[id];
+      }
+      renderPosCart();
+    }
+
+    function clearPosCart() {
+      posCart = {};
+      renderPosCart();
+    }
+
+    function renderPosCart() {
+      const box = document.getElementById('posCartList');
+      const totalEl = document.getElementById('posCartTotal');
+      const keys = Object.keys(posCart);
+
+      if (keys.length === 0) {
+        box.innerHTML = '<p style="color:#64748b; font-size:0.75rem; text-align:center; padding-top:30px;">Tap items from menu to add to cart.</p>';
+        totalEl.innerText = '₱0.00';
+        updatePosChangePreview();
+        return;
+      }
+
+      let html = '';
+      let subtotal = 0;
+      keys.forEach(id => {
+        const item = posCart[id];
+        const row = item.price * item.qty;
+        subtotal += row;
+        html += `
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:4px 0; border-bottom:1px dashed #334155; font-size:0.75rem;">
+            <div>
+              <div style="font-weight:bold;">${item.name}</div>
+              ${optionSummary(item.options) ? `<div style="color:#fbbf24; font-size:0.66rem;">${optionSummary(item.options)}</div>` : ''}
+              <div style="color:#94a3b8; font-size:0.68rem;">₱${item.price.toFixed(2)}${item.customAmount ? ` • Specific (min ₱${item.minAmount.toFixed(2)})` : ''}</div>
+            </div>
+            <div style="display:flex; align-items:center; gap:3px;">
+              ${item.customAmount ? `<button onclick="editPosCustomAmount('${id}')" style="padding:1px 5px; background:#0284c7; color:white; border:none; border-radius:3px; font-weight:bold; cursor:pointer;" title="Edit specific amount">✎</button>` : ''}
+              <button onclick="updatePosQty('${id}', -1)" style="padding:1px 5px; background:#334155; color:white; border:none; border-radius:3px; font-weight:bold; cursor:pointer;">-</button>
+              <strong style="min-width:14px; text-align:center;">${item.qty}</strong>
+              <button onclick="updatePosQty('${id}', 1)" style="padding:1px 5px; background:#334155; color:white; border:none; border-radius:3px; font-weight:bold; cursor:pointer;">+</button>
+              <span style="font-weight:bold; width:50px; text-align:right; color:var(--hk-pink);">₱${row.toFixed(2)}</span>
+            </div>
+          </div>
+        `;
+      });
+
+      const memberSelect = document.getElementById('posRegCustSelect');
+      const available = memberSelect && memberSelect.selectedOptions[0] ? parseFloat(memberSelect.selectedOptions[0].dataset.points || 0) : 0;
+      const requested = Math.max(0, parseFloat(document.getElementById('posRedeemPoints').value) || 0);
+      const discount = Math.min(requested, subtotal);
+      if (requested > available && memberSelect && memberSelect.value) {
+        html += `<div style="color:#f87171;font-size:.68rem;font-weight:bold;">Requested points exceed the member balance of ${available.toFixed(2)}.</div>`;
+      }
+      if (discount > 0) html += `<div style="display:flex;justify-content:space-between;padding:5px 0;color:#34d399;font-weight:bold;font-size:.75rem;"><span>Points Discount</span><span>-₱${discount.toFixed(2)}</span></div>`;
+      box.innerHTML = html;
+      totalEl.innerText = `₱${Math.max(0, subtotal - discount).toFixed(2)}`;
+      updatePosChangePreview();
+    }
+
+    function updatePosChangePreview() {
+      const keys = Object.keys(posCart);
+      const preview = document.getElementById('posChangePreview');
+      const bill = parseFloat(document.getElementById('posCashBill').value) || 0;
+
+      let subtotal = 0;
+      keys.forEach(id => { subtotal += posCart[id].price * posCart[id].qty; });
+      const discount = Math.min(Math.max(0, parseFloat(document.getElementById('posRedeemPoints').value) || 0), subtotal);
+      subtotal = Math.max(0, subtotal - discount);
+
+      if (bill > subtotal && subtotal > 0) {
+        preview.innerText = `💵 Change: ₱${(bill - subtotal).toFixed(2)}`;
+      } else if (bill === subtotal && subtotal > 0) {
+        preview.innerText = `💵 Exact cash given`;
+      } else {
+        preview.innerText = '';
+      }
+    }
+
+    async function prepareReservationOptions(event) {
+      if (event) event.preventDefault();
+      const form = document.getElementById('reservationForm');
+      const select = document.getElementById('resProductSelect');
+      if (!select || !select.value) { form.submit(); return false; }
+      const opt = select.selectedOptions[0];
+      let groups = [];
+      try { groups = JSON.parse(opt.dataset.options || '[]'); } catch(e) { groups = []; }
+      const chosen = await collectProductOptions(opt.dataset.name || opt.textContent, groups);
+      if (chosen === null) return false;
+      document.getElementById('resSelectedOptions').value = JSON.stringify(chosen);
+      document.getElementById('resOptionPreview').innerText = optionSummary(chosen);
+      form.submit();
+      return false;
+    }
+
+    async function prepareCollectionOptions(event) {
+      if (event) event.preventDefault();
+      const form = document.getElementById('collectionForm');
+      const type = document.getElementById('colItemChoiceType');
+      if (type && type.value !== 'PRODUCT') { form.submit(); return false; }
+      const select = document.getElementById('colProductSelect');
+      if (!select || !select.value) { form.submit(); return false; }
+      const opt = select.selectedOptions[0];
+      let groups = [];
+      try { groups = JSON.parse(opt.dataset.options || '[]'); } catch(e) { groups = []; }
+      const chosen = await collectProductOptions(opt.dataset.name || opt.textContent, groups);
+      if (chosen === null) return false;
+      document.getElementById('colSelectedOptions').value = JSON.stringify(chosen);
+      document.getElementById('colOptionPreview').innerText = optionSummary(chosen);
+      form.submit();
+      return false;
+    }
+
+    async function submitPosCartSale() {
+      const keys = Object.keys(posCart);
+      if (keys.length === 0) return alert("Cart is empty. Tap items to add first.");
+
+      const diningOpt = document.getElementById('posDiningOption').value;
+      const custType = document.getElementById('posCustType').value;
+      const regCustId = document.getElementById('posRegCustSelect').value;
+      const customName = document.getElementById('posCustomName').value.trim();
+      const payMethod = document.getElementById('posPayMethod').value;
+      const bill = parseFloat(document.getElementById('posCashBill').value) || 0;
+
+      if (custType === 'REGISTERED' && !regCustId) {
+        return alert("Please choose a registered member to credit points.");
+      }
+
+      const payload = {
+        items: keys.map(id => ({
+          product_id: posCart[id].productId,
+          quantity: posCart[id].qty,
+          options: posCart[id].options || {},
+          ...(posCart[id].customAmount ? { unit_price: Number(posCart[id].price.toFixed(2)) } : {})
+        })),
+        dining_option: diningOpt,
+        customer_type: custType,
+        registered_customer_id: regCustId ? parseInt(regCustId) : null,
+        customer_name: customName || (custType === 'REGISTERED' ? 'Registered Member' : 'Counter Walk-in'),
+        payment_method: payMethod,
+        change_for: bill,
+        redeem_points: parseFloat(document.getElementById('posRedeemPoints').value) || 0,
+        notes: `Cashier POS (${diningOpt})`
+      };
+
+      try {
+        const res = await fetch('/pos/direct-sale', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          const basePts = Number(data.points_earned || 0);
+          const bonusPts = Number(data.bonus_points || 0);
+          const referralPts = Number(data.referral_points || 0);
+          let rewardLine = `Base Points: ${basePts.toFixed(1)} pts`;
+          if (bonusPts > 0) rewardLine += `\nCampaign Bonus: +${bonusPts.toFixed(1)} pts`;
+          if (referralPts > 0) rewardLine += `\nFirst-Purchase Referral Bonus: +${referralPts.toFixed(1)} pts`;
+          if (data.member_balance !== null && data.member_balance !== undefined) rewardLine += `\nNew Balance: ${Number(data.member_balance).toFixed(1)} pts`;
+          alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\nPoints Used: ${Number(data.points_redeemed || 0).toFixed(2)}\n${rewardLine}`);
+          clearPosCart();
+          document.getElementById('posCashBill').value = '';
+          window.location.reload();
+        } else {
+          alert(data.message || "Failed to record sale.");
+        }
+      } catch(e) {
+        alert("Server error recording sale.");
+      }
+    }
+
+    async function applyRecentPoints(orderId) {
+      const raw = prompt('How many points should be applied?\nMinimum: 20 points • 1 point = ₱1');
+      if (raw === null) return;
+      const points = parseFloat(raw);
+      if (!Number.isFinite(points) || points <= 0) return alert('Enter a valid number of points.');
+      const res = await fetch('/api/redeem-order-points', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({order_id: orderId, redeem_points: points})
+      });
+      const data = await res.json();
+      if (!data.success) return alert(data.message || 'Could not apply points.');
+      alert(`Points applied to Order #${orderId}.\nDiscount: ₱${data.discount.toFixed(2)}\nNew total: ₱${data.total.toFixed(2)}\nRefund/change due: ₱${data.refund_due.toFixed(2)}`);
+      window.location.reload();
+    }
+
+    function triggerThermalPrint(contentHtml) {
+      const printWindow = window.open('', '_blank', 'width=380,height=560');
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>Order Slip</title>
+          <style>
+            @page { margin: 0; size: 58mm auto; }
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body { font-family: monospace; font-size: 11px; color: #000; padding: 8px; width: 100%; max-width: 58mm; margin: 0 auto; }
+            .center { text-align: center; }
+            .bold { font-weight: bold; }
+            .divider { border-top: 1px dashed #000; margin: 5px 0; }
+            .row { display: flex; justify-content: space-between; margin: 2px 0; }
+            .footer { margin-top: 8px; font-size: 10px; text-align: center; }
+          </style>
+        </head>
+        <body>
+          ${contentHtml}
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    }
+
+    function printQueueSlip(orderId, orderType, total) {
+      const ticket = document.getElementById('ticket-' + orderId);
+      let custName = 'Customer';
+      let itemsHtml = '';
+
+      if (ticket) {
+        const nameEl = ticket.querySelector('.order-cust-name');
+        if (nameEl) custName = nameEl.innerText.trim();
+
+        const itemLines = ticket.querySelectorAll('.order-item-line');
+        itemLines.forEach(line => {
+          itemsHtml += `<div>${line.innerText.trim()}</div>`;
+        });
+      }
+
+      const receipt = `
+        <div class="center bold" style="font-size: 13px;">MACLEEN'S FOOD HOUSE</div>
+        <div class="center" style="font-size: 9px;">Poblacion Snack House & POS</div>
+        <div class="divider"></div>
+        <div class="row"><span>ORDER TICKET:</span><span class="bold">#${orderId}</span></div>
+        <div class="row"><span>TYPE:</span><span>${orderType}</span></div>
+        <div class="row"><span>CUSTOMER:</span><span class="bold">${custName}</span></div>
+        <div class="row"><span>DATE:</span><span>${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span></div>
+        <div class="divider"></div>
+        <div class="bold" style="margin-bottom: 3px;">ITEMS:</div>
+        ${itemsHtml || '<div>• 1 Regular Burger + Fries x1</div>'}
+        <div class="divider"></div>
+        <div class="row bold" style="font-size: 13px;">
+          <span>TOTAL DUE:</span>
+          <span>₱${parseFloat(total).toFixed(2)}</span>
+        </div>
+        <div class="divider"></div>
+        <div class="footer bold">* PASS TO KITCHEN / SERVING *</div>
+        <div class="center" style="margin-top:8px;">
+          <img src="${window.location.origin}/marketing/qr/receipt.svg" style="width:88px;height:88px;" alt="Rewards QR">
+          <div style="font-size:9px;font-weight:bold;">SCAN TO CHECK REWARDS</div>
+          <div style="font-size:8px;">Walk-in purchases earn points too.</div>
+        </div>
+      `;
+
+      triggerThermalPrint(receipt);
+    }
+
+    function playCashierBeep() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.setValueAtTime(880.00, ctx.currentTime + 0.12);
+        gain.gain.setValueAtTime(0.35, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
+      } catch(e) {}
+    }
+
+    let lastPendingCount = {{ pending_orders|length }};
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/queue-counts');
+        const data = await res.json();
+        if (data.pending_cashier > lastPendingCount) {
+          playCashierBeep();
+          setTimeout(() => { window.location.reload(); }, 600);
+        } else if (data.pending_cashier !== lastPendingCount) {
+          window.location.reload();
+        }
+      } catch(e) {}
+    }, 1500);
+  </script>
+</body>
+</html>

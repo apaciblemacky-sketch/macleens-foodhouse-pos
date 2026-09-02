@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Expansion Vision</title>
+  <meta name="description" content="Learn how Macleen's Food House plans to expand customer choice, comfort, and affordable physical and online services.">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Macleen's Expansion Vision">
+  <meta property="og:description" content="A clearer, more comfortable, and more accessible neighborhood food and services business.">
+  <link rel="canonical" href="{{ url_for('investor_opportunity', _external=True) }}">
+  <style>
+    :root {
+      --ink:#1f2937; --muted:#64748b; --wine:#831843; --pink:#ec4899;
+      --cream:#fffaf6; --gold:#d97706; --green:#047857; --line:#f4d7e3; --white:#fff;
+    }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--cream); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; line-height:1.6; }
+    a { color:inherit; }
+    header { position:sticky; top:0; z-index:20; background:rgba(255,255,255,.96); border-bottom:1px solid var(--line); backdrop-filter:blur(10px); }
+    .nav { max-width:1160px; margin:auto; padding:12px 20px; display:flex; align-items:center; justify-content:space-between; gap:18px; }
+    .brand { display:flex; align-items:center; gap:10px; color:var(--wine); font-weight:900; text-decoration:none; }
+    .brand img { width:42px; height:42px; border-radius:50%; border:2px solid var(--pink); object-fit:cover; }
+    .navlinks { display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    .navlinks a { padding:8px 12px; border-radius:999px; text-decoration:none; font-size:.8rem; font-weight:800; color:#475569; }
+    .navlinks a.primary { background:var(--wine); color:white; }
+    .hero { background:radial-gradient(circle at 85% 10%,rgba(251,191,36,.22),transparent 28%),linear-gradient(135deg,#500724,#9d174d 58%,#ec4899); color:white; }
+    .hero-grid { max-width:1160px; margin:auto; padding:82px 20px 70px; display:grid; grid-template-columns:1.3fr .7fr; gap:42px; align-items:center; }
+    .eyebrow { display:inline-flex; align-items:center; gap:8px; padding:6px 11px; border-radius:999px; background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.25); font-size:.76rem; font-weight:900; letter-spacing:.08em; text-transform:uppercase; }
+    h1 { max-width:780px; margin:18px 0 14px; font-size:clamp(2.2rem,5vw,4.2rem); line-height:1.06; letter-spacing:-.04em; }
+    .hero p { max-width:720px; margin:0 0 24px; font-size:1.08rem; color:#ffe4ef; }
+    .actions { display:flex; flex-wrap:wrap; gap:10px; }
+    .btn { display:inline-flex; align-items:center; justify-content:center; gap:7px; border:0; border-radius:10px; padding:11px 17px; text-decoration:none; font-weight:900; cursor:pointer; font-size:.9rem; }
+    .btn-light { background:white; color:var(--wine); }
+    .btn-outline { border:1px solid rgba(255,255,255,.55); color:white; background:transparent; }
+    .hero-card { background:rgba(255,255,255,.96); color:var(--ink); border-radius:22px; padding:24px; box-shadow:0 24px 70px rgba(38,6,19,.3); }
+    .hero-card h2 { margin:0 0 12px; color:var(--wine); font-size:1.18rem; }
+    .hero-card ul { list-style:none; margin:0; padding:0; display:grid; gap:11px; }
+    .hero-card li { display:grid; grid-template-columns:28px 1fr; gap:9px; font-size:.9rem; }
+    .hero-card strong { color:var(--green); }
+    main section { max-width:1160px; margin:auto; padding:68px 20px; }
+    .section-label { color:var(--pink); font-weight:900; text-transform:uppercase; letter-spacing:.1em; font-size:.74rem; }
+    h2.section-title { margin:5px 0 10px; color:var(--wine); font-size:clamp(1.75rem,3vw,2.55rem); line-height:1.2; letter-spacing:-.025em; }
+    .section-intro { margin:0 0 28px; color:var(--muted); max-width:760px; }
+    .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:-28px; position:relative; z-index:3; }
+    .stat { background:white; border:1px solid var(--line); padding:20px; border-radius:14px; text-align:center; box-shadow:0 10px 25px rgba(88,28,57,.06); }
+    .stat strong { display:block; color:var(--wine); font-size:1.35rem; }
+    .stat span { color:var(--muted); font-size:.76rem; font-weight:800; }
+    .vision { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+    .vision-card { border-radius:18px; padding:28px; border:1px solid var(--line); background:white; }
+    .vision-card.goal { background:#fff1f2; border-color:#fecdd3; }
+    .vision-card h3 { margin:0 0 8px; color:var(--wine); }
+    .vision-card p { margin:0; color:#475569; }
+    .challenge-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+    .challenge { background:white; border:1px solid var(--line); border-radius:16px; overflow:hidden; }
+    .challenge .top { padding:18px 20px; background:#fff1f2; border-bottom:1px solid #fecdd3; }
+    .challenge .top small { color:#be123c; font-weight:900; text-transform:uppercase; }
+    .challenge .top h3 { color:#881337; margin:3px 0 0; font-size:1.05rem; }
+    .challenge .flow { padding:19px 20px; }
+    .challenge .flow strong { display:block; color:var(--green); margin-bottom:4px; }
+    .challenge .flow p { margin:0; color:var(--muted); font-size:.88rem; }
+    .portfolio { background:white; max-width:none; }
+    .portfolio-inner { max-width:1160px; margin:auto; padding:68px 20px; }
+    .portfolio-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; }
+    .business { border:1px solid var(--line); border-radius:18px; padding:24px; position:relative; overflow:hidden; }
+    .business::after { content:""; width:120px; height:120px; border-radius:50%; position:absolute; right:-55px; top:-55px; background:#fce7f3; }
+    .business .icon { font-size:1.8rem; }
+    .business h3 { color:var(--wine); margin:8px 0 6px; }
+    .business p { color:var(--muted); font-size:.87rem; margin:0 0 12px; }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; }
+    .chip { padding:5px 8px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:999px; font-size:.72rem; font-weight:800; color:#475569; }
+    .soon { background:#fef3c7; color:#92400e; border-color:#fde68a; }
+    .uses { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; }
+    .use { background:white; padding:18px; border-radius:14px; border:1px solid var(--line); }
+    .use b { display:block; color:var(--wine); margin:7px 0 4px; font-size:.9rem; }
+    .use p { margin:0; color:var(--muted); font-size:.79rem; }
+    .funding-progress { margin-top:24px; background:white; border:1px solid var(--line); border-radius:16px; padding:20px; }
+    .funding-row { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+    .bar { height:12px; background:#f1f5f9; border-radius:999px; overflow:hidden; margin-top:12px; }
+    .bar span { display:block; height:100%; background:linear-gradient(90deg,var(--pink),var(--wine)); }
+    .roadmap { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; counter-reset:phase; }
+    .phase { background:white; border:1px solid var(--line); border-radius:16px; padding:21px; counter-increment:phase; }
+    .phase::before { content:"0" counter(phase); display:inline-grid; place-items:center; width:34px; height:34px; border-radius:50%; background:var(--wine); color:white; font-size:.78rem; font-weight:900; }
+    .phase h3 { margin:10px 0 6px; color:var(--wine); font-size:1rem; }
+    .phase p { margin:0; color:var(--muted); font-size:.82rem; }
+    .evidence { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    .evidence-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:16px; padding:24px; }
+    .evidence-card h3 { margin:0 0 8px; color:#334155; }
+    .evidence-card ul { margin:0; padding-left:20px; color:#64748b; font-size:.88rem; }
+    .connect { background:#2e0718; color:white; max-width:none; }
+    .connect-inner { max-width:1160px; margin:auto; padding:72px 20px; display:grid; grid-template-columns:.85fr 1.15fr; gap:36px; align-items:start; }
+    .connect h2 { color:white; margin:5px 0 12px; font-size:2.15rem; }
+    .connect p { color:#fbcfe8; }
+    .contact-card { margin-top:20px; padding:16px; border:1px solid rgba(255,255,255,.16); border-radius:12px; color:#fce7f3; }
+    form { background:white; color:var(--ink); padding:26px; border-radius:18px; box-shadow:0 20px 55px rgba(0,0,0,.25); }
+    .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+    label { display:block; color:#334155; font-size:.78rem; font-weight:900; margin-bottom:5px; }
+    input,select,textarea { width:100%; border:1px solid #cbd5e1; border-radius:9px; padding:10px 11px; font:inherit; font-size:.87rem; background:white; }
+    textarea { min-height:110px; resize:vertical; }
+    input:focus,select:focus,textarea:focus { outline:3px solid #fbcfe8; border-color:var(--pink); }
+    .full { grid-column:1/-1; }
+    .check { display:flex; gap:8px; align-items:flex-start; color:#64748b; font-size:.78rem; }
+    .check input { width:auto; margin-top:4px; }
+    .submit { width:100%; background:var(--pink); color:white; margin-top:14px; }
+    .flash { margin-bottom:12px; padding:10px 12px; border-radius:9px; font-size:.84rem; font-weight:800; }
+    .flash.success { background:#dcfce7; color:#166534; }
+    .flash.error { background:#fee2e2; color:#991b1b; }
+    .fineprint { margin-top:16px; color:#94a3b8!important; font-size:.74rem; }
+    .honeypot { position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden; }
+    footer { background:#18030d; color:#cbd5e1; text-align:center; padding:22px 18px; font-size:.78rem; }
+    @media(max-width:900px) {
+      .hero-grid,.connect-inner { grid-template-columns:1fr; }
+      .hero-card { max-width:620px; }
+      .stats,.roadmap { grid-template-columns:repeat(2,1fr); }
+      .challenge-grid,.portfolio-grid { grid-template-columns:1fr; }
+      .uses { grid-template-columns:repeat(2,1fr); }
+    }
+    @media(max-width:620px) {
+      .nav { align-items:flex-start; }
+      .navlinks a:not(.primary) { display:none; }
+      .hero-grid { padding-top:54px; }
+      .stats,.vision,.roadmap,.evidence,.form-grid,.uses { grid-template-columns:1fr; }
+      .full { grid-column:auto; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <nav class="nav">
+      <a href="{{ url_for('store_catalog') }}" class="brand">
+        <img src="{{ store_logo }}" onerror="this.onerror=null;this.src='/static/logo.png';" alt="Macleen's logo">
+        <span>Macleen's Expansion</span>
+      </a>
+      <div class="navlinks">
+        <a href="#businesses">Businesses</a>
+        <a href="#plan">Expansion plan</a>
+        <a href="{{ url_for('investor_private_offer') }}">Private proposal</a>
+        <a href="{{ url_for('store_catalog') }}">Food House</a>
+        <a href="{{ url_for('craft_store') }}">Craft Shop</a>
+        <a class="primary" href="#connect">Private introduction</a>
+      </div>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <div class="hero-grid">
+      <div>
+        <span class="eyebrow">Operating &amp; growing in Binalbagan</span>
+        <h1>{{ investor.headline }}</h1>
+        <p>{{ investor.summary }}</p>
+        <div class="actions">
+          <a href="#plan" class="btn btn-light">See the expansion plan</a>
+          <a href="#connect" class="btn btn-outline">Request a private discussion</a>
+          <a href="{{ url_for('investor_private_offer') }}" class="btn btn-outline">Enter private access code</a>
+        </div>
+      </div>
+      <aside class="hero-card">
+        <h2>The customer promise</h2>
+        <ul>
+          <li><span>✓</span><div><strong>Satisfaction</strong><br>More dependable choices and service.</div></li>
+          <li><span>✓</span><div><strong>Comfort</strong><br>A more welcoming dine-in and ordering experience.</div></li>
+          <li><span>✓</span><div><strong>Affordability</strong><br>Practical offers built for the local community.</div></li>
+          <li><span>✓</span><div><strong>Convenience</strong><br>Physical service supported by accessible online tools.</div></li>
+        </ul>
+      </aside>
+    </div>
+  </section>
+
+  <main>
+    <section style="padding-top:0;">
+      <div class="stats">
+        <div class="stat"><strong>3</strong><span>Business areas</span></div>
+        <div class="stat"><strong>{{ active_food_count }}</strong><span>Active food and service offers</span></div>
+        <div class="stat"><strong>{{ active_craft_count }}</strong><span>Active craft products</span></div>
+        <div class="stat"><strong>1</strong><span>Unified customer and operations system</span></div>
+      </div>
+    </section>
+
+    <section>
+      <span class="section-label">Vision and goal</span>
+      <h2 class="section-title">A community business with room to grow</h2>
+      <p class="section-intro">Our direction is simple: improve what customers can choose, how comfortable they feel, and how easily they can reach us—without losing sight of affordability.</p>
+      <div class="vision">
+        <article class="vision-card">
+          <h3>Our vision</h3>
+          <p>To make every customer feel satisfied and comfortable through affordable food, practical services, and convenient access.</p>
+        </article>
+        <article class="vision-card goal">
+          <h3>Our long-term goal</h3>
+          <p>To become a leading community food house known for customer satisfaction, comfort, affordability, and a growing physical and online marketplace.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="plan">
+      <span class="section-label">Why funding matters</span>
+      <h2 class="section-title">Challenge → funded action → customer result</h2>
+      <p class="section-intro">Funding will be tied to clear operating improvements—not vague expansion language.</p>
+      <div class="challenge-grid">
+        <article class="challenge">
+          <div class="top"><small>Current challenge</small><h3>Limited product offerings</h3></div>
+          <div class="flow"><strong>Expand inventory and production capacity</strong><p>Add practical food, snack, beverage, kakanin, pancit, craft, and service choices based on demand.</p></div>
+        </article>
+        <article class="challenge">
+          <div class="top"><small>Current challenge</small><h3>Limited tables and chairs</h3></div>
+          <div class="flow"><strong>Improve seating and the customer space</strong><p>Add measured seating and practical store improvements so more guests can dine comfortably.</p></div>
+        </article>
+        <article class="challenge">
+          <div class="top"><small>Current challenge</small><h3>Low market presence</h3></div>
+          <div class="flow"><strong>Build a consistent online presence</strong><p>Secure a domain, improve website access, track results, and consistently strengthen Facebook visibility.</p></div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <section class="portfolio" id="businesses">
+    <div class="portfolio-inner">
+      <span class="section-label">Business portfolio</span>
+      <h2 class="section-title">Three connected ways to serve the community</h2>
+      <p class="section-intro">The physical store creates daily customer contact. Crafts and document services add convenience. Future digital products extend the business beyond one location.</p>
+      <div class="portfolio-grid">
+        <article class="business">
+          <div class="icon">🍲</div><h3>Food House</h3>
+          <p>Affordable everyday food and refreshment options for dine-in, pickup, and online ordering.</p>
+          <div class="chips"><span class="chip">Ulam</span><span class="chip">Snacks</span><span class="chip">Drinks &amp; beverages</span><span class="chip">Kakanin</span><span class="chip">Pancit</span></div>
+        </article>
+        <article class="business">
+          <div class="icon">🖨️</div><h3>Crafts &amp; practical services</h3>
+          <p>Convenient creative and document services that complement the store and broaden customer reasons to visit.</p>
+          <div class="chips"><span class="chip">Printing</span><span class="chip">Scanning</span><span class="chip">Photocopy</span><span class="chip">Laminating</span><span class="chip">Stickers</span><span class="chip">Rush ID</span><span class="chip">Keychains</span></div>
+        </article>
+        <article class="business">
+          <div class="icon">💻</div><h3>Digital assets <span class="chip soon">Soon</span></h3>
+          <p>Simple, useful digital products designed for individuals and small businesses.</p>
+          <div class="chips"><span class="chip">Business systems</span><span class="chip">Ebooks</span><span class="chip">Simple computation tools</span><span class="chip">Trackers</span><span class="chip">Web resumes</span></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <main>
+    <section>
+      <span class="section-label">Funding priorities</span>
+      <h2 class="section-title">Where support is intended to go</h2>
+      <p class="section-intro">Final peso allocations should be based on supplier quotations and shared privately before any agreement.</p>
+      <div class="uses">
+        <article class="use"><span>🥬</span><b>Products &amp; inventory</b><p>Broader offerings and more reliable availability.</p></article>
+        <article class="use"><span>🪑</span><b>Customer comfort</b><p>Tables, chairs, and practical space improvements.</p></article>
+        <article class="use"><span>🌐</span><b>Domain &amp; website</b><p>A memorable address, clearer navigation, and measurement.</p></article>
+        <article class="use"><span>📣</span><b>Market presence</b><p>Consistent Facebook content and controlled boosting tests.</p></article>
+        <article class="use"><span>⚙️</span><b>Equipment &amp; systems</b><p>Tools that strengthen service speed and future online products.</p></article>
+      </div>
+      {% if investor.show_funding_numbers and investor.funding_goal > 0 %}
+      <div class="funding-progress">
+        <div class="funding-row">
+          <strong>Funding goal: ₱{{ "{:,.2f}".format(investor.funding_goal) }}</strong>
+          <span>Recorded commitments: ₱{{ "{:,.2f}".format(investor.funds_committed) }}</span>
+        </div>
+        <div class="bar" aria-label="{{ investor.funding_progress|round|int }} percent of funding goal recorded"><span style="width:{{ investor.funding_progress }}%;"></span></div>
+      </div>
+      {% endif %}
+    </section>
+
+    <section>
+      <span class="section-label">Execution roadmap</span>
+      <h2 class="section-title">Growth in measurable phases</h2>
+      <div class="roadmap">
+        <article class="phase"><h3>Strengthen the base</h3><p>Confirm demand, costs, margins, suppliers, and the exact line-item expansion budget.</p></article>
+        <article class="phase"><h3>Improve choice &amp; comfort</h3><p>Add selected products, equipment, tables, and chairs; monitor availability and customer feedback.</p></article>
+        <article class="phase"><h3>Build online reach</h3><p>Buy a domain, improve website discovery, and run measured Facebook content and boost experiments.</p></article>
+        <article class="phase"><h3>Test digital products</h3><p>Release small useful tools, validate demand, and expand only the products customers actually use.</p></article>
+      </div>
+    </section>
+
+    <section>
+      <span class="section-label">Private due diligence</span>
+      <h2 class="section-title">Clarity before commitment</h2>
+      <p class="section-intro">Interested people should be able to review the business, understand the risks, and see how funds will be controlled before making a decision.</p>
+      <div class="evidence">
+        <article class="evidence-card">
+          <h3>Information to review privately</h3>
+          <ul>
+            <li>Verified sales, cost, expense, and cash-flow records</li>
+            <li>Supplier quotations and a line-item use-of-funds budget</li>
+            <li>Milestones, timing, owner responsibilities, and reporting cadence</li>
+            <li>Business registrations, permits, and other applicable documents</li>
+          </ul>
+        </article>
+        <article class="evidence-card">
+          <h3>Terms that require professional review</h3>
+          <ul>
+            <li>The legal structure of any support or investment</li>
+            <li>Risk disclosures and what happens if targets are delayed</li>
+            <li>Written agreements, payment controls, and recordkeeping</li>
+            <li>Independent legal and accounting advice before funds are accepted</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <section class="connect" id="connect">
+    <div class="connect-inner">
+      <div>
+        <span class="section-label" style="color:#f9a8d4;">Private introduction</span>
+        <h2>Interested in learning more?</h2>
+        <p>Send an introduction request. Macleen's can then arrange a private discussion and share current information appropriate to the conversation.</p>
+        <p><a href="{{ url_for('investor_private_offer') }}" style="color:white;font-weight:900;">Already invited? Open the private proposal options →</a></p>
+        <div class="contact-card">
+          <strong>Macleen's Food House</strong><br>
+          Purok Mahogany, Brgy. San Teodoro, Binalbagan, Negros Occidental<br>
+          {% if investor.contact_phone %}Contact: {{ investor.contact_phone }}{% endif %}
+          {% if investor.facebook_url %}<br><a href="{{ investor.facebook_url }}" target="_blank" rel="noopener">Facebook page</a>{% endif %}
+        </div>
+        <p class="fineprint">This page is informational. It does not state investment terms, promise returns, or accept money. Any possible arrangement is subject to private due diligence, appropriate professional advice, legal compliance, and a signed agreement.</p>
+      </div>
+      <form method="post" action="{{ url_for('submit_investor_interest') }}">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% for category, message in messages %}
+            <div class="flash {{ category }}">{{ message }}</div>
+          {% endfor %}
+        {% endwith %}
+        <input type="hidden" name="form_token" value="{{ form_token }}">
+        <div class="honeypot" aria-hidden="true"><label>Website<input type="text" name="website" tabindex="-1" autocomplete="off"></label></div>
+        <div class="form-grid">
+          <div><label for="name">Your name *</label><input id="name" name="name" maxlength="120" required></div>
+          <div><label for="contact">Phone, Messenger, or email *</label><input id="contact" name="contact" maxlength="160" required></div>
+          <div>
+            <label for="preferred_contact">Preferred contact</label>
+            <select id="preferred_contact" name="preferred_contact">{% for value,label in contact_choices.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+          </div>
+          <div>
+            <label for="business_area">Area of interest</label>
+            <select id="business_area" name="business_area">{% for value,label in support_areas.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+          </div>
+          <div class="full">
+            <label for="funding_range">Possible support range (optional)</label>
+            <select id="funding_range" name="funding_range">{% for value,label in funding_ranges.items() %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+          </div>
+          <div class="full"><label for="message">What would you like to discuss?</label><textarea id="message" name="message" maxlength="2000" placeholder="Tell us briefly about your interest, experience, or possible support."></textarea></div>
+          <label class="check full"><input type="checkbox" name="privacy_acknowledged" value="yes" required><span>I agree that Macleen's may use these details to contact me about a private business discussion. No investment is accepted through this website.</span></label>
+        </div>
+        <button class="btn submit" type="submit">Send private introduction request</button>
+      </form>
+    </div>
+  </section>
+  <footer>© Macleen's Food House · Affordable food, practical services, and a more comfortable customer experience.</footer>
+</body>
+</html>

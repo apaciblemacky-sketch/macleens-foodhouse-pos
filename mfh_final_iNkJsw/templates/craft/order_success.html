@@ -1,0 +1,5 @@
+{% extends 'craft/base.html' %}
+{% block title %}Craft Order Submitted{% endblock %}
+{% block content %}
+<div class="card" style="max-width:620px;margin:auto;text-align:center"><div style="font-size:3rem">✅</div><h2 style="color:var(--dark)">Craft Order #{{ order.id }} Submitted</h2><p><strong>{{ item.name }}</strong> × {{ order.quantity }}</p><div class="price">₱{{ "{:,.2f}".format(order.total_price) }}</div><p class="muted">Your order is now connected to the main Macleen's Cashier verification queue. We will confirm payment and pickup/preparation status.</p><a class="btn btn-pink" href="{{ url_for('craft_store') }}">Back to Craft Shop</a></div>
+{% endblock %}
