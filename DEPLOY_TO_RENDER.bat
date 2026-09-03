@@ -112,6 +112,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running isolated Community behavior checks...
+%DEPLOY_CHECK_CMD% scripts\community_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Community behavior checks failed.
+  pause
+  exit /b 1
+)
+
 echo.
 echo GitHub remote:
 echo %DEPLOY_REMOTE%
@@ -184,8 +193,8 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.03-bulk-compact-v5
-echo Admin should also show the green "Compact Save v5" badge.
+echo Expected release after Render finishes: 2026.09.03-community-v1
+echo Then test /community and /admin/community using COMMUNITY_HUB_UPDATE.md.
 echo.
 start "" "https://dashboard.render.com/"
 start "" "https://macleens-foodhouse-pos.onrender.com/healthz"

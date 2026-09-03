@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Join Macleen’s Community</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0f766e">
+  <style>
+    :root{--ink:#172033;--muted:#64748b;--line:#dbe4ee;--teal:#0f766e;--pink:#e72f83;--cream:#fffaf5;--campus:#4f46e5;--town:#ea580c}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top left,#ccfbf1,transparent 34%),radial-gradient(circle at top right,#fce7f3,transparent 32%),#f8fafc;color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}.shell{width:min(920px,calc(100% - 28px));margin:24px auto 60px}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.brand{display:flex;align-items:center;gap:11px}.brand img{width:58px;height:58px;border-radius:19px;object-fit:cover;box-shadow:0 8px 24px #0f766e33}.brand strong{font-size:1.1rem}.brand small{display:block;color:var(--muted);margin-top:2px}.back{color:var(--teal);font-weight:850;text-decoration:none}.hero,.panel{background:#ffffffdd;border:1px solid #fff;border-radius:25px;box-shadow:0 22px 60px #0f172a12}.hero{padding:28px;margin-bottom:16px}.eyebrow{font-size:.72rem;font-weight:900;color:var(--teal);text-transform:uppercase;letter-spacing:.12em}.hero h1{font-size:clamp(2rem,6vw,3.55rem);line-height:.98;margin:10px 0 12px;letter-spacing:-.055em}.hero p{max-width:680px;color:var(--muted);line-height:1.55;margin:0}.privacy{margin-top:18px;padding:13px 15px;border-radius:16px;background:#ecfdf5;border:1px solid #99f6e4;color:#115e59;font-size:.82rem;line-height:1.45}.panel{padding:24px}.role-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0 22px}.role{position:relative;cursor:pointer}.role input{position:absolute;opacity:0}.role span{display:block;border:2px solid var(--line);border-radius:18px;padding:17px;min-height:120px;background:#fff;transition:.18s}.role strong{font-size:1rem}.role small{display:block;color:var(--muted);line-height:1.45;margin-top:7px}.role input:checked+span{border-color:var(--teal);box-shadow:0 0 0 4px #ccfbf1;transform:translateY(-2px)}label.field{display:block;font-size:.76rem;font-weight:850;margin:12px 0 5px}.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}input,select{width:100%;padding:12px 13px;border:1px solid #cbd5e1;border-radius:12px;background:white;color:var(--ink);font:inherit;outline:none}input:focus,select:focus{border-color:var(--teal);box-shadow:0 0 0 3px #ccfbf1}.conditional{padding:14px;border-radius:16px;background:#f8fafc;border:1px solid var(--line);margin-top:13px}.verify-note{font-size:.78rem;color:var(--muted);line-height:1.45;margin-top:10px}.consent{display:flex;gap:10px;align-items:flex-start;background:var(--cream);border:1px solid #fed7aa;border-radius:14px;padding:13px;margin:16px 0;font-size:.78rem;line-height:1.45}.consent input{width:auto;margin-top:3px}.submit{width:100%;border:0;border-radius:14px;padding:13px 18px;background:linear-gradient(135deg,var(--teal),#0d9488);color:white;font-size:.9rem;font-weight:900;cursor:pointer;box-shadow:0 10px 24px #0f766e38}.footer{text-align:center;color:var(--muted);font-size:.7rem;line-height:1.45;margin-top:18px}@media(max-width:620px){.shell{margin-top:14px}.hero,.panel{padding:19px;border-radius:20px}.role-grid,.field-row{grid-template-columns:1fr}.top{align-items:flex-start}.brand small{max-width:180px}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <div class="top">
+      <div class="brand"><img src="{{ store_logo }}" alt="Macleen’s logo"><div><strong>Macleen’s Community</strong><small>Local updates, useful connections, real rewards</small></div></div>
+      <a class="back" href="/portal/dashboard">My rewards</a>
+    </div>
+    {% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="privacy" style="{% if category == 'error' %}background:#fef2f2;border-color:#fecaca;color:#991b1b{% endif %}">{{ message }}</div>{% endfor %}{% endwith %}
+    <section class="hero">
+      <div class="eyebrow">Optional social profile</div>
+      <h1>Your local circle,<br>without exposing your account.</h1>
+      <p>Your loyalty account stays private. Other members see only the handle, avatar, role badge, and profile details you choose below—never your mobile number, address, PIN, points balance, or purchase history.</p>
+      <div class="privacy"><strong>Privacy-first verification:</strong> Macleen’s will not retain a student ID image. Students can show an ID to staff in person; residents choose a self-declared barangay that staff may verify later. Your existing unique mobile number and 4-digit PIN remain the login method until a properly consented SMS provider is configured.</div>
+    </section>
+    <section class="panel">
+      <form action="{{ url_for('community_save_profile') }}" method="post" id="communityProfileForm">
+        <label class="field" for="handle">Public community handle</label>
+        <input id="handle" name="handle" maxlength="24" pattern="[A-Za-z0-9][A-Za-z0-9._]{2,23}" placeholder="e.g. macky.bcc" required>
+        <div class="verify-note">3–24 letters, numbers, dots, or underscores. Your loyalty name and mobile stay private.</div>
+
+        <label class="field">Choose your primary community role</label>
+        <div class="role-grid">
+          <label class="role"><input type="radio" name="role" value="STUDENT" checked onchange="syncRoleFields()"><span><strong>🎓 College Student</strong><small>Post, comment, react, and vote in Campus Hub. Town Square remains read-only.</small></span></label>
+          <label class="role"><input type="radio" name="role" value="RESIDENT" onchange="syncRoleFields()"><span><strong>🏘️ Binalbagan Resident</strong><small>Post, comment, react, and vote in Town Square. Campus Hub remains read-only.</small></span></label>
+        </div>
+
+        <div id="studentFields" class="conditional">
+          <div class="field-row">
+            <div><label class="field" for="campusName">Campus</label><select id="campusName" name="campus_name">{% for campus in campuses %}<option value="{{ campus }}">{{ campus }}</option>{% endfor %}</select></div>
+            <div><label class="field" for="department">Major / Department</label><select id="department" name="department">{% for department in departments %}<option value="{{ department }}">{{ department }}</option>{% endfor %}</select></div>
+          </div>
+          <label class="field" for="graduatingYear">Expected graduating year</label>
+          <input id="graduatingYear" type="number" name="graduating_year" min="{{ today.year if today else 2026 }}" max="{{ (today.year + 10) if today else 2036 }}" value="{{ today.year + 1 if today else 2027 }}">
+          <div class="verify-note">Verification status begins as Pending. Show your student ID to authorized staff at the counter; no ID photo is stored.</div>
+        </div>
+
+        <div id="residentFields" class="conditional" hidden>
+          <div class="field-row">
+            <div><label class="field" for="barangay">Home barangay</label><select id="barangay" name="barangay">{% for barangay in barangays %}<option value="{{ barangay }}">{{ barangay }}</option>{% endfor %}</select></div>
+            <div><label class="field" for="residentSince">Resident since</label><input id="residentSince" type="number" name="resident_since_year" min="1900" max="{{ today.year if today else 2026 }}" value="{{ today.year if today else 2026 }}"></div>
+          </div>
+          <div class="verify-note">Barangay is self-declared until staff verifies it. It is used for aggregate Barangay Pride scores, never to reveal your exact address.</div>
+        </div>
+
+        <label class="consent"><input type="checkbox" name="privacy_consent" required><span>I choose to create an optional public community profile. I understand the first post requires staff approval, reports are reviewed privately, community score is not cash-value loyalty points, and I can ask Macleen’s to deactivate my public community profile.</span></label>
+        <button class="submit" type="submit">Create my community profile</button>
+      </form>
+    </section>
+    <footer class="footer">Independent community board operated by Macleen’s Food House. Not an official municipal or university portal.<br>Community access is optional and does not affect loyalty rewards eligibility.</footer>
+  </main>
+  <script>
+    function syncRoleFields(){
+      const role=document.querySelector('input[name="role"]:checked')?.value||'STUDENT';
+      const student=document.getElementById('studentFields'),resident=document.getElementById('residentFields');
+      student.hidden=role!=='STUDENT';resident.hidden=role!=='RESIDENT';
+      student.querySelectorAll('input,select').forEach(el=>el.disabled=role!=='STUDENT');
+      resident.querySelectorAll('input,select').forEach(el=>el.disabled=role!=='RESIDENT');
+    }
+    syncRoleFields();
+  </script>
+</body>
+</html>

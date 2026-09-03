@@ -1,57 +1,45 @@
 MACLEEN'S FOOD HOUSE - FULL REPLACEMENT UPDATE
 
-This ZIP is intentionally ROOT-LEVEL / FLAT.
-When opened, you should immediately see:
-  app.py
-  requirements.txt
-  templates
-  static
-  RUN_MACLEENS.bat
-  DEPLOY_TO_RENDER.bat
+This ZIP is ROOT-LEVEL / FLAT. When opened, app.py, requirements.txt,
+templates, static, RUN_MACLEENS.bat, and DEPLOY_TO_RENDER.bat appear immediately.
 
 INSTALL AND DEPLOY
 1. Open the local GitHub-connected Macleen's project folder.
 2. Keep the hidden .git folder and any private .env file.
-3. Copy all contents of this ZIP into that project folder and approve Replace All.
-4. Double-click RUN_MACLEENS.bat to test locally.
-5. Double-click DEPLOY_TO_RENDER.bat and type DEPLOY when prompted.
-6. Wait for Render to say Live, then open /healthz and confirm the release is
-   2026.09.03-bulk-compact-v5. Admin will show a green Compact Save v5 badge.
-7. Press Ctrl+F5 once in Admin before testing Save All Bulk Changes.
-8. After Render reports a successful deployment, test:
-   Storefront: https://macleens-foodhouse-pos.onrender.com/
-   Rewards:    https://macleens-foodhouse-pos.onrender.com/portal/dashboard
-   Digital:    https://macleens-foodhouse-pos.onrender.com/digital
-   Health:     https://macleens-foodhouse-pos.onrender.com/healthz
+3. Copy every item from this ZIP into that folder and approve Replace All.
+4. Double-click RUN_MACLEENS.bat and test locally.
+5. Double-click DEPLOY_TO_RENDER.bat; type DEPLOY when prompted.
+6. Wait for Render to show Live. Open /healthz and confirm release:
+   2026.09.03-community-v1
+7. Test the exact workflow in COMMUNITY_HUB_UPDATE.md.
+
+MAIN LINKS
+Storefront:       https://macleens-foodhouse-pos.onrender.com/
+Community:        https://macleens-foodhouse-pos.onrender.com/community
+Rewards:          https://macleens-foodhouse-pos.onrender.com/portal/dashboard
+Community Admin:  https://macleens-foodhouse-pos.onrender.com/admin/community
+Cashier:          https://macleens-foodhouse-pos.onrender.com/pos/cashier
+Health:           https://macleens-foodhouse-pos.onrender.com/healthz
 
 THIS RELEASE ADDS
-- Modern mobile-first student storefront and Digital catalog.
-- Repaired instant menu search with no buttons below the search bar. An active
-  search now shows only matching products and hides unrelated recommendations;
-  clearing the search restores the full storefront.
-- Larger storefront logo and visible Admin Add Product confirmation/highlight.
-- Repaired Save All Bulk Changes with a compact edited-rows-only request, a
-  guarded 98+ product fallback, immediate success/error feedback, dirty-row
-  tracking, and no full-page reload.
-- Every Food House product share link now uses a vivid 1200 x 630 branded image
-  with the product photo, name, price, category, and View & Order call to action.
-- Favorites, order again, campus break preferences, and quick pickup choices.
-- Shareable Barkada carts with organizer-only final submission.
-- Private order tracking with Cashier Preparing / Ready / Handed Over controls.
-- Visual loyalty progress, student missions, and modern mobile navigation.
-- Product preparation-time control in Admin.
-- Daily Facebook Page menu publishing with approval and duplicate protection.
-- Messenger MENU keyword replies plus delivery/read/click/failure logs.
-- Optional approved-provider handoff for paid opted-in Messenger campaigns.
+- Optional privacy-separated Community profiles linked to loyalty accounts.
+- Campus Hub and Town Square with role-based write/read permissions.
+- Text, one-image, and single-choice poll posts with first-post approval.
+- Human-reviewed safety phrase holds and temporary three-report quarantine.
+- Daily check-ins, controlled Mystery Drops, and group-level leaderboards.
+- PIN-confirmed point or in-stock product gifting with daily limits.
+- Role/channel-targeted native ads after each fifth feed post.
+- Admin-scheduled 8:00 AM Flash Polls and time-limited Flash Perch alerts.
+- Optional consent-based browser Web Push when VAPID variables are configured.
+- Cashier member QR/manual lookup, one-time gift/freebie redemption, and a
+  digital purchase-card view derived from the existing paid-spend ledger.
+- Existing POS, products, ordering, points discounts, Crafts, Digital,
+  Marketing, cash flow, and private investor features remain in the package.
 
-FACEBOOK SETUP
-After deployment, open /admin/marketing and read the Daily Facebook Menu
-Automation checklist. The safe default is approval-first. Facebook actions stay
-inactive until the required META_* environment values are added in Render.
-Full instructions: FACEBOOK_DAILY_MENU_AUTOMATION_UPDATE.md
-
-The database upgrade is automatic and additive. Existing sales, products, points,
-cash flow, Crafts, Digital, Marketing, and private investor records are preserved.
-
-If a new link shows 404 after Render finishes, check the GitHub root. app.py must
-be at the repository root and must not be inside another mfh_final folder.
+IMPORTANT
+- SMS OTP is not simulated. Existing mobile + PIN login remains active until a
+  real SMS provider, consent flow, rate limits, and recovery policy are chosen.
+- Student ID photos are not stored. Staff verify by viewing ID in person.
+- Web Push is optional; in-app alerts work without VAPID configuration.
+- The database upgrade is additive. Existing records are preserved.
+- If a new link is 404 after deployment, confirm app.py is at the GitHub root.

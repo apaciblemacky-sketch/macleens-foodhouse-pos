@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory, Response, has_request_context
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import inspect, text, UniqueConstraint, and_
+from sqlalchemy import inspect, text, UniqueConstraint, and_, or_
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -67,7 +67,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.03-bulk-compact-v5'
+APP_RELEASE = '2026.09.03-community-v1'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -471,6 +471,238 @@ class ProductSuggestion(db.Model):
     created_at = db.Column(db.DateTime, default=utc_now)
 
 SUGGESTION_STATUSES = ('NEW', 'CONSIDERING', 'PLANNED', 'AVAILABLE', 'ARCHIVED')
+
+# ==================== MACLEEN'S COMMUNITY ====================
+
+class CommunityProfile(db.Model):
+    """Optional public identity layered on top of a private loyalty account."""
+    __tablename__ = 'community_profile'
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), unique=True, nullable=False)
+    handle = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    role = db.Column(db.String(20), nullable=False)  # STUDENT or RESIDENT
+    campus_name = db.Column(db.String(120), nullable=True)
+    department = db.Column(db.String(80), nullable=True)
+    graduating_year = db.Column(db.Integer, nullable=True)
+    vibe_status = db.Column(db.String(40), nullable=True)
+    barangay = db.Column(db.String(80), nullable=True)
+    resident_since_year = db.Column(db.Integer, nullable=True)
+    verification_status = db.Column(db.String(20), nullable=False, default='PENDING')
+    verification_method = db.Column(db.String(30), nullable=False, default='IN_PERSON')
+    verification_note = db.Column(db.String(255), nullable=True)
+    first_post_approved = db.Column(db.Boolean, nullable=False, default=False)
+    community_score = db.Column(db.Float, nullable=False, default=0.0)
+    community_streak = db.Column(db.Integer, nullable=False, default=0)
+    last_checkin_date = db.Column(db.Date, nullable=True)
+    push_opt_in = db.Column(db.Boolean, nullable=False, default=False)
+    privacy_consent_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    terms_accepted_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    customer = db.relationship('Customer', backref=db.backref('community_profile', uselist=False, cascade='all, delete-orphan'))
+
+class CommunityPost(db.Model):
+    __tablename__ = 'community_post'
+    id = db.Column(db.Integer, primary_key=True)
+    author_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True)
+    channel = db.Column(db.String(20), nullable=False)  # CAMPUS or TOWN
+    module = db.Column(db.String(40), nullable=False)
+    post_type = db.Column(db.String(20), nullable=False, default='TEXT')
+    body = db.Column(db.String(280), nullable=False)
+    image_data = db.Column(db.Text, nullable=True)
+    link_url = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.String(24), nullable=False, default='PENDING')
+    flags_count = db.Column(db.Integer, nullable=False, default=0)
+    moderation_hits = db.Column(db.Text, nullable=True)
+    score_awarded = db.Column(db.Boolean, nullable=False, default=False)
+    is_flash_poll = db.Column(db.Boolean, nullable=False, default=False)
+    publish_date = db.Column(db.Date, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=True)
+    published_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    author = db.relationship('CommunityProfile', lazy=True)
+    poll_options = db.relationship('CommunityPollOption', backref='post', cascade='all, delete-orphan', lazy=True, order_by='CommunityPollOption.sort_order')
+
+class CommunityPollOption(db.Model):
+    __tablename__ = 'community_poll_option'
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('community_post.id', ondelete='CASCADE'), nullable=False, index=True)
+    option_text = db.Column(db.String(80), nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+
+class CommunityPollVote(db.Model):
+    __tablename__ = 'community_poll_vote'
+    __table_args__ = (UniqueConstraint('post_id', 'customer_id', name='uq_community_poll_customer'),)
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('community_post.id', ondelete='CASCADE'), nullable=False, index=True)
+    option_id = db.Column(db.Integer, db.ForeignKey('community_poll_option.id', ondelete='CASCADE'), nullable=False)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    role_snapshot = db.Column(db.String(20), nullable=False)
+    score_awarded = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityReaction(db.Model):
+    __tablename__ = 'community_reaction'
+    __table_args__ = (UniqueConstraint('post_id', 'customer_id', name='uq_community_reaction_customer'),)
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('community_post.id', ondelete='CASCADE'), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    reaction_type = db.Column(db.String(20), nullable=False, default='LIKE')
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityConnection(db.Model):
+    """Mutual opt-in connection used to protect friend-only vibe status."""
+    __tablename__ = 'community_connection'
+    __table_args__ = (UniqueConstraint('profile_a_id', 'profile_b_id', name='uq_community_connection_pair'),)
+    id = db.Column(db.Integer, primary_key=True)
+    profile_a_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='CASCADE'), nullable=False, index=True)
+    profile_b_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='CASCADE'), nullable=False, index=True)
+    requested_by_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='CASCADE'), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='PENDING')
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    responded_at = db.Column(db.DateTime, nullable=True)
+
+class CommunityComment(db.Model):
+    __tablename__ = 'community_comment'
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('community_post.id', ondelete='CASCADE'), nullable=False, index=True)
+    author_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True)
+    body = db.Column(db.String(280), nullable=False)
+    status = db.Column(db.String(24), nullable=False, default='PUBLISHED')
+    moderation_hits = db.Column(db.Text, nullable=True)
+    score_awarded = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    author = db.relationship('CommunityProfile', lazy=True)
+
+class CommunityReport(db.Model):
+    __tablename__ = 'community_report'
+    __table_args__ = (UniqueConstraint('post_id', 'reporter_customer_id', name='uq_community_reporter_post'),)
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('community_post.id', ondelete='CASCADE'), nullable=False, index=True)
+    reporter_customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    reason = db.Column(db.String(40), nullable=False)
+    details = db.Column(db.String(240), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='OPEN')
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityKeyword(db.Model):
+    __tablename__ = 'community_keyword'
+    id = db.Column(db.Integer, primary_key=True)
+    phrase = db.Column(db.String(100), unique=True, nullable=False)
+    category = db.Column(db.String(40), nullable=False, default='ABUSE')
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityAd(db.Model):
+    __tablename__ = 'community_ad'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(120), nullable=False)
+    body = db.Column(db.String(240), nullable=False)
+    image_url = db.Column(db.Text, nullable=True)
+    target_role = db.Column(db.String(20), nullable=False, default='ALL')
+    channel = db.Column(db.String(20), nullable=False, default='ALL')
+    cta_label = db.Column(db.String(40), nullable=False, default='View menu')
+    cta_url = db.Column(db.String(500), nullable=False, default='/')
+    start_at = db.Column(db.DateTime, nullable=True)
+    end_at = db.Column(db.DateTime, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    impression_count = db.Column(db.Integer, nullable=False, default=0)
+    click_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityAlert(db.Model):
+    __tablename__ = 'community_alert'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(100), nullable=False)
+    body = db.Column(db.String(240), nullable=False)
+    target_role = db.Column(db.String(20), nullable=False, default='ALL')
+    cta_url = db.Column(db.String(500), nullable=True)
+    starts_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    ends_at = db.Column(db.DateTime, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityCheckin(db.Model):
+    __tablename__ = 'community_checkin'
+    __table_args__ = (UniqueConstraint('customer_id', 'checkin_date', name='uq_community_daily_checkin'),)
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    checkin_date = db.Column(db.Date, nullable=False)
+    streak_day = db.Column(db.Integer, nullable=False)
+    score_awarded = db.Column(db.Float, nullable=False, default=1.0)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityStoreCheckin(db.Model):
+    """A verified visit created only from one completed paid member order."""
+    __tablename__ = 'community_store_checkin'
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False, index=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='CASCADE'), unique=True, nullable=False)
+    checkin_date = db.Column(db.Date, nullable=False, index=True)
+    recorded_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityDrop(db.Model):
+    __tablename__ = 'community_drop'
+    __table_args__ = (UniqueConstraint('customer_id', 'milestone_day', 'period_key', name='uq_community_drop_milestone'),)
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    milestone_day = db.Column(db.Integer, nullable=False)
+    period_key = db.Column(db.String(30), nullable=False)
+    reward_type = db.Column(db.String(30), nullable=False)
+    reward_title = db.Column(db.String(120), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='SET NULL'), nullable=True)
+    status = db.Column(db.String(24), nullable=False, default='ACTIVE')
+    approved_by = db.Column(db.String(50), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    redeemed_order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='SET NULL'), nullable=True)
+    points_awarded = db.Column(db.Float, nullable=False, default=0.0)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    redeemed_at = db.Column(db.DateTime, nullable=True)
+    customer = db.relationship('Customer', lazy=True)
+    product = db.relationship('Product', lazy=True)
+
+class CommunityGift(db.Model):
+    __tablename__ = 'community_gift'
+    id = db.Column(db.Integer, primary_key=True)
+    sender_customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    recipient_customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    gift_type = db.Column(db.String(20), nullable=False)
+    points_amount = db.Column(db.Float, nullable=False, default=0.0)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='SET NULL'), nullable=True)
+    product_name = db.Column(db.String(120), nullable=True)
+    note = db.Column(db.String(120), nullable=True)
+    claim_code = db.Column(db.String(24), unique=True, nullable=False)
+    status = db.Column(db.String(20), nullable=False, default='SENT')
+    claimed_by = db.Column(db.String(50), nullable=True)
+    claimed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+    sender = db.relationship('Customer', foreign_keys=[sender_customer_id], lazy=True)
+    recipient = db.relationship('Customer', foreign_keys=[recipient_customer_id], lazy=True)
+    product = db.relationship('Product', lazy=True)
+
+class CommunityPushSubscription(db.Model):
+    __tablename__ = 'community_push_subscription'
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    endpoint = db.Column(db.Text, unique=True, nullable=False)
+    p256dh = db.Column(db.Text, nullable=False)
+    auth = db.Column(db.Text, nullable=False)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+class CommunityModerationAction(db.Model):
+    __tablename__ = 'community_moderation_action'
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('community_post.id', ondelete='SET NULL'), nullable=True)
+    profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True)
+    admin_username = db.Column(db.String(50), nullable=False)
+    action = db.Column(db.String(40), nullable=False)
+    note = db.Column(db.String(240), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
 class GroupOrder(db.Model):
     __tablename__ = 'group_order'
@@ -965,6 +1197,39 @@ def ensure_legacy_craft_catalog():
     if imported:
         app.logger.info('Imported %s legacy Craft Shop catalog item(s) into the unified system.', imported)
 
+def ensure_community_defaults():
+    """Add conservative moderation phrases and role-targeted house banners once."""
+    if CommunityKeyword.query.count() == 0:
+        defaults = (
+            ('kill yourself', 'THREAT_OR_HARASSMENT'),
+            ('putang ina', 'PROFANITY'),
+            ('gago', 'PROFANITY_OR_HARASSMENT'),
+            ('bobo', 'HARASSMENT'),
+            ('ulol', 'HARASSMENT'),
+        )
+        for phrase, category in defaults:
+            db.session.add(CommunityKeyword(phrase=phrase, category=category, is_active=True))
+    if CommunityAd.query.count() == 0:
+        db.session.add(CommunityAd(
+            title='Study break, sorted.',
+            body='Budget-friendly meals, coffee, and printing support for busy campus days.',
+            target_role='STUDENT',
+            channel='CAMPUS',
+            cta_label='See today’s menu',
+            cta_url='/',
+            is_active=True,
+        ))
+        db.session.add(CommunityAd(
+            title='Comfort food for the neighborhood.',
+            body='Morning brews, affordable ulam, snacks, and advance food inquiries in one local place.',
+            target_role='RESIDENT',
+            channel='TOWN',
+            cta_label='View Macleen’s',
+            cta_url='/',
+            is_active=True,
+        ))
+    db.session.commit()
+
 
 # ==================== PWA ROOT ROUTES ====================
 
@@ -1165,6 +1430,7 @@ def run_db_setup():
 
         ensure_default_promos()
         ensure_legacy_craft_catalog()
+        ensure_community_defaults()
         disable_legacy_meta_connection()
         _DB_INITIALIZED = True
         app.logger.info('Database setup completed successfully.')
@@ -1865,6 +2131,340 @@ def generate_unique_card_number(customer_id=None):
             return candidate
         number += 1
 
+COMMUNITY_ROLES = ('STUDENT', 'RESIDENT')
+COMMUNITY_CHANNELS = ('CAMPUS', 'TOWN')
+COMMUNITY_CHANNEL_MODULES = {
+    'CAMPUS': (
+        ('STUDY_COLLAB', 'Study & Collab'),
+        ('CAMPUS_BOARD', 'Campus Board'),
+        ('BUY_SELL_SWAP', 'Textbook Buy / Sell / Swap'),
+        ('LOST_FOUND', 'Lost & Found'),
+    ),
+    'TOWN': (
+        ('MUNICIPAL_BULLETIN', 'Municipal Bulletin'),
+        ('LOCAL_CLASSIFIEDS', 'Local Classifieds'),
+        ('HELP_WANTED', 'Neighborhood Help Wanted'),
+        ('LOST_FOUND', 'Lost Pets / Belongings'),
+    ),
+}
+COMMUNITY_CAMPUSES = (
+    'Binalbagan Catholic College',
+    'CHMSU Binalbagan Campus',
+    'Other Binalbagan college or campus',
+)
+COMMUNITY_DEPARTMENTS = (
+    'Business', 'Criminology', 'Education', 'Information Technology',
+    'Engineering / Technology', 'Arts & Sciences', 'Other',
+)
+COMMUNITY_VIBES = (
+    'Quiet study mode', 'Group cramming', 'Free to chat', 'On a break', 'Offline',
+)
+BINALBAGAN_BARANGAYS = (
+    'Amontay', 'Bagroy', 'Bi-ao', 'Canmoros', 'Enclaro', 'Marina', 'Paglaum',
+    'Payao', 'Progreso', 'San Jose', 'San Juan', 'San Pedro', 'San Teodoro',
+    'San Vicente', 'Santo Rosario', 'Santol',
+)
+COMMUNITY_REACTIONS = ('LIKE', 'HELPFUL', 'INTERESTED')
+COMMUNITY_REPORT_REASONS = ('HARASSMENT', 'HATE_OR_ABUSE', 'MISINFORMATION', 'SCAM', 'PRIVACY', 'SPAM', 'OTHER')
+COMMUNITY_GIFT_DAILY_CAP = 50.0
+COMMUNITY_GROUP_PRIVACY_MINIMUM = 3
+
+def normalize_community_handle(value):
+    handle = (value or '').strip().lower().lstrip('@')
+    if not re.fullmatch(r'[a-z0-9][a-z0-9._]{2,23}', handle):
+        raise OrderValidationError('Handle must be 3–24 characters using letters, numbers, dots, or underscores.')
+    if handle in {'admin', 'administrator', 'cashier', 'staff', 'macleens', 'macleensfoodhouse', 'support'}:
+        raise OrderValidationError('That handle is reserved. Please choose another one.')
+    return handle
+
+def community_channel_for_role(role):
+    return 'CAMPUS' if (role or '').upper() == 'STUDENT' else 'TOWN'
+
+def community_can_interact(profile, channel):
+    normalized_channel = (channel or '').upper()
+    return bool(profile) and (normalized_channel == 'GLOBAL' or community_channel_for_role(profile.role) == normalized_channel)
+
+def community_connection_pair(first_profile_id, second_profile_id):
+    left, right = sorted((parse_int(first_profile_id, 0), parse_int(second_profile_id, 0)))
+    return left, right
+
+def community_friend_profile_ids(profile_id):
+    rows = CommunityConnection.query.filter(
+        CommunityConnection.status == 'ACCEPTED',
+        or_(CommunityConnection.profile_a_id == profile_id, CommunityConnection.profile_b_id == profile_id),
+    ).all()
+    return {
+        row.profile_b_id if row.profile_a_id == profile_id else row.profile_a_id
+        for row in rows
+    }
+
+def community_safe_link(value, required=False):
+    link = (value or '').strip()
+    if not link:
+        if required:
+            raise OrderValidationError('Please enter a link.')
+        return None
+    if len(link) > 500:
+        raise OrderValidationError('Link must be 500 characters or less.')
+    parsed = urlparse(link)
+    if parsed.scheme not in {'http', 'https'} or not parsed.netloc or parsed.username or parsed.password:
+        raise OrderValidationError('Use a complete public http:// or https:// link without embedded login details.')
+    return link
+
+def community_safe_cta(value, default='/community'):
+    link = (value or '').strip() or default
+    if link.startswith('/') and not link.startswith('//') and len(link) <= 500:
+        return link
+    return community_safe_link(link, required=True)
+
+def community_local_datetime(value, default=None):
+    raw = (value or '').strip()
+    if not raw:
+        return default
+    try:
+        local_value = datetime.fromisoformat(raw)
+    except ValueError:
+        raise OrderValidationError('Please enter a valid date and time.')
+    if local_value.tzinfo is None:
+        local_value = local_value.replace(tzinfo=MANILA_TZ)
+    return local_value.astimezone(timezone.utc).replace(tzinfo=None)
+
+def community_moderation_hits(text_value):
+    normalized = re.sub(r'\s+', ' ', (text_value or '').casefold()).strip()
+    if not normalized:
+        return []
+    hits = []
+    for keyword in CommunityKeyword.query.filter_by(is_active=True).all():
+        phrase = re.sub(r'\s+', ' ', (keyword.phrase or '').casefold()).strip()
+        if not phrase:
+            continue
+        pattern = r'(?<!\w)' + re.escape(phrase) + r'(?!\w)'
+        if re.search(pattern, normalized):
+            hits.append({'phrase': keyword.phrase, 'category': keyword.category})
+    return hits
+
+def community_image_from_request(file_key='image'):
+    upload = request.files.get(file_key)
+    if not upload or not upload.filename:
+        return None
+    declared = (upload.mimetype or '').lower()
+    if declared not in {'image/jpeg', 'image/png', 'image/webp'}:
+        raise OrderValidationError('Community images must be JPG, PNG, or WEBP.')
+    raw = upload.read(3_000_001)
+    if len(raw) > 3_000_000:
+        raise OrderValidationError('Community images must be 3 MB or smaller.')
+    try:
+        with Image.open(io.BytesIO(raw)) as source:
+            source.verify()
+        with Image.open(io.BytesIO(raw)) as source:
+            image = ImageOps.exif_transpose(source).convert('RGB')
+            image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+            canvas = io.BytesIO()
+            image.save(canvas, format='WEBP', quality=82, method=6)
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise OrderValidationError('The uploaded community image could not be read safely.')
+    encoded = base64.b64encode(canvas.getvalue()).decode('ascii')
+    return f'data:image/webp;base64,{encoded}'
+
+def get_current_community_customer():
+    customer_id = parse_int(session.get('customer_id'), 0)
+    if customer_id <= 0:
+        return None
+    cust = db.session.get(Customer, customer_id)
+    if not cust or customer_access_issue(cust):
+        return None
+    return cust
+
+def community_rate_limit(customer_id, model, minutes, maximum, author_field='author_profile_id', profile_id=None):
+    threshold = utc_now() - timedelta(minutes=minutes)
+    query = model.query.filter(model.created_at >= threshold)
+    actor_value = customer_id if author_field.endswith('customer_id') else profile_id
+    query = query.filter(getattr(model, author_field) == actor_value)
+    if query.count() >= maximum:
+        raise OrderValidationError(f'Please slow down and try again later. Limit: {maximum} actions per {minutes} minutes.')
+
+def community_check_in(profile):
+    today = ph_today()
+    existing = CommunityCheckin.query.filter_by(customer_id=profile.customer_id, checkin_date=today).first()
+    if existing:
+        return existing, None
+    yesterday = today - timedelta(days=1)
+    streak = (profile.community_streak or 0) + 1 if profile.last_checkin_date == yesterday else 1
+    profile.community_streak = streak
+    profile.last_checkin_date = today
+    profile.community_score = round(parse_float(profile.community_score, 0.0) + 1.0, 2)
+    checkin = CommunityCheckin(
+        customer_id=profile.customer_id,
+        checkin_date=today,
+        streak_day=streak,
+        score_awarded=1.0,
+    )
+    db.session.add(checkin)
+    drop = None
+    if streak in {7, 30}:
+        reward_type = 'NEXT_ORDER_1_5X' if streak == 7 else 'STAFF_FREEBIE'
+        status = 'ACTIVE' if streak == 7 else 'PENDING_APPROVAL'
+        title = '1.5× points on your next paid order' if streak == 7 else 'Staff-approved Mystery Freebie'
+        period_key = f'{today.isoformat()}-{streak}'
+        drop = CommunityDrop(
+            customer_id=profile.customer_id,
+            milestone_day=streak,
+            period_key=period_key,
+            reward_type=reward_type,
+            reward_title=title,
+            status=status,
+        )
+        db.session.add(drop)
+    return checkin, drop
+
+def community_poll_results(post):
+    votes = CommunityPollVote.query.filter_by(post_id=post.id).all()
+    option_rows = []
+    role_totals = {'STUDENT': 0, 'RESIDENT': 0}
+    counts = {}
+    for vote in votes:
+        role = vote.role_snapshot if vote.role_snapshot in role_totals else 'RESIDENT'
+        role_totals[role] += 1
+        key = (vote.option_id, role)
+        counts[key] = counts.get(key, 0) + 1
+    for option in post.poll_options:
+        student = counts.get((option.id, 'STUDENT'), 0)
+        resident = counts.get((option.id, 'RESIDENT'), 0)
+        option_rows.append({
+            'id': option.id,
+            'text': option.option_text,
+            'total': student + resident,
+            'student': student if role_totals['STUDENT'] >= COMMUNITY_GROUP_PRIVACY_MINIMUM else None,
+            'resident': resident if role_totals['RESIDENT'] >= COMMUNITY_GROUP_PRIVACY_MINIMUM else None,
+        })
+    return {
+        'total_votes': len(votes),
+        'options': option_rows,
+        'student_total_visible': role_totals['STUDENT'] >= COMMUNITY_GROUP_PRIVACY_MINIMUM,
+        'resident_total_visible': role_totals['RESIDENT'] >= COMMUNITY_GROUP_PRIVACY_MINIMUM,
+    }
+
+def serialize_community_post(post, viewer_customer_id=None):
+    author = post.author
+    reaction = CommunityReaction.query.filter_by(post_id=post.id, customer_id=viewer_customer_id).first() if viewer_customer_id else None
+    return {
+        'id': post.id,
+        'channel': post.channel,
+        'module': post.module,
+        'post_type': post.post_type,
+        'body': post.body,
+        'image_data': post.image_data,
+        'link_url': post.link_url,
+        'status': post.status,
+        'is_flash_poll': bool(post.is_flash_poll),
+        'created_at': ph_datetime_filter(post.created_at),
+        'author_handle': f'@{author.handle}' if author else '@macleens',
+        'author_role': author.role if author else 'ADMIN',
+        'author_badge': (author.department if author and author.role == 'STUDENT' else author.barangay if author else 'MacLeen’s'),
+        'author_avatar': author.customer.profile_image if author and author.customer else None,
+        'reaction_count': CommunityReaction.query.filter_by(post_id=post.id).count(),
+        'comment_count': CommunityComment.query.filter_by(post_id=post.id, status='PUBLISHED').count(),
+        'viewer_reaction': reaction.reaction_type if reaction else None,
+        'poll': community_poll_results(post) if post.post_type == 'POLL' else None,
+    }
+
+def community_group_leaderboards():
+    profiles = CommunityProfile.query.filter(CommunityProfile.verification_status != 'REJECTED').all()
+    visit_counts = dict(
+        db.session.query(CommunityStoreCheckin.customer_id, db.func.count(db.distinct(CommunityStoreCheckin.checkin_date)))
+        .group_by(CommunityStoreCheckin.customer_id).all()
+    )
+    campus = {}
+    barangays = {}
+    for profile in profiles:
+        if profile.role == 'STUDENT' and profile.verification_status != 'VERIFIED':
+            continue
+        label = profile.department if profile.role == 'STUDENT' else profile.barangay
+        target = campus if profile.role == 'STUDENT' else barangays
+        if not label:
+            continue
+        row = target.setdefault(label, {'label': label, 'members': 0, 'score': 0.0, 'visits': 0})
+        row['members'] += 1
+        visits = parse_int(visit_counts.get(profile.customer_id), 0)
+        row['visits'] += visits
+        row['score'] += parse_float(profile.community_score, 0.0) + (visits * 2.0)
+    def visible(rows):
+        return sorted(
+            (row for row in rows.values() if row['members'] >= COMMUNITY_GROUP_PRIVACY_MINIMUM),
+            key=lambda row: (-row['score'], row['label'].casefold()),
+        )[:8]
+    return visible(campus), visible(barangays)
+
+def active_community_ads(role, channel):
+    now = utc_now()
+    return CommunityAd.query.filter(
+        CommunityAd.is_active.is_(True),
+        CommunityAd.target_role.in_(('ALL', role)),
+        CommunityAd.channel.in_(('ALL', channel)),
+        ((CommunityAd.start_at.is_(None)) | (CommunityAd.start_at <= now)),
+        ((CommunityAd.end_at.is_(None)) | (CommunityAd.end_at >= now)),
+    ).order_by(CommunityAd.created_at.desc()).all()
+
+def active_community_alerts(role):
+    now = utc_now()
+    return CommunityAlert.query.filter(
+        CommunityAlert.is_active.is_(True),
+        CommunityAlert.target_role.in_(('ALL', role)),
+        CommunityAlert.starts_at <= now,
+        CommunityAlert.ends_at >= now,
+    ).order_by(CommunityAlert.created_at.desc()).all()
+
+def send_community_alert_push(alert):
+    """Send consent-based Web Push when VAPID is configured; keep in-app alerts otherwise."""
+    private_key = (os.environ.get('WEBPUSH_VAPID_PRIVATE_KEY') or '').strip()
+    subject = (os.environ.get('WEBPUSH_VAPID_SUBJECT') or '').strip()
+    if not private_key or not subject:
+        return {'configured': False, 'sent': 0, 'failed': 0}
+    try:
+        from pywebpush import webpush, WebPushException
+    except ImportError:
+        app.logger.warning('Web Push is configured but pywebpush is not installed')
+        return {'configured': False, 'sent': 0, 'failed': 0}
+
+    query = CommunityPushSubscription.query.filter_by(is_active=True)
+    if alert.target_role in COMMUNITY_ROLES:
+        customer_ids = [row.customer_id for row in CommunityProfile.query.filter_by(role=alert.target_role).all()]
+        if not customer_ids:
+            return {'configured': True, 'sent': 0, 'failed': 0}
+        query = query.filter(CommunityPushSubscription.customer_id.in_(customer_ids))
+    payload = json.dumps({
+        'title': alert.title,
+        'body': alert.body,
+        'url': alert.cta_url or '/community',
+        'tag': f'community-alert-{alert.id}',
+    })
+    sent = 0
+    failed = 0
+    for subscription in query.all():
+        try:
+            webpush(
+                subscription_info={
+                    'endpoint': subscription.endpoint,
+                    'keys': {'p256dh': subscription.p256dh, 'auth': subscription.auth},
+                },
+                data=payload,
+                vapid_private_key=private_key,
+                vapid_claims={'sub': subject},
+                timeout=10,
+            )
+            sent += 1
+        except WebPushException as exc:
+            failed += 1
+            status_code = getattr(getattr(exc, 'response', None), 'status_code', None)
+            if status_code in {404, 410}:
+                subscription.is_active = False
+            app.logger.warning('Community Web Push failed for subscription %s: HTTP %s', subscription.id, status_code)
+        except Exception:
+            failed += 1
+            app.logger.exception('Unexpected Community Web Push failure for subscription %s', subscription.id)
+    db.session.commit()
+    return {'configured': True, 'sent': sent, 'failed': failed}
+
 LOYALTY_CARD_THEMES = {
     'pink-classic': 'Classic Pink',
     'cafe-cream': 'Café Cream',
@@ -2383,22 +2983,74 @@ def award_referral_first_purchase(cust, order):
     ))
     return referrer_points, referred_points
 
+def award_community_drop_reward(cust, order):
+    """Consume one earned 1.5x drop only on an eligible completed, paid order."""
+    if not cust or not order or order.status != 'COMPLETED' or not order.payment_verified:
+        return 0.0
+    base_points = max(0, int(parse_float(order.total_amount, 0.0) // 30))
+    if base_points <= 0:
+        return 0.0
+    drop = CommunityDrop.query.filter_by(
+        customer_id=cust.id,
+        reward_type='NEXT_ORDER_1_5X',
+        status='ACTIVE',
+    ).order_by(CommunityDrop.created_at.asc()).first()
+    if not drop:
+        return 0.0
+    bonus = round(base_points * 0.5, 2)
+    if bonus <= 0:
+        return 0.0
+    cust.points_balance = round(parse_float(cust.points_balance, 0.0) + bonus, 2)
+    drop.status = 'REDEEMED'
+    drop.redeemed_order_id = order.id
+    drop.points_awarded = bonus
+    drop.redeemed_at = utc_now()
+    db.session.add(RewardLedger(
+        customer_id=cust.id,
+        points_change=bonus,
+        reason=f'Community Mystery Drop 1.5x Bonus / Order #{order.id}',
+    ))
+    return bonus
+
+def record_community_store_checkin(cust, order):
+    """Count a real visit once, from an eligible completed paid member order."""
+    if not cust or not order or not order.id or order.status != 'COMPLETED' or not order.payment_verified:
+        return False
+    if parse_float(order.total_amount, 0.0) <= 0 or (order.payment_method or '').upper() == 'REWARD':
+        return False
+    if (order.dining_option or '').upper() in {'DELIVERY', 'DIGITAL'} or (order.order_type or '').upper() in {'DIGITAL', 'CRAFT_ONLINE'}:
+        return False
+    if CommunityStoreCheckin.query.filter_by(order_id=order.id).first():
+        return False
+    db.session.add(CommunityStoreCheckin(
+        customer_id=cust.id,
+        order_id=order.id,
+        checkin_date=ph_today(),
+        recorded_by=((session.get('cashier_user') or session.get('admin_user')) if has_request_context() else None) or 'verified-order',
+    ))
+    return True
+
 def apply_member_marketing_rewards(cust, order):
     """Apply non-base marketing rewards to a completed, paid member transaction."""
     if not cust or not order or order.status != 'COMPLETED' or not order.payment_verified:
-        return {'bonus_points': 0.0, 'referral_member_points': 0.0, 'referrer_points': 0.0}
+        return {'bonus_points': 0.0, 'referral_member_points': 0.0, 'referrer_points': 0.0, 'community_drop_points': 0.0}
     bonus = award_active_bonus_campaigns(cust, order)
     referrer_pts, referred_pts = award_referral_first_purchase(cust, order)
+    community_drop_points = award_community_drop_reward(cust, order)
+    record_community_store_checkin(cust, order)
     return {
         'bonus_points': bonus,
         'referral_member_points': referred_pts,
         'referrer_points': referrer_pts,
+        'community_drop_points': community_drop_points,
     }
 
 def reverse_member_marketing_rewards_for_order(order):
     """Reverse bonus/referral points tied to a completed order before reassign/delete."""
     if not order or order.id is None:
         return
+
+    CommunityStoreCheckin.query.filter_by(order_id=order.id).delete(synchronize_session=False)
 
     for claim in BonusCampaignClaim.query.filter_by(order_id=order.id).all():
         cust = db.session.get(Customer, claim.customer_id)
@@ -2410,6 +3062,20 @@ def reverse_member_marketing_rewards_for_order(order):
                 reason=f"Reversed Bonus Campaign / Order #{order.id}",
             ))
         db.session.delete(claim)
+
+    for drop in CommunityDrop.query.filter_by(redeemed_order_id=order.id, status='REDEEMED').all():
+        cust = db.session.get(Customer, drop.customer_id)
+        if cust and drop.points_awarded:
+            cust.points_balance = max(0.0, parse_float(cust.points_balance, 0.0) - drop.points_awarded)
+            db.session.add(RewardLedger(
+                customer_id=cust.id,
+                points_change=-drop.points_awarded,
+                reason=f'Reversed Community Mystery Drop / Order #{order.id}',
+            ))
+        drop.status = 'ACTIVE'
+        drop.redeemed_order_id = None
+        drop.points_awarded = 0.0
+        drop.redeemed_at = None
 
     referral = ReferralReward.query.filter_by(first_order_id=order.id).first()
     if referral:
@@ -4035,6 +4701,8 @@ def cashier_terminal():
     today_change_funds = ChangeFund.query.filter(ChangeFund.created_at >= start_today, ChangeFund.created_at < next_day).order_by(ChangeFund.created_at.desc()).all()
     next_drop_num = len(today_drops) + 1
     active_bonus_campaigns = get_active_bonus_campaigns()
+    community_gift_vouchers = CommunityGift.query.filter_by(gift_type='PRODUCT', status='AVAILABLE').order_by(CommunityGift.created_at.asc()).all()
+    community_mystery_drops = CommunityDrop.query.filter_by(reward_type='STAFF_FREEBIE', status='ACTIVE').order_by(CommunityDrop.created_at.asc()).all()
 
     return render_template(
         'cashier_pos.html',
@@ -4052,6 +4720,8 @@ def cashier_terminal():
         today_change_funds=today_change_funds,
         next_drop_num=next_drop_num,
         active_bonus_campaigns=active_bonus_campaigns,
+        community_gift_vouchers=community_gift_vouchers,
+        community_mystery_drops=community_mystery_drops,
     )
 
 @app.route('/pos/direct-sale', methods=['POST'])
@@ -8110,6 +8780,1032 @@ def marketing_qr_svg(source):
     image.save(buffer)
     return Response(buffer.getvalue(), mimetype='image/svg+xml', headers={'Cache-Control': 'no-store'})
 
+# ==================== MACLEEN'S COMMUNITY ====================
+
+def community_api_actor():
+    cust = get_current_community_customer()
+    if not cust:
+        return None, None, (jsonify({'success': False, 'message': 'Please log in to your loyalty account again.'}), 401)
+    profile = CommunityProfile.query.filter_by(customer_id=cust.id).first()
+    if not profile:
+        return cust, None, (jsonify({'success': False, 'message': 'Create your optional community profile first.'}), 403)
+    return cust, profile, None
+
+def community_profile_values(form, existing=None):
+    handle = normalize_community_handle(form.get('handle'))
+    duplicate = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle) == handle.lower()).first()
+    if duplicate and (not existing or duplicate.id != existing.id):
+        raise OrderValidationError('That community handle is already taken.')
+    role = (form.get('role') or '').strip().upper()
+    if role not in COMMUNITY_ROLES:
+        raise OrderValidationError('Choose College Student or Binalbagan Resident.')
+    current_year = ph_today().year
+    values = {
+        'handle': handle,
+        'role': role,
+        'campus_name': None,
+        'department': None,
+        'graduating_year': None,
+        'vibe_status': None,
+        'barangay': None,
+        'resident_since_year': None,
+        'verification_method': 'IN_PERSON' if role == 'STUDENT' else 'SELF_DECLARED',
+    }
+    if role == 'STUDENT':
+        campus = (form.get('campus_name') or '').strip()
+        department = (form.get('department') or '').strip()
+        graduating_year = parse_int(form.get('graduating_year'), 0)
+        if campus not in COMMUNITY_CAMPUSES:
+            raise OrderValidationError('Choose a campus from the provided list.')
+        if department not in COMMUNITY_DEPARTMENTS:
+            raise OrderValidationError('Choose your department or select Other.')
+        if graduating_year < current_year or graduating_year > current_year + 10:
+            raise OrderValidationError(f'Graduating year must be from {current_year} to {current_year + 10}.')
+        values.update(
+            campus_name=campus,
+            department=department,
+            graduating_year=graduating_year,
+            vibe_status=(existing.vibe_status if existing and existing.role == 'STUDENT' and existing.vibe_status else 'Quiet study mode'),
+        )
+    else:
+        barangay = (form.get('barangay') or '').strip()
+        resident_since = parse_int(form.get('resident_since_year'), 0)
+        if barangay not in BINALBAGAN_BARANGAYS:
+            raise OrderValidationError('Choose one of Binalbagan’s 16 official barangays.')
+        if resident_since < 1900 or resident_since > current_year:
+            raise OrderValidationError(f'Resident-since year must be from 1900 to {current_year}.')
+        values.update(barangay=barangay, resident_since_year=resident_since)
+    return values
+
+@app.route('/community')
+def community_home():
+    cust = get_current_community_customer()
+    if not cust:
+        return redirect(url_for('customer_login', next='community'))
+    profile = CommunityProfile.query.filter_by(customer_id=cust.id).first()
+    if not profile:
+        return render_template(
+            'community_setup.html',
+            cust=cust,
+            campuses=COMMUNITY_CAMPUSES,
+            departments=COMMUNITY_DEPARTMENTS,
+            barangays=BINALBAGAN_BARANGAYS,
+            today=ph_today(),
+        )
+
+    checkin, new_drop = community_check_in(profile)
+    db.session.commit()
+    now = utc_now()
+    posts = CommunityPost.query.filter(
+        CommunityPost.status == 'PUBLISHED',
+        CommunityPost.published_at.isnot(None),
+        CommunityPost.published_at <= now,
+        or_(CommunityPost.expires_at.is_(None), CommunityPost.expires_at > now),
+    ).order_by(CommunityPost.is_flash_poll.desc(), CommunityPost.created_at.desc()).limit(120).all()
+    global_posts = [post for post in posts if post.channel == 'GLOBAL']
+    channel_posts = {
+        'CAMPUS': (global_posts + [post for post in posts if post.channel == 'CAMPUS'])[:60],
+        'TOWN': (global_posts + [post for post in posts if post.channel == 'TOWN'])[:60],
+    }
+    post_comments = {}
+    reaction_map = {}
+    vote_map = {}
+    post_stats = {}
+    poll_results = {}
+    for post in posts:
+        comments = CommunityComment.query.filter_by(post_id=post.id, status='PUBLISHED').order_by(CommunityComment.created_at.desc()).limit(3).all()
+        post_comments[post.id] = list(reversed(comments))
+        reaction = CommunityReaction.query.filter_by(post_id=post.id, customer_id=cust.id).first()
+        reaction_map[post.id] = reaction.reaction_type if reaction else None
+        vote = CommunityPollVote.query.filter_by(post_id=post.id, customer_id=cust.id).first()
+        vote_map[post.id] = vote.option_id if vote else None
+        post_stats[post.id] = {
+            'reactions': CommunityReaction.query.filter_by(post_id=post.id).count(),
+            'comments': CommunityComment.query.filter_by(post_id=post.id, status='PUBLISHED').count(),
+        }
+        if post.post_type == 'POLL':
+            poll_results[post.id] = community_poll_results(post)
+
+    own_channel = community_channel_for_role(profile.role)
+    campus_leaders, barangay_leaders = community_group_leaderboards()
+    incoming_gifts = CommunityGift.query.filter_by(recipient_customer_id=cust.id).order_by(CommunityGift.created_at.desc()).limit(12).all()
+    outgoing_gifts = CommunityGift.query.filter_by(sender_customer_id=cust.id).order_by(CommunityGift.created_at.desc()).limit(8).all()
+    drops = CommunityDrop.query.filter_by(customer_id=cust.id).order_by(CommunityDrop.created_at.desc()).limit(8).all()
+    gift_products = Product.query.filter(Product.is_active.is_(True), Product.stock > 0).order_by(Product.name.asc()).all()
+    lifetime_punches = max(0, int(parse_float(cust.accumulated_spend, 0.0) // 30))
+    friend_profile_ids = community_friend_profile_ids(profile.id)
+    friends = CommunityProfile.query.filter(CommunityProfile.id.in_(friend_profile_ids)).order_by(CommunityProfile.handle.asc()).all() if friend_profile_ids else []
+    incoming_connection_rows = CommunityConnection.query.filter(
+        CommunityConnection.status == 'PENDING',
+        or_(CommunityConnection.profile_a_id == profile.id, CommunityConnection.profile_b_id == profile.id),
+        CommunityConnection.requested_by_profile_id != profile.id,
+    ).order_by(CommunityConnection.created_at.desc()).all()
+    requester_ids = {row.requested_by_profile_id for row in incoming_connection_rows}
+    requester_profiles = {row.id: row for row in CommunityProfile.query.filter(CommunityProfile.id.in_(requester_ids)).all()} if requester_ids else {}
+    return render_template(
+        'community.html',
+        cust=cust,
+        profile=profile,
+        own_channel=own_channel,
+        channel_posts=channel_posts,
+        post_comments=post_comments,
+        reaction_map=reaction_map,
+        vote_map=vote_map,
+        post_stats=post_stats,
+        poll_results=poll_results,
+        modules=COMMUNITY_CHANNEL_MODULES,
+        module_labels={value: label for rows in COMMUNITY_CHANNEL_MODULES.values() for value, label in rows} | {'FLASH_POLL': '8:00 AM Flash Poll'},
+        vibes=COMMUNITY_VIBES,
+        campuses=COMMUNITY_CAMPUSES,
+        departments=COMMUNITY_DEPARTMENTS,
+        barangays=BINALBAGAN_BARANGAYS,
+        today=ph_today(),
+        alerts=active_community_alerts(profile.role),
+        ads_by_channel={
+            'CAMPUS': active_community_ads(profile.role, 'CAMPUS'),
+            'TOWN': active_community_ads(profile.role, 'TOWN'),
+        },
+        campus_leaders=campus_leaders,
+        barangay_leaders=barangay_leaders,
+        incoming_gifts=incoming_gifts,
+        outgoing_gifts=outgoing_gifts,
+        drops=drops,
+        gift_products=gift_products,
+        gift_daily_cap=COMMUNITY_GIFT_DAILY_CAP,
+        privacy_minimum=COMMUNITY_GROUP_PRIVACY_MINIMUM,
+        vapid_public_key=(os.environ.get('WEBPUSH_VAPID_PUBLIC_KEY') or '').strip(),
+        checkin=checkin,
+        new_drop=new_drop,
+        lifetime_punches=lifetime_punches,
+        punch_progress=lifetime_punches % 10,
+        friend_profile_ids=friend_profile_ids,
+        friends=friends,
+        incoming_connections=incoming_connection_rows,
+        requester_profiles=requester_profiles,
+    )
+
+@app.route('/community/profile', methods=['POST'])
+def community_save_profile():
+    cust = get_current_community_customer()
+    if not cust:
+        if request.headers.get('X-Macleens-Community') == '1':
+            return jsonify({'success': False, 'message': 'Please log in again.'}), 401
+        return redirect(url_for('customer_login', next='community'))
+    profile = CommunityProfile.query.filter_by(customer_id=cust.id).first()
+    is_new = profile is None
+    try:
+        if is_new and not request.form.get('privacy_consent'):
+            raise OrderValidationError('You must accept the community privacy notice and rules before joining.')
+        values = community_profile_values(request.form, existing=profile)
+        old_role = profile.role if profile else None
+        if not profile:
+            profile = CommunityProfile(customer_id=cust.id, **values)
+            db.session.add(profile)
+        else:
+            for key, value in values.items():
+                setattr(profile, key, value)
+            if old_role != profile.role:
+                profile.verification_status = 'PENDING' if profile.role == 'STUDENT' else 'SELF_DECLARED'
+                profile.first_post_approved = False
+        if profile.role == 'RESIDENT' and is_new:
+            profile.verification_status = 'SELF_DECLARED'
+        db.session.commit()
+        if request.headers.get('X-Macleens-Community') == '1':
+            return jsonify({'success': True, 'message': 'Community profile saved.', 'handle': profile.handle, 'role': profile.role})
+        flash('Your optional community profile is ready. Welcome to Macleen’s Community!', 'success')
+        return redirect(url_for('community_home'))
+    except OrderValidationError as exc:
+        db.session.rollback()
+        if request.headers.get('X-Macleens-Community') == '1':
+            return jsonify({'success': False, 'message': str(exc)}), 400
+        flash(str(exc), 'error')
+        return render_template(
+            'community_setup.html',
+            cust=cust,
+            campuses=COMMUNITY_CAMPUSES,
+            departments=COMMUNITY_DEPARTMENTS,
+            barangays=BINALBAGAN_BARANGAYS,
+            today=ph_today(),
+        ), 400
+
+@app.route('/community/api/vibe', methods=['POST'])
+def community_update_vibe():
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    if profile.role != 'STUDENT':
+        return jsonify({'success': False, 'message': 'Vibe status is available to student profiles.'}), 403
+    data = request.get_json(silent=True) or request.form
+    vibe = (data.get('vibe') or '').strip()
+    if vibe not in COMMUNITY_VIBES:
+        return jsonify({'success': False, 'message': 'Choose one of the available vibe statuses.'}), 400
+    profile.vibe_status = vibe
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'Vibe updated: {vibe}', 'vibe': vibe})
+
+@app.route('/community/api/connections', methods=['POST'])
+def community_connections():
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    data = request.get_json(silent=True) or request.form
+    action = (data.get('action') or 'REQUEST').strip().upper()
+    try:
+        if action == 'REQUEST':
+            community_rate_limit(cust.id, CommunityConnection, 10080, 20, author_field='requested_by_profile_id', profile_id=profile.id)
+            handle = normalize_community_handle(data.get('handle'))
+            target = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle) == handle.lower()).first()
+            if not target:
+                raise OrderValidationError('No community member uses that handle.')
+            if target.id == profile.id:
+                raise OrderValidationError('You cannot connect with your own profile.')
+            left, right = community_connection_pair(profile.id, target.id)
+            connection = CommunityConnection.query.filter_by(profile_a_id=left, profile_b_id=right).first()
+            if connection and connection.status == 'ACCEPTED':
+                raise OrderValidationError(f'@{target.handle} is already your connection.')
+            if connection and connection.status == 'PENDING':
+                if connection.requested_by_profile_id == target.id:
+                    connection.status = 'ACCEPTED'
+                    connection.responded_at = utc_now()
+                    message = f'You and @{target.handle} are now connected.'
+                else:
+                    raise OrderValidationError(f'A request to @{target.handle} is already pending.')
+            else:
+                if connection:
+                    connection.requested_by_profile_id = profile.id
+                    connection.status = 'PENDING'
+                    connection.created_at = utc_now()
+                    connection.responded_at = None
+                else:
+                    db.session.add(CommunityConnection(
+                        profile_a_id=left, profile_b_id=right,
+                        requested_by_profile_id=profile.id, status='PENDING',
+                    ))
+                message = f'Connection request sent to @{target.handle}.'
+        else:
+            connection = db.session.get(CommunityConnection, parse_int(data.get('connection_id'), 0))
+            if not connection or profile.id not in {connection.profile_a_id, connection.profile_b_id}:
+                raise OrderValidationError('That connection request is unavailable.')
+            if action == 'ACCEPT':
+                if connection.status != 'PENDING' or connection.requested_by_profile_id == profile.id:
+                    raise OrderValidationError('Only the receiving member can accept this request.')
+                connection.status = 'ACCEPTED'
+                connection.responded_at = utc_now()
+                message = 'Connection accepted. Vibe status is now shared between you.'
+            elif action in {'DECLINE', 'REMOVE'}:
+                db.session.delete(connection)
+                message = 'Connection removed.'
+            else:
+                raise OrderValidationError('Choose a valid connection action.')
+        db.session.commit()
+        return jsonify({'success': True, 'message': message})
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+@app.route('/community/api/posts', methods=['POST'])
+def community_create_post():
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    try:
+        community_rate_limit(cust.id, CommunityPost, 60, 5, profile_id=profile.id)
+        channel = (request.form.get('channel') or '').strip().upper()
+        if channel not in COMMUNITY_CHANNELS or not community_can_interact(profile, channel):
+            raise OrderValidationError('Your role can publish only in its own community channel.')
+        allowed_modules = {value for value, _label in COMMUNITY_CHANNEL_MODULES[channel]}
+        module = (request.form.get('module') or '').strip().upper()
+        if module not in allowed_modules:
+            raise OrderValidationError('Choose a valid post category.')
+        body = re.sub(r'\s+', ' ', (request.form.get('body') or '').strip())
+        if not body or len(body) > 280:
+            raise OrderValidationError('Post text must contain 1–280 characters.')
+        post_type = (request.form.get('post_type') or 'TEXT').strip().upper()
+        if post_type not in {'TEXT', 'IMAGE', 'POLL'}:
+            raise OrderValidationError('Choose text, image, or poll format.')
+        link_url = community_safe_link(request.form.get('link_url'))
+        image_data = community_image_from_request('image') if post_type == 'IMAGE' else None
+        if post_type == 'IMAGE' and not image_data:
+            raise OrderValidationError('Choose one JPG, PNG, or WEBP image for an image post.')
+        raw_options = [re.sub(r'\s+', ' ', value.strip()) for value in request.form.getlist('poll_option') if value.strip()]
+        unique_options = []
+        seen = set()
+        for option in raw_options:
+            key = option.casefold()
+            if key not in seen:
+                seen.add(key)
+                unique_options.append(option[:80])
+        if post_type == 'POLL' and not (2 <= len(unique_options) <= 4):
+            raise OrderValidationError('A poll needs 2–4 different choices.')
+        hits = community_moderation_hits(body)
+        requires_review = not profile.first_post_approved or bool(hits)
+        post = CommunityPost(
+            author_profile_id=profile.id,
+            channel=channel,
+            module=module,
+            post_type=post_type,
+            body=body,
+            image_data=image_data,
+            link_url=link_url,
+            status='PENDING' if requires_review else 'PUBLISHED',
+            moderation_hits=json.dumps(hits, ensure_ascii=False) if hits else None,
+            published_at=None if requires_review else utc_now(),
+            score_awarded=not requires_review,
+        )
+        db.session.add(post)
+        db.session.flush()
+        for index, option in enumerate(unique_options):
+            db.session.add(CommunityPollOption(post_id=post.id, option_text=option, sort_order=index))
+        if not requires_review:
+            profile.community_score = round(parse_float(profile.community_score, 0.0) + 2.0, 2)
+        db.session.commit()
+        message = 'Your first post was sent for staff approval.' if not profile.first_post_approved else 'Post held for a quick safety review.' if hits else 'Post published.'
+        return jsonify({
+            'success': True,
+            'pending': requires_review,
+            'message': message,
+            'post': serialize_community_post(post, cust.id) if not requires_review else None,
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Community post creation failed for customer_id=%s', cust.id)
+        return jsonify({'success': False, 'message': 'The post could not be saved. No partial post was published.'}), 500
+
+@app.route('/community/api/posts/<int:post_id>/react', methods=['POST'])
+def community_react(post_id):
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    post = CommunityPost.query.get_or_404(post_id)
+    if post.status != 'PUBLISHED' or not community_can_interact(profile, post.channel):
+        return jsonify({'success': False, 'message': 'This channel is read-only for your role.'}), 403
+    data = request.get_json(silent=True) or request.form
+    reaction_type = (data.get('reaction_type') or 'LIKE').strip().upper()
+    if reaction_type not in COMMUNITY_REACTIONS:
+        return jsonify({'success': False, 'message': 'Invalid reaction.'}), 400
+    reaction = CommunityReaction.query.filter_by(post_id=post.id, customer_id=cust.id).first()
+    active = True
+    if reaction and reaction.reaction_type == reaction_type:
+        db.session.delete(reaction)
+        active = False
+    elif reaction:
+        reaction.reaction_type = reaction_type
+    else:
+        db.session.add(CommunityReaction(post_id=post.id, customer_id=cust.id, reaction_type=reaction_type))
+    db.session.commit()
+    return jsonify({'success': True, 'active': active, 'reaction_type': reaction_type, 'count': CommunityReaction.query.filter_by(post_id=post.id).count()})
+
+@app.route('/community/api/posts/<int:post_id>/comments', methods=['POST'])
+def community_comment(post_id):
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    post = CommunityPost.query.get_or_404(post_id)
+    if post.status != 'PUBLISHED' or not community_can_interact(profile, post.channel):
+        return jsonify({'success': False, 'message': 'This channel is read-only for your role.'}), 403
+    try:
+        community_rate_limit(cust.id, CommunityComment, 60, 20, profile_id=profile.id)
+        data = request.get_json(silent=True) or request.form
+        body = re.sub(r'\s+', ' ', (data.get('body') or '').strip())
+        if not body or len(body) > 280:
+            raise OrderValidationError('Comment must contain 1–280 characters.')
+        hits = community_moderation_hits(body)
+        comment = CommunityComment(
+            post_id=post.id,
+            author_profile_id=profile.id,
+            body=body,
+            status='PENDING' if hits else 'PUBLISHED',
+            moderation_hits=json.dumps(hits, ensure_ascii=False) if hits else None,
+            score_awarded=not bool(hits),
+        )
+        db.session.add(comment)
+        if not hits:
+            profile.community_score = round(parse_float(profile.community_score, 0.0) + 0.5, 2)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'pending': bool(hits),
+            'message': 'Comment held for safety review.' if hits else 'Comment added.',
+            'comment': None if hits else {
+                'id': comment.id,
+                'body': comment.body,
+                'handle': f'@{profile.handle}',
+                'created_at': ph_datetime_filter(comment.created_at),
+            },
+            'count': CommunityComment.query.filter_by(post_id=post.id, status='PUBLISHED').count(),
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+@app.route('/community/api/posts/<int:post_id>/report', methods=['POST'])
+def community_report_post(post_id):
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    post = CommunityPost.query.get_or_404(post_id)
+    if post.author_profile_id == profile.id:
+        return jsonify({'success': False, 'message': 'You cannot report your own post. Ask staff if you need it removed.'}), 400
+    if post.status != 'PUBLISHED':
+        return jsonify({'success': False, 'message': 'This post is no longer public.'}), 400
+    try:
+        community_rate_limit(cust.id, CommunityReport, 1440, 10, author_field='reporter_customer_id')
+        if CommunityReport.query.filter_by(post_id=post.id, reporter_customer_id=cust.id).first():
+            raise OrderValidationError('You already reported this post. Staff will review it.')
+        data = request.get_json(silent=True) or request.form
+        reason = (data.get('reason') or '').strip().upper()
+        details = re.sub(r'\s+', ' ', (data.get('details') or '').strip())[:240] or None
+        if reason not in COMMUNITY_REPORT_REASONS:
+            raise OrderValidationError('Choose a valid report reason.')
+        db.session.add(CommunityReport(post_id=post.id, reporter_customer_id=cust.id, reason=reason, details=details))
+        db.session.flush()
+        report_count = CommunityReport.query.filter_by(post_id=post.id, status='OPEN').count()
+        post.flags_count = report_count
+        quarantined = report_count >= 3
+        if quarantined:
+            post.status = 'QUARANTINED'
+            db.session.add(CommunityModerationAction(
+                post_id=post.id,
+                profile_id=post.author_profile_id,
+                admin_username='system',
+                action='AUTO_QUARANTINE',
+                note='Temporarily hidden after 3 unique open reports; requires staff review.',
+            ))
+        db.session.commit()
+        return jsonify({'success': True, 'quarantined': quarantined, 'message': 'Report received privately. The post is temporarily hidden for review.' if quarantined else 'Report received privately. Staff will review it.'})
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+@app.route('/community/api/polls/<int:post_id>/vote', methods=['POST'])
+def community_poll_vote(post_id):
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    post = CommunityPost.query.get_or_404(post_id)
+    if post.status != 'PUBLISHED' or post.post_type != 'POLL' or not community_can_interact(profile, post.channel):
+        return jsonify({'success': False, 'message': 'This poll is not available for your role.'}), 403
+    if post.expires_at and post.expires_at <= utc_now():
+        return jsonify({'success': False, 'message': 'This poll has ended.'}), 400
+    data = request.get_json(silent=True) or request.form
+    option_id = parse_int(data.get('option_id'), 0)
+    option = CommunityPollOption.query.filter_by(id=option_id, post_id=post.id).first()
+    if not option:
+        return jsonify({'success': False, 'message': 'Choose a valid poll option.'}), 400
+    if CommunityPollVote.query.filter_by(post_id=post.id, customer_id=cust.id).first():
+        return jsonify({'success': False, 'message': 'You already voted in this poll.'}), 400
+    score = 1.0 if post.is_flash_poll else 0.25
+    db.session.add(CommunityPollVote(
+        post_id=post.id,
+        option_id=option.id,
+        customer_id=cust.id,
+        role_snapshot=profile.role,
+        score_awarded=True,
+    ))
+    profile.community_score = round(parse_float(profile.community_score, 0.0) + score, 2)
+    db.session.commit()
+    return jsonify({'success': True, 'message': f'Vote recorded. +{score:g} community score.', 'score': profile.community_score, 'results': community_poll_results(post)})
+
+@app.route('/community/api/gifts', methods=['POST'])
+def community_send_gift():
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    try:
+        data = request.get_json(silent=True) or request.form
+        if not check_password_hash(cust.pin_hash, str(data.get('pin') or '').strip()):
+            raise OrderValidationError('Incorrect 4-digit loyalty PIN. No points were transferred.')
+        recipient_handle = normalize_community_handle(data.get('recipient_handle'))
+        recipient_profile = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle) == recipient_handle.lower()).first()
+        if not recipient_profile:
+            raise OrderValidationError('No community member uses that handle.')
+        if recipient_profile.customer_id == cust.id:
+            raise OrderValidationError('You cannot send a gift to your own account.')
+        gift_type = (data.get('gift_type') or 'POINTS').strip().upper()
+        note = re.sub(r'\s+', ' ', (data.get('note') or '').strip())[:120] or None
+        product = None
+        if gift_type == 'POINTS':
+            points_amount = round(parse_float(data.get('points_amount'), 0.0), 2)
+            if points_amount < 1 or points_amount > 20:
+                raise OrderValidationError('A point gift must be from 1 to 20 points.')
+            status = 'RECEIVED'
+        elif gift_type == 'PRODUCT':
+            product = Product.query.filter_by(id=parse_int(data.get('product_id'), 0)).with_for_update().first()
+            if not product or not product.is_active or parse_int(product.stock, 0) <= 0:
+                raise OrderValidationError('Choose an active in-stock product voucher.')
+            points_amount = round(product_starting_price(product), 2)
+            if points_amount <= 0 or points_amount > COMMUNITY_GIFT_DAILY_CAP:
+                raise OrderValidationError(f'Gift vouchers must cost no more than {COMMUNITY_GIFT_DAILY_CAP:g} points.')
+            status = 'AVAILABLE'
+        else:
+            raise OrderValidationError('Choose a points gift or product voucher.')
+        start_today, next_day = ph_day_utc_bounds()
+        spent_today = db.session.query(db.func.coalesce(db.func.sum(CommunityGift.points_amount), 0.0)).filter(
+            CommunityGift.sender_customer_id == cust.id,
+            CommunityGift.created_at >= start_today,
+            CommunityGift.created_at < next_day,
+            CommunityGift.status.notin_(('CANCELLED', 'REVERSED')),
+        ).scalar() or 0.0
+        if parse_float(spent_today, 0.0) + points_amount > COMMUNITY_GIFT_DAILY_CAP + 1e-9:
+            raise OrderValidationError(f'Daily gifting is capped at {COMMUNITY_GIFT_DAILY_CAP:g} points for account safety.')
+        locked_customers = Customer.query.filter(Customer.id.in_([cust.id, recipient_profile.customer_id])).order_by(Customer.id.asc()).with_for_update().all()
+        locked_by_id = {row.id: row for row in locked_customers}
+        cust = locked_by_id.get(cust.id)
+        recipient = locked_by_id.get(recipient_profile.customer_id)
+        if not cust or not recipient:
+            raise OrderValidationError('A member account became unavailable. No gift was sent.')
+        # Recheck the daily total after the sender row lock. This closes the
+        # double-click/concurrent-request window that could otherwise exceed the cap.
+        locked_spent_today = db.session.query(db.func.coalesce(db.func.sum(CommunityGift.points_amount), 0.0)).filter(
+            CommunityGift.sender_customer_id == cust.id,
+            CommunityGift.created_at >= start_today,
+            CommunityGift.created_at < next_day,
+            CommunityGift.status.notin_(('CANCELLED', 'REVERSED')),
+        ).scalar() or 0.0
+        if parse_float(locked_spent_today, 0.0) + points_amount > COMMUNITY_GIFT_DAILY_CAP + 1e-9:
+            raise OrderValidationError(f'Daily gifting is capped at {COMMUNITY_GIFT_DAILY_CAP:g} points for account safety.')
+        if parse_float(cust.points_balance, 0.0) < points_amount - 1e-9:
+            raise OrderValidationError(f'You need {points_amount:g} points for this gift. Available: {parse_float(cust.points_balance, 0.0):g}.')
+        claim_code = f'MFH-{secrets.token_hex(4).upper()}'
+        gift = CommunityGift(
+            sender_customer_id=cust.id,
+            recipient_customer_id=recipient.id,
+            gift_type=gift_type,
+            points_amount=points_amount,
+            product_id=product.id if product else None,
+            product_name=product.name if product else None,
+            note=note,
+            claim_code=claim_code,
+            status=status,
+        )
+        cust.points_balance = round(parse_float(cust.points_balance, 0.0) - points_amount, 2)
+        if product:
+            # Reserve inventory now so a valid paid voucher can be honored later.
+            product.stock = parse_int(product.stock, 0) - 1
+        db.session.add(RewardLedger(customer_id=cust.id, points_change=-points_amount, reason=f'Community gift sent to @{recipient_profile.handle}'))
+        if gift_type == 'POINTS':
+            recipient.points_balance = round(parse_float(recipient.points_balance, 0.0) + points_amount, 2)
+            db.session.add(RewardLedger(customer_id=recipient.id, points_change=points_amount, reason=f'Community gift from @{profile.handle}'))
+        db.session.add(gift)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': f'{product.name} voucher sent to @{recipient_profile.handle}.' if product else f'{points_amount:g} points sent to @{recipient_profile.handle}.',
+            'points_balance': cust.points_balance,
+            'claim_code': claim_code if product else None,
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Community gifting failed for customer_id=%s', cust.id)
+        return jsonify({'success': False, 'message': 'The gift could not be completed. No points were transferred.'}), 500
+
+@app.route('/community/api/ads/<int:ad_id>/impression', methods=['POST'])
+def community_ad_impression(ad_id):
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    ad = CommunityAd.query.get_or_404(ad_id)
+    seen = session.get('community_ad_impressions', [])
+    marker = f'{ad.id}:{ph_today().isoformat()}'
+    if marker not in seen:
+        ad.impression_count = (ad.impression_count or 0) + 1
+        seen = (seen + [marker])[-30:]
+        session['community_ad_impressions'] = seen
+        db.session.commit()
+    return jsonify({'success': True})
+
+@app.route('/community/ad/<int:ad_id>/click')
+def community_ad_click(ad_id):
+    cust = get_current_community_customer()
+    if not cust:
+        return redirect(url_for('customer_login', next='community'))
+    ad = CommunityAd.query.get_or_404(ad_id)
+    if not ad.is_active:
+        return redirect(url_for('community_home'))
+    ad.click_count = (ad.click_count or 0) + 1
+    db.session.commit()
+    return redirect(community_safe_cta(ad.cta_url))
+
+@app.route('/community/api/push/subscribe', methods=['POST'])
+def community_push_subscribe():
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    if not (os.environ.get('WEBPUSH_VAPID_PUBLIC_KEY') and os.environ.get('WEBPUSH_VAPID_PRIVATE_KEY')):
+        return jsonify({'success': False, 'message': 'Background push is not configured yet. In-app Flash Perch alerts remain active.'}), 503
+    data = request.get_json(silent=True) or {}
+    endpoint = str(data.get('endpoint') or '').strip()
+    keys = data.get('keys') if isinstance(data.get('keys'), dict) else {}
+    p256dh = str(keys.get('p256dh') or '').strip()
+    auth = str(keys.get('auth') or '').strip()
+    if not endpoint.startswith('https://') or len(endpoint) > 3000 or not p256dh or not auth:
+        return jsonify({'success': False, 'message': 'The browser returned an invalid push subscription.'}), 400
+    subscription = CommunityPushSubscription.query.filter_by(endpoint=endpoint).first()
+    if subscription:
+        subscription.customer_id = cust.id
+        subscription.p256dh = p256dh
+        subscription.auth = auth
+        subscription.is_active = True
+    else:
+        db.session.add(CommunityPushSubscription(customer_id=cust.id, endpoint=endpoint, p256dh=p256dh, auth=auth, is_active=True))
+    profile.push_opt_in = True
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Flash Perch browser alerts enabled.'})
+
+@app.route('/community/api/push/unsubscribe', methods=['POST'])
+def community_push_unsubscribe():
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    CommunityPushSubscription.query.filter_by(customer_id=cust.id).update({'is_active': False})
+    profile.push_opt_in = False
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Background alerts disabled. In-app alerts remain visible.'})
+
+@app.route('/admin/community')
+@require_admin
+def community_admin():
+    profiles = CommunityProfile.query.order_by(CommunityProfile.created_at.desc()).all()
+    review_posts = CommunityPost.query.filter(CommunityPost.status.in_(('PENDING', 'QUARANTINED', 'HIDDEN'))).order_by(CommunityPost.created_at.asc()).all()
+    pending_comments = CommunityComment.query.filter_by(status='PENDING').order_by(CommunityComment.created_at.asc()).all()
+    reports = CommunityReport.query.filter_by(status='OPEN').order_by(CommunityReport.created_at.asc()).all()
+    ads = CommunityAd.query.order_by(CommunityAd.created_at.desc()).all()
+    alerts = CommunityAlert.query.order_by(CommunityAlert.created_at.desc()).limit(30).all()
+    flash_polls = CommunityPost.query.filter_by(is_flash_poll=True).order_by(CommunityPost.publish_date.desc()).limit(30).all()
+    keywords = CommunityKeyword.query.order_by(CommunityKeyword.category.asc(), CommunityKeyword.phrase.asc()).all()
+    pending_drops = CommunityDrop.query.filter_by(reward_type='STAFF_FREEBIE').order_by(CommunityDrop.created_at.asc()).all()
+    recent_actions = CommunityModerationAction.query.order_by(CommunityModerationAction.created_at.desc()).limit(40).all()
+    active_products = Product.query.filter(Product.is_active.is_(True), Product.stock > 0).order_by(Product.name.asc()).all()
+    today = ph_today()
+    stats = {
+        'profiles': len(profiles),
+        'students': sum(1 for row in profiles if row.role == 'STUDENT'),
+        'residents': sum(1 for row in profiles if row.role == 'RESIDENT'),
+        'published_posts': CommunityPost.query.filter_by(status='PUBLISHED').count(),
+        'review_queue': len(review_posts) + len(pending_comments),
+        'open_reports': len(reports),
+        'today_checkins': CommunityCheckin.query.filter_by(checkin_date=today).count(),
+        'today_store_checkins': CommunityStoreCheckin.query.filter_by(checkin_date=today).count(),
+    }
+    return render_template(
+        'community_admin.html',
+        profiles=profiles,
+        review_posts=review_posts,
+        pending_comments=pending_comments,
+        reports=reports,
+        ads=ads,
+        alerts=alerts,
+        flash_polls=flash_polls,
+        keywords=keywords,
+        pending_drops=pending_drops,
+        recent_actions=recent_actions,
+        active_products=active_products,
+        stats=stats,
+        report_reasons=COMMUNITY_REPORT_REASONS,
+        today=today,
+        webpush_configured=bool(os.environ.get('WEBPUSH_VAPID_PUBLIC_KEY') and os.environ.get('WEBPUSH_VAPID_PRIVATE_KEY') and os.environ.get('WEBPUSH_VAPID_SUBJECT')),
+    )
+
+@app.route('/admin/community/profile/<int:profile_id>/verification', methods=['POST'])
+@require_admin
+def community_admin_verify_profile(profile_id):
+    profile = CommunityProfile.query.get_or_404(profile_id)
+    action = (request.form.get('action') or '').strip().upper()
+    if action not in {'VERIFY', 'REJECT', 'RESET'}:
+        flash('Invalid community verification action.', 'error')
+        return redirect(url_for('community_admin'))
+    profile.verification_status = {'VERIFY': 'VERIFIED', 'REJECT': 'REJECTED', 'RESET': 'PENDING'}[action]
+    profile.verification_note = re.sub(r'\s+', ' ', (request.form.get('note') or '').strip())[:255] or None
+    db.session.add(CommunityModerationAction(
+        profile_id=profile.id,
+        admin_username=session.get('admin_user') or 'admin',
+        action=f'PROFILE_{action}',
+        note=profile.verification_note,
+    ))
+    db.session.commit()
+    flash(f'@{profile.handle} verification set to {profile.verification_status}.', 'success')
+    return redirect(url_for('community_admin') + '#profiles')
+
+@app.route('/admin/community/post/<int:post_id>/status', methods=['POST'])
+@require_admin
+def community_admin_post_status(post_id):
+    post = CommunityPost.query.get_or_404(post_id)
+    action = (request.form.get('action') or '').strip().upper()
+    if action not in {'PUBLISH', 'HIDE', 'REMOVE'}:
+        flash('Invalid community post action.', 'error')
+        return redirect(url_for('community_admin'))
+    if action == 'PUBLISH' and post.author and post.author.role == 'STUDENT' and post.author.verification_status != 'VERIFIED':
+        flash(f'Verify @{post.author.handle} in person before publishing a Campus Hub post. No student ID image should be stored.', 'error')
+        return redirect(url_for('community_admin') + '#profiles')
+    old_status = post.status
+    post.status = {'PUBLISH': 'PUBLISHED', 'HIDE': 'HIDDEN', 'REMOVE': 'REMOVED'}[action]
+    if action == 'PUBLISH':
+        post.published_at = post.published_at or utc_now()
+        if post.author:
+            post.author.first_post_approved = True
+            if not post.score_awarded:
+                post.author.community_score = round(parse_float(post.author.community_score, 0.0) + 2.0, 2)
+                post.score_awarded = True
+        CommunityReport.query.filter_by(post_id=post.id, status='OPEN').update({'status': 'RESOLVED'})
+        post.flags_count = 0
+    note = re.sub(r'\s+', ' ', (request.form.get('note') or '').strip())[:240] or None
+    db.session.add(CommunityModerationAction(
+        post_id=post.id,
+        profile_id=post.author_profile_id,
+        admin_username=session.get('admin_user') or 'admin',
+        action=f'POST_{action}',
+        note=note or f'{old_status} → {post.status}',
+    ))
+    db.session.commit()
+    flash(f'Community post #{post.id} is now {post.status.lower()}.', 'success')
+    return redirect(url_for('community_admin') + '#review')
+
+@app.route('/admin/community/comment/<int:comment_id>/status', methods=['POST'])
+@require_admin
+def community_admin_comment_status(comment_id):
+    comment = CommunityComment.query.get_or_404(comment_id)
+    action = (request.form.get('action') or '').strip().upper()
+    if action not in {'PUBLISH', 'REMOVE'}:
+        flash('Invalid comment action.', 'error')
+        return redirect(url_for('community_admin'))
+    comment.status = 'PUBLISHED' if action == 'PUBLISH' else 'REMOVED'
+    if action == 'PUBLISH' and comment.author and not comment.score_awarded:
+        comment.author.community_score = round(parse_float(comment.author.community_score, 0.0) + 0.5, 2)
+        comment.score_awarded = True
+    db.session.add(CommunityModerationAction(
+        post_id=comment.post_id,
+        profile_id=comment.author_profile_id,
+        admin_username=session.get('admin_user') or 'admin',
+        action=f'COMMENT_{action}',
+    ))
+    db.session.commit()
+    flash(f'Comment #{comment.id} is now {comment.status.lower()}.', 'success')
+    return redirect(url_for('community_admin') + '#review')
+
+@app.route('/admin/community/ad', methods=['POST'])
+@require_admin
+def community_admin_create_ad():
+    try:
+        title = re.sub(r'\s+', ' ', (request.form.get('title') or '').strip())
+        body = re.sub(r'\s+', ' ', (request.form.get('body') or '').strip())
+        target_role = (request.form.get('target_role') or 'ALL').strip().upper()
+        channel = (request.form.get('channel') or 'ALL').strip().upper()
+        cta_label = re.sub(r'\s+', ' ', (request.form.get('cta_label') or 'View menu').strip())[:40]
+        cta_url = community_safe_cta(request.form.get('cta_url'), default='/')
+        image_url = (request.form.get('image_url') or '').strip() or None
+        if not title or len(title) > 120 or not body or len(body) > 240:
+            raise OrderValidationError('Ad title and message are required and must fit their limits.')
+        if target_role not in {'ALL', *COMMUNITY_ROLES} or channel not in {'ALL', *COMMUNITY_CHANNELS}:
+            raise OrderValidationError('Choose a valid ad audience and channel.')
+        if image_url:
+            image_url = community_safe_link(image_url, required=True)
+        start_at = community_local_datetime(request.form.get('start_at'))
+        end_at = community_local_datetime(request.form.get('end_at'))
+        if start_at and end_at and end_at <= start_at:
+            raise OrderValidationError('Ad end time must be after its start time.')
+        db.session.add(CommunityAd(
+            title=title, body=body, target_role=target_role, channel=channel,
+            cta_label=cta_label or 'View menu', cta_url=cta_url, image_url=image_url,
+            start_at=start_at, end_at=end_at, is_active=True,
+        ))
+        db.session.commit()
+        flash('Native community ad created. It will be inserted after every fifth post for its audience.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    return redirect(url_for('community_admin') + '#ads')
+
+@app.route('/admin/community/ad/<int:ad_id>/toggle', methods=['POST'])
+@require_admin
+def community_admin_toggle_ad(ad_id):
+    ad = CommunityAd.query.get_or_404(ad_id)
+    ad.is_active = not ad.is_active
+    db.session.commit()
+    flash(f'Community ad {"activated" if ad.is_active else "paused"}.', 'success')
+    return redirect(url_for('community_admin') + '#ads')
+
+@app.route('/admin/community/alert', methods=['POST'])
+@require_admin
+def community_admin_create_alert():
+    try:
+        title = re.sub(r'\s+', ' ', (request.form.get('title') or '').strip())
+        body = re.sub(r'\s+', ' ', (request.form.get('body') or '').strip())
+        target_role = (request.form.get('target_role') or 'ALL').strip().upper()
+        duration_minutes = parse_int(request.form.get('duration_minutes'), 60)
+        if not title or len(title) > 100 or not body or len(body) > 240:
+            raise OrderValidationError('Alert title and message are required and must fit their limits.')
+        if target_role not in {'ALL', *COMMUNITY_ROLES}:
+            raise OrderValidationError('Choose a valid alert audience.')
+        if duration_minutes < 5 or duration_minutes > 720:
+            raise OrderValidationError('Flash Perch duration must be from 5 minutes to 12 hours.')
+        cta_url = community_safe_cta(request.form.get('cta_url'), default='/community')
+        now = utc_now()
+        alert = CommunityAlert(
+            title=title, body=body, target_role=target_role, cta_url=cta_url,
+            starts_at=now, ends_at=now + timedelta(minutes=duration_minutes),
+            created_by=session.get('admin_user') or 'admin', is_active=True,
+        )
+        db.session.add(alert)
+        db.session.commit()
+        delivery = send_community_alert_push(alert)
+        if delivery['configured']:
+            flash(f'Flash Perch alert is live. Browser push sent: {delivery["sent"]}; failed: {delivery["failed"]}.', 'success')
+        else:
+            flash('Flash Perch alert is live in the app. Background Web Push will activate after VAPID keys are configured.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    return redirect(url_for('community_admin') + '#alerts')
+
+@app.route('/admin/community/alert/<int:alert_id>/toggle', methods=['POST'])
+@require_admin
+def community_admin_toggle_alert(alert_id):
+    alert = CommunityAlert.query.get_or_404(alert_id)
+    alert.is_active = not alert.is_active
+    db.session.commit()
+    flash(f'Flash Perch alert {"activated" if alert.is_active else "ended"}.', 'success')
+    return redirect(url_for('community_admin') + '#alerts')
+
+@app.route('/admin/community/flash-poll', methods=['POST'])
+@require_admin
+def community_admin_create_flash_poll():
+    try:
+        question = re.sub(r'\s+', ' ', (request.form.get('question') or '').strip())
+        publish_date_raw = (request.form.get('publish_date') or '').strip()
+        try:
+            publish_date = date.fromisoformat(publish_date_raw)
+        except ValueError:
+            raise OrderValidationError('Choose a valid Flash Poll date.')
+        if publish_date < ph_today() or publish_date > ph_today() + timedelta(days=60):
+            raise OrderValidationError('Flash Poll date must be today or within the next 60 days.')
+        if not question or len(question) > 280:
+            raise OrderValidationError('Flash Poll question must contain 1–280 characters.')
+        if CommunityPost.query.filter_by(is_flash_poll=True, publish_date=publish_date).first():
+            raise OrderValidationError('Only one 8:00 AM Flash Poll may be scheduled for that date.')
+        raw_options = [re.sub(r'\s+', ' ', value.strip()) for value in request.form.getlist('poll_option') if value.strip()]
+        unique_options = []
+        seen = set()
+        for option in raw_options:
+            key = option.casefold()
+            if key not in seen:
+                seen.add(key)
+                unique_options.append(option[:80])
+        if not (2 <= len(unique_options) <= 4):
+            raise OrderValidationError('A Flash Poll needs 2–4 different choices.')
+        start_local = datetime.combine(publish_date, time(hour=8), tzinfo=MANILA_TZ)
+        end_local = datetime.combine(publish_date, time(hour=23, minute=59, second=59), tzinfo=MANILA_TZ)
+        post = CommunityPost(
+            author_profile_id=None,
+            channel='GLOBAL',
+            module='FLASH_POLL',
+            post_type='POLL',
+            body=question,
+            status='PUBLISHED',
+            is_flash_poll=True,
+            publish_date=publish_date,
+            published_at=start_local.astimezone(timezone.utc).replace(tzinfo=None),
+            expires_at=end_local.astimezone(timezone.utc).replace(tzinfo=None),
+            score_awarded=True,
+        )
+        db.session.add(post)
+        db.session.flush()
+        for index, option in enumerate(unique_options):
+            db.session.add(CommunityPollOption(post_id=post.id, option_text=option, sort_order=index))
+        db.session.commit()
+        flash(f'8:00 AM Flash Poll scheduled for {publish_date.strftime("%b %d, %Y")}.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    return redirect(url_for('community_admin') + '#polls')
+
+@app.route('/admin/community/keyword', methods=['POST'])
+@require_admin
+def community_admin_add_keyword():
+    phrase = re.sub(r'\s+', ' ', (request.form.get('phrase') or '').strip().casefold())
+    category = re.sub(r'[^A-Z0-9_]+', '_', (request.form.get('category') or 'ABUSE').strip().upper())[:40] or 'ABUSE'
+    if len(phrase) < 2 or len(phrase) > 100:
+        flash('Moderation phrase must contain 2–100 characters.', 'error')
+        return redirect(url_for('community_admin') + '#keywords')
+    if CommunityKeyword.query.filter(db.func.lower(CommunityKeyword.phrase) == phrase).first():
+        flash('That moderation phrase already exists.', 'info')
+        return redirect(url_for('community_admin') + '#keywords')
+    db.session.add(CommunityKeyword(phrase=phrase, category=category, is_active=True))
+    db.session.commit()
+    flash('Moderation phrase added. Matches will be held for review, not automatically deleted.', 'success')
+    return redirect(url_for('community_admin') + '#keywords')
+
+@app.route('/admin/community/keyword/<int:keyword_id>/toggle', methods=['POST'])
+@require_admin
+def community_admin_toggle_keyword(keyword_id):
+    keyword = CommunityKeyword.query.get_or_404(keyword_id)
+    keyword.is_active = not keyword.is_active
+    db.session.commit()
+    flash(f'Moderation phrase {"enabled" if keyword.is_active else "paused"}.', 'success')
+    return redirect(url_for('community_admin') + '#keywords')
+
+@app.route('/admin/community/drop/<int:drop_id>/approve', methods=['POST'])
+@require_admin
+def community_admin_approve_drop(drop_id):
+    drop = CommunityDrop.query.get_or_404(drop_id)
+    if drop.reward_type != 'STAFF_FREEBIE' or drop.status not in {'PENDING_APPROVAL', 'ACTIVE'}:
+        flash('That Mystery Drop cannot be changed.', 'error')
+        return redirect(url_for('community_admin') + '#drops')
+    product = db.session.get(Product, parse_int(request.form.get('product_id'), 0))
+    if not product or not product.is_active or parse_int(product.stock, 0) <= 0:
+        flash('Choose an active in-stock product for the freebie.', 'error')
+        return redirect(url_for('community_admin') + '#drops')
+    drop.product_id = product.id
+    drop.reward_title = f'Free {product.name}'
+    drop.status = 'ACTIVE'
+    drop.approved_by = session.get('admin_user') or 'admin'
+    drop.approved_at = utc_now()
+    db.session.commit()
+    flash(f'Mystery Drop approved: Free {product.name}.', 'success')
+    return redirect(url_for('community_admin') + '#drops')
+
+@app.route('/pos/community-gift/<int:gift_id>/redeem', methods=['POST'])
+@require_cashier
+def cashier_redeem_community_gift(gift_id):
+    gift = CommunityGift.query.get_or_404(gift_id)
+    if gift.gift_type != 'PRODUCT' or gift.status != 'AVAILABLE':
+        flash('That community gift voucher is no longer available.', 'error')
+        return redirect(url_for('cashier_terminal'))
+    product = gift.product
+    if not product:
+        flash('The gifted product record is unavailable. Do not mark the voucher claimed.', 'error')
+        return redirect(url_for('cashier_terminal'))
+    recipient = gift.recipient
+    order = Order(
+        order_type='COMMUNITY_GIFT',
+        dining_option='TAKEOUT',
+        customer_id=recipient.id,
+        customer_name=f'{recipient.name} (Gift Voucher)',
+        contact_number=recipient.contact,
+        subtotal=0.0,
+        total_amount=0.0,
+        payment_method='REWARD',
+        payment_verified=True,
+        status='COMPLETED',
+        fulfillment_status='FULFILLED',
+        notes=f'Community gift {gift.claim_code} from {gift.sender.name}',
+    )
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(OrderItem(
+        order_id=order.id,
+        product_id=product.id,
+        product_name=f'[Community Gift] {product.name}',
+        unit_price=0.0,
+        cost_price=max(0.0, parse_float(product.cost, 0.0)),
+        quantity=1,
+        subtotal=0.0,
+    ))
+    gift.status = 'CLAIMED'
+    gift.claimed_by = session.get('cashier_user') or session.get('admin_user') or 'staff'
+    gift.claimed_at = utc_now()
+    db.session.commit()
+    flash(f'Gift voucher {gift.claim_code} redeemed for {recipient.name}: {product.name}.', 'success')
+    return redirect(url_for('cashier_terminal'))
+
+@app.route('/pos/community-drop/<int:drop_id>/redeem', methods=['POST'])
+@require_cashier
+def cashier_redeem_community_drop(drop_id):
+    drop = CommunityDrop.query.get_or_404(drop_id)
+    product = drop.product
+    cust = db.session.get(Customer, drop.customer_id)
+    if drop.reward_type != 'STAFF_FREEBIE' or drop.status != 'ACTIVE' or not product or not cust:
+        flash('That Mystery Drop is not ready to redeem.', 'error')
+        return redirect(url_for('cashier_terminal'))
+    if not product.is_active or parse_int(product.stock, 0) <= 0:
+        flash('The selected Mystery Drop product is out of stock. Ask Admin to assign another product.', 'error')
+        return redirect(url_for('cashier_terminal'))
+    order = Order(
+        order_type='MYSTERY_DROP', dining_option='TAKEOUT', customer_id=cust.id,
+        customer_name=f'{cust.name} (Mystery Drop)', contact_number=cust.contact,
+        subtotal=0.0, total_amount=0.0, payment_method='REWARD', payment_verified=True,
+        status='COMPLETED', fulfillment_status='FULFILLED',
+        notes=f'30-day Community Mystery Drop #{drop.id}',
+    )
+    db.session.add(order)
+    db.session.flush()
+    db.session.add(OrderItem(
+        order_id=order.id, product_id=product.id, product_name=f'[Mystery Drop] {product.name}',
+        unit_price=0.0, cost_price=max(0.0, parse_float(product.cost, 0.0)), quantity=1, subtotal=0.0,
+    ))
+    product.stock = parse_int(product.stock, 0) - 1
+    drop.status = 'REDEEMED'
+    drop.redeemed_order_id = order.id
+    drop.redeemed_at = utc_now()
+    db.session.commit()
+    flash(f'Mystery Drop redeemed for {cust.name}: Free {product.name}.', 'success')
+    return redirect(url_for('cashier_terminal'))
+
 # ==================== CUSTOMER PORTAL ====================
 
 @app.route('/portal/start/<string:source>')
@@ -8165,6 +9861,8 @@ def customer_login():
             cust.last_active_at = utc_now()
             track_portal_event('LOGIN', source=portal_source, customer_id=cust.id)
             db.session.commit()
+            if next_section == 'community':
+                return redirect(url_for('community_home'))
             target = url_for('customer_dashboard')
             return redirect(target + (f'#{next_section}' if next_section else ''))
         flash('Invalid Contact or PIN.', 'error')
@@ -8240,6 +9938,8 @@ def customer_register():
                 flash('🎉 Welcome! +0.5 point added. Complete your first paid purchase to unlock the referral bonus for both of you!', 'success')
             else:
                 flash('🎉 Welcome! You earned 0.5 points!', 'success')
+            if next_section == 'community':
+                return redirect(url_for('community_home'))
             target = url_for('customer_dashboard')
             return redirect(target + (f'#{next_section}' if next_section else ''))
         except Exception:

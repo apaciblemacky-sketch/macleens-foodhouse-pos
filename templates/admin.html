@@ -49,7 +49,7 @@
       <img src="{{ store_logo }}" style="width:50px; height:50px; border-radius:50%; border:2px solid var(--hk-pink); object-fit:cover;">
       <div>
         <h2 style="color:var(--hk-dark);">🎀 Macleen's Food House — Master Control</h2>
-        <p style="font-size:0.85rem; color:#64748b;">Financial Performance, Running Category Metrics & Live Menu Management</p>
+        <p style="font-size:0.85rem; color:#64748b;">Financial Performance, Running Category Metrics & Live Menu Management <span style="display:inline-block;margin-left:5px;padding:2px 7px;border-radius:999px;background:#ccfbf1;color:#115e59;font-size:.65rem;font-weight:900;">{{ app_release }}</span></p>
       </div>
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
@@ -58,6 +58,7 @@
       <a href="{{ url_for('cashflow_payables') }}" class="btn" style="background:#fef3c7; color:#92400e;">🧾 Expense Payables</a>
       <a href="{{ url_for('marketing_admin') }}" class="btn" style="background:#dbeafe; color:#1d4ed8;">📣 AI Marketing</a>
       <a href="{{ url_for('digital_admin') }}" class="btn" style="background:#cffafe; color:#155e75;">💻 Digital Business</a>
+      <a href="{{ url_for('community_admin') }}" class="btn" style="background:#ccfbf1; color:#115e59;">🌐 Community Control</a>
       <a href="{{ url_for('admin_loyalty_cards') }}" class="btn" style="background:#fce7f3; color:#9d174d;">🎫 Loyalty Cards</a>
       <a href="{{ url_for('investor_dashboard') }}" class="btn" style="background:#ede9fe; color:#5b21b6;">📈 Investor Center</a>
       <a href="/staff/logout?role=admin" class="btn" style="background:#fee2e2; color:#991b1b;">Admin Logout</a>

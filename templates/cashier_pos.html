@@ -55,6 +55,7 @@
       <button onclick="openModal('expenseModal')" style="background:#f59e0b; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💸 Expense</button>
       <button onclick="openModal('vaultModal')" style="background:#10b981; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🏦 Vault Drop (#{{ next_drop_num }})</button>
       <button onclick="openModal('memberQrModal')" style="background:#db2777; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🎁 New Member QR</button>
+      <button onclick="openMemberScanModal()" style="background:#0f766e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">▦ Scan Member</button>
       <a href="{{ url_for('cashier_investor_proposals') }}" style="background:#6d28d9; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem; font-weight:bold;">📈 Investor Proposals</a>
       <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
       <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Logout</a>
@@ -65,6 +66,24 @@
     <!-- 1. Verification Queue -->
     <div class="queue-panel">
       <h3 style="font-size:0.85rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
+      {% if community_gift_vouchers or community_mystery_drops %}
+      <div style="background:#0f172a;border:1.5px solid #f59e0b;border-radius:9px;padding:8px;margin-bottom:10px;">
+        <h3 style="font-size:.78rem;color:#fbbf24;margin-bottom:6px;">🎁 Community reward claims ({{ (community_gift_vouchers|length) + (community_mystery_drops|length) }})</h3>
+        <div style="font-size:.65rem;color:#94a3b8;margin-bottom:6px;">Confirm the member and physical handover before redeeming. Each claim works once.</div>
+        {% for gift in community_gift_vouchers %}
+        <div style="padding:6px 0;border-top:1px dashed #475569;font-size:.69rem;">
+          <strong>{{ gift.claim_code }} • {{ gift.product_name }}</strong><br><span style="color:#cbd5e1">For {{ gift.recipient.name }} • from {{ gift.sender.name }}</span>
+          <form action="{{ url_for('cashier_redeem_community_gift', gift_id=gift.id) }}" method="POST" onsubmit="return confirm('Product handed to {{ gift.recipient.name|e }}? This cannot be redeemed twice.');" style="margin-top:4px"><button type="submit" class="btn-act" style="background:#d97706;color:white;width:100%">Redeem gift</button></form>
+        </div>
+        {% endfor %}
+        {% for drop in community_mystery_drops %}
+        <div style="padding:6px 0;border-top:1px dashed #475569;font-size:.69rem;">
+          <strong>30-day Drop • {{ drop.product.name if drop.product else 'Awaiting product' }}</strong><br><span style="color:#cbd5e1">For {{ drop.customer.name }}</span>
+          <form action="{{ url_for('cashier_redeem_community_drop', drop_id=drop.id) }}" method="POST" onsubmit="return confirm('Freebie handed to {{ drop.customer.name|e }}?');" style="margin-top:4px"><button type="submit" class="btn-act" style="background:#7c3aed;color:white;width:100%">Redeem freebie</button></form>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
       {% for o in pending_orders %}
       <div class="ticket-card" id="ticket-{{ o.id }}">
         <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;">
@@ -200,7 +219,7 @@
           <select id="posRegCustSelect" class="form-input" style="margin-bottom:0; padding:3px; color:#38bdf8; font-size:0.75rem;" onchange="updateMemberQuickInfo()">
             <option value="">-- Select Registered Member --</option>
             {% for c in customers_list %}
-              <option value="{{ c.id }}" data-points="{{ c.points_balance or 0 }}" data-card="{{ c.card_number or '' }}">{{ c.name }} • {{ c.card_number or 'No Card' }} • {{ c.contact }} • {{ "{:.1f}".format(c.points_balance or 0) }} pts</option>
+              <option value="{{ c.id }}" data-points="{{ c.points_balance or 0 }}" data-card="{{ c.card_number or '' }}" data-contact="{{ c.contact or '' }}">{{ c.name }} • {{ c.card_number or 'No Card' }} • {{ c.contact }} • {{ "{:.1f}".format(c.points_balance or 0) }} pts</option>
             {% endfor %}
           </select>
           <div id="memberQuickInfo" style="font-size:0.68rem; color:#f9a8d4; margin-top:3px; min-height:14px;"></div>
@@ -762,6 +781,17 @@
     </div>
   </div>
 
+  <div id="memberScanModal" class="modal-backdrop">
+    <div class="modal-box" style="max-width:440px;text-align:center;border-color:#14b8a6;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="color:#5eead4;font-size:1rem;">▦ Scan loyalty QR</h3><button type="button" onclick="closeMemberScanModal()" style="background:none;border:none;color:#94a3b8;font-size:1.2rem;cursor:pointer;">✕</button></div>
+      <video id="memberScanVideo" playsinline muted style="display:none;width:100%;max-height:245px;object-fit:cover;background:#020617;border-radius:10px;border:1px solid #475569;"></video>
+      <div id="memberScanStatus" style="font-size:.72rem;color:#cbd5e1;line-height:1.45;margin:8px 0;">Use the camera when supported, or type the member card/mobile number below.</div>
+      <div style="display:flex;gap:6px"><input id="memberScanInput" class="form-input" style="margin:0" placeholder="MFH-0001 or mobile number" autocomplete="off"><button type="button" onclick="selectScannedMember(document.getElementById('memberScanInput').value)" style="border:0;border-radius:6px;background:#0f766e;color:white;font-weight:900;padding:7px 11px;cursor:pointer;">Find</button></div>
+      <button type="button" id="memberCameraButton" onclick="startMemberCameraScanner()" style="width:100%;margin-top:8px;border:1px solid #2dd4bf;border-radius:7px;background:#134e4a;color:#ccfbf1;padding:8px;font-weight:900;cursor:pointer;">Start camera scanner</button>
+      <div style="font-size:.63rem;color:#94a3b8;margin-top:8px;">Selecting the member only links the account. Record the paid sale normally so points and the digital purchase card update exactly once.</div>
+    </div>
+  </div>
+
   <!-- PENDING ORDER ADJUSTMENT MODAL -->
   <div id="orderAdjustModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f59e0b; max-width:560px;">
@@ -850,7 +880,58 @@
     let posCart = {};
 
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; if (id === 'memberScanModal') stopMemberCameraScanner(); }
+
+    let memberScanStream = null;
+    let memberScanFrame = null;
+    function memberLookupValue(raw) {
+      const value = String(raw || '').trim();
+      try { const parsed = new URL(value, window.location.origin); return parsed.searchParams.get('card') || parsed.searchParams.get('member') || value; } catch (_) { return value; }
+    }
+    function selectScannedMember(raw) {
+      const value = memberLookupValue(raw).replace(/\s+/g, '').toUpperCase();
+      if (!value) return;
+      const select = document.getElementById('posRegCustSelect');
+      const digits = value.replace(/\D/g, '');
+      const option = [...select.options].find(item =>
+        String(item.dataset.card || '').replace(/\s+/g, '').toUpperCase() === value ||
+        (digits && String(item.dataset.contact || '').replace(/\D/g, '') === digits)
+      );
+      if (!option) { document.getElementById('memberScanStatus').textContent = 'No matching member was found. Check the card/mobile number or register the customer first.'; return; }
+      document.getElementById('posCustType').value = 'REGISTERED';
+      togglePosCustSelect();
+      select.value = option.value;
+      updateMemberQuickInfo();
+      document.getElementById('memberScanStatus').textContent = `Selected ${option.textContent.trim()}`;
+      setTimeout(closeMemberScanModal, 650);
+    }
+    function openMemberScanModal() { openModal('memberScanModal'); document.getElementById('memberScanInput').focus(); }
+    function closeMemberScanModal() { closeModal('memberScanModal'); }
+    function stopMemberCameraScanner() {
+      if (memberScanFrame) cancelAnimationFrame(memberScanFrame);
+      memberScanFrame = null;
+      if (memberScanStream) memberScanStream.getTracks().forEach(track => track.stop());
+      memberScanStream = null;
+      const video = document.getElementById('memberScanVideo');
+      if (video) { video.pause(); video.srcObject = null; video.style.display = 'none'; }
+    }
+    async function startMemberCameraScanner() {
+      const status = document.getElementById('memberScanStatus');
+      if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) { status.textContent = 'Built-in QR scanning is unavailable here. Type the card number instead, or use Chrome on Android over HTTPS.'; return; }
+      try {
+        stopMemberCameraScanner();
+        const detector = new BarcodeDetector({formats:['qr_code']});
+        const video = document.getElementById('memberScanVideo');
+        memberScanStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+        video.srcObject = memberScanStream; video.style.display = 'block'; await video.play(); status.textContent = 'Point the camera at the customer loyalty QR.';
+        const scan = async () => {
+          if (!memberScanStream) return;
+          try { const codes = await detector.detect(video); if (codes.length) { selectScannedMember(codes[0].rawValue); stopMemberCameraScanner(); return; } } catch (_) {}
+          memberScanFrame = requestAnimationFrame(scan);
+        };
+        scan();
+      } catch (_) { stopMemberCameraScanner(); status.textContent = 'Camera access was unavailable. You can still type the member card/mobile number.'; }
+    }
 
     function openOrderAdjustModal(orderId, note, total, paymentMethod, changeFor) {
       const form = document.getElementById('orderAdjustForm');

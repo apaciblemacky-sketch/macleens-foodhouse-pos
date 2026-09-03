@@ -81,6 +81,34 @@ REQUIRED_DB_COLUMNS = {
         "is_counter_offer", "message", "status", "cashier_notes",
         "cashier_reviewed_by", "cashier_reviewed_at", "created_at",
     },
+    "community_profile": {
+        "id", "customer_id", "handle", "role", "campus_name", "department",
+        "graduating_year", "vibe_status", "barangay", "resident_since_year",
+        "verification_status", "verification_method", "first_post_approved",
+        "community_score", "community_streak", "last_checkin_date", "push_opt_in",
+        "privacy_consent_at", "terms_accepted_at", "created_at", "updated_at",
+    },
+    "community_post": {
+        "id", "author_profile_id", "channel", "module", "post_type", "body",
+        "image_data", "link_url", "status", "flags_count", "moderation_hits",
+        "score_awarded", "is_flash_poll", "publish_date", "expires_at",
+        "published_at", "created_at", "updated_at",
+    },
+    "community_poll_option": {"id", "post_id", "option_text", "sort_order"},
+    "community_poll_vote": {"id", "post_id", "option_id", "customer_id", "role_snapshot", "score_awarded", "created_at"},
+    "community_reaction": {"id", "post_id", "customer_id", "reaction_type", "created_at"},
+    "community_connection": {"id", "profile_a_id", "profile_b_id", "requested_by_profile_id", "status", "created_at", "responded_at"},
+    "community_comment": {"id", "post_id", "author_profile_id", "body", "status", "moderation_hits", "score_awarded", "created_at"},
+    "community_report": {"id", "post_id", "reporter_customer_id", "reason", "details", "status", "created_at"},
+    "community_keyword": {"id", "phrase", "category", "is_active", "created_at"},
+    "community_ad": {"id", "title", "body", "target_role", "channel", "cta_url", "is_active", "impression_count", "click_count"},
+    "community_alert": {"id", "title", "body", "target_role", "starts_at", "ends_at", "is_active"},
+    "community_checkin": {"id", "customer_id", "checkin_date", "streak_day", "score_awarded", "created_at"},
+    "community_store_checkin": {"id", "customer_id", "order_id", "checkin_date", "recorded_by", "created_at"},
+    "community_drop": {"id", "customer_id", "milestone_day", "period_key", "reward_type", "product_id", "status", "redeemed_order_id", "points_awarded"},
+    "community_gift": {"id", "sender_customer_id", "recipient_customer_id", "gift_type", "points_amount", "product_id", "claim_code", "status"},
+    "community_push_subscription": {"id", "customer_id", "endpoint", "p256dh", "auth", "is_active"},
+    "community_moderation_action": {"id", "post_id", "profile_id", "admin_username", "action", "note", "created_at"},
 }
 
 
@@ -303,6 +331,48 @@ def main() -> int:
             fail(f"modern loyalty portal marker is missing: {marker}")
     ok("modern student storefront, favorites, reorder, group ordering, preferences, and tracking are present")
 
+    community_markers = [
+        "class CommunityProfile(db.Model):", "class CommunityPost(db.Model):",
+        "class CommunityGift(db.Model):", "class CommunityPushSubscription(db.Model):", "class CommunityStoreCheckin(db.Model):", "class CommunityConnection(db.Model):",
+        "@app.route('/community')", "@app.route('/admin/community')",
+        "@app.route('/community/api/posts'", "@app.route('/community/api/gifts'",
+        "@app.route('/community/api/push/subscribe'", "@app.route('/community/api/connections'", "@app.route('/pos/community-gift/",
+        "COMMUNITY_GROUP_PRIVACY_MINIMUM = 3", "COMMUNITY_GIFT_DAILY_CAP = 50.0",
+        "You cannot report your own post", "award_community_drop_reward", "record_community_store_checkin",
+    ]
+    missing = [marker for marker in community_markers if marker not in source]
+    if missing:
+        fail("Community safety/reward markers missing: " + ", ".join(missing))
+    for name in ["community.html", "community_setup.html", "community_admin.html"]:
+        if not (TEMPLATES / name).exists():
+            fail(f"Community template is missing: {name}")
+    community_text = (TEMPLATES / "community.html").read_text(encoding="utf-8")
+    community_admin_text = (TEMPLATES / "community_admin.html").read_text(encoding="utf-8")
+    cashier_text = (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")
+    for marker in [
+        "Campus Hub", "Town Square", "Digital purchase card", "Shout a Friend", "Community connections",
+        "Independent community board operated by Macleen’s Food House",
+        "enableCommunityPush", "data-community-ad",
+    ]:
+        if marker not in community_text:
+            fail(f"Community customer UI marker is missing: {marker}")
+    for marker in ["Moderation review", "8:00 AM Flash Poll", "Flash Perch alerts", "Native in-feed ads", "Safety phrase holds"]:
+        if marker not in community_admin_text:
+            fail(f"Community Admin marker is missing: {marker}")
+    for marker in ["Scan loyalty QR", "selectScannedMember", "Community reward claims"]:
+        if marker not in cashier_text:
+            fail(f"Community Cashier integration marker is missing: {marker}")
+    sw_text = service_worker.read_text(encoding="utf-8")
+    for marker in ["addEventListener('push'", "showNotification", "addEventListener('notificationclick'"]:
+        if marker not in sw_text:
+            fail(f"Community PWA push marker is missing: {marker}")
+    if "pywebpush>=2.0.0" not in (ROOT / "requirements.txt").read_text(encoding="utf-8"):
+        fail("pywebpush dependency is missing")
+    for marker in ["WEBPUSH_VAPID_PUBLIC_KEY", "WEBPUSH_VAPID_PRIVATE_KEY", "WEBPUSH_VAPID_SUBJECT"]:
+        if marker not in (ROOT / "render.yaml").read_text(encoding="utf-8"):
+            fail(f"Render Web Push configuration marker is missing: {marker}")
+    ok("privacy-separated Community feeds, moderation, gamification, gifting, ads, alerts, and Cashier redemption are present")
+
     facebook_menu_markers = [
         "class FacebookMenuRun(db.Model):", "class MessengerContact(db.Model):",
         "class MessengerDelivery(db.Model):", "def build_daily_menu_caption(",
@@ -329,6 +399,7 @@ def main() -> int:
     deploy_text = deploy_script.read_text(encoding="utf-8")
     for marker in [
         "scripts\\predeploy_check.py",
+        "scripts\\community_smoke_check.py",
         'git push origin "%DEPLOY_BRANCH%"',
         "Type DEPLOY to commit and push these changes",
         "This script never force-pushes",
@@ -340,6 +411,15 @@ def main() -> int:
         if forbidden in deploy_text:
             fail(f"deployment script contains unsafe or secret-prone behavior: {forbidden}")
     ok("Windows GitHub-to-Render deployment script is present and guarded")
+
+    smoke_script = ROOT / "scripts" / "community_smoke_check.py"
+    if not smoke_script.exists():
+        fail("scripts/community_smoke_check.py is missing")
+    try:
+        py_compile.compile(str(smoke_script), doraise=True)
+    except py_compile.PyCompileError as exc:
+        fail(f"Community smoke-check script does not compile: {exc.msg}")
+    ok("isolated Community behavior smoke-check script is included")
 
     gitignore = ROOT / ".gitignore"
     if not gitignore.exists():

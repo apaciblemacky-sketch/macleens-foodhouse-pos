@@ -43,6 +43,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running isolated Community behavior checks...
+"%PYTHON_CMD%" scripts\community_smoke_check.py
+if errorlevel 1 (
+  echo Community checks failed. The system was not started.
+  pause
+  exit /b 1
+)
+
 echo Starting Macleen's Food House at http://127.0.0.1:5000
 start "" http://127.0.0.1:5000
 "%PYTHON_CMD%" app.py

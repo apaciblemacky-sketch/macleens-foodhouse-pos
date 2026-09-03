@@ -35,3 +35,11 @@ services:
         sync: false
       - key: META_MARKETING_PROVIDER_TOKEN
         sync: false
+      # Optional browser push for consented Community members. Generate a VAPID
+      # key pair; never place the private key in source control.
+      - key: WEBPUSH_VAPID_PUBLIC_KEY
+        sync: false
+      - key: WEBPUSH_VAPID_PRIVATE_KEY
+        sync: false
+      - key: WEBPUSH_VAPID_SUBJECT
+        sync: false
