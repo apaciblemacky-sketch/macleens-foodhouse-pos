@@ -15,7 +15,10 @@ INSTALL AND DEPLOY
 3. Copy all contents of this ZIP into that project folder and approve Replace All.
 4. Double-click RUN_MACLEENS.bat to test locally.
 5. Double-click DEPLOY_TO_RENDER.bat and type DEPLOY when prompted.
-6. After Render reports a successful deployment, test:
+6. Wait for Render to say Live, then open /healthz and confirm the release is
+   2026.09.03-bulk-compact-v5. Admin will show a green Compact Save v5 badge.
+7. Press Ctrl+F5 once in Admin before testing Save All Bulk Changes.
+8. After Render reports a successful deployment, test:
    Storefront: https://macleens-foodhouse-pos.onrender.com/
    Rewards:    https://macleens-foodhouse-pos.onrender.com/portal/dashboard
    Digital:    https://macleens-foodhouse-pos.onrender.com/digital
@@ -27,9 +30,9 @@ THIS RELEASE ADDS
   search now shows only matching products and hides unrelated recommendations;
   clearing the search restores the full storefront.
 - Larger storefront logo and visible Admin Add Product confirmation/highlight.
-- Repaired Save All Bulk Changes with immediate success/error feedback beside
-  the button, dirty-row tracking so unrelated legacy products cannot cancel an
-  edit, reliable submission, and no full-page reload.
+- Repaired Save All Bulk Changes with a compact edited-rows-only request, a
+  guarded 98+ product fallback, immediate success/error feedback, dirty-row
+  tracking, and no full-page reload.
 - Every Food House product share link now uses a vivid 1200 x 630 branded image
   with the product photo, name, price, category, and View & Order call to action.
 - Favorites, order again, campus break preferences, and quick pickup choices.

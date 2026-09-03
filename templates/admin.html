@@ -809,7 +809,7 @@
   <div class="card" id="catalog-editor">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
       <div>
-        <h3 style="color:var(--hk-dark); font-size:1rem;">📦 Bulk Catalog Editor (<span id="productCounter">{{ products|length }}</span> / {{ products|length }} Items)</h3>
+        <h3 style="color:var(--hk-dark); font-size:1rem;">📦 Bulk Catalog Editor (<span id="productCounter">{{ products|length }}</span> / {{ products|length }} Items) <span style="font-size:.62rem;color:#047857;background:#d1fae5;border:1px solid #6ee7b7;border-radius:999px;padding:2px 7px;vertical-align:middle;white-space:nowrap;">Compact Save v5</span></h3>
         <p style="font-size:0.7rem; color:#64748b;">Cost is copied into each new Order Item when the sale is created. Use <strong>Priced Sizes</strong> for size-specific selling prices (example: 12oz=50|16oz=65). Enable <strong>Specific Amt</strong> only when Cashier and storefront customers may enter a flexible amount; the entered amount can never be below that product's configured minimum.</p>
       </div>
       
@@ -1028,12 +1028,41 @@
       form.addEventListener('change', markDirty);
     }
 
+    function buildCompactBulkCatalogPayload(form) {
+      const payload = new FormData();
+      const changedRows = Array.from(form.querySelectorAll('.product-row.bulk-dirty'));
+      payload.append('bulk_dirty_tracking', '1');
+
+      changedRows.forEach(row => {
+        const productId = row.getAttribute('data-id');
+        if (!productId) return;
+        payload.append('product_id', productId);
+        payload.append('changed_product_id', productId);
+
+        row.querySelectorAll('input[name], select[name], textarea[name]').forEach(control => {
+          if (control.disabled || control.name === 'product_id' || control.name === 'changed_product_id') return;
+          if ((control.type === 'checkbox' || control.type === 'radio') && !control.checked) return;
+          payload.append(control.name, control.value);
+        });
+      });
+
+      return { payload, changedRows };
+    }
+
     async function saveBulkCatalog(event, form) {
       event.preventDefault();
       if (form.dataset.saving === '1') return false;
 
       const button = document.getElementById('bulkCatalogSaveButton');
       const status = document.getElementById('bulkCatalogSaveStatus');
+      const compactSubmission = buildCompactBulkCatalogPayload(form);
+      if (!compactSubmission.changedRows.length) {
+        if (status) {
+          status.className = 'bulk-save-status show success';
+          status.textContent = '✅ No new changes were detected. Your catalog is already up to date.';
+        }
+        return false;
+      }
       const originalText = button ? button.textContent : '';
       form.dataset.saving = '1';
       if (button) {
@@ -1050,7 +1079,7 @@
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'X-Macleens-Live': '1' },
-          body: new FormData(form)
+          body: compactSubmission.payload
         });
         const contentType = response.headers.get('content-type') || '';
         if (!contentType.includes('application/json')) {

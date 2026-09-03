@@ -184,6 +184,8 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
+echo Expected release after Render finishes: 2026.09.03-bulk-compact-v5
+echo Admin should also show the green "Compact Save v5" badge.
 echo.
 start "" "https://dashboard.render.com/"
 start "" "https://macleens-foodhouse-pos.onrender.com/healthz"

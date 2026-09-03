@@ -268,6 +268,7 @@ def main() -> int:
         'id="bulkCatalogForm"', "novalidate", "saveBulkCatalog(event, this)",
         'id="bulkCatalogSaveStatus"', "X-Macleens-Live", "syncBulkCatalogRowState",
         "initializeBulkCatalogDirtyTracking", "changed_product_id", "bulk_dirty_tracking",
+        "buildCompactBulkCatalogPayload", "body: compactSubmission.payload", "Compact Save v5",
     ]:
         if marker not in admin_text:
             fail(f"bulk catalog save repair is missing: {marker}")
@@ -276,6 +277,7 @@ def main() -> int:
     for marker in [
         "'action': 'bulk-products-updated'", "No products were received", "updated_ids",
         "processed_ids", "dirty_tracking", "parse_float(prod.price, 0.0)",
+        "MAX_FORM_PARTS", "RequestEntityTooLarge", "APP_RELEASE",
     ]:
         if marker not in source:
             fail(f"bulk catalog server response repair is missing: {marker}")

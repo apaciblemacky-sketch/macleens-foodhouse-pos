@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory, Response, has_request_context
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text, UniqueConstraint, and_
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -54,6 +55,10 @@ if database_url and database_url.startswith("postgres://"):
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///foodhouse_pos.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True}
+# A non-JavaScript bulk-catalog submission contains about fourteen controls per
+# product. Keep the guarded fallback usable for catalogs larger than 70 items;
+# the modern editor sends only changed rows and normally stays far below this.
+app.config['MAX_FORM_PARTS'] = 5000
 app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -62,6 +67,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
+APP_RELEASE = '2026.09.03-bulk-compact-v5'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -2434,7 +2440,7 @@ def inject_globals():
         app.logger.exception('Logo setting query failed; using /static/logo.png fallback')
         logo = '/static/logo.png'
     status = check_operating_status()
-    return dict(store_logo=logo, status=status, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version)
+    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version)
 
 def _staff_auth_failure(target, message):
     """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
@@ -7638,6 +7644,8 @@ def admin_add_product():
 @require_admin
 def admin_batch_update_products():
     live_request = request.headers.get('X-Macleens-Live') == '1'
+    save_stage = 'reading the submitted catalog data'
+    current_product_name = None
 
     def finish(success, message, status=200, updated_count=0, updated_ids=None, processed_ids=None):
         if live_request:
@@ -7648,6 +7656,7 @@ def admin_batch_update_products():
                 'updated_count': updated_count,
                 'updated_ids': updated_ids or [],
                 'processed_ids': processed_ids or [],
+                'release': APP_RELEASE,
             }), status
         flash(message, 'success' if success else 'error')
         return redirect(url_for('admin_dashboard') + '#catalog-editor')
@@ -7669,14 +7678,21 @@ def admin_batch_update_products():
         return int(value)
 
     try:
+        save_stage = 'reading the submitted catalog data'
+        dirty_tracking = request.form.get('bulk_dirty_tracking') == '1'
         submitted_product_ids = request.form.getlist('product_id')
+        if dirty_tracking and not submitted_product_ids:
+            return finish(
+                True,
+                'No new changes were detected. Your catalog is already up to date.',
+                processed_ids=[],
+            )
         if not submitted_product_ids:
             raise OrderValidationError('No products were received. Reload Admin and try saving again.')
 
         submitted_id_set = {
             parse_int(value, 0) for value in submitted_product_ids if parse_int(value, 0) > 0
         }
-        dirty_tracking = request.form.get('bulk_dirty_tracking') == '1'
         if dirty_tracking:
             product_ids = [
                 value for value in request.form.getlist('changed_product_id')
@@ -7699,10 +7715,13 @@ def admin_batch_update_products():
             if pid <= 0 or pid in seen_ids:
                 continue
             seen_ids.add(pid)
+            save_stage = 'loading the selected product'
             prod = db.session.get(Product, pid)
             if not prod:
                 continue
+            current_product_name = prod.name
 
+            save_stage = 'validating the edited fields'
             price = required_float(f'price_{pid}', f'Price for {prod.name}')
             cost = required_float(f'cost_{pid}', f'Cost for {prod.name}')
             stock = required_int(f'stock_{pid}', f'Stock for {prod.name}')
@@ -7733,11 +7752,13 @@ def admin_batch_update_products():
             else:
                 minimum_order_amount = None
 
+            save_stage = 'checking choices and priced sizes'
             option_schema, size_schema = normalize_product_configuration(
                 option_schema_raw,
                 size_schema_raw,
             )
 
+            save_stage = 'preparing the database update'
             changed = any((
                 abs(price - parse_float(prod.price, 0.0)) > 0.000001,
                 abs(cost - parse_float(prod.cost, 0.0)) > 0.000001,
@@ -7775,6 +7796,7 @@ def admin_batch_update_products():
             prod.is_featured = is_featured
             prod.is_top_seller = is_top_seller
             updated_ids.append(pid)
+        save_stage = 'committing the database update'
         db.session.commit()
         count = len(updated_ids)
         message = (
@@ -7791,10 +7813,29 @@ def admin_batch_update_products():
     except OrderValidationError as exc:
         db.session.rollback()
         return finish(False, str(exc), status=400)
+    except RequestEntityTooLarge:
+        db.session.rollback()
+        app.logger.warning('Bulk product update exceeded the request field limit')
+        return finish(
+            False,
+            'The browser sent too much catalog data at once. Hard-refresh Admin to load the compact bulk editor, then change and save the product again.',
+            status=413,
+        )
     except Exception:
         db.session.rollback()
-        app.logger.exception('Bulk product update failed')
-        return finish(False, 'Bulk product update failed due to a server error. No changes were saved.', status=500)
+        error_reference = secrets.token_hex(4).upper()
+        app.logger.exception(
+            'Bulk product update failed [reference=%s, stage=%s, product=%r]',
+            error_reference,
+            save_stage,
+            current_product_name,
+        )
+        target = f' for {current_product_name}' if current_product_name else ''
+        return finish(
+            False,
+            f'The catalog could not be saved{target} while {save_stage}. Error reference: {error_reference}. No changes were saved.',
+            status=500,
+        )
 
 @app.route('/admin/toggle-credit/<int:cust_id>', methods=['POST'])
 @require_admin
@@ -8461,7 +8502,7 @@ def staff_logout():
 def healthz():
     try:
         db.session.execute(text('SELECT 1'))
-        return jsonify({'status': 'ok', 'time_ph': ph_now().isoformat()})
+        return jsonify({'status': 'ok', 'release': APP_RELEASE, 'time_ph': ph_now().isoformat()})
     except Exception:
         app.logger.exception('Health check failed')
         return jsonify({'status': 'error'}), 500
