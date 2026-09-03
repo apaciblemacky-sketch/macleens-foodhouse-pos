@@ -38,6 +38,8 @@
     .bulk-save-status.show { display:block; }
     .bulk-save-status.success { color:#166534; background:#ecfdf5; border:1px solid #86efac; }
     .bulk-save-status.error { color:#991b1b; background:#fef2f2; border:1px solid #fca5a5; }
+    .bulk-save-status.pending { color:#92400e; background:#fffbeb; border:1px solid #fde68a; }
+    .product-row.bulk-dirty td { background:#fffbeb; }
   </style>
 </head>
 <body>
@@ -980,6 +982,52 @@
       filterCatalogTable();
     }
 
+    function clearBulkCatalogDirtyState(form, productIds) {
+      (productIds || []).forEach(id => {
+        const row = form.querySelector(`.product-row[data-id="${id}"]`);
+        if (!row) return;
+        row.classList.remove('bulk-dirty');
+        row.querySelectorAll('input[data-bulk-dirty-marker]').forEach(marker => marker.remove());
+      });
+    }
+
+    function initializeBulkCatalogDirtyTracking() {
+      const form = document.getElementById('bulkCatalogForm');
+      if (!form || form.dataset.dirtyTracking === '1') return;
+      form.dataset.dirtyTracking = '1';
+
+      const tracking = document.createElement('input');
+      tracking.type = 'hidden';
+      tracking.name = 'bulk_dirty_tracking';
+      tracking.value = '1';
+      form.appendChild(tracking);
+
+      const markDirty = event => {
+        const control = event.target.closest('input, select, textarea');
+        if (!control || control.name === 'changed_product_id' || control.name === 'bulk_dirty_tracking') return;
+        const row = control.closest('.product-row');
+        if (!row) return;
+        const productId = row.getAttribute('data-id');
+        if (!productId || row.querySelector('input[data-bulk-dirty-marker]')) return;
+
+        const marker = document.createElement('input');
+        marker.type = 'hidden';
+        marker.name = 'changed_product_id';
+        marker.value = productId;
+        marker.setAttribute('data-bulk-dirty-marker', '1');
+        (row.querySelector('td') || form).appendChild(marker);
+        row.classList.add('bulk-dirty');
+
+        const status = document.getElementById('bulkCatalogSaveStatus');
+        if (status) {
+          status.className = 'bulk-save-status show pending';
+          status.textContent = 'Unsaved catalog changes are ready to save.';
+        }
+      };
+      form.addEventListener('input', markDirty);
+      form.addEventListener('change', markDirty);
+    }
+
     async function saveBulkCatalog(event, form) {
       event.preventDefault();
       if (form.dataset.saving === '1') return false;
@@ -1016,6 +1064,7 @@
         if (!response.ok || payload.success === false) {
           throw new Error(payload.message || 'The catalog could not be saved.');
         }
+        clearBulkCatalogDirtyState(form, payload.processed_ids || payload.updated_ids);
         syncBulkCatalogRowState(form);
         if (status) {
           status.className = 'bulk-save-status show success';
@@ -1035,6 +1084,8 @@
       }
       return false;
     }
+
+    initializeBulkCatalogDirtyTracking();
 
     function sortCatalogTable() {
       const sortBy = document.getElementById('catalogSortSelect').value;

@@ -7639,7 +7639,7 @@ def admin_add_product():
 def admin_batch_update_products():
     live_request = request.headers.get('X-Macleens-Live') == '1'
 
-    def finish(success, message, status=200, updated_count=0, updated_ids=None):
+    def finish(success, message, status=200, updated_count=0, updated_ids=None, processed_ids=None):
         if live_request:
             return jsonify({
                 'success': success,
@@ -7647,6 +7647,7 @@ def admin_batch_update_products():
                 'message': message,
                 'updated_count': updated_count,
                 'updated_ids': updated_ids or [],
+                'processed_ids': processed_ids or [],
             }), status
         flash(message, 'success' if success else 'error')
         return redirect(url_for('admin_dashboard') + '#catalog-editor')
@@ -7668,9 +7669,28 @@ def admin_batch_update_products():
         return int(value)
 
     try:
-        product_ids = request.form.getlist('product_id')
-        if not product_ids:
+        submitted_product_ids = request.form.getlist('product_id')
+        if not submitted_product_ids:
             raise OrderValidationError('No products were received. Reload Admin and try saving again.')
+
+        submitted_id_set = {
+            parse_int(value, 0) for value in submitted_product_ids if parse_int(value, 0) > 0
+        }
+        dirty_tracking = request.form.get('bulk_dirty_tracking') == '1'
+        if dirty_tracking:
+            product_ids = [
+                value for value in request.form.getlist('changed_product_id')
+                if parse_int(value, 0) in submitted_id_set
+            ]
+        else:
+            product_ids = submitted_product_ids
+
+        if dirty_tracking and not product_ids:
+            return finish(
+                True,
+                'No new changes were detected. Your catalog is already up to date.',
+                processed_ids=[],
+            )
 
         updated_ids = []
         seen_ids = set()
@@ -7719,10 +7739,13 @@ def admin_batch_update_products():
             )
 
             changed = any((
-                abs(price - (prod.price or 0.0)) > 0.000001,
-                abs(cost - (prod.cost or 0.0)) > 0.000001,
+                abs(price - parse_float(prod.price, 0.0)) > 0.000001,
+                abs(cost - parse_float(prod.cost, 0.0)) > 0.000001,
                 allow_custom_amount != bool(prod.allow_custom_amount),
-                minimum_order_amount != prod.minimum_order_amount,
+                minimum_order_amount != (
+                    parse_float(prod.minimum_order_amount, 0.0)
+                    if prod.minimum_order_amount is not None else None
+                ),
                 option_schema != (prod.option_schema or None),
                 size_schema != (prod.size_schema or None),
                 stock != (prod.stock or 0),
@@ -7758,7 +7781,13 @@ def admin_batch_update_products():
             f'Saved changes to {count} product{"s" if count != 1 else ""}.'
             if count else 'No new changes were detected. Your catalog is already up to date.'
         )
-        return finish(True, message, updated_count=count, updated_ids=updated_ids)
+        return finish(
+            True,
+            message,
+            updated_count=count,
+            updated_ids=updated_ids,
+            processed_ids=list(seen_ids),
+        )
     except OrderValidationError as exc:
         db.session.rollback()
         return finish(False, str(exc), status=400)
