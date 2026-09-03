@@ -254,9 +254,15 @@ def main() -> int:
             fail(f"modern storefront marker is missing: {marker}")
     if "filter-chip" in store_text or "Under ₱30" in store_text or "Popular now</button>" in store_text:
         fail("removed storefront quick-filter buttons are present below the search bar")
-    for marker in ['oninput="applyMenuFilters()"', "initializeStorefront();", ".hero img{width:118px"]:
+    for marker in [
+        'oninput="applyMenuFilters()"', "initializeStorefront();", ".hero img{width:118px",
+        ".search-context-hidden{display:none!important}", "catalogTitleText",
+        "section.classList.toggle('search-context-hidden', !!term)",
+    ]:
         if marker not in store_text:
             fail(f"storefront search/logo fix is missing: {marker}")
+    if "section.hidden = !!term" in store_text:
+        fail("storefront search still uses the CSS-overridable hidden attribute for discovery sections")
     for marker in ["reward-ring", "Saved favorites", "Barkada ordering", "Campus & quick-pickup", "Order again"]:
         if marker not in dashboard_text:
             fail(f"modern loyalty portal marker is missing: {marker}")

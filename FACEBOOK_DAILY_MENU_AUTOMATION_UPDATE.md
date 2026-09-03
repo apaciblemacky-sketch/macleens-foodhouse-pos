@@ -79,7 +79,10 @@ and will not duplicate a successful Page/provider send for the same day.
 - The hero logo is substantially larger on desktop and mobile.
 - The buttons below the storefront search bar were removed.
 - Search initializes correctly after no-refresh navigation and brings matching
-  products directly below the search box with a live result count.
+  products directly below the search box with a live result count. While a
+  search is active, all recommendation carousels and category controls are
+  hidden so only matching products remain on screen; clearing the search
+  restores the normal storefront sections.
 - Add Product now handles database failures cleanly, returns to the correct Admin
   section, and highlights the newly created product so the result is visible.
 - The shared no-refresh layer now carries viewport settings between portal pages

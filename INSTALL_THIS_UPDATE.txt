@@ -23,7 +23,9 @@ INSTALL AND DEPLOY
 
 THIS RELEASE ADDS
 - Modern mobile-first student storefront and Digital catalog.
-- Repaired instant menu search with no buttons below the search bar.
+- Repaired instant menu search with no buttons below the search bar. An active
+  search now shows only matching products and hides unrelated recommendations;
+  clearing the search restores the full storefront.
 - Larger storefront logo and visible Admin Add Product confirmation/highlight.
 - Favorites, order again, campus break preferences, and quick pickup choices.
 - Shareable Barkada carts with organizer-only final submission.
