@@ -21,3 +21,17 @@ services:
         generateValue: true
       - key: PUBLIC_BASE_URL
         value: https://macleens-foodhouse-pos.onrender.com
+      - key: META_GRAPH_VERSION
+        value: v24.0
+      - key: META_PAGE_ID
+        sync: false
+      - key: META_PAGE_ACCESS_TOKEN
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: META_MARKETING_PROVIDER_WEBHOOK_URL
+        sync: false
+      - key: META_MARKETING_PROVIDER_TOKEN
+        sync: false

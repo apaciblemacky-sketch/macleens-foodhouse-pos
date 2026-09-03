@@ -22,7 +22,7 @@
   <header class="header">
     <div>
       <h1>📣 Macleen's AI Marketing</h1>
-      <p>AI-assisted Facebook post planning and manual Page/Group posting — no Meta Developer connection required.</p>
+      <p>AI-assisted campaigns, automatic daily Page menus, and Messenger menu replies in one place.</p>
     </div>
     <div class="actions">
       <a class="btn btn-light" href="{{ url_for('admin_dashboard') }}">← Master Admin</a>
@@ -35,12 +35,13 @@
     {% for category, message in messages %}<div class="flash"><strong>{{ category|upper }}</strong> — {{ message }}</div>{% endfor %}
   {% endwith %}
 
-  <div class="notice" style="margin-bottom:16px"><strong>Manual Facebook mode:</strong> Macleen's never logs in to Facebook, stores no Facebook access token, and does not need a Meta Developer App ID or App Secret. Generate/edit a post here, copy it, open your Page or Group, paste it, then click <strong>Mark Posted</strong> so the AI remembers your posting history.</div>
+  <div class="notice" style="margin-bottom:16px"><strong>Two safe modes:</strong> General AI Page/Group posts remain approval-first and manual. The separate <strong>Daily Menu Automation</strong> can publish through Meta's official Page API and answer customers who message <strong>MENU</strong>. Proactive Messenger campaigns are sent only through a configured approved provider that manages Meta opt-ins and paid delivery.</div>
 
   <div class="grid">
     <div class="metric"><span class="muted">AI Provider</span><strong>{{ settings.ai_provider }}</strong><span class="status info">Gemini Free is default</span></div>
     <div class="metric"><span class="muted">Gemini</span><strong>{{ 'READY' if gemini_ready else 'NO KEY YET' }}</strong><span class="status {{ 'ok' if gemini_ready else 'warn' }}">{{ gemini_model if gemini_ready else 'Add GEMINI_API_KEY' }}</span></div>
-    <div class="metric"><span class="muted">Facebook Posting</span><strong>MANUAL</strong><span class="status ok">No Meta API needed</span></div>
+    <div class="metric"><span class="muted">Daily Page API</span><strong>{{ 'READY' if page_api_ready else 'SETUP NEEDED' }}</strong><span class="status {{ 'ok' if page_api_ready else 'warn' }}">{{ 'Official API connected' if page_api_ready else 'Add Render credentials' }}</span></div>
+    <div class="metric"><span class="muted">Messenger MENU Reply</span><strong>{{ 'READY' if webhook_ready else 'SETUP NEEDED' }}</strong><span class="status {{ 'ok' if webhook_ready else 'warn' }}">{{ messenger_metrics.contacts }} contact(s)</span></div>
     <div class="metric"><span class="muted">Scheduled Draft Queue</span><strong>{{ 'ON' if settings.enabled else 'PAUSED' }}</strong><span class="status {{ 'ok' if settings.enabled else 'warn' }}">Drafts only</span></div>
     <div class="metric"><span class="muted">Scheduler endpoint</span><strong>{{ 'READY' if cron_ready else 'OPTIONAL' }}</strong><span class="status {{ 'ok' if cron_ready else 'info' }}">MARKETING_CRON_TOKEN</span></div>
   </div>
@@ -92,6 +93,69 @@
         {% if settings.facebook_page_url %}<a class="btn btn-light" href="{{ settings.facebook_page_url }}" target="_blank" rel="noopener">Open Page ↗</a>{% else %}<a class="btn btn-light" href="https://www.facebook.com/" target="_blank" rel="noopener">Open Facebook ↗</a>{% endif %}
       </div>
     </form>
+  </section>
+
+  <section class="card" id="daily-menu-automation">
+    <h2>🍽️ Daily Facebook Menu Automation</h2>
+    <p class="muted">The menu is generated only from active Food House products with stock above zero. Prices come directly from the catalog. One successful send per channel per Philippine calendar day prevents duplicates.</p>
+
+    <div class="grid" style="margin:12px 0">
+      <div class="metric"><span class="muted">Automation</span><strong>{{ 'ON' if settings.daily_menu_enabled else 'PAUSED' }}</strong><span class="status {{ 'ok' if settings.daily_menu_enabled else 'warn' }}">{{ settings.daily_menu_time }} PH time</span></div>
+      <div class="metric"><span class="muted">Page Publishing</span><strong>{{ 'AUTO' if settings.daily_menu_auto_page_post else 'MANUAL' }}</strong><span class="status {{ 'ok' if page_api_ready else 'warn' }}">{{ 'Credentials ready' if page_api_ready else 'Needs META_PAGE_ID + token' }}</span></div>
+      <div class="metric"><span class="muted">Messenger Activity</span><strong>{{ messenger_metrics.sent }} SENT</strong><span class="status info">{{ messenger_metrics.delivered }} delivered · {{ messenger_metrics.read }} read · {{ messenger_metrics.clicked }} clicked</span></div>
+      <div class="metric"><span class="muted">Paid Opt-in Provider</span><strong>{{ 'READY' if provider_ready else 'NOT CONNECTED' }}</strong><span class="status {{ 'ok' if provider_ready else 'warn' }}">Approved provider required</span></div>
+    </div>
+
+    <form action="{{ url_for('marketing_save_daily_menu_settings') }}" method="post">
+      <div class="form-grid">
+        <div class="checkline"><input type="checkbox" id="dailyMenuEnabled" name="daily_menu_enabled" {% if settings.daily_menu_enabled %}checked{% endif %}><label for="dailyMenuEnabled" style="margin:0">Enable daily menu scheduler</label></div>
+        <div><label>Daily Run Time — Philippines</label><input type="time" name="daily_menu_time" value="{{ settings.daily_menu_time }}" required></div>
+        <div class="checkline"><input type="checkbox" id="requireApproval" name="require_approval" {% if settings.daily_menu_require_approval %}checked{% endif %}><label for="requireApproval" style="margin:0">Require approval before sending</label></div>
+        <div class="checkline"><input type="checkbox" id="autoPagePost" name="auto_page_post" {% if settings.daily_menu_auto_page_post %}checked{% endif %}><label for="autoPagePost" style="margin:0">Automatically publish Page menu</label></div>
+        <div class="checkline"><input type="checkbox" id="messengerReply" name="messenger_reply" {% if settings.daily_menu_messenger_reply %}checked{% endif %}><label for="messengerReply" style="margin:0">Reply when customer sends MENU</label></div>
+        <div class="checkline"><input type="checkbox" id="providerEnabled" name="provider_enabled" {% if settings.daily_menu_provider_enabled %}checked{% endif %}><label for="providerEnabled" style="margin:0">Send opted-in paid provider campaign</label></div>
+        <div><label>Facebook Page Username</label><input name="page_username" value="{{ settings.daily_menu_page_username }}" placeholder="Example: macleens"></div>
+        <div style="grid-column:1/-1"><label>Short Menu Introduction</label><input maxlength="240" name="daily_menu_intro" value="{{ settings.daily_menu_intro }}" placeholder="Affordable meals and snacks available today!"></div>
+      </div>
+      <div class="actions" style="margin-top:10px">
+        <button class="btn btn-pink" type="submit">Save Daily Menu Settings</button>
+        <button class="btn btn-light" type="submit" formaction="{{ url_for('marketing_create_daily_menu_draft') }}">Refresh Today's Draft</button>
+        {% if messenger_start_url %}<a class="btn btn-blue" href="{{ messenger_start_url }}" target="_blank" rel="noopener">Test MENU Link ↗</a>{% endif %}
+      </div>
+    </form>
+
+    <div class="grid-2" style="margin-top:14px">
+      <div>
+        <h3>Today's Live Catalog Message</h3>
+        {% if daily_menu_preview_error %}<div class="status bad">{{ daily_menu_preview_error }}</div>{% else %}
+        <form action="{{ url_for('marketing_publish_daily_menu') }}" method="post">
+          <textarea name="caption" style="min-height:320px">{{ daily_menu_preview }}</textarea>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn btn-green" type="submit" {% if not page_api_ready %}title="Add Meta Page credentials in Render first"{% endif %}>Publish to Facebook Page Now</button>
+            {% if settings.daily_menu_provider_enabled %}<button class="btn btn-blue" type="submit" formaction="{{ url_for('marketing_send_daily_menu_provider') }}">Send Through Approved Provider</button>{% endif %}
+          </div>
+        </form>
+        {% endif %}
+      </div>
+      <div>
+        <h3>Connection Checklist</h3>
+        <div class="group-row"><strong>1. Page post credentials</strong><p class="muted">Render environment: META_PAGE_ID, META_PAGE_ACCESS_TOKEN, and optional META_GRAPH_VERSION. The Page token needs permission to manage Page posts.</p></div>
+        <div class="group-row"><strong>2. Messenger webhook</strong><p class="muted">Callback URL:</p><div class="code">{{ messenger_webhook_url }}</div><p class="muted">Render environment: META_WEBHOOK_VERIFY_TOKEN and META_APP_SECRET. Subscribe the Meta app to Page messaging events.</p></div>
+        <div class="group-row"><strong>3. Daily scheduler</strong><p class="muted">Call this protected endpoint hourly. It sends only after your selected PH time and blocks duplicate daily sends.</p><div class="code">{{ url_for('facebook_menu_cron_run', _external=True) }}?token=YOUR_MARKETING_CRON_TOKEN</div></div>
+        <div class="group-row"><strong>4. Proactive daily Messenger updates</strong><p class="muted">Optional and paid. Connect only an eligible Meta technology provider using META_MARKETING_PROVIDER_WEBHOOK_URL and, when required, META_MARKETING_PROVIDER_TOKEN. The provider—not this customer database—must manage valid subscriber opt-ins.</p></div>
+      </div>
+    </div>
+
+    <details style="margin-top:14px">
+      <summary><strong>Advanced: test a Messenger reply using a received PSID</strong></summary>
+      <form action="{{ url_for('marketing_test_menu_reply') }}" method="post" class="actions" style="margin-top:9px"><input name="psid" placeholder="Page-scoped Messenger user ID" style="max-width:360px" required><button class="btn btn-blue">Send Test Menu Reply</button></form>
+    </details>
+
+    <div class="scroll" style="max-height:280px;margin-top:14px"><table>
+      <thead><tr><th>Date</th><th>Channel</th><th>Status</th><th>Sent / Error</th></tr></thead>
+      <tbody>{% for run in daily_menu_runs %}<tr><td>{{ run.menu_date }}</td><td>{{ run.channel.replace('_',' ').title() }}</td><td><span class="status {% if run.status=='SENT' %}ok{% elif run.status in ['FAILED','BLOCKED'] %}bad{% else %}warn{% endif %}">{{ run.status }}</span></td><td>{% if run.sent_at %}{{ run.sent_at|ph_datetime('%b %d, %I:%M %p') }}{% elif run.error_message %}<span style="color:var(--red)">{{ run.error_message }}</span>{% else %}Awaiting approval{% endif %}</td></tr>{% else %}<tr><td colspan="4" class="muted">No daily menu run yet.</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <details style="margin-top:12px"><summary><strong>Recent Messenger delivery / read / click log</strong></summary><div class="scroll" style="max-height:260px;margin-top:8px"><table><thead><tr><th>Time</th><th>Kind</th><th>Status</th><th>Error</th></tr></thead><tbody>{% for delivery in messenger_deliveries %}<tr><td>{{ delivery.created_at|ph_datetime('%b %d, %I:%M %p') }}</td><td>{{ delivery.message_kind.replace('_',' ').title() }}</td><td><span class="status {% if delivery.status in ['SENT','DELIVERED','READ','CLICKED'] %}ok{% elif delivery.status=='FAILED' %}bad{% else %}warn{% endif %}">{{ delivery.status }}</span></td><td>{{ delivery.error_message or '—' }}</td></tr>{% else %}<tr><td colspan="4" class="muted">No Messenger replies sent yet.</td></tr>{% endfor %}</tbody></table></div></details>
   </section>
 
   <section class="card">

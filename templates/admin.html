@@ -30,6 +30,10 @@
     
     .metric-card { background:#f8fafc; border:1.5px solid #e2e8f0; border-radius:8px; padding:12px; text-align:center; }
     .metric-val { font-size:1.4rem; font-weight:900; }
+    .flash-message { padding:11px 14px; border-radius:9px; margin:-.5rem 0 1rem; background:#fff; border:1px solid #cbd5e1; font-size:.84rem; font-weight:750; box-shadow:0 4px 14px rgba(15,23,42,.05); }
+    .flash-message.success { background:#ecfdf5; border-color:#86efac; color:#166534; }
+    .flash-message.error { background:#fef2f2; border-color:#fca5a5; color:#991b1b; }
+    .flash-message.info { background:#eff6ff; border-color:#93c5fd; color:#1e40af; }
   </style>
 </head>
 <body>
@@ -53,6 +57,10 @@
       <a href="/staff/logout?role=admin" class="btn" style="background:#fee2e2; color:#991b1b;">Admin Logout</a>
     </div>
   </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}<div class="flash-message {{ category }}" role="status">{{ message }}</div>{% endfor %}
+  {% endwith %}
 
   <!-- 📊 COMPREHENSIVE FINANCIAL PERFORMANCE TABLE -->
   <div class="card" style="border: 2px solid var(--hk-pink);">
@@ -717,9 +725,10 @@
   </div>
 
   <!-- ➕ RESTORED: ADD DISH FORM -->
-  <div class="card">
+  <div class="card" id="add-dish">
     <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:0.95rem;">➕ Add Dish with Photo, Time Schedule & Badges</h3>
-    <form action="/admin/add-product" method="POST" class="form-row">
+    <p style="font-size:.72rem;color:#64748b;margin:-4px 0 10px;">Only the dish name, category, and selling price are required. After saving, the new active product will be highlighted in the catalog.</p>
+    <form id="addProductForm" action="{{ url_for('admin_add_product') }}" method="POST" class="form-row">
       <div class="form-group" style="flex:2;">
         <label>Dish Name *</label>
         <input type="text" name="name" class="form-control" required placeholder="e.g. Pork Sisig">
@@ -791,7 +800,7 @@
   </div>
 
   <!-- 📦 BULK CATALOG EDITOR -->
-  <div class="card">
+  <div class="card" id="catalog-editor">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
       <div>
         <h3 style="color:var(--hk-dark); font-size:1rem;">📦 Bulk Catalog Editor (<span id="productCounter">{{ products|length }}</span> / {{ products|length }} Items)</h3>
@@ -848,7 +857,7 @@
           </thead>
           <tbody>
             {% for p in products %}
-            <tr class="product-row"
+            <tr class="product-row" id="product-row-{{ p.id }}"
                 data-id="{{ p.id }}"
                 data-name="{{ p.name|lower }}"
                 data-cat="{{ p.category_name|lower }}"
@@ -856,7 +865,7 @@
                 data-likes="{{ p.total_likes or 0 }}"
                 data-price="{{ p.price or 0 }}"
                 data-featured="{{ '1' if p.is_featured else '0' }}"
-                data-top-seller="{{ '1' if p.is_top_seller else '0' }}">
+                data-top-seller="{{ '1' if p.is_top_seller else '0' }}"{% if highlight_product_id == p.id %} style="outline:3px solid #10b981;outline-offset:-3px;background:#ecfdf5"{% endif %}>
               <input type="hidden" name="product_id" value="{{ p.id }}">
               <td>
                 {% if p.image_url %}

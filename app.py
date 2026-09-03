@@ -3,6 +3,8 @@ import json
 import base64
 import calendar
 import csv
+import hashlib
+import hmac
 import logging
 import os
 import re
@@ -19,6 +21,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 import qrcode
 import qrcode.image.svg
+import requests
 
 from marketing_agent import (
     analyze_marketing_insights, extract_peso_amounts, generate_ai_marketing_decision,
@@ -713,6 +716,52 @@ class MarketingPost(db.Model):
     insights_analyzed_at = db.Column(db.DateTime, nullable=True)
     group = db.relationship('MarketingGroup', lazy=True)
 
+
+class FacebookMenuRun(db.Model):
+    """One idempotent daily-menu action per channel and Philippine calendar day."""
+    __tablename__ = 'facebook_menu_run'
+    __table_args__ = (UniqueConstraint('menu_date', 'channel', name='uq_facebook_menu_run_day_channel'),)
+    id = db.Column(db.Integer, primary_key=True)
+    menu_date = db.Column(db.Date, nullable=False)
+    channel = db.Column(db.String(30), nullable=False, default='PAGE_POST')
+    status = db.Column(db.String(20), nullable=False, default='DRAFT')
+    caption = db.Column(db.Text, nullable=False)
+    external_id = db.Column(db.String(180), nullable=True)
+    error_message = db.Column(db.Text, nullable=True)
+    triggered_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    sent_at = db.Column(db.DateTime, nullable=True)
+
+
+class MessengerContact(db.Model):
+    """A Page-scoped Messenger contact learned only after that person messages the Page."""
+    __tablename__ = 'messenger_contact'
+    id = db.Column(db.Integer, primary_key=True)
+    psid = db.Column(db.String(180), unique=True, nullable=False)
+    source = db.Column(db.String(40), default='INBOUND', nullable=False)
+    opted_out = db.Column(db.Boolean, default=False, nullable=False)
+    first_seen_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    last_interaction_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    last_menu_sent_at = db.Column(db.DateTime, nullable=True)
+
+
+class MessengerDelivery(db.Model):
+    """Auditable Messenger reply delivery/read/click status without storing message text."""
+    __tablename__ = 'messenger_delivery'
+    id = db.Column(db.Integer, primary_key=True)
+    contact_id = db.Column(db.Integer, db.ForeignKey('messenger_contact.id', ondelete='CASCADE'), nullable=False)
+    message_kind = db.Column(db.String(30), nullable=False, default='MENU_REPLY')
+    message_id = db.Column(db.String(180), nullable=True)
+    tracking_token = db.Column(db.String(64), unique=True, nullable=False, default=lambda: secrets.token_urlsafe(24))
+    status = db.Column(db.String(20), nullable=False, default='QUEUED')
+    error_message = db.Column(db.Text, nullable=True)
+    sent_at = db.Column(db.DateTime, nullable=True)
+    delivered_at = db.Column(db.DateTime, nullable=True)
+    read_at = db.Column(db.DateTime, nullable=True)
+    clicked_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    contact = db.relationship('MessengerContact', lazy=True)
+
 CRAFT_ORDER_STATUSES = ('PENDING', 'READY', 'COMPLETED', 'CANCELLED')
 CRAFT_PAYMENT_METHODS = ('CASH', 'GCASH')
 CRAFT_DEFAULT_IMAGE = '/static/craft/default-craft.png'
@@ -1143,7 +1192,7 @@ def add_live_ui_progressive_enhancement(response):
         html = response.get_data(as_text=True)
         marker = 'data-macleens-live'
         if marker not in html and '</body>' in html.lower():
-            script = '<script data-macleens-live src="/static/live-ui.js?v=4"></script>'
+            script = '<script data-macleens-live src="/static/live-ui.js?v=5"></script>'
             closing = html.lower().rfind('</body>')
             html = html[:closing] + script + html[closing:]
             response.set_data(html)
@@ -2418,7 +2467,8 @@ def save_investor_setting(key, value):
 def marketing_settings():
     return {
         'enabled': marketing_setting('marketing_enabled', 'false') == 'true',
-        # Facebook publishing is manual in this build. The scheduler may create drafts only.
+        # General AI posts remain approval-first/manual. Daily menu publishing has
+        # its own explicit controls and environment-only Meta credentials.
         'mode': 'MANUAL_POSTING',
         'ai_provider': marketing_setting('marketing_ai_provider', 'GEMINI').upper(),
         'business_scope': marketing_setting('marketing_business_scope', 'BOTH'),
@@ -2429,6 +2479,14 @@ def marketing_settings():
         'max_posts_per_day': max(1, min(3, parse_int(marketing_setting('marketing_max_posts_per_day', '1'), 1))),
         'facebook_page_name': marketing_setting('marketing_facebook_page_name', 'Macleen\'s Facebook Page'),
         'facebook_page_url': marketing_setting('marketing_facebook_page_url', ''),
+        'daily_menu_enabled': marketing_setting('fb_daily_menu_enabled', 'false') == 'true',
+        'daily_menu_time': marketing_setting('fb_daily_menu_time', '07:00'),
+        'daily_menu_require_approval': marketing_setting('fb_daily_menu_require_approval', 'true') == 'true',
+        'daily_menu_auto_page_post': marketing_setting('fb_daily_menu_auto_page_post', 'false') == 'true',
+        'daily_menu_messenger_reply': marketing_setting('fb_daily_menu_messenger_reply', 'true') == 'true',
+        'daily_menu_provider_enabled': marketing_setting('fb_daily_menu_provider_enabled', 'false') == 'true',
+        'daily_menu_intro': marketing_setting('fb_daily_menu_intro', 'Affordable meals and snacks available today!').strip(),
+        'daily_menu_page_username': marketing_setting('fb_daily_menu_page_username', '').strip(),
     }
 
 def _marketing_public_base_url():
@@ -2438,6 +2496,283 @@ def _marketing_public_base_url():
     if has_request_context():
         return request.url_root.rstrip('/')
     return 'https://macleens-foodhouse-pos.onrender.com'
+
+
+def _meta_graph_version():
+    value = os.environ.get('META_GRAPH_VERSION', 'v24.0').strip()
+    return value if re.fullmatch(r'v\d+\.\d+', value) else 'v24.0'
+
+
+def facebook_page_api_ready():
+    return bool(os.environ.get('META_PAGE_ID', '').strip() and os.environ.get('META_PAGE_ACCESS_TOKEN', '').strip())
+
+
+def messenger_webhook_ready():
+    return bool(
+        facebook_page_api_ready()
+        and os.environ.get('META_WEBHOOK_VERIFY_TOKEN', '').strip()
+        and os.environ.get('META_APP_SECRET', '').strip()
+    )
+
+
+def marketing_provider_ready():
+    url = os.environ.get('META_MARKETING_PROVIDER_WEBHOOK_URL', '').strip()
+    return bool(url and url.startswith('https://'))
+
+
+def messenger_menu_start_url():
+    username = marketing_settings().get('daily_menu_page_username', '').strip().lstrip('@')
+    if not username or not re.fullmatch(r'[A-Za-z0-9._-]{3,100}', username):
+        return ''
+    return f'https://m.me/{username}?ref=daily_menu'
+
+
+def _daily_menu_products():
+    """Return active, stocked Food House products without inventing availability."""
+    return [
+        product for product in Product.query.filter_by(is_active=True).order_by(
+            Product.category_name.asc(), Product.price.desc(), Product.name.asc()
+        ).all()
+        if parse_int(product.stock, 0) > 0
+    ]
+
+
+def build_daily_menu_caption(menu_date=None, compact=False):
+    """Build a deterministic menu from current product records; AI cannot invent items or prices."""
+    menu_date = menu_date or ph_today()
+    products = _daily_menu_products()
+    if not products:
+        raise OrderValidationError('No active in-stock Food House products are available for the daily menu.')
+
+    cfg = marketing_settings()
+    grouped = {}
+    for product in products:
+        grouped.setdefault(product.category_name or 'Menu', []).append(product)
+
+    lines = [f"🍽️ MACLEEN'S MENU TODAY — {menu_date.strftime('%B %d, %Y')}"]
+    if cfg['daily_menu_intro']:
+        lines.extend(['', cfg['daily_menu_intro'][:240]])
+    for category, items in grouped.items():
+        lines.extend(['', f'【{category}】'])
+        for product in items:
+            starting_price = product_starting_price(product)
+            prefix = 'From ' if product.size_schema or product.allow_custom_amount else ''
+            schedule = ''
+            if product.available_start_time and product.available_end_time:
+                schedule = f' • {product.available_start_time}–{product.available_end_time}'
+            lines.append(f'• {product.name} — {prefix}₱{starting_price:,.2f}{schedule}')
+
+    order_url = _marketing_public_base_url() + '/'
+    lines.extend(['', f'View the live menu and order: {order_url}', 'Prices and stock shown in the portal are the latest available.'])
+    caption = '\n'.join(lines)
+    if compact and len(caption) > 1700:
+        short_lines = [lines[0], '', cfg['daily_menu_intro'][:160]]
+        for category, items in grouped.items():
+            short_lines.extend(['', f'【{category}】'])
+            for product in items[:8]:
+                price = product_starting_price(product)
+                prefix = 'From ' if product.size_schema or product.allow_custom_amount else ''
+                short_lines.append(f'• {product.name} — {prefix}₱{price:,.2f}')
+        short_lines.extend(['', f'Complete live menu: {order_url}'])
+        caption = '\n'.join(short_lines)
+    return caption
+
+
+def _daily_menu_run(channel, caption, triggered_by):
+    run = FacebookMenuRun.query.filter_by(menu_date=ph_today(), channel=channel).first()
+    if not run:
+        run = FacebookMenuRun(
+            menu_date=ph_today(), channel=channel, status='DRAFT', caption=caption,
+            triggered_by=(triggered_by or 'system')[:50],
+        )
+        db.session.add(run)
+    elif run.status != 'SENT':
+        run.caption = caption
+        run.triggered_by = (triggered_by or run.triggered_by or 'system')[:50]
+        run.error_message = None
+        run.status = 'DRAFT'
+    db.session.commit()
+    return run
+
+
+def publish_daily_menu_page(caption=None, triggered_by='admin'):
+    caption = (caption or '').strip() or build_daily_menu_caption()
+    run = _daily_menu_run('PAGE_POST', caption[:12000], triggered_by)
+    if run.status == 'SENT':
+        return {'sent': False, 'status': 'already_sent', 'message': "Today's Facebook Page menu was already published.", 'run_id': run.id}
+
+    page_id = os.environ.get('META_PAGE_ID', '').strip()
+    access_token = os.environ.get('META_PAGE_ACCESS_TOKEN', '').strip()
+    if not page_id or not access_token:
+        run.status = 'BLOCKED'
+        run.error_message = 'META_PAGE_ID and META_PAGE_ACCESS_TOKEN are not configured in Render.'
+        db.session.commit()
+        raise OrderValidationError(run.error_message)
+
+    try:
+        response = requests.post(
+            f'https://graph.facebook.com/{_meta_graph_version()}/{page_id}/feed',
+            data={'message': run.caption, 'link': _marketing_public_base_url() + '/'},
+            params={'access_token': access_token},
+            timeout=20,
+        )
+        payload = response.json() if response.content else {}
+        if not response.ok or not payload.get('id'):
+            message = str((payload.get('error') or {}).get('message') or f'Meta returned HTTP {response.status_code}')
+            raise RuntimeError(message[:500])
+        run.status = 'SENT'
+        run.external_id = str(payload['id'])[:180]
+        run.error_message = None
+        run.sent_at = utc_now()
+        db.session.commit()
+        return {'sent': True, 'status': 'sent', 'message': "Today's menu was published to the Facebook Page.", 'run_id': run.id, 'external_id': run.external_id}
+    except Exception as exc:
+        db.session.rollback()
+        run = db.session.get(FacebookMenuRun, run.id)
+        run.status = 'FAILED'
+        run.error_message = str(exc)[:1000]
+        db.session.commit()
+        app.logger.exception('Daily Facebook Page menu publishing failed')
+        raise OrderValidationError(f'Facebook could not publish the menu: {exc}')
+
+
+def send_daily_menu_to_provider(caption=None, triggered_by='scheduler'):
+    """Hand an approved, opted-in paid campaign to a configured Meta technology provider."""
+    caption = (caption or '').strip() or build_daily_menu_caption(compact=True)
+    run = _daily_menu_run('PROVIDER_CAMPAIGN', caption[:12000], triggered_by)
+    if run.status == 'SENT':
+        return {'sent': False, 'status': 'already_sent', 'message': "Today's opted-in Messenger campaign was already handed to the provider.", 'run_id': run.id}
+    webhook_url = os.environ.get('META_MARKETING_PROVIDER_WEBHOOK_URL', '').strip()
+    if not webhook_url.startswith('https://'):
+        run.status = 'BLOCKED'
+        run.error_message = 'An HTTPS META_MARKETING_PROVIDER_WEBHOOK_URL is not configured.'
+        db.session.commit()
+        raise OrderValidationError(run.error_message)
+    headers = {'Content-Type': 'application/json'}
+    provider_token = os.environ.get('META_MARKETING_PROVIDER_TOKEN', '').strip()
+    if provider_token:
+        headers['Authorization'] = f'Bearer {provider_token}'
+    try:
+        response = requests.post(webhook_url, json={
+            'event': 'macleens_daily_menu',
+            'menu_date': ph_today().isoformat(),
+            'page_name': marketing_settings()['facebook_page_name'],
+            'message': run.caption,
+            'order_url': _marketing_public_base_url() + '/',
+        }, headers=headers, timeout=20)
+        if not response.ok:
+            raise RuntimeError(f'Provider returned HTTP {response.status_code}')
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        run.status = 'SENT'
+        run.external_id = str(payload.get('campaign_id') or payload.get('id') or '')[:180] or None
+        run.error_message = None
+        run.sent_at = utc_now()
+        db.session.commit()
+        return {'sent': True, 'status': 'sent', 'message': 'The opted-in Messenger campaign was handed to the configured provider.', 'run_id': run.id}
+    except Exception as exc:
+        db.session.rollback()
+        run = db.session.get(FacebookMenuRun, run.id)
+        run.status = 'FAILED'
+        run.error_message = str(exc)[:1000]
+        db.session.commit()
+        app.logger.exception('Daily Messenger provider campaign failed')
+        raise OrderValidationError(f'Messenger provider could not accept the campaign: {exc}')
+
+
+def create_daily_menu_drafts(triggered_by='admin'):
+    caption = build_daily_menu_caption()
+    channels = ['PAGE_POST']
+    if marketing_settings()['daily_menu_provider_enabled']:
+        channels.append('PROVIDER_CAMPAIGN')
+    runs = [_daily_menu_run(channel, caption, triggered_by) for channel in channels]
+    return runs
+
+
+def run_daily_menu_automation_once(force_due=False, triggered_by='scheduler'):
+    cfg = marketing_settings()
+    if not cfg['daily_menu_enabled']:
+        return {'ran': False, 'message': 'Daily menu automation is paused.', 'channels': {}}
+    try:
+        scheduled = datetime.strptime(cfg['daily_menu_time'], '%H:%M').time()
+    except ValueError:
+        scheduled = time(7, 0)
+    if not force_due and ph_now().time() < scheduled:
+        return {'ran': False, 'message': f"Daily menu is scheduled for {scheduled.strftime('%I:%M %p')} PH time.", 'channels': {}}
+
+    caption = build_daily_menu_caption()
+    results = {}
+    if cfg['daily_menu_require_approval']:
+        for run in create_daily_menu_drafts(triggered_by):
+            results[run.channel] = {'status': run.status.lower(), 'run_id': run.id}
+        return {'ran': True, 'message': "Today's menu draft is ready for approval.", 'channels': results}
+
+    if cfg['daily_menu_auto_page_post']:
+        try:
+            results['PAGE_POST'] = publish_daily_menu_page(caption, triggered_by)
+        except OrderValidationError as exc:
+            results['PAGE_POST'] = {'status': 'failed', 'message': str(exc)}
+    if cfg['daily_menu_provider_enabled']:
+        try:
+            results['PROVIDER_CAMPAIGN'] = send_daily_menu_to_provider(caption, triggered_by)
+        except OrderValidationError as exc:
+            results['PROVIDER_CAMPAIGN'] = {'status': 'failed', 'message': str(exc)}
+    if not results:
+        return {'ran': False, 'message': 'Daily menu is enabled, but no automatic publishing channel is enabled.', 'channels': {}}
+    return {'ran': True, 'message': 'Daily menu automation check completed.', 'channels': results}
+
+
+def _messenger_contact(psid, source='INBOUND'):
+    contact = MessengerContact.query.filter_by(psid=psid).first()
+    if not contact:
+        contact = MessengerContact(psid=psid[:180], source=source[:40])
+        db.session.add(contact)
+    contact.last_interaction_at = utc_now()
+    return contact
+
+
+def send_messenger_text(psid, text, message_kind='MENU_REPLY', include_tracked_menu_link=False):
+    if not facebook_page_api_ready():
+        raise OrderValidationError('META_PAGE_ID and META_PAGE_ACCESS_TOKEN are not configured in Render.')
+    contact = _messenger_contact(psid)
+    delivery = MessengerDelivery(contact=contact, message_kind=message_kind, status='QUEUED')
+    db.session.add(delivery)
+    db.session.commit()
+    if include_tracked_menu_link:
+        tracked_url = f'{_marketing_public_base_url()}/m/menu/{delivery.tracking_token}'
+        text = text[:max(200, 1850 - len(tracked_url))].rstrip() + f'\n\nView the complete live menu and order: {tracked_url}\nReply STOP to stop marketing updates.'
+    try:
+        response = requests.post(
+            f"https://graph.facebook.com/{_meta_graph_version()}/{os.environ.get('META_PAGE_ID', '').strip()}/messages",
+            params={'access_token': os.environ.get('META_PAGE_ACCESS_TOKEN', '').strip()},
+            json={'recipient': {'id': psid}, 'messaging_type': 'RESPONSE', 'message': {'text': text[:2000]}},
+            timeout=20,
+        )
+        payload = response.json() if response.content else {}
+        if not response.ok or not payload.get('message_id'):
+            message = str((payload.get('error') or {}).get('message') or f'Meta returned HTTP {response.status_code}')
+            raise RuntimeError(message[:500])
+        delivery.message_id = str(payload['message_id'])[:180]
+        delivery.status = 'SENT'
+        delivery.sent_at = utc_now()
+        if message_kind == 'MENU_REPLY':
+            contact.last_menu_sent_at = utc_now()
+        db.session.commit()
+        return delivery
+    except Exception as exc:
+        db.session.rollback()
+        delivery = db.session.get(MessengerDelivery, delivery.id)
+        delivery.status = 'FAILED'
+        delivery.error_message = str(exc)[:1000]
+        db.session.commit()
+        app.logger.exception('Messenger reply failed for delivery_id=%s', delivery.id)
+        raise OrderValidationError(f'Messenger could not send the reply: {exc}')
+
+
+def send_messenger_menu_reply(psid):
+    return send_messenger_text(psid, build_daily_menu_caption(compact=True), 'MENU_REPLY', True)
 
 def _marketing_source_link(source_kind, source_id, business):
     base = _marketing_public_base_url()
@@ -2822,6 +3157,7 @@ def store_catalog():
                            trending_ids=trending_ids,
                            student_picks=student_picks,
                            reorder_cart=reorder_cart,
+                           messenger_menu_url=(messenger_menu_start_url() if marketing_settings()['daily_menu_messenger_reply'] else ''),
                            product_is_available_now=is_product_available_now)
 
 @app.route('/promo/burger-deal')
@@ -5356,6 +5692,20 @@ def marketing_admin():
     cfg = marketing_settings()
     groups = MarketingGroup.query.order_by(MarketingGroup.is_active.desc(), MarketingGroup.name.asc()).all()
     posts = MarketingPost.query.order_by(MarketingPost.created_at.desc()).limit(100).all()
+    try:
+        daily_menu_preview = build_daily_menu_caption()
+        daily_menu_preview_error = ''
+    except OrderValidationError as exc:
+        daily_menu_preview = ''
+        daily_menu_preview_error = str(exc)
+    delivery_metrics = {
+        'contacts': MessengerContact.query.count(),
+        'sent': MessengerDelivery.query.filter(MessengerDelivery.status.in_(['SENT', 'DELIVERED', 'READ', 'CLICKED'])).count(),
+        'delivered': MessengerDelivery.query.filter(MessengerDelivery.status.in_(['DELIVERED', 'READ', 'CLICKED'])).count(),
+        'read': MessengerDelivery.query.filter(MessengerDelivery.status.in_(['READ', 'CLICKED'])).count(),
+        'clicked': MessengerDelivery.query.filter_by(status='CLICKED').count(),
+        'failed': MessengerDelivery.query.filter_by(status='FAILED').count(),
+    }
     return render_template(
         'marketing_admin.html',
         settings=cfg,
@@ -5369,6 +5719,16 @@ def marketing_admin():
         post_types=MARKETING_POST_TYPES,
         active_products=Product.query.filter_by(is_active=True).order_by(Product.name.asc()).all(),
         insight_imports=MarketingInsightImport.query.order_by(MarketingInsightImport.created_at.desc()).limit(10).all(),
+        daily_menu_preview=daily_menu_preview,
+        daily_menu_preview_error=daily_menu_preview_error,
+        daily_menu_runs=FacebookMenuRun.query.order_by(FacebookMenuRun.created_at.desc()).limit(20).all(),
+        messenger_deliveries=MessengerDelivery.query.order_by(MessengerDelivery.created_at.desc()).limit(20).all(),
+        messenger_metrics=delivery_metrics,
+        page_api_ready=facebook_page_api_ready(),
+        webhook_ready=messenger_webhook_ready(),
+        provider_ready=marketing_provider_ready(),
+        messenger_start_url=messenger_menu_start_url(),
+        messenger_webhook_url=url_for('meta_messenger_webhook', _external=True),
     )
 
 @app.route('/admin/marketing/settings', methods=['POST'])
@@ -5406,6 +5766,92 @@ def marketing_save_facebook_page():
     db.session.commit()
     flash('Facebook Page shortcut saved. No Meta API connection is required.', 'success')
     return redirect(url_for('marketing_admin'))
+
+
+@app.route('/admin/marketing/daily-menu/settings', methods=['POST'])
+@require_admin
+def marketing_save_daily_menu_settings():
+    send_time = request.form.get('daily_menu_time', '07:00').strip()
+    try:
+        datetime.strptime(send_time, '%H:%M')
+    except ValueError:
+        flash('Choose a valid daily menu time.', 'error')
+        return redirect(url_for('marketing_admin') + '#daily-menu-automation')
+    page_username = request.form.get('page_username', '').strip().lstrip('@')
+    if page_username and not re.fullmatch(r'[A-Za-z0-9._-]{3,100}', page_username):
+        flash('Facebook Page username may use letters, numbers, periods, underscores, and hyphens only.', 'error')
+        return redirect(url_for('marketing_admin') + '#daily-menu-automation')
+
+    save_marketing_setting('fb_daily_menu_enabled', 'true' if request.form.get('daily_menu_enabled') else 'false')
+    save_marketing_setting('fb_daily_menu_time', send_time)
+    save_marketing_setting('fb_daily_menu_require_approval', 'true' if request.form.get('require_approval') else 'false')
+    save_marketing_setting('fb_daily_menu_auto_page_post', 'true' if request.form.get('auto_page_post') else 'false')
+    save_marketing_setting('fb_daily_menu_messenger_reply', 'true' if request.form.get('messenger_reply') else 'false')
+    save_marketing_setting('fb_daily_menu_provider_enabled', 'true' if request.form.get('provider_enabled') else 'false')
+    save_marketing_setting('fb_daily_menu_intro', request.form.get('daily_menu_intro', '').strip()[:240])
+    save_marketing_setting('fb_daily_menu_page_username', page_username)
+    db.session.commit()
+
+    missing = []
+    if request.form.get('auto_page_post') and not facebook_page_api_ready():
+        missing.append('Page API credentials')
+    if request.form.get('messenger_reply') and not messenger_webhook_ready():
+        missing.append('Messenger webhook credentials')
+    if request.form.get('provider_enabled') and not marketing_provider_ready():
+        missing.append('approved provider webhook')
+    if missing:
+        flash('Settings saved. Before those channels can send, configure: ' + ', '.join(missing) + '.', 'info')
+    else:
+        flash('Daily Facebook menu automation settings saved.', 'success')
+    return redirect(url_for('marketing_admin') + '#daily-menu-automation')
+
+
+@app.route('/admin/marketing/daily-menu/draft', methods=['POST'])
+@require_admin
+def marketing_create_daily_menu_draft():
+    try:
+        runs = create_daily_menu_drafts(session.get('admin_user') or 'admin')
+        flash(f"Today's menu draft is ready for {len(runs)} configured channel(s).", 'success')
+    except OrderValidationError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('marketing_admin') + '#daily-menu-automation')
+
+
+@app.route('/admin/marketing/daily-menu/publish', methods=['POST'])
+@require_admin
+def marketing_publish_daily_menu():
+    try:
+        result = publish_daily_menu_page(request.form.get('caption'), session.get('admin_user') or 'admin')
+        flash(result['message'], 'success' if result.get('sent') else 'info')
+    except OrderValidationError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('marketing_admin') + '#daily-menu-automation')
+
+
+@app.route('/admin/marketing/daily-menu/provider-send', methods=['POST'])
+@require_admin
+def marketing_send_daily_menu_provider():
+    try:
+        result = send_daily_menu_to_provider(request.form.get('caption'), session.get('admin_user') or 'admin')
+        flash(result['message'], 'success' if result.get('sent') else 'info')
+    except OrderValidationError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('marketing_admin') + '#daily-menu-automation')
+
+
+@app.route('/admin/marketing/daily-menu/test-reply', methods=['POST'])
+@require_admin
+def marketing_test_menu_reply():
+    psid = request.form.get('psid', '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9_-]{5,180}', psid):
+        flash('Enter a valid Page-scoped Messenger user ID from a received webhook.', 'error')
+        return redirect(url_for('marketing_admin') + '#daily-menu-automation')
+    try:
+        delivery = send_messenger_menu_reply(psid)
+        flash(f'Test menu reply sent. Delivery log #{delivery.id}.', 'success')
+    except OrderValidationError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('marketing_admin') + '#daily-menu-automation')
 
 @app.route('/admin/marketing/run-agent', methods=['POST'])
 @require_admin
@@ -5688,10 +6134,134 @@ def marketing_cron_run():
         return jsonify({'ok': False, 'message': 'Unauthorized'}), 401
     try:
         result = run_marketing_agent_once()
-        return jsonify({'ok': True, **result})
+        try:
+            daily_menu = run_daily_menu_automation_once(triggered_by='marketing-cron')
+        except OrderValidationError as exc:
+            daily_menu = {'ran': False, 'message': str(exc), 'channels': {}}
+        return jsonify({'ok': True, **result, 'daily_menu': daily_menu})
     except Exception as exc:
         app.logger.exception('Scheduled AI marketing run failed')
         return jsonify({'ok': False, 'message': str(exc)}), 500
+
+
+@app.route('/tasks/facebook-menu/run', methods=['GET', 'POST'])
+def facebook_menu_cron_run():
+    configured = os.environ.get('MARKETING_CRON_TOKEN', '').strip()
+    supplied = request.headers.get('Authorization', '')
+    if supplied.lower().startswith('bearer '):
+        supplied = supplied[7:].strip()
+    if not supplied:
+        supplied = request.args.get('token', '').strip()
+    if not configured or not secrets.compare_digest(supplied, configured):
+        return jsonify({'ok': False, 'message': 'Unauthorized'}), 401
+    try:
+        result = run_daily_menu_automation_once(triggered_by='facebook-menu-cron')
+        return jsonify({'ok': True, **result})
+    except OrderValidationError as exc:
+        return jsonify({'ok': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        app.logger.exception('Scheduled Facebook menu run failed')
+        return jsonify({'ok': False, 'message': str(exc)}), 500
+
+
+def _meta_webhook_signature_valid(raw_body):
+    app_secret = os.environ.get('META_APP_SECRET', '').strip()
+    signature = request.headers.get('X-Hub-Signature-256', '').strip()
+    if not app_secret or not signature.startswith('sha256='):
+        return False
+    expected = hmac.new(app_secret.encode('utf-8'), raw_body, hashlib.sha256).hexdigest()
+    return secrets.compare_digest(signature[7:], expected)
+
+
+def _record_messenger_delivery_event(event):
+    delivery_event = event.get('delivery') or {}
+    mids = [str(mid) for mid in (delivery_event.get('mids') or []) if mid]
+    if mids:
+        for delivery in MessengerDelivery.query.filter(MessengerDelivery.message_id.in_(mids)).all():
+            delivery.delivered_at = delivery.delivered_at or utc_now()
+            if delivery.status == 'SENT':
+                delivery.status = 'DELIVERED'
+
+    read_event = event.get('read') or {}
+    sender_id = str((event.get('sender') or {}).get('id') or '').strip()
+    watermark = parse_int(read_event.get('watermark'), 0)
+    if sender_id and watermark:
+        contact = MessengerContact.query.filter_by(psid=sender_id).first()
+        if contact:
+            cutoff = datetime.fromtimestamp(watermark / 1000.0, tz=timezone.utc).replace(tzinfo=None)
+            rows = MessengerDelivery.query.filter(
+                MessengerDelivery.contact_id == contact.id,
+                MessengerDelivery.sent_at.isnot(None),
+                MessengerDelivery.sent_at <= cutoff,
+            ).all()
+            for delivery in rows:
+                delivery.read_at = delivery.read_at or utc_now()
+                if delivery.status in ('SENT', 'DELIVERED'):
+                    delivery.status = 'READ'
+    db.session.commit()
+
+
+@app.route('/meta/messenger/webhook', methods=['GET', 'POST'])
+def meta_messenger_webhook():
+    if request.method == 'GET':
+        configured = os.environ.get('META_WEBHOOK_VERIFY_TOKEN', '').strip()
+        supplied = request.args.get('hub.verify_token', '')
+        if request.args.get('hub.mode') == 'subscribe' and configured and secrets.compare_digest(supplied, configured):
+            return Response(request.args.get('hub.challenge', ''), mimetype='text/plain')
+        return Response('Webhook verification failed.', status=403, mimetype='text/plain')
+
+    raw_body = request.get_data(cache=True)
+    if not _meta_webhook_signature_valid(raw_body):
+        return jsonify({'ok': False, 'message': 'Invalid Meta webhook signature.'}), 403
+    payload = request.get_json(silent=True) or {}
+    if payload.get('object') != 'page':
+        return jsonify({'ok': True, 'ignored': True})
+
+    handled = 0
+    for entry in payload.get('entry') or []:
+        for event in entry.get('messaging') or []:
+            try:
+                if event.get('delivery') or event.get('read'):
+                    _record_messenger_delivery_event(event)
+                    handled += 1
+                    continue
+                sender_id = str((event.get('sender') or {}).get('id') or '').strip()
+                if not sender_id:
+                    continue
+                message = event.get('message') or {}
+                if message.get('is_echo'):
+                    continue
+                contact = _messenger_contact(sender_id, 'MESSENGER')
+                db.session.commit()
+                text_value = str(message.get('text') or '').strip().casefold()
+                postback = str((event.get('postback') or {}).get('payload') or '').strip().upper()
+                referral = str((event.get('referral') or {}).get('ref') or '').strip().casefold()
+
+                if text_value in {'stop', 'unsubscribe', 'cancel updates', 'stop updates'}:
+                    contact.opted_out = True
+                    db.session.commit()
+                    send_messenger_text(sender_id, 'You will not receive marketing updates. You can still ask for today\'s menu anytime by sending MENU.', 'STOP_CONFIRM')
+                    handled += 1
+                elif (
+                    marketing_settings()['daily_menu_messenger_reply']
+                    and (text_value in {'menu', "today's menu", 'todays menu', 'ulam', 'price list'}
+                         or postback == 'DAILY_MENU' or referral == 'daily_menu')
+                ):
+                    send_messenger_menu_reply(sender_id)
+                    handled += 1
+            except Exception:
+                db.session.rollback()
+                app.logger.exception('Could not process one Messenger webhook event')
+    return jsonify({'ok': True, 'handled': handled})
+
+
+@app.route('/m/menu/<string:tracking_token>')
+def messenger_menu_click(tracking_token):
+    delivery = MessengerDelivery.query.filter_by(tracking_token=tracking_token).first_or_404()
+    delivery.clicked_at = delivery.clicked_at or utc_now()
+    delivery.status = 'CLICKED'
+    db.session.commit()
+    return redirect(url_for('store_catalog'))
 
 
 # ==================== BUSINESS EXPANSION & INVESTOR INTEREST ====================
@@ -6439,6 +7009,7 @@ def admin_dashboard():
                            product_suggestions=product_suggestions,
                            suggestion_repeat_counts=suggestion_repeat_counts,
                            suggestion_demand=suggestion_demand,
+                           highlight_product_id=max(0, parse_int(request.args.get('added'), 0)),
                            suggestion_statuses=SUGGESTION_STATUSES)
 
 @app.route('/admin/menu-vote/candidate/add', methods=['POST'])
@@ -6760,16 +7331,16 @@ def admin_add_product():
 
     if not name or price <= 0:
         flash('Please enter a valid product name and selling price.', 'error')
-        return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('admin_dashboard') + '#add-dish')
     if cost < 0 or stock < 0:
         flash('Cost and stock cannot be negative.', 'error')
-        return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('admin_dashboard') + '#add-dish')
     if allow_custom_amount:
         if minimum_order_amount <= 0:
             minimum_order_amount = price
         if minimum_order_amount > price:
             flash('Minimum order amount cannot be higher than the regular product price.', 'error')
-            return redirect(url_for('admin_dashboard'))
+            return redirect(url_for('admin_dashboard') + '#add-dish')
     else:
         minimum_order_amount = None
 
@@ -6777,9 +7348,9 @@ def admin_add_product():
         option_schema, size_schema = normalize_product_configuration(option_schema_raw, size_schema_raw)
     except OrderValidationError as exc:
         flash(str(exc), 'error')
-        return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('admin_dashboard') + '#add-dish')
 
-    db.session.add(Product(
+    product = Product(
         name=name,
         category_name=category_name,
         price=price,
@@ -6796,10 +7367,17 @@ def admin_add_product():
         is_featured=is_featured,
         is_top_seller=is_top_seller,
         is_active=True,
-    ))
-    db.session.commit()
-    flash(f"Product '{name}' added successfully with cost tracking enabled!", 'success')
-    return redirect(url_for('admin_dashboard'))
+    )
+    try:
+        db.session.add(product)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Admin could not add Food House product %r', name)
+        flash('The product could not be added because the database rejected it. No partial product was saved.', 'error')
+        return redirect(url_for('admin_dashboard') + '#add-dish')
+    flash(f"Product '{name}' was added and is active. It is highlighted below.", 'success')
+    return redirect(url_for('admin_dashboard', added=product.id) + f'#product-row-{product.id}')
 
 @app.route('/admin/batch-update-products', methods=['POST'])
 @require_admin

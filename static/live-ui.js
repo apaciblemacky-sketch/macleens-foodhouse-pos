@@ -80,6 +80,19 @@
       if (!currentDescription) { currentDescription = document.createElement('meta'); currentDescription.name = 'description'; document.head.appendChild(currentDescription); }
       currentDescription.content = nextDescription.content || '';
     }
+    const nextViewport = nextDoc.querySelector('meta[name="viewport"]');
+    let currentViewport = document.querySelector('meta[name="viewport"]');
+    if (nextViewport) {
+      if (!currentViewport) { currentViewport = document.createElement('meta'); currentViewport.name = 'viewport'; document.head.appendChild(currentViewport); }
+      currentViewport.content = nextViewport.content || 'width=device-width, initial-scale=1';
+      if (nextViewport.id) currentViewport.id = nextViewport.id; else currentViewport.removeAttribute('id');
+    }
+    const nextTheme = nextDoc.querySelector('meta[name="theme-color"]');
+    let currentTheme = document.querySelector('meta[name="theme-color"]');
+    if (nextTheme) {
+      if (!currentTheme) { currentTheme = document.createElement('meta'); currentTheme.name = 'theme-color'; document.head.appendChild(currentTheme); }
+      currentTheme.content = nextTheme.content || '';
+    }
   }
 
   function runBodyScripts(root) {
@@ -131,7 +144,8 @@
   }
 
   async function visit(url, options) {
-    if (busy || !canHandleUrl(url)) { location.href = url; return; }
+    if (busy) return;
+    if (!canHandleUrl(url)) { location.href = url; return; }
     const requestedUrl = new URL(url, location.href);
     const requestedHash = requestedUrl.hash;
     busy = true; loading(true);

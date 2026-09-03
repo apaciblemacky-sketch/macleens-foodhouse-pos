@@ -288,6 +288,8 @@
       const btnMobile = document.getElementById('btnMobileView');
       const btnDesktop = document.getElementById('btnDesktopView');
 
+      if (!viewport || !btnMobile || !btnDesktop) return;
+
       if (mode === 'desktop') {
         // Enforce 1100px desktop viewport scale
         viewport.setAttribute('content', 'width=1100, initial-scale=0.35, user-scalable=yes');
@@ -303,8 +305,9 @@
       }
     }
 
-    // Auto-detect saved mode or screen size on load
-    document.addEventListener('DOMContentLoaded', () => {
+    // Run immediately because no-refresh navigation replaces the body after
+    // DOMContentLoaded has already fired.
+    (() => {
       const savedMode = localStorage.getItem('site_view_mode');
       if (savedMode) {
         applyViewMode(savedMode);
@@ -315,7 +318,7 @@
           applyViewMode('desktop');
         }
       }
-    });
+    })();
   </script>
 </body>
 </html>

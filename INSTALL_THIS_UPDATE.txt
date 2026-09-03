@@ -23,12 +23,22 @@ INSTALL AND DEPLOY
 
 THIS RELEASE ADDS
 - Modern mobile-first student storefront and Digital catalog.
-- Menu search, budget filters, available-now filter, and real sales-based trends.
+- Repaired instant menu search with no buttons below the search bar.
+- Larger storefront logo and visible Admin Add Product confirmation/highlight.
 - Favorites, order again, campus break preferences, and quick pickup choices.
 - Shareable Barkada carts with organizer-only final submission.
 - Private order tracking with Cashier Preparing / Ready / Handed Over controls.
 - Visual loyalty progress, student missions, and modern mobile navigation.
 - Product preparation-time control in Admin.
+- Daily Facebook Page menu publishing with approval and duplicate protection.
+- Messenger MENU keyword replies plus delivery/read/click/failure logs.
+- Optional approved-provider handoff for paid opted-in Messenger campaigns.
+
+FACEBOOK SETUP
+After deployment, open /admin/marketing and read the Daily Facebook Menu
+Automation checklist. The safe default is approval-first. Facebook actions stay
+inactive until the required META_* environment values are added in Render.
+Full instructions: FACEBOOK_DAILY_MENU_AUTOMATION_UPDATE.md
 
 The database upgrade is automatic and additive. Existing sales, products, points,
 cash flow, Crafts, Digital, Marketing, and private investor records are preserved.

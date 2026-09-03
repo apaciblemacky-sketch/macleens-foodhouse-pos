@@ -60,6 +60,19 @@ REQUIRED_DB_COLUMNS = {
         "insight_link_clicks", "insight_new_followers", "insight_spend", "insight_notes",
         "insight_analysis", "insight_ai_model", "insights_updated_at", "insights_analyzed_at",
     },
+    "facebook_menu_run": {
+        "id", "menu_date", "channel", "status", "caption", "external_id",
+        "error_message", "triggered_by", "created_at", "sent_at",
+    },
+    "messenger_contact": {
+        "id", "psid", "source", "opted_out", "first_seen_at",
+        "last_interaction_at", "last_menu_sent_at",
+    },
+    "messenger_delivery": {
+        "id", "contact_id", "message_kind", "message_id", "tracking_token",
+        "status", "error_message", "sent_at", "delivered_at", "read_at",
+        "clicked_at", "created_at",
+    },
     "investor_interest": {
         "id", "name", "contact", "preferred_contact", "business_area",
         "funding_range", "offer_code", "payout_option", "proposed_amount",
@@ -236,13 +249,38 @@ def main() -> int:
             fail(f"student experience template is missing: {name}")
     store_text = (TEMPLATES / "store_catalog.html").read_text(encoding="utf-8")
     dashboard_text = (TEMPLATES / "customer_dashboard.html").read_text(encoding="utf-8")
-    for marker in ["menuSearch", "under30", "student-bottom-nav", "toggleFavorite", "tracking_url"]:
+    for marker in ["menuSearch", "searchResultSummary", "student-bottom-nav", "toggleFavorite", "tracking_url"]:
         if marker not in store_text and marker not in source:
             fail(f"modern storefront marker is missing: {marker}")
+    if "filter-chip" in store_text or "Under ₱30" in store_text or "Popular now</button>" in store_text:
+        fail("removed storefront quick-filter buttons are present below the search bar")
+    for marker in ['oninput="applyMenuFilters()"', "initializeStorefront();", ".hero img{width:118px"]:
+        if marker not in store_text:
+            fail(f"storefront search/logo fix is missing: {marker}")
     for marker in ["reward-ring", "Saved favorites", "Barkada ordering", "Campus & quick-pickup", "Order again"]:
         if marker not in dashboard_text:
             fail(f"modern loyalty portal marker is missing: {marker}")
     ok("modern student storefront, favorites, reorder, group ordering, preferences, and tracking are present")
+
+    facebook_menu_markers = [
+        "class FacebookMenuRun(db.Model):", "class MessengerContact(db.Model):",
+        "class MessengerDelivery(db.Model):", "def build_daily_menu_caption(",
+        "def publish_daily_menu_page(", "def send_messenger_menu_reply(",
+        "@app.route('/meta/messenger/webhook'", "@app.route('/tasks/facebook-menu/run'",
+        "META_PAGE_ACCESS_TOKEN", "X-Hub-Signature-256",
+    ]
+    missing = [marker for marker in facebook_menu_markers if marker not in source]
+    if missing:
+        fail("Facebook daily-menu automation markers missing: " + ", ".join(missing))
+    marketing_template = (TEMPLATES / "marketing_admin.html").read_text(encoding="utf-8")
+    for marker in ["Daily Facebook Menu Automation", "Reply when customer sends MENU", "Recent Messenger delivery / read / click log"]:
+        if marker not in marketing_template:
+            fail(f"Facebook menu admin UI marker is missing: {marker}")
+    render_config = (ROOT / "render.yaml").read_text(encoding="utf-8")
+    for marker in ["META_PAGE_ID", "META_PAGE_ACCESS_TOKEN", "META_WEBHOOK_VERIFY_TOKEN", "META_APP_SECRET"]:
+        if marker not in render_config:
+            fail(f"Render Facebook configuration marker is missing: {marker}")
+    ok("Facebook Page menu publishing, Messenger keyword replies, provider handoff, and delivery logs are present")
 
     deploy_script = ROOT / "DEPLOY_TO_RENDER.bat"
     if not deploy_script.exists():
@@ -763,8 +801,8 @@ def main() -> int:
     ok("Craft Shop keeps legacy UI, per-IP views/likes/comments tracking, sharing, cashier sync, and direct-link-only admin access")
 
 
-    # AI Marketing: Gemini Free by default, optional OpenAI/local template,
-    # with manual Facebook Page/Group posting and no Meta Developer dependency.
+    # AI Marketing: general AI campaigns stay manual; the separately controlled
+    # daily menu may use official Meta credentials when the owner configures them.
     marketing_template = (TEMPLATES / "marketing_admin.html")
     marketing_module = ROOT / "marketing_agent.py"
     if not marketing_template.exists() or not marketing_module.exists():
@@ -789,13 +827,13 @@ def main() -> int:
     if "url_for('marketing_admin')" not in admin_template:
         fail("Master Admin does not link to AI Marketing")
     for marker in [
-        "Macleen's AI Marketing", "Manual Facebook mode", "Facebook Page — Manual Posting Shortcut",
+        "Macleen's AI Marketing", "Two safe modes", "Facebook Page — Manual Posting Shortcut",
         "Joined Facebook Groups — Manual Posting", "Copy Post", "Mark Posted",
         "Gemini Free (Recommended)", "Smart Template — No API", "Generate Marketing Draft",
     ]:
         if marker not in marketing_html:
             fail(f"AI Marketing UI is missing: {marker}")
-    forbidden_meta = ["META_APP_ID", "META_APP_SECRET", "pages_manage_posts", "marketing_facebook_connect", "publish_page_link("]
+    forbidden_meta = ["META_APP_ID", "marketing_facebook_connect", "publish_page_link("]
     for marker in forbidden_meta:
         if marker in source or marker in marketing_py or marker in marketing_html:
             fail(f"Legacy Meta API integration is still exposed: {marker}")
@@ -810,16 +848,16 @@ def main() -> int:
     render_yaml = (ROOT / "render.yaml").read_text(encoding="utf-8")
     if "GEMINI_API_KEY" not in render_yaml or "GEMINI_MARKETING_MODEL" not in render_yaml:
         fail("Render Gemini environment placeholders are missing")
-    if "META_APP_ID" in render_yaml or "META_APP_SECRET" in render_yaml or "META_GRAPH_VERSION" in render_yaml:
-        fail("Render still contains obsolete Meta API environment placeholders")
+    if "META_APP_ID" in render_yaml:
+        fail("Render contains the retired META_APP_ID placeholder")
     if "publish_marketing_post" in source or "AUTO_PUBLISH" in source:
-        fail("Automatic Facebook publishing is still present; this build must stay manual-only")
+        fail("General AI posts must remain manual and separate from daily-menu publishing")
     reqs = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
     if "requests" not in reqs or "tzdata" not in reqs:
         fail("AI Marketing/Windows timezone runtime dependencies are missing from requirements.txt")
     if "cryptography" in reqs:
         fail("Obsolete Meta-token cryptography dependency is still present")
-    ok("AI Marketing uses Gemini Free with local fallback and manual-only Facebook Page/Group posting")
+    ok("AI Marketing keeps general campaigns manual while daily-menu Meta automation is separately controlled")
 
     print("\nPRE-DEPLOY CHECK PASSED")
     return 0
