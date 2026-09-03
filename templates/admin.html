@@ -34,6 +34,10 @@
     .flash-message.success { background:#ecfdf5; border-color:#86efac; color:#166534; }
     .flash-message.error { background:#fef2f2; border-color:#fca5a5; color:#991b1b; }
     .flash-message.info { background:#eff6ff; border-color:#93c5fd; color:#1e40af; }
+    .bulk-save-status { display:none; margin-top:10px; padding:9px 12px; border-radius:8px; font-size:.8rem; font-weight:800; }
+    .bulk-save-status.show { display:block; }
+    .bulk-save-status.success { color:#166534; background:#ecfdf5; border:1px solid #86efac; }
+    .bulk-save-status.error { color:#991b1b; background:#fef2f2; border:1px solid #fca5a5; }
   </style>
 </head>
 <body>
@@ -830,7 +834,7 @@
       </div>
     </div>
 
-    <form action="/admin/batch-update-products" method="POST">
+    <form id="bulkCatalogForm" action="/admin/batch-update-products" method="POST" novalidate onsubmit="saveBulkCatalog(event, this); return false;">
       <div style="max-height: 420px; overflow-y: auto; margin-bottom:12px;">
         <table id="catalogTable">
           <thead style="position:sticky; top:0; z-index:2;">
@@ -866,8 +870,8 @@
                 data-price="{{ p.price or 0 }}"
                 data-featured="{{ '1' if p.is_featured else '0' }}"
                 data-top-seller="{{ '1' if p.is_top_seller else '0' }}"{% if highlight_product_id == p.id %} style="outline:3px solid #10b981;outline-offset:-3px;background:#ecfdf5"{% endif %}>
-              <input type="hidden" name="product_id" value="{{ p.id }}">
               <td>
+                <input type="hidden" name="product_id" value="{{ p.id }}">
                 {% if p.image_url %}
                   <img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="eager" onerror="this.onerror=null; this.src='https://via.placeholder.com/35?text=Food';" style="width:35px; height:35px; border-radius:4px; object-fit:cover;">
                 {% else %}
@@ -901,7 +905,8 @@
           </tbody>
         </table>
       </div>
-      <button type="submit" class="btn btn-pink" style="padding:10px 20px;">💾 SAVE ALL BULK CHANGES</button>
+      <button id="bulkCatalogSaveButton" type="submit" class="btn btn-pink" style="padding:10px 20px;">💾 SAVE ALL BULK CHANGES</button>
+      <div id="bulkCatalogSaveStatus" class="bulk-save-status" role="status" aria-live="polite"></div>
     </form>
 
     {% for p in products %}
@@ -960,6 +965,75 @@
         document.getElementById('btnTabTransactions').className = 'btn btn-pink';
         document.getElementById('btnTabTransactions').style.color = 'white';
       }
+    }
+
+    function syncBulkCatalogRowState(form) {
+      form.querySelectorAll('.product-row').forEach(row => {
+        const id = row.getAttribute('data-id');
+        if (!id) return;
+        const field = name => form.elements.namedItem(`${name}_${id}`);
+        row.setAttribute('data-price', field('price')?.value || '0');
+        row.setAttribute('data-active', field('is_active')?.checked ? 'true' : 'false');
+        row.setAttribute('data-featured', field('is_featured')?.checked ? '1' : '0');
+        row.setAttribute('data-top-seller', field('is_top_seller')?.checked ? '1' : '0');
+      });
+      filterCatalogTable();
+    }
+
+    async function saveBulkCatalog(event, form) {
+      event.preventDefault();
+      if (form.dataset.saving === '1') return false;
+
+      const button = document.getElementById('bulkCatalogSaveButton');
+      const status = document.getElementById('bulkCatalogSaveStatus');
+      const originalText = button ? button.textContent : '';
+      form.dataset.saving = '1';
+      if (button) {
+        button.disabled = true;
+        button.textContent = '💾 SAVING CHANGES…';
+      }
+      if (status) {
+        status.className = 'bulk-save-status show';
+        status.textContent = 'Saving the catalog…';
+      }
+
+      try {
+        const response = await fetch(form.action, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-Macleens-Live': '1' },
+          body: new FormData(form)
+        });
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          if (response.redirected) {
+            window.location.assign(response.url);
+            return false;
+          }
+          throw new Error(`The server returned an unexpected response (${response.status}).`);
+        }
+        const payload = await response.json();
+        if (!response.ok || payload.success === false) {
+          throw new Error(payload.message || 'The catalog could not be saved.');
+        }
+        syncBulkCatalogRowState(form);
+        if (status) {
+          status.className = 'bulk-save-status show success';
+          status.textContent = `✅ ${payload.message}`;
+        }
+      } catch (error) {
+        if (status) {
+          status.className = 'bulk-save-status show error';
+          status.textContent = `⚠️ ${error.message || 'The catalog could not be saved.'}`;
+        }
+      } finally {
+        delete form.dataset.saving;
+        if (button && document.contains(button)) {
+          button.disabled = false;
+          button.textContent = originalText;
+        }
+      }
+      return false;
     }
 
     function sortCatalogTable() {

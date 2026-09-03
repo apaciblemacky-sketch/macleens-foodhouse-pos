@@ -214,7 +214,7 @@
           {% else %}
           <button class="btn-add" type="button" disabled style="padding:4px;font-size:0.7rem;margin-top:0;flex:1;background:#94a3b8;cursor:not-allowed;">⏰ Scheduled</button>
           {% endif %}
-          <button type="button" class="btn-review food-share-btn" style="cursor:pointer;min-width:36px;" data-share-title="{{ f.name|e }}" data-share-url="{{ url_for('product_detail', product_id=f.id)|e }}" aria-label="Share {{ f.name|e }}">↗</button>
+          <button type="button" class="btn-review food-share-btn" style="cursor:pointer;min-width:36px;" data-share-title="{{ f.name|e }}" data-share-url="{{ url_for('product_detail', product_id=f.id, pv=product_share_version(f))|e }}" aria-label="Share {{ f.name|e }}">↗</button>
         </div>
       </div>
       {% endfor %}
@@ -246,7 +246,7 @@
           {% else %}
           <button class="btn-add" type="button" disabled style="padding:4px;font-size:0.7rem;margin-top:0;flex:1;background:#94a3b8;cursor:not-allowed;">⏰ Scheduled</button>
           {% endif %}
-          <button type="button" class="btn-review food-share-btn" style="cursor:pointer;min-width:36px;" data-share-title="{{ b.name|e }}" data-share-url="{{ url_for('product_detail', product_id=b.id)|e }}" aria-label="Share {{ b.name|e }}">↗</button>
+          <button type="button" class="btn-review food-share-btn" style="cursor:pointer;min-width:36px;" data-share-title="{{ b.name|e }}" data-share-url="{{ url_for('product_detail', product_id=b.id, pv=product_share_version(b))|e }}" aria-label="Share {{ b.name|e }}">↗</button>
         </div>
       </div>
       {% endfor %}
@@ -292,7 +292,7 @@
             <a href="/product/{{ p.id }}" class="btn-review">
               💬 {{ p.comments|length }}
             </a>
-            <button type="button" class="btn-review food-share-btn" style="cursor:pointer" data-share-title="{{ p.name|e }}" data-share-url="{{ url_for('product_detail', product_id=p.id)|e }}" aria-label="Share {{ p.name|e }}">↗</button>
+            <button type="button" class="btn-review food-share-btn" style="cursor:pointer" data-share-title="{{ p.name|e }}" data-share-url="{{ url_for('product_detail', product_id=p.id, pv=product_share_version(p))|e }}" aria-label="Share {{ p.name|e }}">↗</button>
           </div>
 
           {% if product_is_available_now(p) %}

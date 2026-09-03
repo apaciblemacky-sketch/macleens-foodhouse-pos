@@ -5,12 +5,15 @@ import calendar
 import csv
 import hashlib
 import hmac
+import ipaddress
 import logging
+import math
 import os
 import re
 import secrets
 from datetime import datetime, date, timedelta, time, timezone
 from functools import wraps
+from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory, Response, has_request_context
@@ -22,6 +25,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import qrcode
 import qrcode.image.svg
 import requests
+from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, UnidentifiedImageError
 
 from marketing_agent import (
     analyze_marketing_insights, extract_peso_amounts, generate_ai_marketing_decision,
@@ -1481,6 +1485,234 @@ def product_starting_price(prod):
     return max(0.0, parse_float(getattr(prod, 'price', 0.0), 0.0))
 
 
+PRODUCT_SHARE_IMAGE_SIZE = (1200, 630)
+PRODUCT_SHARE_MAX_SOURCE_BYTES = 8_000_000
+Image.MAX_IMAGE_PIXELS = 40_000_000
+
+
+def product_share_version(prod):
+    """Change the shared URL whenever visible product details change."""
+    visible_state = json.dumps([
+        getattr(prod, 'id', None),
+        getattr(prod, 'name', ''),
+        getattr(prod, 'category_name', ''),
+        round(parse_float(getattr(prod, 'price', 0.0), 0.0), 2),
+        getattr(prod, 'size_schema', '') or '',
+        getattr(prod, 'image_url', '') or '',
+        bool(getattr(prod, 'is_active', True)),
+    ], ensure_ascii=False, separators=(',', ':'))
+    return hashlib.sha256(visible_state.encode('utf-8')).hexdigest()[:12]
+
+
+def _preview_font(size):
+    candidates = (
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+        '/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf',
+    )
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size=size)
+        except OSError:
+            continue
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
+def _preview_url_is_public(url):
+    parsed = urlparse(url)
+    if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+        return False
+    host = parsed.hostname.casefold().rstrip('.')
+    if host in ('localhost', 'localhost.localdomain') or host.endswith('.local'):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return True
+    return not any((
+        address.is_private, address.is_loopback, address.is_link_local,
+        address.is_multicast, address.is_reserved, address.is_unspecified,
+    ))
+
+
+def _download_preview_source(url):
+    current = url
+    for _ in range(4):
+        if not _preview_url_is_public(current):
+            raise ValueError('Product image URL is not a public HTTP image.')
+        with requests.get(
+            current,
+            stream=True,
+            allow_redirects=False,
+            timeout=(3.5, 8),
+            headers={
+                'User-Agent': 'MacleensFoodHouse-SocialPreview/1.0',
+                'Accept': 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8',
+            },
+        ) as response:
+            if response.status_code in (301, 302, 303, 307, 308):
+                location = response.headers.get('Location')
+                if not location:
+                    raise ValueError('Product image redirect has no destination.')
+                current = urljoin(current, location)
+                continue
+            response.raise_for_status()
+            content_type = (response.headers.get('Content-Type') or '').lower()
+            if content_type and not content_type.startswith('image/'):
+                raise ValueError('Product image URL did not return an image.')
+            content_length = parse_int(response.headers.get('Content-Length'), 0)
+            if content_length > PRODUCT_SHARE_MAX_SOURCE_BYTES:
+                raise ValueError('Product image is too large for a social preview.')
+            payload = bytearray()
+            for chunk in response.iter_content(64 * 1024):
+                if not chunk:
+                    continue
+                payload.extend(chunk)
+                if len(payload) > PRODUCT_SHARE_MAX_SOURCE_BYTES:
+                    raise ValueError('Product image is too large for a social preview.')
+            return bytes(payload)
+    raise ValueError('Product image redirected too many times.')
+
+
+def _open_preview_image(payload):
+    with Image.open(io.BytesIO(payload)) as source:
+        source.load()
+        return ImageOps.exif_transpose(source).convert('RGB')
+
+
+def _product_preview_photo(prod):
+    source_url = (getattr(prod, 'image_url', '') or '').strip()
+    try:
+        if source_url.startswith('data:image/') and ';base64,' in source_url:
+            encoded = source_url.split(';base64,', 1)[1]
+            if len(encoded) > PRODUCT_SHARE_MAX_SOURCE_BYTES * 2:
+                raise ValueError('Embedded product image is too large.')
+            return _open_preview_image(base64.b64decode(encoded, validate=True))
+        if source_url.startswith('/static/'):
+            relative = source_url[len('/static/'):].replace('\\', '/')
+            candidate = os.path.realpath(os.path.join(app.static_folder, relative))
+            static_root = os.path.realpath(app.static_folder)
+            if os.path.commonpath((static_root, candidate)) != static_root:
+                raise ValueError('Product image path is outside the static folder.')
+            with open(candidate, 'rb') as image_file:
+                payload = image_file.read(PRODUCT_SHARE_MAX_SOURCE_BYTES + 1)
+            if len(payload) > PRODUCT_SHARE_MAX_SOURCE_BYTES:
+                raise ValueError('Product image is too large for a social preview.')
+            return _open_preview_image(payload)
+        if source_url.startswith(('http://', 'https://')):
+            return _open_preview_image(_download_preview_source(source_url))
+    except (
+        OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError,
+        requests.exceptions.RequestException,
+    ) as exc:
+        app.logger.info('Using branded fallback for product preview %s: %s', getattr(prod, 'id', '?'), exc)
+
+    fallback = os.path.join(app.static_folder, 'social', 'foodhouse-share-header.png')
+    with open(fallback, 'rb') as image_file:
+        return _open_preview_image(image_file.read())
+
+
+def _vivid_food_photo(photo):
+    vivid = ImageOps.autocontrast(photo.convert('RGB'), cutoff=1)
+    vivid = ImageEnhance.Color(vivid).enhance(1.42)
+    vivid = ImageEnhance.Contrast(vivid).enhance(1.16)
+    vivid = ImageEnhance.Brightness(vivid).enhance(1.04)
+    return ImageEnhance.Sharpness(vivid).enhance(1.22)
+
+
+def _wrap_preview_text(draw, text_value, font, max_width, max_lines=3):
+    words = str(text_value or '').split() or ['Menu Pick']
+    lines = []
+    current = ''
+    for word in words:
+        candidate = f'{current} {word}'.strip()
+        if not current or draw.textbbox((0, 0), candidate, font=font)[2] <= max_width:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        remaining = lines[-1]
+        while remaining and draw.textbbox((0, 0), remaining + '...', font=font)[2] > max_width:
+            remaining = remaining[:-1]
+        lines[-1] = remaining.rstrip() + '...'
+    return lines
+
+
+def render_product_social_preview(prod):
+    width, height = PRODUCT_SHARE_IMAGE_SIZE
+    photo = _vivid_food_photo(_product_preview_photo(prod))
+
+    background = ImageOps.fit(photo, (width, height), method=Image.Resampling.LANCZOS)
+    background = background.filter(ImageFilter.GaussianBlur(24))
+    background = ImageEnhance.Brightness(background).enhance(0.52)
+    background = Image.blend(background, Image.new('RGB', (width, height), '#9d174d'), 0.22).convert('RGBA')
+
+    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    overlay_draw.ellipse((-120, -190, 390, 320), fill=(236, 72, 153, 105))
+    overlay_draw.ellipse((980, 440, 1320, 760), fill=(15, 118, 110, 120))
+    overlay_draw.rounded_rectangle((39, 49, 711, 591), radius=36, fill=(15, 23, 42, 80))
+    overlay_draw.rounded_rectangle((719, 34, 1174, 600), radius=38, fill=(15, 23, 42, 75))
+    background = Image.alpha_composite(background, overlay)
+
+    photo_width, photo_height = 650, 520
+    photo_backdrop = ImageOps.fit(photo, (photo_width, photo_height), method=Image.Resampling.LANCZOS)
+    photo_backdrop = ImageEnhance.Brightness(photo_backdrop.filter(ImageFilter.GaussianBlur(18))).enhance(0.68)
+    contained = ImageOps.contain(photo, (photo_width, photo_height), method=Image.Resampling.LANCZOS)
+    photo_backdrop.paste(contained, ((photo_width - contained.width) // 2, (photo_height - contained.height) // 2))
+    photo_mask = Image.new('L', (photo_width, photo_height), 0)
+    ImageDraw.Draw(photo_mask).rounded_rectangle((0, 0, photo_width - 1, photo_height - 1), radius=30, fill=255)
+    background.paste(photo_backdrop, (50, 55), photo_mask)
+
+    draw = ImageDraw.Draw(background)
+    draw.rounded_rectangle((50, 55, 700, 575), radius=30, outline=(255, 255, 255, 235), width=5)
+    draw.rounded_rectangle((730, 45, 1160, 585), radius=32, fill=(255, 255, 255, 244), outline=(249, 168, 212, 255), width=4)
+
+    try:
+        with Image.open(os.path.join(app.static_folder, 'logo.png')) as logo_source:
+            logo = ImageOps.fit(ImageOps.exif_transpose(logo_source).convert('RGBA'), (70, 70), method=Image.Resampling.LANCZOS)
+        logo_mask = Image.new('L', (70, 70), 0)
+        ImageDraw.Draw(logo_mask).ellipse((0, 0, 69, 69), fill=255)
+        background.paste(logo, (770, 75), logo_mask)
+        draw.ellipse((769, 74, 841, 146), outline=(236, 72, 153, 255), width=3)
+    except (OSError, UnidentifiedImageError):
+        pass
+
+    draw.text((860, 78), "MACLEEN'S", font=_preview_font(30), fill='#831843')
+    draw.text((860, 114), 'FOOD HOUSE', font=_preview_font(22), fill='#ec4899')
+
+    category = (getattr(prod, 'category_name', '') or 'MENU PICK').upper()
+    category_font = _preview_font(18)
+    category_width = min(330, draw.textbbox((0, 0), category, font=category_font)[2] + 34)
+    draw.rounded_rectangle((770, 170, 770 + category_width, 208), radius=19, fill='#0f766e')
+    draw.text((787, 178), category, font=category_font, fill='white')
+
+    name = (getattr(prod, 'name', '') or 'Fresh Menu Pick').strip()
+    name_font = _preview_font(52)
+    name_lines = _wrap_preview_text(draw, name, name_font, 340, max_lines=3)
+    if len(name_lines) > 2:
+        name_font = _preview_font(44)
+        name_lines = _wrap_preview_text(draw, name, name_font, 340, max_lines=3)
+    draw.multiline_text((770, 225), '\n'.join(name_lines), font=name_font, fill='#172033', spacing=3)
+
+    price_prefix = 'From ' if parse_product_size_schema(getattr(prod, 'size_schema', None), strict=False) else ''
+    price_label = f'{price_prefix}₱{product_starting_price(prod):,.2f}'
+    draw.text((770, 420), price_label, font=_preview_font(48), fill='#db2777')
+    draw.text((772, 474), 'Fresh • Affordable • Made for you', font=_preview_font(19), fill='#475569')
+    draw.rounded_rectangle((770, 514, 1122, 562), radius=24, fill='#0f766e')
+    draw.text((797, 526), 'CLICK TO VIEW & ORDER', font=_preview_font(20), fill='white')
+
+    output = io.BytesIO()
+    background.convert('RGB').save(output, format='PNG', optimize=True)
+    return output.getvalue()
+
+
 def product_price_for_options(prod, selected_options):
     """Resolve the authoritative regular selling price after a priced Size choice."""
     base = round(max(0.0, parse_float(getattr(prod, 'price', 0.0), 0.0)), 2)
@@ -2202,7 +2434,7 @@ def inject_globals():
         app.logger.exception('Logo setting query failed; using /static/logo.png fallback')
         logo = '/static/logo.png'
     status = check_operating_status()
-    return dict(store_logo=logo, status=status, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price)
+    return dict(store_logo=logo, status=status, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version)
 
 def _staff_auth_failure(target, message):
     """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
@@ -3181,7 +3413,30 @@ def product_detail(product_id):
     prod = Product.query.get_or_404(product_id)
     ip = get_client_ip()
     liked = bool(ProductLike.query.filter_by(product_id=product_id, ip_address=ip).first())
-    return render_template('product_detail.html', prod=prod, liked=liked)
+    share_version = product_share_version(prod)
+    return render_template(
+        'product_detail.html',
+        prod=prod,
+        liked=liked,
+        product_share_image=url_for(
+            'product_social_preview', product_id=prod.id, v=share_version, _external=True
+        ),
+        product_share_page_url=url_for(
+            'product_detail', product_id=prod.id, pv=share_version, _external=True
+        ),
+    )
+
+
+@app.route('/social/product/<int:product_id>.png')
+def product_social_preview(product_id):
+    prod = Product.query.get_or_404(product_id)
+    version = product_share_version(prod)
+    response = Response(render_product_social_preview(prod), mimetype='image/png')
+    response.headers['Cache-Control'] = 'public, max-age=604800'
+    response.headers['Content-Disposition'] = f'inline; filename="macleens-product-{product_id}.png"'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.set_etag(version)
+    return response.make_conditional(request)
 
 @app.route('/api/toggle-like/<int:product_id>', methods=['POST'])
 def api_toggle_like(product_id):
@@ -7382,31 +7637,106 @@ def admin_add_product():
 @app.route('/admin/batch-update-products', methods=['POST'])
 @require_admin
 def admin_batch_update_products():
+    live_request = request.headers.get('X-Macleens-Live') == '1'
+
+    def finish(success, message, status=200, updated_count=0, updated_ids=None):
+        if live_request:
+            return jsonify({
+                'success': success,
+                'action': 'bulk-products-updated',
+                'message': message,
+                'updated_count': updated_count,
+                'updated_ids': updated_ids or [],
+            }), status
+        flash(message, 'success' if success else 'error')
+        return redirect(url_for('admin_dashboard') + '#catalog-editor')
+
+    def required_float(field_name, label):
+        raw = (request.form.get(field_name) or '').strip()
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            raise OrderValidationError(f'{label} must be a valid number.')
+        if not math.isfinite(value):
+            raise OrderValidationError(f'{label} must be a valid number.')
+        return value
+
+    def required_int(field_name, label):
+        value = required_float(field_name, label)
+        if not value.is_integer():
+            raise OrderValidationError(f'{label} must be a whole number.')
+        return int(value)
+
     try:
-        for pid_raw in request.form.getlist('product_id'):
+        product_ids = request.form.getlist('product_id')
+        if not product_ids:
+            raise OrderValidationError('No products were received. Reload Admin and try saving again.')
+
+        updated_ids = []
+        seen_ids = set()
+        for pid_raw in product_ids:
             pid = parse_int(pid_raw, 0)
+            if pid <= 0 or pid in seen_ids:
+                continue
+            seen_ids.add(pid)
             prod = db.session.get(Product, pid)
             if not prod:
                 continue
-            price = parse_float(request.form.get(f'price_{pid}'), prod.price)
-            cost = parse_float(request.form.get(f'cost_{pid}'), prod.cost or 0.0)
-            stock = parse_int(request.form.get(f'stock_{pid}'), prod.stock or 0)
-            prep_minutes = max(1, min(180, parse_int(request.form.get(f'prep_minutes_{pid}'), prod.prep_minutes or 10)))
+
+            price = required_float(f'price_{pid}', f'Price for {prod.name}')
+            cost = required_float(f'cost_{pid}', f'Cost for {prod.name}')
+            stock = required_int(f'stock_{pid}', f'Stock for {prod.name}')
+            prep_minutes = required_int(f'prep_minutes_{pid}', f'Preparation time for {prod.name}')
             allow_custom_amount = (f'allow_custom_amount_{pid}' in request.form)
-            minimum_order_amount = parse_float(request.form.get(f'minimum_order_amount_{pid}'), 0.0)
-            option_schema, size_schema = normalize_product_configuration(
-                request.form.get(f'option_schema_{pid}', '').strip(),
-                request.form.get(f'size_schema_{pid}', '').strip(),
-            )
+            minimum_raw = (request.form.get(f'minimum_order_amount_{pid}') or '').strip()
+            minimum_order_amount = required_float(
+                f'minimum_order_amount_{pid}', f'Minimum amount for {prod.name}'
+            ) if minimum_raw else None
+            option_schema_raw = request.form.get(f'option_schema_{pid}', '').strip()
+            size_schema_raw = request.form.get(f'size_schema_{pid}', '').strip()
+            image_url = request.form.get(f'image_url_{pid}', '').strip()
+            available_start_time = request.form.get(f'available_start_time_{pid}', '').strip() or None
+            available_end_time = request.form.get(f'available_end_time_{pid}', '').strip() or None
+            is_active = (f'is_active_{pid}' in request.form)
+            is_featured = (f'is_featured_{pid}' in request.form)
+            is_top_seller = (f'is_top_seller_{pid}' in request.form)
+
             if price <= 0 or cost < 0 or stock < 0:
-                raise OrderValidationError(f'Invalid price/cost/stock for {prod.name}.')
+                raise OrderValidationError(f'Invalid price, cost, or stock for {prod.name}.')
+            if prep_minutes < 1 or prep_minutes > 180:
+                raise OrderValidationError(f'Preparation time for {prod.name} must be from 1 to 180 minutes.')
             if allow_custom_amount:
-                if minimum_order_amount <= 0:
+                if minimum_order_amount is None or minimum_order_amount <= 0:
                     minimum_order_amount = price
                 if minimum_order_amount > price:
                     raise OrderValidationError(f'Minimum order amount for {prod.name} cannot exceed its regular price.')
             else:
                 minimum_order_amount = None
+
+            option_schema, size_schema = normalize_product_configuration(
+                option_schema_raw,
+                size_schema_raw,
+            )
+
+            changed = any((
+                abs(price - (prod.price or 0.0)) > 0.000001,
+                abs(cost - (prod.cost or 0.0)) > 0.000001,
+                allow_custom_amount != bool(prod.allow_custom_amount),
+                minimum_order_amount != prod.minimum_order_amount,
+                option_schema != (prod.option_schema or None),
+                size_schema != (prod.size_schema or None),
+                stock != (prod.stock or 0),
+                prep_minutes != (prod.prep_minutes or 10),
+                image_url != (prod.image_url or ''),
+                available_start_time != (prod.available_start_time or None),
+                available_end_time != (prod.available_end_time or None),
+                is_active != bool(prod.is_active),
+                is_featured != bool(prod.is_featured),
+                is_top_seller != bool(prod.is_top_seller),
+            ))
+            if not changed:
+                continue
+
             prod.price = price
             prod.cost = cost
             prod.allow_custom_amount = allow_custom_amount
@@ -7415,22 +7745,27 @@ def admin_batch_update_products():
             prod.size_schema = size_schema
             prod.stock = stock
             prod.prep_minutes = prep_minutes
-            prod.image_url = request.form.get(f'image_url_{pid}', '').strip()
-            prod.available_start_time = request.form.get(f'available_start_time_{pid}', '').strip() or None
-            prod.available_end_time = request.form.get(f'available_end_time_{pid}', '').strip() or None
-            prod.is_active = (f'is_active_{pid}' in request.form)
-            prod.is_featured = (f'is_featured_{pid}' in request.form)
-            prod.is_top_seller = (f'is_top_seller_{pid}' in request.form)
+            prod.image_url = image_url
+            prod.available_start_time = available_start_time
+            prod.available_end_time = available_end_time
+            prod.is_active = is_active
+            prod.is_featured = is_featured
+            prod.is_top_seller = is_top_seller
+            updated_ids.append(pid)
         db.session.commit()
-        flash('Bulk product catalog and product costs updated.', 'success')
+        count = len(updated_ids)
+        message = (
+            f'Saved changes to {count} product{"s" if count != 1 else ""}.'
+            if count else 'No new changes were detected. Your catalog is already up to date.'
+        )
+        return finish(True, message, updated_count=count, updated_ids=updated_ids)
     except OrderValidationError as exc:
         db.session.rollback()
-        flash(str(exc), 'error')
+        return finish(False, str(exc), status=400)
     except Exception:
         db.session.rollback()
         app.logger.exception('Bulk product update failed')
-        flash('Bulk product update failed due to a server error.', 'error')
-    return redirect(url_for('admin_dashboard'))
+        return finish(False, 'Bulk product update failed due to a server error. No changes were saved.', status=500)
 
 @app.route('/admin/toggle-credit/<int:cust_id>', methods=['POST'])
 @require_admin

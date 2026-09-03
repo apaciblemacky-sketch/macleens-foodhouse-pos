@@ -27,6 +27,10 @@ THIS RELEASE ADDS
   search now shows only matching products and hides unrelated recommendations;
   clearing the search restores the full storefront.
 - Larger storefront logo and visible Admin Add Product confirmation/highlight.
+- Repaired Save All Bulk Changes with immediate success/error feedback beside
+  the button, reliable submission of every product row, and no full-page reload.
+- Every Food House product share link now uses a vivid 1200 x 630 branded image
+  with the product photo, name, price, category, and View & Order call to action.
 - Favorites, order again, campus break preferences, and quick pickup choices.
 - Shareable Barkada carts with organizer-only final submission.
 - Private order tracking with Cashier Preparing / Ready / Handed Over controls.

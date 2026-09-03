@@ -263,6 +263,35 @@ def main() -> int:
             fail(f"storefront search/logo fix is missing: {marker}")
     if "section.hidden = !!term" in store_text:
         fail("storefront search still uses the CSS-overridable hidden attribute for discovery sections")
+    admin_text = (TEMPLATES / "admin.html").read_text(encoding="utf-8")
+    for marker in [
+        'id="bulkCatalogForm"', "novalidate", "saveBulkCatalog(event, this)",
+        'id="bulkCatalogSaveStatus"', "X-Macleens-Live", "syncBulkCatalogRowState",
+    ]:
+        if marker not in admin_text:
+            fail(f"bulk catalog save repair is missing: {marker}")
+    if '<tr class="product-row"' in admin_text and '<input type="hidden" name="product_id"' not in admin_text:
+        fail("bulk catalog product identifiers are missing")
+    for marker in ["'action': 'bulk-products-updated'", "No products were received", "updated_ids"]:
+        if marker not in source:
+            fail(f"bulk catalog server response repair is missing: {marker}")
+    product_detail_text = (TEMPLATES / "product_detail.html").read_text(encoding="utf-8")
+    for marker in [
+        "@app.route('/social/product/<int:product_id>.png')", "render_product_social_preview",
+        "ImageEnhance.Color", "product_share_version", "product_share_image",
+    ]:
+        if marker not in source:
+            fail(f"vivid per-product social preview marker is missing: {marker}")
+    for marker in [
+        'property="og:image:width" content="1200"',
+        'property="og:image:height" content="630"',
+        'property="og:image:type" content="image/png"',
+        "product_share_page_url", "twitter:image:alt",
+    ]:
+        if marker not in product_detail_text:
+            fail(f"product preview metadata marker is missing: {marker}")
+    if "Pillow>=10.4.0" not in (ROOT / "requirements.txt").read_text(encoding="utf-8"):
+        fail("Pillow dependency for product social previews is missing")
     for marker in ["reward-ring", "Saved favorites", "Barkada ordering", "Campus & quick-pickup", "Order again"]:
         if marker not in dashboard_text:
             fail(f"modern loyalty portal marker is missing: {marker}")
