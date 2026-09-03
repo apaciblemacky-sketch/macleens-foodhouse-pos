@@ -159,6 +159,10 @@ class Customer(db.Model):
     wifi_voucher_code = db.Column(db.String(20), nullable=True)
     wifi_minutes_left = db.Column(db.Integer, default=0)
     last_active_at = db.Column(db.DateTime, default=utc_now)
+    campus_name = db.Column(db.String(120), nullable=True)
+    break_start = db.Column(db.String(5), nullable=True)
+    break_end = db.Column(db.String(5), nullable=True)
+    favorite_alerts = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=utc_now)
 
 class DeliveryZone(db.Model):
@@ -194,6 +198,7 @@ class Product(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     available_start_time = db.Column(db.String(10), nullable=True)
     available_end_time = db.Column(db.String(10), nullable=True)
+    prep_minutes = db.Column(db.Integer, default=10)
     total_likes = db.Column(db.Integer, default=0)
     comments = db.relationship('ProductComment', backref='product_rel', cascade="all, delete-orphan", lazy=True)
 
@@ -241,6 +246,8 @@ class Order(db.Model):
     is_unpaid = db.Column(db.Boolean, default=False)
     collection_notes = db.Column(db.String(255), nullable=True)
     notes = db.Column(db.Text, nullable=False, default="None")
+    public_token = db.Column(db.String(64), unique=True, nullable=True, default=lambda: secrets.token_urlsafe(24))
+    fulfillment_status = db.Column(db.String(30), default='SUBMITTED')
     created_at = db.Column(db.DateTime, default=utc_now)
     customer = db.relationship('Customer', backref='orders', lazy=True)
     items = db.relationship('OrderItem', backref='order_rel', cascade="all, delete-orphan", lazy=True)
@@ -451,6 +458,32 @@ class ProductSuggestion(db.Model):
     created_at = db.Column(db.DateTime, default=utc_now)
 
 SUGGESTION_STATUSES = ('NEW', 'CONSIDERING', 'PLANNED', 'AVAILABLE', 'ARCHIVED')
+
+class GroupOrder(db.Model):
+    __tablename__ = 'group_order'
+    id = db.Column(db.Integer, primary_key=True)
+    token = db.Column(db.String(64), unique=True, nullable=False, default=lambda: secrets.token_urlsafe(20))
+    organizer_customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
+    title = db.Column(db.String(120), nullable=False, default='Barkada Order')
+    status = db.Column(db.String(20), nullable=False, default='OPEN')
+    submitted_order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='SET NULL'), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    submitted_at = db.Column(db.DateTime, nullable=True)
+    organizer = db.relationship('Customer', lazy=True)
+    lines = db.relationship('GroupOrderLine', backref='group_order', cascade='all, delete-orphan', lazy=True)
+
+class GroupOrderLine(db.Model):
+    __tablename__ = 'group_order_line'
+    id = db.Column(db.Integer, primary_key=True)
+    group_order_id = db.Column(db.Integer, db.ForeignKey('group_order.id', ondelete='CASCADE'), nullable=False)
+    participant_name = db.Column(db.String(100), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='CASCADE'), nullable=False)
+    product_name = db.Column(db.String(120), nullable=False)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    unit_price = db.Column(db.Float, nullable=False)
+    selected_options = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now)
+    product = db.relationship('Product', lazy=True)
 
 
 # ==================== INTEGRATED MACLEEN'S CRAFT SHOP ====================
@@ -927,11 +960,17 @@ def run_schema_migrations():
             ('card_qr_scale', 'FLOAT DEFAULT 1.0'),
             ('card_text_scale', 'FLOAT DEFAULT 1.0'),
             ('card_info_scale', 'FLOAT DEFAULT 1.0'),
+            ('campus_name', 'VARCHAR(120)'),
+            ('break_start', 'VARCHAR(5)'),
+            ('break_end', 'VARCHAR(5)'),
+            ('favorite_alerts', 'BOOLEAN DEFAULT FALSE'),
         ],
         'order': [
             ('dining_option', "VARCHAR(20) DEFAULT 'DINE-IN'"),
             ('points_redeemed', 'FLOAT DEFAULT 0.0'),
             ('points_discount', 'FLOAT DEFAULT 0.0'),
+            ('public_token', 'VARCHAR(64)'),
+            ('fulfillment_status', "VARCHAR(30) DEFAULT 'SUBMITTED'"),
         ],
         'promotion_tracker': [
             ('promo_cost', 'FLOAT DEFAULT 0.0'),
@@ -963,6 +1002,7 @@ def run_schema_migrations():
             ('size_schema', 'TEXT'),
             ('available_start_time', 'VARCHAR(10)'),
             ('available_end_time', 'VARCHAR(10)'),
+            ('prep_minutes', 'INTEGER DEFAULT 10'),
         ],
         'order_item': [
             ('cost_price', 'FLOAT DEFAULT 0.0'),
@@ -1009,11 +1049,15 @@ def run_schema_migrations():
             conn.execute(text("UPDATE customer SET card_qr_scale = 1.0 WHERE card_qr_scale IS NULL"))
             conn.execute(text("UPDATE customer SET card_text_scale = 1.0 WHERE card_text_scale IS NULL"))
             conn.execute(text("UPDATE customer SET card_info_scale = 1.0 WHERE card_info_scale IS NULL"))
+            conn.execute(text("UPDATE customer SET favorite_alerts = FALSE WHERE favorite_alerts IS NULL"))
         if 'promotion_tracker' in tables:
             conn.execute(text("UPDATE promotion_tracker SET is_visible = TRUE WHERE is_visible IS NULL"))
             conn.execute(text("UPDATE promotion_tracker SET portal_only = FALSE WHERE portal_only IS NULL"))
         if 'product' in tables:
             conn.execute(text("UPDATE product SET allow_custom_amount = FALSE WHERE allow_custom_amount IS NULL"))
+            conn.execute(text("UPDATE product SET prep_minutes = 10 WHERE prep_minutes IS NULL OR prep_minutes < 1"))
+        if 'order' in tables:
+            conn.execute(text("UPDATE \"order\" SET fulfillment_status = CASE WHEN status = 'COMPLETED' THEN 'FULFILLED' WHEN status = 'CANCELLED' THEN 'CANCELLED' ELSE 'SUBMITTED' END WHERE fulfillment_status IS NULL OR fulfillment_status = ''"))
         if 'investor_interest' in tables:
             conn.execute(text("UPDATE investor_interest SET offer_code = 'GENERAL' WHERE offer_code IS NULL OR offer_code = ''"))
             conn.execute(text("UPDATE investor_interest SET is_counter_offer = FALSE WHERE is_counter_offer IS NULL"))
@@ -1044,7 +1088,21 @@ def run_db_setup():
                     app.logger.warning('Created bootstrap %s account %r using the built-in first-run PIN. Change it in Admin immediately.', role, username)
         if not CraftCategory.query.filter(db.func.lower(CraftCategory.name) == 'general').first():
             db.session.add(CraftCategory(name='General', image_url=CRAFT_DEFAULT_IMAGE, is_active=True))
+        # Categories are useful immediately but never invent products, prices, or sales.
+        for category_name in ('School', 'Internship & Work', 'Personal Finance', 'Small Business', 'Productivity', 'General'):
+            if not DigitalCategory.query.filter(db.func.lower(DigitalCategory.name) == category_name.lower()).first():
+                db.session.add(DigitalCategory(name=category_name, is_active=True))
         db.session.commit()
+
+        # Existing orders pre-date private tracking links. Backfill them once with
+        # unguessable tokens; no customer information is placed in the URL.
+        tokenless_orders = Order.query.filter(
+            (Order.public_token.is_(None)) | (Order.public_token == '')
+        ).all()
+        for existing_order in tokenless_orders:
+            existing_order.public_token = secrets.token_urlsafe(24)
+        if tokenless_orders:
+            db.session.commit()
 
         ensure_default_promos()
         ensure_legacy_craft_catalog()
@@ -1085,7 +1143,7 @@ def add_live_ui_progressive_enhancement(response):
         html = response.get_data(as_text=True)
         marker = 'data-macleens-live'
         if marker not in html and '</body>' in html.lower():
-            script = '<script data-macleens-live src="/static/live-ui.js?v=3"></script>'
+            script = '<script data-macleens-live src="/static/live-ui.js?v=4"></script>'
             closing = html.lower().rfind('</body>')
             html = html[:closing] + script + html[closing:]
             response.set_data(html)
@@ -2710,6 +2768,23 @@ def store_catalog():
     top_sellers = [p for p in all_active_products if p.is_top_seller]
     products = sorted(all_active_products, key=lambda x: (-(x.total_likes or 0), x.id))
 
+    # "Popular now" is based on real completed sales from the last 30 days.
+    # It remains empty when there is not enough history—no fake popularity labels.
+    recent_cutoff = utc_now() - timedelta(days=30)
+    trending_rows = db.session.query(
+        OrderItem.product_id,
+        db.func.coalesce(db.func.sum(OrderItem.quantity), 0),
+    ).join(Order, Order.id == OrderItem.order_id).filter(
+        Order.status == 'COMPLETED',
+        Order.created_at >= recent_cutoff,
+        OrderItem.product_id.isnot(None),
+    ).group_by(OrderItem.product_id).order_by(db.func.sum(OrderItem.quantity).desc()).limit(8).all()
+    trending_ids = {row[0] for row in trending_rows}
+    student_picks = sorted(
+        [p for p in all_active_products if product_starting_price(p) <= 50 and is_product_available_now(p)],
+        key=lambda p: (p.id not in trending_ids, not p.is_top_seller, product_starting_price(p), p.name.casefold()),
+    )[:10]
+
     liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=get_client_ip()).all()}
     delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()
     status = check_operating_status()
@@ -2718,10 +2793,17 @@ def store_catalog():
 
     cust = None
     credit_available = 0.0
+    favorite_ids = set()
     if 'customer_id' in session:
         cust = Customer.query.get(session['customer_id'])
         if cust and cust.is_credit_eligible and not customer_access_issue(cust):
             credit_available = customer_available_credit(cust, include_pending=True)
+        if cust:
+            favorite_ids = {
+                row.product_id for row in CustomerWishlist.query.filter_by(customer_id=cust.id).all()
+            }
+
+    reorder_cart = session.pop('reorder_cart', None)
 
     return render_template('store_catalog.html', 
                            categories=categories, 
@@ -2736,6 +2818,10 @@ def store_catalog():
                            unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits,
                            credit_available=credit_available,
+                           favorite_ids=favorite_ids,
+                           trending_ids=trending_ids,
+                           student_picks=student_picks,
+                           reorder_cart=reorder_cart,
                            product_is_available_now=is_product_available_now)
 
 @app.route('/promo/burger-deal')
@@ -2778,6 +2864,26 @@ def api_toggle_like(product_id):
         prod.total_likes = (prod.total_likes or 0) + 1
         db.session.commit()
         return jsonify({'liked': True, 'total_likes': prod.total_likes})
+
+@app.route('/api/favorite/<int:product_id>', methods=['POST'])
+def api_toggle_favorite(product_id):
+    if 'customer_id' not in session:
+        return jsonify({'success': False, 'message': 'Log in to save favorites.'}), 401
+    cust = db.session.get(Customer, session['customer_id'])
+    issue = customer_access_issue(cust)
+    if issue:
+        return jsonify({'success': False, 'message': issue}), 403
+    product = Product.query.filter_by(id=product_id, is_active=True).first_or_404()
+    saved = CustomerWishlist.query.filter_by(customer_id=cust.id, product_id=product.id).first()
+    if saved:
+        db.session.delete(saved)
+        favorited = False
+    else:
+        db.session.add(CustomerWishlist(customer_id=cust.id, product_id=product.id))
+        favorited = True
+    track_portal_event('FAVORITE_ADD' if favorited else 'FAVORITE_REMOVE', customer_id=cust.id)
+    db.session.commit()
+    return jsonify({'success': True, 'favorited': favorited})
 
 @app.route('/api/add-comment/<int:product_id>', methods=['POST'])
 def api_add_comment(product_id):
@@ -2922,6 +3028,7 @@ def api_storefront_checkout():
         reserve_cart_stock(lines)
         db.session.commit()
         return jsonify({'success': True, 'order_id': order.id, 'total': total,
+                        'tracking_url': url_for('order_tracking', token=order.public_token),
                         'points_redeemed': points_redeemed, 'points_discount': points_discount})
     except OrderValidationError as exc:
         db.session.rollback()
@@ -2930,6 +3037,296 @@ def api_storefront_checkout():
         db.session.rollback()
         app.logger.exception('Storefront checkout failed for customer_id=%s', cust.id)
         return jsonify({'success': False, 'message': 'Checkout failed due to a server error. No order was recorded.'}), 500
+
+
+@app.route('/order/track/<token>')
+def order_tracking(token):
+    """Privacy-safe public order tracker reached through an unguessable link."""
+    order = Order.query.filter_by(public_token=token).first_or_404()
+    stage = (order.fulfillment_status or 'SUBMITTED').upper()
+    if order.status == 'CANCELLED':
+        stage = 'CANCELLED'
+    stages = [
+        ('SUBMITTED', 'Order sent', 'Your order is waiting for cashier confirmation.'),
+        ('PREPARING', 'Preparing', 'The kitchen or counter is working on your order.'),
+        ('READY', 'Ready', 'Your order is ready for pickup or delivery handoff.'),
+        ('FULFILLED', 'Completed', 'Your order has been handed over.'),
+    ]
+    stage_index = next((i for i, row in enumerate(stages) if row[0] == stage), -1)
+    return render_template('order_tracking.html', order=order, stages=stages,
+                           current_stage=stage, stage_index=stage_index)
+
+
+@app.route('/portal/reorder/<int:order_id>', methods=['POST'])
+def customer_reorder(order_id):
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login'))
+    cust = db.session.get(Customer, session['customer_id'])
+    issue = customer_access_issue(cust)
+    if issue:
+        flash(issue, 'error')
+        return redirect(url_for('customer_login'))
+    order = Order.query.filter_by(id=order_id, customer_id=cust.id).first_or_404()
+    reorder_cart = {}
+    skipped = []
+    for index, item in enumerate(order.items[:50]):
+        product = db.session.get(Product, item.product_id) if item.product_id else None
+        if not product or not product.is_active or not is_product_available_now(product) or product.stock < 1:
+            skipped.append(item.product_name)
+            continue
+        try:
+            raw_options = json.loads(item.selected_options) if item.selected_options else {}
+            if isinstance(raw_options, dict):
+                raw_options.pop('For', None)
+            options = validate_product_options(product, raw_options)
+            regular_price = product_price_for_options(product, options)
+        except (OrderValidationError, TypeError, ValueError):
+            skipped.append(item.product_name)
+            continue
+        unit_price = regular_price
+        custom_amount = False
+        if product.allow_custom_amount:
+            minimum = parse_float(product.minimum_order_amount, regular_price)
+            old_price = round(parse_float(item.unit_price, regular_price), 2)
+            if old_price + 0.004 >= minimum:
+                unit_price = old_price
+                custom_amount = abs(old_price - regular_price) > 0.004
+        qty = min(max(1, parse_int(item.quantity, 1)), max(1, parse_int(product.stock, 1)))
+        reorder_cart[f'{product.id}::reorder-{index}'] = {
+            'productId': product.id,
+            'name': product.name,
+            'price': unit_price,
+            'regularPrice': regular_price,
+            'qty': qty,
+            'options': options,
+            'customAmount': custom_amount,
+            'minimumAmount': product.minimum_order_amount,
+        }
+    if not reorder_cart:
+        flash('None of the items in that order are available right now.', 'info')
+        return redirect(url_for('customer_dashboard') + '#orders')
+    session['reorder_cart'] = reorder_cart
+    if skipped:
+        flash('Available items were added. Some unavailable or changed items were skipped.', 'info')
+    else:
+        flash('Your previous order is ready in the basket. Review it before checkout.', 'success')
+    return redirect(url_for('store_catalog'))
+
+
+@app.route('/portal/preferences', methods=['POST'])
+def customer_preferences():
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login'))
+    cust = Customer.query.get_or_404(session['customer_id'])
+    campus = re.sub(r'\s+', ' ', request.form.get('campus_name', '').strip())[:120] or None
+    break_start = request.form.get('break_start', '').strip() or None
+    break_end = request.form.get('break_end', '').strip() or None
+    parsed = []
+    for label, value in (('start', break_start), ('end', break_end)):
+        if value:
+            try:
+                parsed.append(datetime.strptime(value, '%H:%M').time())
+            except ValueError:
+                flash(f'Break {label} time is invalid.', 'error')
+                return redirect(url_for('customer_dashboard') + '#preferences')
+    if len(parsed) == 2 and parsed[1] <= parsed[0]:
+        flash('Break end time must be later than the start time.', 'error')
+        return redirect(url_for('customer_dashboard') + '#preferences')
+    cust.campus_name = campus
+    cust.break_start = break_start
+    cust.break_end = break_end
+    cust.favorite_alerts = bool(request.form.get('favorite_alerts'))
+    db.session.commit()
+    flash('Campus and pickup preferences saved.', 'success')
+    return redirect(url_for('customer_dashboard') + '#preferences')
+
+
+@app.route('/portal/group-order/create', methods=['POST'])
+def group_order_create():
+    if 'customer_id' not in session:
+        return redirect(url_for('customer_login'))
+    cust = Customer.query.get_or_404(session['customer_id'])
+    issue = customer_access_issue(cust)
+    if issue:
+        flash(issue, 'error')
+        return redirect(url_for('customer_login'))
+    title = re.sub(r'\s+', ' ', request.form.get('title', '').strip())[:120] or f"{cust.name.split()[0]}'s Barkada Order"
+    group = GroupOrder(organizer_customer_id=cust.id, title=title)
+    db.session.add(group)
+    track_portal_event('GROUP_ORDER_CREATE', customer_id=cust.id)
+    db.session.commit()
+    return redirect(url_for('group_order_page', token=group.token))
+
+
+def _open_group_order_or_404(token):
+    group = GroupOrder.query.filter_by(token=token).first_or_404()
+    if group.status == 'OPEN' and group.created_at and utc_now() - group.created_at > timedelta(hours=48):
+        group.status = 'EXPIRED'
+        db.session.commit()
+    return group
+
+
+@app.route('/group-order/<token>')
+def group_order_page(token):
+    group = _open_group_order_or_404(token)
+    products = [
+        product for product in Product.query.filter_by(is_active=True).order_by(Product.name).all()
+        if is_product_available_now(product) and parse_int(product.stock, 0) > 0
+    ]
+    organizer = session.get('customer_id') == group.organizer_customer_id
+    return render_template('group_order.html', group=group, products=products, organizer=organizer)
+
+
+@app.route('/group-order/<token>/item', methods=['POST'])
+def group_order_add_item(token):
+    group = _open_group_order_or_404(token)
+    is_json = request.is_json
+    data = request.get_json(silent=True) or request.form
+    if group.status != 'OPEN':
+        message = 'This group order is already closed.'
+        return (jsonify({'success': False, 'message': message}), 409) if is_json else (flash(message, 'info') or redirect(url_for('group_order_page', token=token)))
+    if len(group.lines) >= 80:
+        message = 'This group order has reached its item limit.'
+        return (jsonify({'success': False, 'message': message}), 400) if is_json else (flash(message, 'error') or redirect(url_for('group_order_page', token=token)))
+    participant = re.sub(r'\s+', ' ', str(data.get('participant_name', '')).strip())[:100]
+    if len(participant) < 2:
+        message = 'Enter your name so the organizer knows which item is yours.'
+        return (jsonify({'success': False, 'message': message}), 400) if is_json else (flash(message, 'error') or redirect(url_for('group_order_page', token=token)))
+    try:
+        raw_options = data.get('options', {})
+        if isinstance(raw_options, str):
+            raw_options = json.loads(raw_options or '{}')
+        lines = validate_and_lock_cart([{
+            'product_id': data.get('product_id'),
+            'quantity': data.get('quantity', 1),
+            'options': raw_options,
+        }], require_available=True)
+        line = lines[0]
+        product = line['product']
+        saved_line = GroupOrderLine(
+            group_order_id=group.id,
+            participant_name=participant,
+            product_id=product.id,
+            product_name=product.name,
+            quantity=line['quantity'],
+            unit_price=line['unit_price'],
+            selected_options=line['selected_options_json'],
+        )
+        db.session.add(saved_line)
+        db.session.commit()
+        if is_json:
+            return jsonify({
+                'success': True,
+                'message': f'{product.name} added for {participant}.',
+                'line': {
+                    'id': saved_line.id,
+                    'participant_name': saved_line.participant_name,
+                    'product_name': saved_line.product_name,
+                    'quantity': saved_line.quantity,
+                    'total': round(saved_line.unit_price * saved_line.quantity, 2),
+                    'options': option_summary(saved_line.selected_options),
+                },
+                'line_count': GroupOrderLine.query.filter_by(group_order_id=group.id).count(),
+            })
+        flash(f'{product.name} added for {participant}.', 'success')
+    except (OrderValidationError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        db.session.rollback()
+        if is_json:
+            return jsonify({'success': False, 'message': str(exc)}), 400
+        flash(str(exc), 'error')
+    return redirect(url_for('group_order_page', token=token))
+
+
+@app.route('/group-order/<token>/line/<int:line_id>/delete', methods=['POST'])
+def group_order_delete_line(token, line_id):
+    group = _open_group_order_or_404(token)
+    if session.get('customer_id') != group.organizer_customer_id:
+        return jsonify({'success': False, 'message': 'Only the organizer can remove items.'}), 403
+    line = GroupOrderLine.query.filter_by(id=line_id, group_order_id=group.id).first_or_404()
+    if group.status != 'OPEN':
+        return jsonify({'success': False, 'message': 'This group order is closed.'}), 409
+    db.session.delete(line)
+    db.session.commit()
+    return jsonify({'success': True})
+
+
+@app.route('/group-order/<token>/submit', methods=['POST'])
+def group_order_submit(token):
+    group = _open_group_order_or_404(token)
+    if session.get('customer_id') != group.organizer_customer_id:
+        flash('Only the organizer can submit this order.', 'error')
+        return redirect(url_for('group_order_page', token=token))
+    if group.status != 'OPEN':
+        if group.submitted_order_id:
+            order = db.session.get(Order, group.submitted_order_id)
+            if order:
+                return redirect(url_for('order_tracking', token=order.public_token))
+        flash('This group order is already closed.', 'info')
+        return redirect(url_for('group_order_page', token=token))
+    if not group.lines:
+        flash('Add at least one item before submitting.', 'error')
+        return redirect(url_for('group_order_page', token=token))
+    cust = db.session.get(Customer, group.organizer_customer_id)
+    target_time = request.form.get('target_time', '').strip()
+    if not target_time:
+        flash('Choose a pickup time.', 'error')
+        return redirect(url_for('group_order_page', token=token))
+    try:
+        # Claim the open cart atomically so a double-click or two browser tabs
+        # cannot create duplicate orders.
+        claimed = GroupOrder.query.filter_by(id=group.id, status='OPEN').update(
+            {'status': 'SUBMITTING'}, synchronize_session=False
+        )
+        if claimed != 1:
+            db.session.rollback()
+            flash('This group order is already being submitted.', 'info')
+            return redirect(url_for('group_order_page', token=token))
+        raw_items = []
+        for saved in group.lines:
+            raw_items.append({
+                'product_id': saved.product_id,
+                'quantity': saved.quantity,
+                'options': json.loads(saved.selected_options) if saved.selected_options else {},
+            })
+        lines = validate_and_lock_cart(raw_items, require_available=True)
+        subtotal = cart_subtotal(lines)
+        people = ', '.join(sorted({line.participant_name for line in group.lines}))[:500]
+        order = Order(
+            order_type='PICKUP', dining_option='TAKEOUT', customer_id=cust.id,
+            customer_name=cust.name, contact_number=cust.contact, fb_messenger=cust.fb_messenger,
+            pickup_time=target_time, target_time=target_time, subtotal=subtotal, delivery_fee=0,
+            total_amount=subtotal, payment_method='CASH', payment_verified=False,
+            status='VERIFICATION', fulfillment_status='SUBMITTED',
+            notes=f'[BARKADA ORDER] {group.title} • For: {people}',
+        )
+        db.session.add(order)
+        db.session.flush()
+        # Keep each participant visible on the cashier slip/tracker even when two
+        # friends chose the same product and options. The aggregate validation
+        # above still protects combined stock and the authoritative total.
+        for saved in group.lines:
+            product = db.session.get(Product, saved.product_id)
+            selected = validate_product_options(
+                product, json.loads(saved.selected_options) if saved.selected_options else {}
+            )
+            unit_price = product_price_for_options(product, selected)
+            display_options = dict(selected)
+            display_options['For'] = saved.participant_name
+            db.session.add(OrderItem(
+                order_id=order.id, product_id=product.id, product_name=product.name,
+                unit_price=unit_price, cost_price=max(0.0, parse_float(product.cost, 0.0)), quantity=saved.quantity,
+                subtotal=unit_price * saved.quantity, selected_options=serialize_selected_options(display_options),
+            ))
+        reserve_cart_stock(lines)
+        group.status = 'SUBMITTED'
+        group.submitted_order_id = order.id
+        group.submitted_at = utc_now()
+        db.session.commit()
+        return redirect(url_for('order_tracking', token=order.public_token))
+    except (OrderValidationError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        db.session.rollback()
+        flash(f'Please review the group cart: {exc}', 'error')
+        return redirect(url_for('group_order_page', token=token))
 
 # ==================== TABLET KIOSK ENDPOINTS ====================
 
@@ -3129,6 +3526,7 @@ def cashier_direct_sale():
             payment_verified=True,
             change_for=change_for if change_for > 0 else None,
             status='COMPLETED',
+            fulfillment_status='FULFILLED',
             notes=notes,
         )
         db.session.add(order)
@@ -3227,6 +3625,7 @@ def cashier_claim_promo():
         payment_method=pay_method,
         payment_verified=True,
         status='COMPLETED',
+        fulfillment_status='FULFILLED',
         notes=f"[PROMO:{promo.promo_code}] {promo.title}"
     )
     db.session.add(order)
@@ -3376,6 +3775,7 @@ def cashier_misc_sale():
         payment_method=pay_method,
         payment_verified=True,
         status='COMPLETED',
+        fulfillment_status='FULFILLED',
         notes=notes
     )
     db.session.add(order)
@@ -3854,6 +4254,7 @@ def verify_order(order_id):
                             reason=f'Purchase Order #{order.id}',
                         ))
                     apply_member_marketing_rewards(cust, order)
+        order.fulfillment_status = 'PREPARING'
         sync_craft_order_after_main_verification(order, accepted=True)
         sync_digital_order_after_main_verification(order, accepted=True)
         db.session.commit()
@@ -3878,6 +4279,7 @@ def verify_order(order_id):
                 if prod:
                     prod.stock = parse_int(prod.stock, 0) + item.quantity
         order.status = 'CANCELLED'
+        order.fulfillment_status = 'CANCELLED'
         sync_craft_order_after_main_verification(order, accepted=False)
         sync_digital_order_after_main_verification(order, accepted=False)
         db.session.commit()
@@ -3885,6 +4287,26 @@ def verify_order(order_id):
     else:
         flash('Invalid verification action.', 'error')
 
+    return redirect(url_for('cashier_terminal'))
+
+
+@app.route('/pos/order/<int:order_id>/fulfillment', methods=['POST'])
+@require_cashier
+def update_order_fulfillment(order_id):
+    order = Order.query.get_or_404(order_id)
+    new_status = request.form.get('fulfillment_status', '').strip().upper()
+    allowed = {'PREPARING', 'READY', 'FULFILLED'}
+    if order.status != 'COMPLETED' or new_status not in allowed:
+        flash('Only accepted orders can move through Preparing, Ready, and Fulfilled.', 'error')
+        return redirect(url_for('cashier_terminal'))
+    current = (order.fulfillment_status or 'PREPARING').upper()
+    ranks = {'SUBMITTED': 0, 'PREPARING': 1, 'READY': 2, 'FULFILLED': 3}
+    if ranks.get(new_status, 0) < ranks.get(current, 0):
+        flash('Fulfillment cannot be moved backward. This protects the customer tracker.', 'error')
+        return redirect(url_for('cashier_terminal'))
+    order.fulfillment_status = new_status
+    db.session.commit()
+    flash(f'Order #{order.id} is now {new_status.title()}.', 'success')
     return redirect(url_for('cashier_terminal'))
 
 @app.route('/admin/settings/hours', methods=['POST'])
@@ -4280,7 +4702,7 @@ def craft_record_transaction():
             main_order = Order(
                 order_type='CRAFT/MISC', dining_option='TAKEOUT', customer_name='Craft Shop', contact_number='N/A',
                 subtotal=amount, delivery_fee=0.0, total_amount=amount, payment_method=payment_method,
-                payment_verified=True, status='COMPLETED', notes=f'[CRAFT OTHER INCOME] {title}: {notes or ""}',
+                payment_verified=True, status='COMPLETED', fulfillment_status='FULFILLED', notes=f'[CRAFT OTHER INCOME] {title}: {notes or ""}',
             )
             db.session.add(main_order); db.session.flush(); main_order_id = main_order.id
             db.session.add(OrderItem(
@@ -6094,6 +6516,7 @@ def admin_allocate_vault_drop(drop_id):
         payment_method='CASH',
         payment_verified=True,
         status='COMPLETED',
+        fulfillment_status='FULFILLED',
         notes=f"Allocated from Vault Drop #{drop.drop_number}"
     )
     db.session.add(order)
@@ -6331,6 +6754,7 @@ def admin_add_product():
     image_url = request.form.get('image_url', '').strip()
     start_t = request.form.get('available_start_time', '').strip() or None
     end_t = request.form.get('available_end_time', '').strip() or None
+    prep_minutes = max(1, min(180, parse_int(request.form.get('prep_minutes'), 10)))
     is_featured = bool(request.form.get('is_featured'))
     is_top_seller = bool(request.form.get('is_top_seller'))
 
@@ -6368,6 +6792,7 @@ def admin_add_product():
         image_url=image_url,
         available_start_time=start_t,
         available_end_time=end_t,
+        prep_minutes=prep_minutes,
         is_featured=is_featured,
         is_top_seller=is_top_seller,
         is_active=True,
@@ -6388,6 +6813,7 @@ def admin_batch_update_products():
             price = parse_float(request.form.get(f'price_{pid}'), prod.price)
             cost = parse_float(request.form.get(f'cost_{pid}'), prod.cost or 0.0)
             stock = parse_int(request.form.get(f'stock_{pid}'), prod.stock or 0)
+            prep_minutes = max(1, min(180, parse_int(request.form.get(f'prep_minutes_{pid}'), prod.prep_minutes or 10)))
             allow_custom_amount = (f'allow_custom_amount_{pid}' in request.form)
             minimum_order_amount = parse_float(request.form.get(f'minimum_order_amount_{pid}'), 0.0)
             option_schema, size_schema = normalize_product_configuration(
@@ -6410,6 +6836,7 @@ def admin_batch_update_products():
             prod.option_schema = option_schema
             prod.size_schema = size_schema
             prod.stock = stock
+            prod.prep_minutes = prep_minutes
             prod.image_url = request.form.get(f'image_url_{pid}', '').strip()
             prod.available_start_time = request.form.get(f'available_start_time_{pid}', '').strip() or None
             prod.available_end_time = request.form.get(f'available_end_time_{pid}', '').strip() or None
@@ -6873,6 +7300,15 @@ def customer_dashboard():
     reward_progress_pct = min(100.0, (balance / reward_target * 100.0) if reward_target else 100.0)
     recent_rewards = RewardLedger.query.filter_by(customer_id=cust.id).order_by(RewardLedger.created_at.desc()).limit(8).all()
     referral_rewards_count = ReferralReward.query.filter_by(referrer_customer_id=cust.id).count()
+    favorite_items = Product.query.join(
+        CustomerWishlist, CustomerWishlist.product_id == Product.id
+    ).filter(
+        CustomerWishlist.customer_id == cust.id,
+        Product.is_active.is_(True),
+    ).order_by(Product.name).all()
+    open_group_orders = GroupOrder.query.filter_by(
+        organizer_customer_id=cust.id, status='OPEN'
+    ).order_by(GroupOrder.created_at.desc()).limit(5).all()
     base = _marketing_public_base_url()
     card_identifier = cust.card_number or cust.contact
     qr_target = f"{base}/portal/login?card={card_identifier}"
@@ -6889,6 +7325,8 @@ def customer_dashboard():
         reward_progress_pct=reward_progress_pct,
         recent_rewards=recent_rewards,
         referral_rewards_count=referral_rewards_count,
+        favorite_items=favorite_items,
+        open_group_orders=open_group_orders,
         loyalty_card_themes=LOYALTY_CARD_THEMES,
         qr_data=qr_data,
         qr_target=qr_target,

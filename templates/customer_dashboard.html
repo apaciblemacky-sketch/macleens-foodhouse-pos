@@ -63,6 +63,9 @@
     .card-preview-stack{display:flex;justify-content:center;overflow:auto;padding:4px 0 8px}
     .card-preview-stack .loyalty-card-pair{zoom:1.22}
     @media(max-width:560px){ .action-grid{grid-template-columns:1fr 1fr;} .card-theme-grid{grid-template-columns:1fr;} .row{align-items:flex-start; flex-direction:column;} .card-preview-stack{justify-content:flex-start}.card-preview-stack .loyalty-card-pair{zoom:1} }
+    :root{--pink:#ec4899;--dark:#172033;--border:#e7dce3;--bg:#f8faf9;--teal:#0f766e;--teal-soft:#ccfbf1}
+    body{padding:12px 12px 82px;background:linear-gradient(145deg,#fff7fb,#f0fdfa 52%,#f8fafc)}.wrap{max-width:850px}.card{border:1px solid #e2e8f0;border-radius:23px;padding:18px;box-shadow:0 13px 35px rgba(15,23,42,.07)}.profile-card{background:radial-gradient(circle at 92% 5%,rgba(255,255,255,.23),transparent 25%),linear-gradient(125deg,#be185d,#ec4899 48%,#0f766e);color:white;border:0}.profile-card .name,.profile-card .muted{color:white}.profile-card .muted{opacity:.82}.profile-card .avatar{border-color:white}.action-grid{grid-template-columns:repeat(5,1fr);gap:7px}.action{border:0;background:rgba(255,255,255,.93);box-shadow:0 5px 15px rgba(15,23,42,.08);color:#334155;border-radius:15px}.action:hover{transform:translateY(-1px)}.section-title{font-size:1.08rem;color:var(--dark)}.reward-layout{display:flex;align-items:center;gap:20px}.reward-ring{--progress:0deg;width:112px;height:112px;flex:none;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--teal) var(--progress),#dbe7e4 0);position:relative}.reward-ring:after{content:"";position:absolute;inset:10px;border-radius:50%;background:white}.reward-ring strong{z-index:1;font-size:1.1rem;color:var(--teal);text-align:center;line-height:1.1}.reward-ring small{display:block;font-size:.58rem;color:#64748b}.student-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.mini-card{border:1px solid #e2e8f0;background:#fff;border-radius:17px;padding:12px}.mini-card strong{font-size:.86rem}.mission{display:flex;align-items:center;gap:10px;border-top:1px dashed #dbe7e4;padding:10px 0}.mission-icon{width:38px;height:38px;display:grid;place-items:center;border-radius:12px;background:var(--teal-soft);font-size:1.15rem}.favorite-strip{display:flex;gap:9px;overflow-x:auto;padding-bottom:5px}.favorite{min-width:155px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:15px;padding:10px}.favorite img{width:100%;height:80px;object-fit:cover;border-radius:10px}.settings-grid{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px}.settings-grid input{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:10px}.bottom-nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(520px,100%);height:64px;background:rgba(255,255,255,.97);border:1px solid #e2e8f0;border-bottom:0;border-radius:18px 18px 0 0;z-index:60;display:flex;justify-content:space-around;padding:7px}.bottom-nav a{text-decoration:none;color:#64748b;text-align:center;font-size:.62rem;font-weight:850}.bottom-nav span{display:block;font-size:1.2rem}.bottom-nav .active{color:var(--teal)}.order-actions{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.order-actions .btn{width:auto;padding:6px 9px;font-size:.68rem}.status-pill{display:inline-block;border-radius:999px;padding:3px 7px;background:#e0f2fe;color:#075985;font-weight:850;font-size:.65rem}
+    @media(max-width:650px){.action-grid{grid-template-columns:repeat(3,1fr)}.student-grid{grid-template-columns:1fr}.settings-grid{grid-template-columns:1fr}.reward-layout{align-items:flex-start}.reward-ring{width:94px;height:94px}.row{align-items:flex-start}.profile-card{padding:16px}.favorite{min-width:145px}}
   </style>
 </head>
 <body>
@@ -73,7 +76,7 @@
     {% endfor %}
   {% endwith %}
 
-  <div class="card">
+  <div class="card profile-card">
     <div class="profile">
       {% if cust.profile_image %}<img src="{{ cust.profile_image }}" class="avatar">{% else %}<div class="avatar">🎀</div>{% endif %}
       <div style="flex:1;">
@@ -89,17 +92,20 @@
       <a class="action" href="#suggest"><span>💡</span>Suggest a Product</a>
       <a class="action" href="#deals"><span>🔥</span>Today's Member Deals</a>
       <a class="action" href="/"><span>🛍️</span>Order / View Menu</a>
+      <a class="action" href="#favorites"><span>🔖</span>My Favorites</a>
     </div>
   </div>
 
   <div class="card" id="rewards">
     <div class="section-title">🎁 My Rewards</div>
-    <div class="row">
+    <div class="reward-layout">
+      <div class="reward-ring" id="rewardRing" style="--progress:{{ (reward_progress_pct * 3.6)|round(1) }}deg"><strong><span id="ringPoints">{{ "{:.1f}".format(cust.points_balance or 0) }}</span><small>POINTS</small></strong></div>
       <div>
-        <div class="points">{{ "{:,.1f}".format(cust.points_balance or 0.0) }} pts</div>
+        <div class="points"><span id="pointsBalanceMain">{{ "{:,.1f}".format(cust.points_balance or 0.0) }}</span> pts</div>
         <div class="muted">Earn 1 point per ₱30 spend • +0.5 daily login</div>
+        <div style="font-size:.75rem;font-weight:900;color:var(--teal);margin-top:6px">🔥 {{ cust.login_streak or 1 }}-day check-in streak</div>
       </div>
-      <div style="text-align:right; font-size:.75rem; font-weight:900; color:var(--dark);">
+      <div id="milestoneText" style="margin-left:auto;text-align:right; font-size:.75rem; font-weight:900; color:var(--dark);">
         {% if points_to_reward > 0 %}{{ "{:.1f}".format(points_to_reward) }} pts to 20-point milestone{% else %}20-point milestone reached!{% endif %}
       </div>
     </div>
@@ -112,6 +118,36 @@
         <div class="history-row row"><span>{{ r.reason }}</span><strong style="color:{{ '#16a34a' if r.points_change >= 0 else '#dc2626' }};">{{ '+' if r.points_change >= 0 else '' }}{{ "{:.1f}".format(r.points_change) }}</strong></div>
       {% endfor %}
     {% endif %}
+  </div>
+
+  <div class="card">
+    <div class="section-title">⚡ Student missions</div>
+    <div class="muted" style="margin-bottom:5px">Simple ways to get more value from your account.</div>
+    <div class="mission"><div class="mission-icon">🔥</div><div><strong>Keep your check-in streak</strong><div class="muted">Visit your portal daily for the +0.5 login reward.</div></div></div>
+    <div class="mission"><div class="mission-icon">👥</div><div><strong>Plan a barkada order</strong><div class="muted">Share one cart, let friends add their picks, then submit once.</div></div></div>
+    {% for campaign in bonus_campaigns %}<div class="mission"><div class="mission-icon">⭐</div><div><strong>{{ campaign.title }}</strong><div class="muted">{{ campaign.description or 'Complete an eligible purchase while this bonus is active.' }}</div></div></div>{% endfor %}
+  </div>
+
+  <div class="card" id="favorites">
+    <div class="row"><div><div class="section-title">🔖 Saved favorites</div><div class="muted">Your fastest route back to regular orders.</div></div><a class="btn btn-soft" style="width:auto" href="/#menu">Find food</a></div>
+    {% if favorite_items %}<div class="favorite-strip" style="margin-top:11px">{% for p in favorite_items %}<div class="favorite">{% if p.image_url %}<img loading="lazy" src="{{ p.image_url }}" referrerpolicy="no-referrer" alt="{{ p.name }}">{% endif %}<strong style="display:block;margin:6px 0">{{ p.name }}</strong><div style="color:var(--pink);font-weight:900">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div></div>{% endfor %}</div>{% else %}<div class="muted" style="padding:15px 0">Tap the bookmark on any menu item to keep it here.</div>{% endif %}
+  </div>
+
+  <div class="card" id="groupOrders">
+    <div class="section-title">👥 Barkada ordering</div>
+    <div class="muted">Create one shareable cart. Friends add their own picks; only you can remove items or send the final order.</div>
+    <form action="{{ url_for('group_order_create') }}" method="post" style="display:flex;gap:7px;margin-top:10px"><input name="title" maxlength="120" placeholder="e.g. Library lunch group" style="flex:1;min-width:0;padding:10px;border:1px solid #cbd5e1;border-radius:10px"><button class="btn btn-pink" style="width:auto" type="submit">Create cart</button></form>
+    {% for group in open_group_orders %}<div class="history-row row"><span><strong>{{ group.title }}</strong><small class="muted" style="display:block">{{ group.lines|length }} line(s)</small></span><a class="btn btn-soft" style="width:auto" href="{{ url_for('group_order_page',token=group.token) }}">Open & share</a></div>{% endfor %}
+  </div>
+
+  <div class="card" id="preferences">
+    <div class="section-title">🎓 Campus & quick-pickup preferences</div>
+    <div class="muted" style="margin-bottom:10px">Save your usual break so checkout can fill your pickup time in one tap.</div>
+    <form action="{{ url_for('customer_preferences') }}" method="post">
+      <div class="settings-grid"><input name="campus_name" maxlength="120" value="{{ cust.campus_name or '' }}" placeholder="School / campus"><input name="break_start" type="time" value="{{ cust.break_start or '' }}" aria-label="Break start"><input name="break_end" type="time" value="{{ cust.break_end or '' }}" aria-label="Break end"></div>
+      <label style="display:flex;gap:8px;align-items:center;margin:10px 0;font-size:.78rem;font-weight:800"><input type="checkbox" name="favorite_alerts" {% if cust.favorite_alerts %}checked{% endif %}> Remember that I want updates when favorite items return</label>
+      <button class="btn btn-pink" type="submit">Save pickup preferences</button>
+    </form>
   </div>
 
   <div class="card" id="suggest">
@@ -164,9 +200,8 @@
           {% if campaign.bonus_points and campaign.bonus_points > 0 %}{% if campaign.points_multiplier and campaign.points_multiplier > 1 %} + {% endif %}+{{ "{:.1f}".format(campaign.bonus_points) }} bonus pts{% endif %}
           {% if campaign.min_spend and campaign.min_spend > 0 %} • Min ₱{{ "{:,.2f}".format(campaign.min_spend) }}{% endif %}
           {% if campaign.start_time or campaign.end_time %} • {{ campaign.start_time or '00:00' }}–{{ campaign.end_time or '23:59' }}{% endif %}
-        </div>
-      </div>
-    {% endfor %}
+          </div>
+        {% endfor %}
 
     {% for promo in active_promos %}
       <div class="deal">
@@ -193,7 +228,7 @@
     </div>
   </div>
 
-  <div class="card secondary-order">
+  <div class="card secondary-order" id="orders">
     <div class="row" style="margin-bottom:9px;">
       <div class="section-title" style="margin:0;">📦 Purchases & Orders</div>
       <a class="btn btn-pink" style="width:auto; padding:7px 11px;" href="/">Order Online</a>
@@ -203,10 +238,11 @@
       <div class="history">
         {% for o in orders %}
           <div class="history-row">
-            <div class="row"><strong>#{{ o.id }} • {{ o.order_type }}</strong><strong style="color:var(--pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</strong></div>
-            <div class="muted">{{ o.status }} • {{ o.dining_option or 'DINE-IN' }}</div>
+            <div class="row"><strong>#{{ o.id }} • {{ o.order_type }}</strong><strong id="orderTotal-{{ o.id }}" style="color:var(--pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</strong></div>
+            <div class="muted"><span class="status-pill">{{ (o.fulfillment_status or o.status).replace('_',' ').title() }}</span> • {{ o.dining_option or 'DINE-IN' }}</div>
+            <div class="order-actions">{% if o.public_token %}<a class="btn btn-soft" href="{{ url_for('order_tracking',token=o.public_token) }}">Track</a>{% endif %}<form action="{{ url_for('customer_reorder',order_id=o.id) }}" method="post"><button class="btn btn-outline" type="submit">Order again</button></form></div>
             {% if o.status in ['VERIFICATION', 'COMPLETED'] and not (o.points_redeemed or 0) and (cust.points_balance or 0) >= 20 %}
-              <button type="button" class="btn btn-pink" style="width:auto;padding:5px 8px;margin-top:5px;font-size:.7rem;" onclick="applyPointsToOrder({{ o.id }})">Use Points as Discount</button>
+              <button id="applyPoints-{{ o.id }}" type="button" class="btn btn-pink" style="width:auto;padding:5px 8px;margin-top:5px;font-size:.7rem;" onclick="applyPointsToOrder({{ o.id }})">Use Points as Discount</button>
             {% elif (o.points_redeemed or 0) > 0 %}
               <div style="color:#059669;font-weight:900;margin-top:3px;font-size:.72rem;">✓ {{ "{:,.2f}".format(o.points_redeemed) }} points used (₱{{ "{:,.2f}".format(o.points_discount or 0) }} discount)</div>
             {% endif %}
@@ -228,6 +264,7 @@
     <a href="/portal/logout" class="btn btn-outline" style="margin-top:7px;">Log Out</a>
   </div>
 </div>
+<nav class="bottom-nav"><a href="/"><span>⌂</span>Home</a><a href="/#menu"><span>🍽</span>Menu</a><a class="active" href="#rewards"><span>★</span>Rewards</a><a href="#orders"><span>▣</span>Orders</a><a href="#account"><span>◉</span>Account</a></nav>
 <script>
   function copyInviteLink(){
     const el=document.getElementById('refLinkInput');
@@ -252,7 +289,9 @@
     if(!data.success)return alert(data.message||'Could not apply points.');
     const refundNote=data.refund_due>0?`\nShow this to the cashier. Refund/change due: ₱${data.refund_due.toFixed(2)}`:'';
     alert(`Points applied!\nDiscount: ₱${data.discount.toFixed(2)}\nNew total: ₱${data.total.toFixed(2)}${refundNote}`);
-    if(window.MacleensLiveUI)window.MacleensLiveUI.refresh();else window.location.reload();
+    const total=document.getElementById(`orderTotal-${orderId}`);if(total)total.textContent=`₱${data.total.toFixed(2)}`;
+    const button=document.getElementById(`applyPoints-${orderId}`);if(button){const note=document.createElement('div');note.style.cssText='color:#059669;font-weight:900;margin-top:3px;font-size:.72rem';note.textContent=`✓ ${data.points_redeemed.toFixed(2)} points used (₱${data.discount.toFixed(2)} discount)`;button.replaceWith(note);}
+    const balance=Number(data.points_balance||0),display=balance.toFixed(1);document.getElementById('pointsBalanceMain').textContent=display;document.getElementById('ringPoints').textContent=display;document.getElementById('rewardRing').style.setProperty('--progress',`${Math.min(100,balance/20*100)*3.6}deg`);document.getElementById('milestoneText').textContent=balance>=20?'20-point milestone reached!':`${(20-balance).toFixed(1)} pts to 20-point milestone`;
   }
   syncCustomerCardPreview();
 </script>

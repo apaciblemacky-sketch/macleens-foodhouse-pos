@@ -30,15 +30,16 @@ REQUIRED_DB_COLUMNS = {
         "credit_limit", "outstanding_ar", "referred_by", "last_daily_login",
         "login_streak", "last_active_at", "card_theme", "card_logo_scale",
         "card_photo_scale", "card_qr_scale", "card_text_scale", "card_info_scale",
+        "campus_name", "break_start", "break_end", "favorite_alerts",
     },
     "product": {
         "id", "name", "category_name", "price", "cost", "allow_custom_amount",
-        "minimum_order_amount", "option_schema", "size_schema", "stock", "is_active", "available_start_time", "available_end_time",
+        "minimum_order_amount", "option_schema", "size_schema", "stock", "is_active", "available_start_time", "available_end_time", "prep_minutes",
     },
     "order": {
         "id", "order_type", "dining_option", "customer_id", "subtotal",
         "total_amount", "payment_method", "payment_verified", "status",
-        "is_unpaid", "points_redeemed", "points_discount", "created_at",
+        "is_unpaid", "points_redeemed", "points_discount", "public_token", "fulfillment_status", "created_at",
     },
     "order_item": {
         "id", "order_id", "product_id", "unit_price", "cost_price",
@@ -219,6 +220,29 @@ def main() -> int:
         if not (TEMPLATES / name).exists():
             fail(f"Digital Business template is missing: {name}")
     ok("Digital Business catalog, checkout, tracking, admin, and cashier sync are present")
+
+    student_markers = [
+        "class GroupOrder(db.Model):", "class GroupOrderLine(db.Model):",
+        "@app.route('/api/favorite/<int:product_id>'", "@app.route('/portal/reorder/<int:order_id>'",
+        "@app.route('/order/track/<token>')", "@app.route('/portal/group-order/create'",
+        "@app.route('/group-order/<token>')", "@app.route('/portal/preferences'",
+        "@app.route('/pos/order/<int:order_id>/fulfillment'", "prep_minutes",
+    ]
+    missing = [marker for marker in student_markers if marker not in source]
+    if missing:
+        fail("student experience markers missing: " + ", ".join(missing))
+    for name in ["order_tracking.html", "group_order.html"]:
+        if not (TEMPLATES / name).exists():
+            fail(f"student experience template is missing: {name}")
+    store_text = (TEMPLATES / "store_catalog.html").read_text(encoding="utf-8")
+    dashboard_text = (TEMPLATES / "customer_dashboard.html").read_text(encoding="utf-8")
+    for marker in ["menuSearch", "under30", "student-bottom-nav", "toggleFavorite", "tracking_url"]:
+        if marker not in store_text and marker not in source:
+            fail(f"modern storefront marker is missing: {marker}")
+    for marker in ["reward-ring", "Saved favorites", "Barkada ordering", "Campus & quick-pickup", "Order again"]:
+        if marker not in dashboard_text:
+            fail(f"modern loyalty portal marker is missing: {marker}")
+    ok("modern student storefront, favorites, reorder, group ordering, preferences, and tracking are present")
 
     deploy_script = ROOT / "DEPLOY_TO_RENDER.bat"
     if not deploy_script.exists():

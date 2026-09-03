@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0f766e">
+  <title>Track Order #{{ order.id }} | Macleen's</title>
+  <style>
+    :root{--pink:#ec4899;--teal:#0f766e;--navy:#172033;--muted:#64748b;--bg:#f7faf9;--line:#dbe7e4}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#fff1f7,#ecfdf9 55%,#f8fafc);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--navy);min-height:100vh;padding:18px}
+    .wrap{max-width:680px;margin:auto}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}.brand{font-weight:950;color:#9d174d}.back{color:var(--teal);font-weight:800;text-decoration:none}
+    .card{background:rgba(255,255,255,.95);border:1px solid #e2e8f0;border-radius:24px;padding:22px;box-shadow:0 18px 45px rgba(15,23,42,.09);margin-bottom:14px}.eyebrow{font-size:.72rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--teal)}h1{margin:5px 0 6px;font-size:clamp(1.6rem,7vw,2.4rem)}.muted{color:var(--muted);font-size:.86rem}.status{display:inline-flex;margin-top:12px;padding:8px 12px;border-radius:999px;background:#ccfbf1;color:#115e59;font-weight:900}.status.cancelled{background:#fee2e2;color:#991b1b}
+    .timeline{margin-top:18px}.step{display:grid;grid-template-columns:38px 1fr;gap:11px;min-height:78px;position:relative}.dot{width:30px;height:30px;border:3px solid #cbd5e1;background:white;border-radius:50%;display:grid;place-items:center;font-size:.72rem;font-weight:900;z-index:1}.step:not(:last-child):after{content:"";position:absolute;left:14px;top:30px;width:3px;height:48px;background:#e2e8f0}.step.done .dot,.step.current .dot{border-color:var(--teal);background:var(--teal);color:white}.step.done:not(:last-child):after{background:var(--teal)}.step.current h3{color:var(--teal)}h3{margin:3px 0;font-size:1rem}.summary{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:15px 0}.metric{background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:12px}.metric small{display:block;color:var(--muted);font-weight:800;margin-bottom:4px}.items{margin-top:12px}.item{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px dashed var(--line);font-size:.86rem}.notice{padding:12px;border-radius:14px;background:#fff7ed;color:#9a3412;font-size:.8rem;font-weight:750}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn{flex:1;min-width:150px;padding:12px;border-radius:13px;text-align:center;text-decoration:none;font-weight:900}.primary{background:linear-gradient(135deg,var(--pink),#db2777);color:white}.secondary{background:#e6fffa;color:var(--teal)}
+  </style>
+</head>
+<body><main class="wrap">
+  <div class="top"><div class="brand">MACLEEN'S FOOD HOUSE</div><a class="back" href="/">Menu</a></div>
+  <section class="card">
+    <div class="eyebrow">Live order tracker</div>
+    <h1>Order #{{ order.id }}</h1>
+    <div class="muted">Placed {{ order.created_at|ph_datetime }} • {{ order.order_type }}{% if order.target_time %} • Target: {{ order.target_time }}{% endif %}</div>
+    <div class="status {% if current_stage == 'CANCELLED' %}cancelled{% endif %}">{{ current_stage.replace('_',' ').title() }}</div>
+    {% if current_stage == 'CANCELLED' %}
+      <div class="notice" style="margin-top:16px;">This order was cancelled. Any reserved food stock and redeemed points are restored by the system.</div>
+    {% else %}
+      <div class="timeline">
+        {% for code, title, detail in stages %}
+        <div class="step {% if loop.index0 < stage_index %}done{% elif loop.index0 == stage_index %}current{% endif %}">
+          <div class="dot">{% if loop.index0 <= stage_index %}✓{% else %}{{ loop.index }}{% endif %}</div>
+          <div><h3>{{ title }}</h3><div class="muted">{{ detail }}</div></div>
+        </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </section>
+  <section class="card">
+    <div class="eyebrow">Order summary</div>
+    <div class="summary">
+      <div class="metric"><small>Total</small><strong>₱{{ "{:,.2f}".format(order.total_amount) }}</strong></div>
+      <div class="metric"><small>Payment</small><strong>{{ order.payment_method }}</strong></div>
+    </div>
+    <div class="items">
+      {% for item in order.items %}<div class="item"><span>{{ item.quantity }}× {{ item.product_name }}{% if item.selected_options %}<small class="muted" style="display:block">{{ item.selected_options|option_summary }}</small>{% endif %}</span><strong>₱{{ "{:,.2f}".format(item.subtotal) }}</strong></div>{% endfor %}
+    </div>
+    <div class="notice" style="margin-top:14px;">Keep this private tracking link. It does not expose your phone number or delivery address.</div>
+  </section>
+  <div class="actions"><a class="btn primary" href="/">Order more</a>{% if session.get('customer_id') %}<a class="btn secondary" href="/portal/dashboard#orders">My orders</a>{% endif %}</div>
+</main></body></html>

@@ -329,6 +329,22 @@
           {% endfor %}
         </div>
       </div>
+
+      <div style="background:#1e293b;border:1.5px solid #38bdf8;border-radius:8px;padding:8px;margin-bottom:10px;">
+        <h3 style="font-size:.8rem;color:#7dd3fc;margin-bottom:6px;">⏱ Customer Order Tracker</h3>
+        <div style="max-height:190px;overflow-y:auto;">
+          {% for ro in completed_orders %}
+          <div style="font-size:.7rem;padding:6px 0;border-bottom:1px dashed #475569;">
+            <div style="display:flex;justify-content:space-between;gap:5px;"><strong>#{{ ro.id }} {{ ro.customer_name }}</strong><span style="color:#7dd3fc;">{{ (ro.fulfillment_status or 'PREPARING').title() }}</span></div>
+            <form action="{{ url_for('update_order_fulfillment', order_id=ro.id) }}" method="post" style="display:flex;gap:3px;margin-top:4px;">
+              {% if (ro.fulfillment_status or 'PREPARING') == 'PREPARING' %}<button name="fulfillment_status" value="READY" style="flex:1;background:#0284c7;color:white;border:0;border-radius:4px;padding:4px;cursor:pointer;font-weight:800;">Mark Ready</button>{% endif %}
+              {% if (ro.fulfillment_status or 'PREPARING') in ['PREPARING','READY'] %}<button name="fulfillment_status" value="FULFILLED" style="flex:1;background:#059669;color:white;border:0;border-radius:4px;padding:4px;cursor:pointer;font-weight:800;">Handed Over</button>{% endif %}
+              {% if ro.public_token %}<a href="{{ url_for('order_tracking',token=ro.public_token) }}" target="_blank" style="background:#334155;color:white;border-radius:4px;padding:4px 6px;text-decoration:none;">View</a>{% endif %}
+            </form>
+          </div>
+          {% else %}<div style="font-size:.7rem;color:#64748b;text-align:center;">No accepted orders yet.</div>{% endfor %}
+        </div>
+      </div>
     </div>
   </div>
 

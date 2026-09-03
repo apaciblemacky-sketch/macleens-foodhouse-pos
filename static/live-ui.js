@@ -119,18 +119,31 @@
     if (options && options.history === 'push' && finalUrl !== location.href) history.pushState({ live: true }, '', finalUrl);
     else if (options && options.history === 'replace' && finalUrl !== location.href) history.replaceState({ live: true }, '', finalUrl);
     if (options && options.keepScroll) window.scrollTo(0, oldScroll);
-    else window.scrollTo(0, 0);
+    else if (new URL(finalUrl, location.href).hash) {
+      const targetId = decodeURIComponent(new URL(finalUrl, location.href).hash.slice(1));
+      requestAnimationFrame(function () {
+        const target = document.getElementById(targetId);
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        else window.scrollTo(0, 0);
+      });
+    } else window.scrollTo(0, 0);
     document.dispatchEvent(new CustomEvent('macleens:page-updated', { detail: { url: finalUrl } }));
   }
 
   async function visit(url, options) {
     if (busy || !canHandleUrl(url)) { location.href = url; return; }
+    const requestedUrl = new URL(url, location.href);
+    const requestedHash = requestedUrl.hash;
     busy = true; loading(true);
     try {
       const response = await fetch(url, { credentials: 'same-origin', headers: { 'X-Macleens-Live': '1' } });
       const type = response.headers.get('content-type') || '';
       if (!response.ok || !type.includes('text/html')) throw new Error('Page could not be loaded (' + response.status + ').');
-      await applyHtml(await response.text(), response.url, { history: options && options.replace ? 'replace' : 'push' });
+      const finalUrl = new URL(response.url, location.href);
+      if (requestedHash && finalUrl.origin === requestedUrl.origin && finalUrl.pathname === requestedUrl.pathname) {
+        finalUrl.hash = requestedHash;
+      }
+      await applyHtml(await response.text(), finalUrl.href, { history: options && options.replace ? 'replace' : 'push' });
     } catch (error) {
       showError(error.message || 'The page could not be updated.');
     } finally { busy = false; loading(false); }

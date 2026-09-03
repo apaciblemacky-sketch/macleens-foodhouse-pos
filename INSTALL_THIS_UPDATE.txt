@@ -15,8 +15,23 @@ INSTALL AND DEPLOY
 3. Copy all contents of this ZIP into that project folder and approve Replace All.
 4. Double-click RUN_MACLEENS.bat to test locally.
 5. Double-click DEPLOY_TO_RENDER.bat and type DEPLOY when prompted.
-6. After Render reports a successful deployment, open:
-   https://macleens-foodhouse-pos.onrender.com/digital
+6. After Render reports a successful deployment, test:
+   Storefront: https://macleens-foodhouse-pos.onrender.com/
+   Rewards:    https://macleens-foodhouse-pos.onrender.com/portal/dashboard
+   Digital:    https://macleens-foodhouse-pos.onrender.com/digital
+   Health:     https://macleens-foodhouse-pos.onrender.com/healthz
 
-If /digital still shows 404 after Render finishes, check the GitHub root. app.py
-must be at the repository root and must not be inside another mfh_final folder.
+THIS RELEASE ADDS
+- Modern mobile-first student storefront and Digital catalog.
+- Menu search, budget filters, available-now filter, and real sales-based trends.
+- Favorites, order again, campus break preferences, and quick pickup choices.
+- Shareable Barkada carts with organizer-only final submission.
+- Private order tracking with Cashier Preparing / Ready / Handed Over controls.
+- Visual loyalty progress, student missions, and modern mobile navigation.
+- Product preparation-time control in Admin.
+
+The database upgrade is automatic and additive. Existing sales, products, points,
+cash flow, Crafts, Digital, Marketing, and private investor records are preserved.
+
+If a new link shows 404 after Render finishes, check the GitHub root. app.py must
+be at the repository root and must not be inside another mfh_final folder.

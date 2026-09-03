@@ -106,6 +106,18 @@
     .drawer-open .drawer-overlay { display: block; }
     .drawer-open .drawer { transform: translateX(0); }
     .form-control { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; margin-top: 4px; }
+
+    /* 2026 student experience: brighter, calmer, and optimized for one-hand mobile use. */
+    :root { --hk-pink:#ec4899; --hk-dark:#172033; --hk-light:#f8faf9; --hk-border:#e7dce3; --teal:#0f766e; --teal-soft:#ccfbf1; --amber:#f59e0b; }
+    html{scroll-behavior:smooth} body{background:linear-gradient(145deg,#fff7fb 0,#f1fffb 45%,#f8fafc 100%);padding-bottom:156px}
+    header{border:0;border-bottom:1px solid rgba(226,232,240,.9);padding:8px clamp(10px,3vw,22px);box-shadow:0 5px 22px rgba(15,23,42,.06);backdrop-filter:blur(14px);background:rgba(255,255,255,.94)}
+    .brand{font-size:.92rem;letter-spacing:-.02em}.brand-logo{width:38px;height:38px}.nav-btn{border-radius:12px;padding:8px 10px;font-size:.7rem}.hero{text-align:left;border-radius:0 0 30px 30px;padding:clamp(1.6rem,6vw,3.5rem) max(18px,calc((100vw - 1080px)/2));background:radial-gradient(circle at 90% 10%,rgba(255,255,255,.3),transparent 28%),linear-gradient(125deg,#be185d,#ec4899 48%,#0f766e);position:relative;overflow:hidden}.hero-inner{max-width:670px}.hero img{width:62px;height:62px;float:right;margin:0 0 8px 14px}.hero h1{font-size:clamp(1.8rem,7vw,3.4rem);line-height:1;letter-spacing:-.05em;max-width:560px}.hero-copy{font-size:clamp(.85rem,2vw,1.05rem);margin-top:10px;max-width:600px;color:#fff7fb}.hero-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}.hero-cta{display:inline-block;border-radius:13px;padding:10px 14px;text-decoration:none;font-size:.78rem;font-weight:950}.hero-cta.primary{background:white;color:#9d174d}.hero-cta.secondary{background:rgba(15,118,110,.95);color:white;border:1px solid rgba(255,255,255,.3)}.open-pill{display:inline-flex;align-items:center;gap:6px;margin-bottom:9px;border-radius:999px;padding:5px 9px;background:rgba(255,255,255,.18);font-size:.7rem;font-weight:900}.open-dot{width:7px;height:7px;border-radius:50%;background:#86efac;box-shadow:0 0 0 4px rgba(134,239,172,.18)}
+    .container{padding:14px;max-width:1100px}.discovery{background:rgba(255,255,255,.94);border:1px solid #e2e8f0;border-radius:19px;padding:11px;box-shadow:0 12px 30px rgba(15,23,42,.06);margin-top:-29px;position:relative;z-index:4}.search-wrap{display:flex;align-items:center;gap:8px;background:#f8fafc;border:1.5px solid #dbe7e4;border-radius:14px;padding:0 12px}.search-wrap:focus-within{border-color:var(--teal);box-shadow:0 0 0 4px rgba(15,118,110,.1)}.search-wrap input{border:0;outline:0;background:transparent;width:100%;padding:12px 0;font-size:.88rem}.filter-chips{display:flex;overflow-x:auto;gap:7px;margin-top:9px;padding-bottom:2px;scrollbar-width:none}.filter-chips::-webkit-scrollbar{display:none}.filter-chip{white-space:nowrap;border:1px solid #dbe7e4;background:white;color:#475569;border-radius:999px;padding:7px 11px;font-size:.72rem;font-weight:850;cursor:pointer}.filter-chip.active{background:var(--teal);color:white;border-color:var(--teal)}
+    .section-title{font-size:1.08rem;color:var(--hk-dark);margin-top:20px}.section-subtitle{font-size:.73rem;color:#64748b;font-weight:650;margin-top:-6px;margin-bottom:10px}.carousel-card{border:1px solid #e2e8f0;border-radius:18px;box-shadow:0 9px 24px rgba(15,23,42,.07);min-width:185px;max-width:185px}.carousel-track{gap:12px;scroll-snap-type:x proximity}.carousel-card{scroll-snap-align:start}.cat-grid{display:flex;overflow-x:auto;gap:7px;scrollbar-width:none}.cat-grid::-webkit-scrollbar{display:none}.cat-card{min-width:max-content;border:1px solid #dbe7e4;border-radius:999px;padding:8px 13px}.cat-card.active{background:var(--teal);border-color:var(--teal)}
+    .product-grid{gap:12px}.product-card{border:1px solid #e2e8f0;border-radius:19px;padding:9px;box-shadow:0 9px 25px rgba(15,23,42,.06);position:relative;overflow:hidden;transition:transform .18s,box-shadow .18s}.product-card:hover{transform:translateY(-2px);box-shadow:0 14px 30px rgba(15,23,42,.1)}.p-img{height:150px;border-radius:14px;margin-bottom:8px}.p-title{font-size:.94rem}.p-price{color:#db2777}.product-badges{position:absolute;left:15px;top:15px;display:flex;gap:4px;flex-wrap:wrap;z-index:2}.product-badge{background:white;color:#9d174d;border-radius:999px;padding:4px 7px;font-size:.59rem;font-weight:950;box-shadow:0 3px 10px rgba(15,23,42,.12)}.product-badge.trending{background:#fef3c7;color:#92400e}.product-meta{display:flex;gap:5px;flex-wrap:wrap;font-size:.65rem;color:#64748b;font-weight:750;margin:5px 0 7px}.product-meta span{background:#f8fafc;border-radius:7px;padding:3px 5px}.btn-add{background:linear-gradient(135deg,#ec4899,#db2777);border-radius:11px;padding:10px}.btn-favorite{width:32px;border:1px solid #e2e8f0;background:white;border-radius:999px;cursor:pointer;font-size:.9rem}.btn-favorite.saved{background:#ffe4f1;border-color:#f9a8d4}.interaction-bar{align-items:center}.student-pick-card{min-width:210px}.student-pick-card .budget{font-size:.64rem;color:#0f766e;font-weight:900;background:#ccfbf1;border-radius:999px;padding:3px 6px;display:inline-block}.empty-search{display:none;padding:28px;text-align:center;color:#64748b;background:white;border-radius:18px;border:1px dashed #cbd5e1;grid-column:1/-1}
+    .floating-bar{bottom:60px;border:0;border-top:1px solid #e2e8f0;padding:9px max(14px,calc((100vw - 1060px)/2));box-shadow:0 -9px 25px rgba(15,23,42,.07)}.btn-checkout{background:linear-gradient(135deg,var(--teal),#0d9488);border-radius:13px}.student-bottom-nav{position:fixed;bottom:0;left:0;right:0;height:61px;background:rgba(255,255,255,.97);border-top:1px solid #e2e8f0;z-index:61;display:flex;justify-content:center;gap:min(10vw,90px);padding:6px 12px}.student-bottom-nav a,.student-bottom-nav button{border:0;background:none;color:#64748b;text-decoration:none;text-align:center;font-size:.62rem;font-weight:850;min-width:54px;cursor:pointer}.student-bottom-nav span{display:block;font-size:1.25rem;line-height:1.25}.student-bottom-nav .active{color:var(--teal)}.quick-times{display:flex;gap:6px;overflow-x:auto;margin-top:6px}.quick-times button{border:1px solid #99f6e4;background:#f0fdfa;color:#115e59;border-radius:999px;padding:6px 9px;white-space:nowrap;font-size:.68rem;font-weight:850;cursor:pointer}.toast{position:fixed;left:50%;bottom:140px;transform:translate(-50%,20px);background:#172033;color:white;border-radius:13px;padding:11px 15px;font-size:.8rem;font-weight:800;z-index:30000;opacity:0;pointer-events:none;transition:.2s;max-width:min(90vw,440px);text-align:center;box-shadow:0 12px 30px rgba(15,23,42,.25)}.toast.show{opacity:1;transform:translate(-50%,0)}
+    @media(max-width:720px){header .brand span{display:none}header>div:last-child .nav-btn:nth-of-type(n+2),header>div:last-child button{display:none}.hero img{width:54px;height:54px}.p-img{height:124px}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.interaction-bar{gap:4px}.btn-review{padding:6px 7px}.drawer{max-width:none}.scroll-btn{display:none}}
+    @media(min-width:721px){.student-bottom-nav{left:50%;transform:translateX(-50%);width:500px;border-radius:18px 18px 0 0;border:1px solid #e2e8f0;border-bottom:0}.p-img{height:175px}}
   </style>
 </head>
 <body>
@@ -128,13 +140,36 @@
   </header>
 
   <div class="hero">
-    <img src="{{ store_logo }}" onerror="this.onerror=null; this.src='/static/logo.png';">
-    <h1>Macleen's Food House</h1>
-    <p style="font-size:0.82rem;">Fresh Delicious Meals & Doorstep Barangay Delivery</p>
-    <a href="{{ url_for('craft_store') }}" style="display:inline-block;margin-top:8px;background:white;color:#7c3aed;text-decoration:none;font-weight:900;padding:7px 13px;border-radius:18px;font-size:.78rem;">🎨 Visit Macleen's Craft Shop</a>
+    <div class="hero-inner">
+      <img src="{{ store_logo }}" onerror="this.onerror=null; this.src='/static/logo.png';" alt="Macleen's logo">
+      <div class="open-pill"><span class="open-dot"></span>{% if status and status.store_open %}Open for orders{% else %}Menu visible • ordering closed{% endif %}</div>
+      <h1>Campus cravings, solved.</h1>
+      <p class="hero-copy">Affordable ulam, snacks, drinks, and student essentials—ready around your class schedule.</p>
+      <div class="hero-actions"><a class="hero-cta primary" href="#menu">Browse today's menu</a><a class="hero-cta secondary" href="#studentPicks">See budget picks</a>{% if cust %}<form action="{{ url_for('group_order_create') }}" method="post" style="display:inline"><button class="hero-cta secondary" style="border:1px solid rgba(255,255,255,.3);cursor:pointer" type="submit">Start barkada order</button></form>{% endif %}</div>
+    </div>
   </div>
 
   <div class="container">
+
+    <div class="discovery" id="menu">
+      <div class="search-wrap"><span>⌕</span><input id="menuSearch" type="search" placeholder="Search ulam, snacks, drinks..." autocomplete="off" aria-label="Search menu"></div>
+      <div class="filter-chips" aria-label="Quick menu filters">
+        <button class="filter-chip active" data-filter="all" onclick="setStudentFilter('all',this)">All</button>
+        <button class="filter-chip" data-filter="available" onclick="setStudentFilter('available',this)">Available now</button>
+        <button class="filter-chip" data-filter="under20" onclick="setStudentFilter('under20',this)">Under ₱20</button>
+        <button class="filter-chip" data-filter="under30" onclick="setStudentFilter('under30',this)">Under ₱30</button>
+        <button class="filter-chip" data-filter="under50" onclick="setStudentFilter('under50',this)">Under ₱50</button>
+        <button class="filter-chip" data-filter="trending" onclick="setStudentFilter('trending',this)">Popular now</button>
+      </div>
+    </div>
+
+    {% if student_picks %}
+    <div id="studentPicks" class="section-title"><span>🎓 Student budget picks</span></div>
+    <div class="section-subtitle">Quick choices at ₱50 or less, selected from what is available right now.</div>
+    <div class="carousel-track">
+      {% for p in student_picks %}<div class="carousel-card student-pick-card"><div>{% if p.image_url %}<img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="lazy" style="width:100%;height:95px;border-radius:12px;object-fit:cover;margin-bottom:7px" alt="{{ p.name }}">{% endif %}<span class="budget">Budget pick</span><div style="font-size:.88rem;font-weight:900;margin-top:5px">{{ p.name }}</div><div class="p-price" style="font-size:1rem">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div><div class="product-meta"><span>⏱ {{ p.prep_minutes or 10 }} min</span><span>⭐ +{{ (product_starting_price(p)//30)|int }} pts</span></div></div><button class="btn-add" onclick='addToCart({{ p.id }},{{ p.name|tojson }},{{ p.price }},{{ product_choice_groups(p.option_schema,p.size_schema)|tojson }},{{ p.allow_custom_amount|tojson }},{{ (p.minimum_order_amount or p.price)|tojson }})'>Add to basket</button></div>{% endfor %}
+    </div>
+    {% endif %}
 
     <!-- 🎁 ACTIVE PROMOTIONAL DROPS CAROUSEL (Burger & Beefy Nachos) -->
     {% if active_promos %}
@@ -175,7 +210,7 @@
       <div class="carousel-card">
         <div>
           {% if f.image_url %}
-            <img src="{{ f.image_url }}" referrerpolicy="no-referrer" loading="eager" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
+            <img src="{{ f.image_url }}" referrerpolicy="no-referrer" loading="lazy" alt="{{ f.name }}" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
           {% endif %}
           <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ f.name }}</div>
           <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">{% if f.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(f)) }}</div>
@@ -207,7 +242,7 @@
       <div class="carousel-card" style="border-color:#f59e0b;">
         <div>
           {% if b.image_url %}
-            <img src="{{ b.image_url }}" referrerpolicy="no-referrer" loading="eager" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
+            <img src="{{ b.image_url }}" referrerpolicy="no-referrer" loading="lazy" alt="{{ b.name }}" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
           {% endif %}
           <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ b.name }}</div>
           <div style="font-size:0.95rem; font-weight:900; color:#d97706;">{% if b.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(b)) }}</div>
@@ -230,7 +265,7 @@
     <div class="cat-grid">
       <div class="cat-card active" onclick="showCategory('ALL', this)">ALL MENU</div>
       {% for c in categories %}
-        <div class="cat-card" onclick="showCategory('{{ c.name }}', this)">{{ c.name }}</div>
+        <div class="cat-card" onclick='showCategory({{ c.name|tojson }}, this)'>{{ c.name }}</div>
       {% endfor %}
     </div>
 
@@ -238,16 +273,18 @@
     <div class="section-title">🍽️ All Dishes</div>
     <div class="product-grid" id="productGrid">
       {% for p in products %}
-      <div class="product-card" data-cat="{{ p.category_name }}">
+      <div class="product-card" data-cat="{{ p.category_name }}" data-name="{{ p.name|lower }} {{ p.category_name|lower }}" data-price="{{ product_starting_price(p) }}" data-available="{{ '1' if product_is_available_now(p) else '0' }}" data-trending="{{ '1' if p.id in trending_ids else '0' }}">
+        <div class="product-badges">{% if p.id in trending_ids %}<span class="product-badge trending">Popular now</span>{% endif %}{% if p.is_top_seller %}<span class="product-badge">Best seller</span>{% elif p.is_featured %}<span class="product-badge">Featured</span>{% endif %}</div>
         <div>
           {% if p.image_url %}
-            <img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="eager" class="p-img" onerror="this.onerror=null; this.src='https://via.placeholder.com/200x120?text=Macleens+Dish';">
+            <img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="lazy" class="p-img" alt="{{ p.name }}" onerror="this.style.display='none';this.nextElementSibling.style.display='grid';"><div class="p-img" style="display:none;place-items:center;font-size:2.5rem">🍲</div>
           {% else %}
             <div class="p-img" style="display:flex; justify-content:center; align-items:center; font-size:2.5rem;">🍲</div>
           {% endif %}
           <span style="font-size:0.68rem; font-weight:bold; color:#ec4899;">{{ p.category_name }}</span>
           <div class="p-title">{{ p.name }}</div>
           <div class="p-price">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div>
+          <div class="product-meta"><span>⏱ {{ p.prep_minutes or 10 }} min</span><span>⭐ +{{ (product_starting_price(p)//30)|int }} pts</span>{% if p.stock <= 10 %}<span style="color:#b45309">{{ p.stock }} left</span>{% endif %}</div>
           {% if p.size_schema %}<div style="font-size:0.68rem; color:#be185d; font-weight:800; margin-bottom:3px;">Choose size • priced per size</div>{% endif %}
           {% if p.option_schema %}<div style="font-size:0.68rem; color:#b45309; font-weight:800; margin-bottom:5px;">Choose sauce / flavor</div>{% endif %}
           {% if p.allow_custom_amount %}<div style="font-size:0.68rem;color:#0369a1;font-weight:800;margin-bottom:5px;">Specific amount available • minimum ₱{{ "{:,.2f}".format(p.minimum_order_amount or p.price) }}</div>{% endif %}
@@ -258,6 +295,7 @@
             <button class="btn-like {% if p.id in liked_ids %}liked{% endif %}" id="like-btn-{{ p.id }}" onclick="toggleLike({{ p.id }})">
               ❤️ <span id="like-{{ p.id }}">{{ p.total_likes }}</span>
             </button>
+            <button type="button" class="btn-favorite {% if p.id in favorite_ids %}saved{% endif %}" id="favorite-{{ p.id }}" onclick="toggleFavorite({{ p.id }})" title="Save favorite" aria-label="Save {{ p.name }}">🔖</button>
             <a href="/product/{{ p.id }}" class="btn-review">
               💬 {{ p.comments|length }}
             </a>
@@ -273,6 +311,7 @@
         </div>
       </div>
       {% endfor %}
+      <div class="empty-search" id="emptySearch">No menu item matches that search or budget filter. Try another filter.</div>
     </div>
 
   </div>
@@ -284,6 +323,13 @@
     </div>
     <button class="btn-checkout" onclick="openDrawer()">CHECKOUT</button>
   </div>
+
+  <nav class="student-bottom-nav" aria-label="Customer navigation">
+    <a class="active" href="/"><span>⌂</span>Home</a>
+    <a href="#menu"><span>🍽</span>Menu</a>
+    {% if cust %}<a href="/portal/dashboard#rewards"><span>★</span>Rewards</a><a href="/portal/dashboard#orders"><span>▣</span>Orders</a>{% else %}<a href="/portal/login"><span>★</span>Rewards</a><a href="/portal/login"><span>◉</span>Log in</a>{% endif %}
+  </nav>
+  <div id="studentToast" class="toast" role="status" aria-live="polite"></div>
 
   <!-- Cart Drawer -->
   <div id="drawerWrap">
@@ -348,6 +394,7 @@
         <div style="margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold;">Specific Target Time *</label>
           <input type="text" id="targetTime" class="form-control" placeholder="e.g. 12:30 PM or ASAP (20 mins)" required>
+          <div class="quick-times"><button type="button" onclick="setTargetTime('ASAP (20 mins)')">ASAP</button><button type="button" onclick="setTargetTime('In 30 minutes')">In 30 min</button>{% if cust and cust.break_start %}<button type="button" onclick="setTargetTime({{ ('School break at ' ~ cust.break_start)|tojson }})">My break {{ cust.break_start }}</button>{% endif %}</div>
         </div>
 
         <div style="margin-bottom:10px;">
@@ -402,10 +449,56 @@
   </div>
 
   <script>
-    let cart = JSON.parse(localStorage.getItem('mfh_cart') || '{}');
+    var reorderedCart = {{ reorder_cart|tojson if reorder_cart else 'null' }};
+    var cart = reorderedCart || JSON.parse(localStorage.getItem('mfh_cart') || '{}');
+    var studentFilter = 'all';
+    var selectedCategory = 'ALL';
+    var toastTimer = null;
 
     function saveCart() {
       localStorage.setItem('mfh_cart', JSON.stringify(cart));
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById('studentToast');
+      if (!toast) return;
+      toast.textContent = message;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+    }
+
+    function setTargetTime(value) {
+      document.getElementById('targetTime').value = value;
+      showToast(`Pickup time set: ${value}`);
+    }
+
+    function setStudentFilter(value, button) {
+      studentFilter = value;
+      document.querySelectorAll('.filter-chip').forEach(el => el.classList.remove('active'));
+      if (button) button.classList.add('active');
+      applyMenuFilters();
+    }
+
+    function applyMenuFilters() {
+      const term = (document.getElementById('menuSearch')?.value || '').trim().toLowerCase();
+      let shown = 0;
+      document.querySelectorAll('#productGrid .product-card').forEach(card => {
+        const price = Number(card.dataset.price || 0);
+        const budgetMatch = studentFilter === 'all' ||
+          (studentFilter === 'available' && card.dataset.available === '1') ||
+          (studentFilter === 'under20' && price <= 20) ||
+          (studentFilter === 'under30' && price <= 30) ||
+          (studentFilter === 'under50' && price <= 50) ||
+          (studentFilter === 'trending' && card.dataset.trending === '1');
+        const categoryMatch = selectedCategory === 'ALL' || card.dataset.cat === selectedCategory;
+        const searchMatch = !term || (card.dataset.name || '').includes(term);
+        const visible = budgetMatch && categoryMatch && searchMatch;
+        card.style.display = visible ? 'flex' : 'none';
+        if (visible) shown++;
+      });
+      const empty = document.getElementById('emptySearch');
+      if (empty) empty.style.display = shown ? 'none' : 'block';
     }
 
     function slideCarousel(trackId, offset) {
@@ -418,9 +511,8 @@
     function showCategory(cat, btn) {
       document.querySelectorAll('.cat-card').forEach(c => c.classList.remove('active'));
       btn.classList.add('active');
-      document.querySelectorAll('.product-card').forEach(p => {
-        p.style.display = (cat === 'ALL' || p.dataset.cat === cat) ? 'flex' : 'none';
-      });
+      selectedCategory = cat;
+      applyMenuFilters();
     }
 
     function escapeOptionHtml(value) {
@@ -611,6 +703,7 @@
       }
       saveCart();
       renderCart();
+      showToast(`${name} added to your basket.`);
     }
 
     function updateQty(id, delta) {
@@ -782,23 +875,39 @@
     });
 
     async function toggleLike(id) {
-      const res = await fetch(`/api/toggle-like/${id}`, { method: 'POST' });
-      const data = await res.json();
-      document.getElementById(`like-${id}`).innerText = data.total_likes;
-      const btn = document.getElementById(`like-btn-${id}`);
-      if (data.liked) btn.classList.add('liked');
-      else btn.classList.remove('liked');
+      try {
+        const res = await fetch(`/api/toggle-like/${id}`, { method: 'POST' });
+        const data = await res.json();
+        document.getElementById(`like-${id}`).innerText = data.total_likes;
+        const btn = document.getElementById(`like-btn-${id}`);
+        if (data.liked) btn.classList.add('liked'); else btn.classList.remove('liked');
+      } catch (_) { showToast('Could not update the reaction. Check your connection.'); }
+    }
+
+    async function toggleFavorite(id) {
+      try {
+        const res = await fetch(`/api/favorite/${id}`, { method: 'POST' });
+        const data = await res.json();
+        if (res.status === 401) {
+          showToast('Log in to save favorites.');
+          setTimeout(() => location.href = '/portal/login', 650);
+          return;
+        }
+        if (!res.ok || !data.success) return showToast(data.message || 'Could not update favorite.');
+        document.getElementById(`favorite-${id}`)?.classList.toggle('saved', data.favorited);
+        showToast(data.favorited ? 'Saved to your favorites.' : 'Removed from favorites.');
+      } catch (_) { showToast('Could not update favorite. Check your connection.'); }
     }
 
     async function submitOrder() {
       {% if not cust %}
-        alert("Please log in or register before placing an order.");
+        showToast("Please log in or register before placing an order.");
         if (window.MacleensLiveUI) window.MacleensLiveUI.visit('/portal/login'); else window.location.href = "/portal/login";
         return;
       {% endif %}
 
       const keys = Object.keys(cart);
-      if (keys.length === 0) return alert("Cart is empty.");
+      if (keys.length === 0) return showToast("Your basket is empty.");
 
       const targetTime = document.getElementById('targetTime').value.trim();
       const notes = document.getElementById('orderNotes').value.trim();
@@ -826,9 +935,9 @@
         }
       }
 
-      if (!targetTime || !notes) return alert("Please fill in target time and notes.");
-      if ((pay === 'GCASH' || pay === 'CREDIT') && !fb) return alert("Facebook profile link required for evaluation.");
-      if (pay === 'GCASH' && gcash.length < 6) return alert("Please input the 6-digit GCash Reference Number.");
+      if (!targetTime || !notes) return showToast("Please fill in target time and notes.");
+      if ((pay === 'GCASH' || pay === 'CREDIT') && !fb) return showToast("Facebook profile link required for evaluation.");
+      if (pay === 'GCASH' && gcash.length < 6) return showToast("Please input the 6-digit GCash Reference Number.");
 
       const payload = {
         items: keys.map(id => ({
@@ -857,14 +966,17 @@
       });
       const data = await res.json();
       if (data.success) {
-        alert(`🎉 Order #${data.order_id} placed!\nTotal: ₱${data.total.toFixed(2)}\nPoints Used: ${Number(data.points_redeemed || 0).toFixed(2)}`);
+        showToast(`Order #${data.order_id} sent! Opening live tracker…`);
         cart = {};
         saveCart();
         renderCart();
         closeDrawer();
-        if (window.MacleensLiveUI) window.MacleensLiveUI.visit('/portal/dashboard'); else window.location.href = "/portal/dashboard";
+        setTimeout(() => {
+          if (window.MacleensLiveUI) window.MacleensLiveUI.visit(data.tracking_url || '/portal/dashboard#orders');
+          else window.location.href = data.tracking_url || "/portal/dashboard#orders";
+        }, 500);
       } else {
-        alert(data.message);
+        showToast(data.message || 'The order could not be sent.');
       }
     }
 
@@ -872,6 +984,8 @@
       renderCart();
       checkPayMethod();
       toggleDetailedAddress();
+      document.getElementById('menuSearch')?.addEventListener('input', applyMenuFilters);
+      {% if reorder_cart %}saveCart(); showToast('Previous order added. Review your basket.'); setTimeout(openDrawer, 250);{% endif %}
     });
   </script>
 </body>
