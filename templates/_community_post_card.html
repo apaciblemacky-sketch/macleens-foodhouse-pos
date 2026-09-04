@@ -1,0 +1,39 @@
+<article class="card post" id="community-post-{{ post.id }}">
+  <div class="post-head">
+    {% if post.author and post.author.customer.profile_image %}
+      <a href="{{ url_for('community_member_profile', handle=post.author.handle) }}" aria-label="View @{{ post.author.handle }} profile"><img class="avatar" src="{{ post.author.customer.profile_image }}" alt="@{{ post.author.handle }} avatar"></a>
+    {% else %}
+      {% if post.author %}<a href="{{ url_for('community_member_profile', handle=post.author.handle) }}" class="avatar profile-link" aria-label="View @{{ post.author.handle }} profile">{{ post.author.handle[:1]|upper }}</a>{% else %}<span class="avatar">M</span>{% endif %}
+    {% endif %}
+    <div class="post-meta">
+      {% if post.author %}<a class="post-author" href="{{ url_for('community_member_profile', handle=post.author.handle) }}">@{{ post.author.handle }}</a>{% else %}<strong>Macleen’s</strong>{% endif %}
+      {% if post.author and post.author.is_community_admin %}<span class="badge admin">MAIN ADMIN</span>{% elif post.author %}<span class="badge {{ 'resident' if post.author.role == 'RESIDENT' else '' }}">{{ post.author.role }}</span>{% endif %}
+      <small>{{ module_labels.get(post.module, post.module.replace('_',' ').title()) }} • {{ post.created_at|ph_datetime }}</small>
+    </div>
+  </div>
+  {% if post.is_flash_poll %}<div class="flash">⏰ 8:00 AM Flash Poll</div>{% endif %}
+  <div class="post-body mention-text">{{ post.body }}</div>
+  {% if post.reshared_post and post.reshared_post.status == 'PUBLISHED' %}
+    <div class="reshare-card">
+      <div class="module">RESHARED POST</div>
+      {% if post.reshared_post.author %}<a class="post-author" href="{{ url_for('community_member_profile', handle=post.reshared_post.author.handle) }}">@{{ post.reshared_post.author.handle }}</a>{% else %}<strong>Macleen’s</strong>{% endif %}
+      <div class="reshare-body mention-text">{{ post.reshared_post.body }}</div>
+    </div>
+  {% endif %}
+  {% if post.image_data %}<img class="post-image" src="{{ post.image_data }}" alt="Legacy community post image">{% endif %}
+  {% if post.link_url %}<a class="post-link" href="{{ post.link_url }}" target="_blank" rel="noopener noreferrer">Open shared link ↗</a>{% endif %}
+  {% if post.post_type == 'POLL' %}
+    {% set results=poll_results.get(post.id) %}
+    {% if results %}<div class="poll" data-poll-id="{{ post.id }}">{% for option in results.options %}{% set percent=((option.total / results.total_votes * 100)|round|int) if results.total_votes else 0 %}<button class="poll-option" data-option-id="{{ option.id }}" type="button" onclick="voteCommunityPoll({{ post.id }},{{ option.id }})" {% if vote_map.get(post.id) %}disabled{% endif %}><span class="poll-bar" style="width:{{ percent }}%"></span><span class="poll-text"><span>{{ '✓ ' if vote_map.get(post.id) == option.id else '' }}{{ option.text }}</span><span>{{ option.total }} • {{ percent }}%</span></span><span class="poll-demo">Students: {{ option.student if option.student is not none else 'hidden' }} • Residents: {{ option.resident if option.resident is not none else 'hidden' }}</span></button>{% endfor %}</div>{% endif %}
+  {% endif %}
+  {% if can_interact or profile.is_community_admin %}
+    <div class="actions">
+      <button class="action-btn {{ 'active' if reaction_map.get(post.id) == 'LIKE' else '' }}" type="button" onclick="reactCommunityPost({{ post.id }},this)">♥ Like <span>{{ post_stats[post.id].reactions }}</span></button>
+      <button class="action-btn" type="button" onclick="focusComment({{ post.id }})">💬 Comment <span id="commentCount-{{ post.id }}">{{ post_stats[post.id].comments }}</span></button>
+      <button class="action-btn" type="button" data-reshare-root="{{ post.reshared_post_id or post.id }}" onclick="reshareCommunityPost({{ post.id }},this)">↻ Reshare <span>{{ post_stats[post.id].reshares }}</span></button>
+      {% if not post.author or post.author_profile_id != profile.id %}<button class="action-btn report" type="button" onclick="reportCommunityPost({{ post.id }})">Report</button>{% endif %}
+    </div>
+    <div class="comments" id="comments-{{ post.id }}">{% for comment in post_comments.get(post.id,[]) %}<div class="comment mention-text">{% if comment.author %}<a href="{{ url_for('community_member_profile', handle=comment.author.handle) }}">@{{ comment.author.handle }}</a>{% else %}<strong>@member</strong>{% endif %} {{ comment.body }}</div>{% endfor %}</div>
+    <form class="comment-form" onsubmit="submitCommunityComment(event,{{ post.id }})"><input id="commentInput-{{ post.id }}" maxlength="280" placeholder="Write a comment or tag @handle" required><button type="submit">Send</button></form>
+  {% endif %}
+</article>

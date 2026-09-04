@@ -90,12 +90,12 @@ REQUIRED_DB_COLUMNS = {
         "is_community_admin", "student_id_image_data", "student_id_uploaded_at",
         "student_id_deleted_at", "student_application_status",
         "student_application_campus", "student_application_department",
-        "student_application_graduating_year",
+        "student_application_graduating_year", "public_bio", "is_profile_locked",
         "community_score", "community_streak", "last_checkin_date", "push_opt_in",
         "privacy_consent_at", "terms_accepted_at", "created_at", "updated_at",
     },
     "community_post": {
-        "id", "author_profile_id", "channel", "module", "post_type", "body",
+        "id", "author_profile_id", "reshared_post_id", "channel", "module", "post_type", "body",
         "image_data", "link_url", "status", "flags_count", "moderation_hits",
         "score_awarded", "is_flash_poll", "publish_date", "expires_at",
         "published_at", "created_at", "updated_at",
@@ -107,6 +107,16 @@ REQUIRED_DB_COLUMNS = {
     "community_engagement_reward": {"id", "customer_id", "event_type", "target_key", "points_awarded", "created_at"},
     "community_mention": {"id", "post_id", "mentioned_profile_id", "created_at"},
     "community_notification": {"id", "recipient_profile_id", "actor_profile_id", "kind", "target_key", "message", "is_read", "created_at"},
+    "community_admin_notice": {"id", "profile_id", "kind", "target_key", "message", "is_read", "created_at"},
+    "community_group": {"id", "name", "channel", "created_by_profile_id", "is_active", "created_at", "updated_at"},
+    "community_group_member": {"id", "group_id", "profile_id", "invited_by_profile_id", "member_role", "status", "joined_at", "last_read_at", "created_at"},
+    "community_group_message": {"id", "group_id", "author_profile_id", "body", "status", "moderation_hits", "flags_count", "created_at", "updated_at"},
+    "community_group_message_report": {"id", "message_id", "reporter_profile_id", "reason", "details", "status", "created_at"},
+    "community_group_task": {"id", "group_id", "created_by_profile_id", "assigned_to_profile_id", "title", "details", "priority", "status", "due_date", "completed_at", "created_at", "updated_at"},
+    "community_group_note": {"id", "group_id", "author_profile_id", "title", "body", "is_pinned", "status", "created_at", "updated_at"},
+    "community_group_poll": {"id", "group_id", "author_profile_id", "question", "status", "closes_at", "created_at"},
+    "community_group_poll_option": {"id", "poll_id", "option_text", "sort_order"},
+    "community_group_poll_vote": {"id", "poll_id", "option_id", "profile_id", "created_at"},
     "community_connection": {"id", "profile_a_id", "profile_b_id", "requested_by_profile_id", "status", "created_at", "responded_at"},
     "community_comment": {"id", "post_id", "author_profile_id", "body", "status", "moderation_hits", "score_awarded", "created_at"},
     "community_report": {"id", "post_id", "reporter_customer_id", "reason", "details", "status", "created_at"},
@@ -349,12 +359,23 @@ def main() -> int:
         "class CommunityGift(db.Model):", "class CommunityPushSubscription(db.Model):", "class CommunityStoreCheckin(db.Model):", "class CommunityConnection(db.Model):",
         "class CommunityFollow(db.Model):", "class CommunityEngagementReward(db.Model):",
         "class CommunityMention(db.Model):", "class CommunityNotification(db.Model):",
+        "class CommunityAdminNotice(db.Model):", "class CommunityGroup(db.Model):",
+        "class CommunityGroupMessage(db.Model):", "class CommunityGroupTask(db.Model):",
+        "class CommunityGroupNote(db.Model):", "class CommunityGroupPoll(db.Model):",
         "@app.route('/community')", "@app.route('/admin/community')",
+        "@app.route('/community/member/<string:handle>')", "@app.route('/community/api/posts/<int:post_id>/reshare'",
+        "@app.route('/admin/community/notices/read'",
         "@app.route('/community/api/posts'", "@app.route('/community/api/gifts'",
         "@app.route('/community/api/push/subscribe'", "@app.route('/community/api/connections'", "@app.route('/pos/community-gift/",
         "COMMUNITY_GROUP_PRIVACY_MINIMUM = 3", "COMMUNITY_GIFT_DAILY_CAP = 50.0",
         "COMMUNITY_MAIN_ADMIN_HANDLE = 'uzu.macky'", "@app.route('/community/api/student-application'",
         "@app.route('/community/api/student-id-resubmit'",
+        "@app.route('/community/groups/<int:group_id>')", "@app.route('/community/api/groups'",
+        "@app.route('/community/api/groups/<int:group_id>/messages'",
+        "@app.route('/community/api/groups/<int:group_id>/tasks'",
+        "@app.route('/community/api/groups/<int:group_id>/notes'",
+        "@app.route('/community/api/groups/<int:group_id>/polls'",
+        "@app.route('/admin/community/group-message/<int:message_id>/status'",
         "@app.route('/community/api/follows/<string:handle>'", "@app.route('/admin/community/student-tag'",
         "Community member posts are word-only", "student_id_image_data = db.Column",
         "You cannot report your own post", "award_community_drop_reward", "record_community_store_checkin",
@@ -362,27 +383,37 @@ def main() -> int:
     missing = [marker for marker in community_markers if marker not in source]
     if missing:
         fail("Community safety/reward markers missing: " + ", ".join(missing))
-    for name in ["community.html", "community_setup.html", "community_admin.html"]:
+    for name in ["community.html", "community_setup.html", "community_admin.html", "community_profile.html", "community_profile_unavailable.html", "community_group.html", "_community_post_card.html"]:
         if not (TEMPLATES / name).exists():
             fail(f"Community template is missing: {name}")
     community_text = (TEMPLATES / "community.html").read_text(encoding="utf-8")
     community_admin_text = (TEMPLATES / "community_admin.html").read_text(encoding="utf-8")
     cashier_text = (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")
     for marker in [
-        "Campus Hub", "Town Square", "Digital purchase card", "Shout a Friend", "Community connections",
+        "Campus Hub", "Town Square", "Digital purchase card", "Shout a Friend", "People you may know",
         "data-main-admin", "Follow / unfollow", "studentApplicationForm", "mentionHandles",
+        "suggestedPeople", "Lock my profile", "reshareCommunityPost", "Group chats & teamwork",
+        "communityGroupCreateForm", "respondGroupInvite", "data-community-tab=\"chats\"",
         "data-community-tab=\"wall\"", "openCommunityTab", "featureCards",
         "Independent community board operated by Macleen’s Food House",
         "enableCommunityPush", "data-community-ad",
     ]:
         if marker not in community_text:
             fail(f"Community customer UI marker is missing: {marker}")
-    for marker in ["Moderation review", "8:00 AM Flash Poll", "Flash Perch alerts", "Native in-feed ads", "Safety phrase holds"]:
+    for marker in ["Community Admin join alerts", "Moderation review", "Private group-message safety review", "8:00 AM Flash Poll", "Flash Perch alerts", "Native in-feed ads", "Safety phrase holds"]:
         if marker not in community_admin_text:
             fail(f"Community Admin marker is missing: {marker}")
     for marker in ["Scan loyalty QR", "selectScannedMember", "Community reward claims"]:
         if marker not in cashier_text:
             fail(f"Community Cashier integration marker is missing: {marker}")
+    group_text = (TEMPLATES / "community_group.html").read_text(encoding="utf-8")
+    for marker in [
+        "Private group—not encrypted", "messageForm", "taskForm", "noteForm", "pollForm",
+        "setInterval(pollMessages,5000)", "assigned_to_profile_id", "reportMessage",
+        "Leave this group", "Results update immediately without refreshing",
+    ]:
+        if marker not in group_text:
+            fail(f"Community group-workspace marker is missing: {marker}")
     sw_text = service_worker.read_text(encoding="utf-8")
     for marker in ["addEventListener('push'", "showNotification", "addEventListener('notificationclick'"]:
         if marker not in sw_text:

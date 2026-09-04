@@ -193,9 +193,9 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.04-community-role-security-v2
+echo Expected release after Render finishes: 2026.09.04-community-group-collaboration-v5
 echo Then test one product link, both role-locked Community dashboards,
-echo @mentions, student approval, and one-time follow/like rewards.
+echo @mentions, student approval, one-time follow/like rewards, and group chat.
 echo.
 start "" "https://dashboard.render.com/"
 start "" "https://macleens-foodhouse-pos.onrender.com/healthz"

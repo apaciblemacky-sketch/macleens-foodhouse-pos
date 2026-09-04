@@ -67,7 +67,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.04-community-role-security-v2'
+APP_RELEASE = '2026.09.04-community-group-collaboration-v5'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -494,6 +494,8 @@ class CommunityProfile(db.Model):
     verification_method = db.Column(db.String(30), nullable=False, default='IN_PERSON')
     verification_note = db.Column(db.String(255), nullable=True)
     is_community_admin = db.Column(db.Boolean, nullable=False, default=False)
+    public_bio = db.Column(db.String(160), nullable=True)
+    is_profile_locked = db.Column(db.Boolean, nullable=False, default=False)
     student_id_image_data = db.Column(db.Text, nullable=True)
     student_id_uploaded_at = db.Column(db.DateTime, nullable=True)
     student_id_deleted_at = db.Column(db.DateTime, nullable=True)
@@ -516,6 +518,7 @@ class CommunityPost(db.Model):
     __tablename__ = 'community_post'
     id = db.Column(db.Integer, primary_key=True)
     author_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True)
+    reshared_post_id = db.Column(db.Integer, db.ForeignKey('community_post.id', ondelete='SET NULL'), nullable=True, index=True)
     channel = db.Column(db.String(20), nullable=False)  # CAMPUS or TOWN
     module = db.Column(db.String(40), nullable=False)
     post_type = db.Column(db.String(20), nullable=False, default='TEXT')
@@ -533,6 +536,7 @@ class CommunityPost(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
     updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
     author = db.relationship('CommunityProfile', lazy=True)
+    reshared_post = db.relationship('CommunityPost', remote_side=[id], foreign_keys=[reshared_post_id], lazy=True)
     poll_options = db.relationship('CommunityPollOption', backref='post', cascade='all, delete-orphan', lazy=True, order_by='CommunityPollOption.sort_order')
 
 class CommunityPollOption(db.Model):
@@ -599,6 +603,129 @@ class CommunityNotification(db.Model):
     target_key = db.Column(db.String(80), nullable=False)
     message = db.Column(db.String(180), nullable=False)
     is_read = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityAdminNotice(db.Model):
+    """Private Community Admin inbox event; never rendered to members."""
+    __tablename__ = 'community_admin_notice'
+    __table_args__ = (UniqueConstraint('kind', 'target_key', name='uq_community_admin_notice_target'),)
+    id = db.Column(db.Integer, primary_key=True)
+    profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True, index=True)
+    kind = db.Column(db.String(40), nullable=False)
+    target_key = db.Column(db.String(80), nullable=False)
+    message = db.Column(db.String(200), nullable=False)
+    is_read = db.Column(db.Boolean, nullable=False, default=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+    profile = db.relationship('CommunityProfile', lazy=True)
+
+class CommunityGroup(db.Model):
+    __tablename__ = 'community_group'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), nullable=False)
+    channel = db.Column(db.String(20), nullable=False)
+    created_by_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True, index=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    creator = db.relationship('CommunityProfile', foreign_keys=[created_by_profile_id], lazy=True)
+
+class CommunityGroupMember(db.Model):
+    __tablename__ = 'community_group_member'
+    __table_args__ = (UniqueConstraint('group_id', 'profile_id', name='uq_community_group_profile'),)
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('community_group.id', ondelete='CASCADE'), nullable=False, index=True)
+    profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='CASCADE'), nullable=False, index=True)
+    invited_by_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True)
+    member_role = db.Column(db.String(20), nullable=False, default='MEMBER')
+    status = db.Column(db.String(20), nullable=False, default='INVITED')
+    joined_at = db.Column(db.DateTime, nullable=True)
+    last_read_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    group = db.relationship('CommunityGroup', backref=db.backref('memberships', cascade='all, delete-orphan', lazy=True))
+    profile = db.relationship('CommunityProfile', foreign_keys=[profile_id], lazy=True)
+    invited_by = db.relationship('CommunityProfile', foreign_keys=[invited_by_profile_id], lazy=True)
+
+class CommunityGroupMessage(db.Model):
+    __tablename__ = 'community_group_message'
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('community_group.id', ondelete='CASCADE'), nullable=False, index=True)
+    author_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True, index=True)
+    body = db.Column(db.String(1000), nullable=False)
+    status = db.Column(db.String(24), nullable=False, default='PUBLISHED')
+    moderation_hits = db.Column(db.Text, nullable=True)
+    flags_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    group = db.relationship('CommunityGroup', lazy=True)
+    author = db.relationship('CommunityProfile', lazy=True)
+
+class CommunityGroupMessageReport(db.Model):
+    __tablename__ = 'community_group_message_report'
+    __table_args__ = (UniqueConstraint('message_id', 'reporter_profile_id', name='uq_community_group_message_reporter'),)
+    id = db.Column(db.Integer, primary_key=True)
+    message_id = db.Column(db.Integer, db.ForeignKey('community_group_message.id', ondelete='CASCADE'), nullable=False, index=True)
+    reporter_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='CASCADE'), nullable=False, index=True)
+    reason = db.Column(db.String(40), nullable=False)
+    details = db.Column(db.String(240), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='OPEN')
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityGroupTask(db.Model):
+    __tablename__ = 'community_group_task'
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('community_group.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_by_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True)
+    assigned_to_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True, index=True)
+    title = db.Column(db.String(120), nullable=False)
+    details = db.Column(db.String(500), nullable=True)
+    priority = db.Column(db.String(16), nullable=False, default='NORMAL')
+    status = db.Column(db.String(16), nullable=False, default='TODO')
+    due_date = db.Column(db.Date, nullable=True)
+    completed_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    creator = db.relationship('CommunityProfile', foreign_keys=[created_by_profile_id], lazy=True)
+    assignee = db.relationship('CommunityProfile', foreign_keys=[assigned_to_profile_id], lazy=True)
+
+class CommunityGroupNote(db.Model):
+    __tablename__ = 'community_group_note'
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('community_group.id', ondelete='CASCADE'), nullable=False, index=True)
+    author_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True)
+    title = db.Column(db.String(120), nullable=False)
+    body = db.Column(db.String(2000), nullable=False)
+    is_pinned = db.Column(db.Boolean, nullable=False, default=False)
+    status = db.Column(db.String(16), nullable=False, default='ACTIVE')
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    author = db.relationship('CommunityProfile', lazy=True)
+
+class CommunityGroupPoll(db.Model):
+    __tablename__ = 'community_group_poll'
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('community_group.id', ondelete='CASCADE'), nullable=False, index=True)
+    author_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True)
+    question = db.Column(db.String(240), nullable=False)
+    status = db.Column(db.String(16), nullable=False, default='OPEN')
+    closes_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    author = db.relationship('CommunityProfile', lazy=True)
+    options = db.relationship('CommunityGroupPollOption', backref='poll', cascade='all, delete-orphan', lazy=True, order_by='CommunityGroupPollOption.sort_order')
+
+class CommunityGroupPollOption(db.Model):
+    __tablename__ = 'community_group_poll_option'
+    id = db.Column(db.Integer, primary_key=True)
+    poll_id = db.Column(db.Integer, db.ForeignKey('community_group_poll.id', ondelete='CASCADE'), nullable=False, index=True)
+    option_text = db.Column(db.String(100), nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+
+class CommunityGroupPollVote(db.Model):
+    __tablename__ = 'community_group_poll_vote'
+    __table_args__ = (UniqueConstraint('poll_id', 'profile_id', name='uq_community_group_poll_profile'),)
+    id = db.Column(db.Integer, primary_key=True)
+    poll_id = db.Column(db.Integer, db.ForeignKey('community_group_poll.id', ondelete='CASCADE'), nullable=False, index=True)
+    option_id = db.Column(db.Integer, db.ForeignKey('community_group_poll_option.id', ondelete='CASCADE'), nullable=False)
+    profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='CASCADE'), nullable=False, index=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
 class CommunityConnection(db.Model):
@@ -1416,6 +1543,8 @@ def run_schema_migrations():
         ],
         'community_profile': [
             ('is_community_admin', 'BOOLEAN DEFAULT FALSE'),
+            ('public_bio', 'VARCHAR(160)'),
+            ('is_profile_locked', 'BOOLEAN DEFAULT FALSE'),
             ('student_id_image_data', 'TEXT'),
             ('student_id_uploaded_at', 'TIMESTAMP'),
             ('student_id_deleted_at', 'TIMESTAMP'),
@@ -1423,6 +1552,9 @@ def run_schema_migrations():
             ('student_application_campus', 'VARCHAR(120)'),
             ('student_application_department', 'VARCHAR(80)'),
             ('student_application_graduating_year', 'INTEGER'),
+        ],
+        'community_post': [
+            ('reshared_post_id', 'INTEGER'),
         ],
     }
 
@@ -1448,6 +1580,7 @@ def run_schema_migrations():
             conn.execute(text("UPDATE customer SET community_student_preapproved = FALSE WHERE community_student_preapproved IS NULL"))
         if 'community_profile' in tables:
             conn.execute(text("UPDATE community_profile SET is_community_admin = FALSE WHERE is_community_admin IS NULL"))
+            conn.execute(text("UPDATE community_profile SET is_profile_locked = FALSE WHERE is_profile_locked IS NULL"))
         if 'promotion_tracker' in tables:
             conn.execute(text("UPDATE promotion_tracker SET is_visible = TRUE WHERE is_visible IS NULL"))
             conn.execute(text("UPDATE promotion_tracker SET portal_only = FALSE WHERE portal_only IS NULL"))
@@ -2311,6 +2444,9 @@ COMMUNITY_GROUP_PRIVACY_MINIMUM = 3
 COMMUNITY_MAIN_ADMIN_HANDLE = 'uzu.macky'
 COMMUNITY_MAIN_ADMIN_FOLLOW_REWARD = 0.5
 COMMUNITY_MAIN_ADMIN_LIKE_REWARD = 0.2
+COMMUNITY_GROUP_MAX_MEMBERS = 25
+COMMUNITY_GROUP_TASK_STATUSES = ('TODO', 'DOING', 'DONE')
+COMMUNITY_GROUP_TASK_PRIORITIES = ('LOW', 'NORMAL', 'HIGH')
 COMMUNITY_MENTION_PATTERN = re.compile(r'(?<![A-Za-z0-9._])@([A-Za-z0-9][A-Za-z0-9._]{2,23})', re.IGNORECASE)
 
 def normalize_community_handle(value, allow_main_admin=False):
@@ -2346,6 +2482,146 @@ def community_friend_profile_ids(profile_id):
     return {
         row.profile_b_id if row.profile_a_id == profile_id else row.profile_a_id
         for row in rows
+    }
+
+def community_can_view_profile(viewer, target):
+    """Keep student/resident membership walls separated at the query boundary."""
+    if not viewer or not target:
+        return False
+    if viewer.id == target.id or viewer.is_community_admin or target.is_community_admin:
+        return True
+    if target.role == 'STUDENT' and target.verification_status != 'VERIFIED':
+        return False
+    return viewer.role == target.role
+
+def community_add_admin_notice(kind, target_key, message, profile=None):
+    """Queue an idempotent private notice for the Community Admin page."""
+    if not CommunityAdminNotice.query.filter_by(kind=kind, target_key=target_key).first():
+        db.session.add(CommunityAdminNotice(
+            profile_id=profile.id if profile else None,
+            kind=kind,
+            target_key=target_key,
+            message=message[:200],
+        ))
+    main_admin = CommunityProfile.query.filter_by(is_community_admin=True).first()
+    member_kind = {
+        'NEW_MEMBER': 'MEMBER_JOIN',
+        'STUDENT_APPLICATION': 'STUDENT_REVIEW',
+        'STUDENT_ID_RESUBMITTED': 'STUDENT_REVIEW',
+    }.get(kind)
+    if member_kind and main_admin and (not profile or main_admin.id != profile.id):
+        if not CommunityNotification.query.filter_by(
+            recipient_profile_id=main_admin.id, kind=member_kind, target_key=target_key,
+        ).first():
+            db.session.add(CommunityNotification(
+                recipient_profile_id=main_admin.id,
+                actor_profile_id=profile.id if profile else None,
+                kind=member_kind,
+                target_key=target_key,
+                message=message[:180],
+            ))
+
+def community_suggested_profiles(viewer, followed_ids=None, limit=18):
+    """Return role-safe follow suggestions without exposing private account data."""
+    followed_ids = set(followed_ids or ())
+    query = CommunityProfile.query.filter(
+        CommunityProfile.id != viewer.id,
+        CommunityProfile.verification_status != 'REJECTED',
+        or_(
+            CommunityProfile.role != 'STUDENT',
+            CommunityProfile.verification_status == 'VERIFIED',
+            CommunityProfile.is_community_admin.is_(True),
+        ),
+    )
+    if not viewer.is_community_admin:
+        query = query.filter(or_(
+            CommunityProfile.role == viewer.role,
+            CommunityProfile.is_community_admin.is_(True),
+        ))
+    candidates = [row for row in query.all() if row.id not in followed_ids]
+
+    def suggestion_rank(target):
+        same_group = False
+        if viewer.role == 'STUDENT' and target.role == 'STUDENT':
+            same_group = bool(
+                (viewer.department and viewer.department == target.department)
+                or (viewer.campus_name and viewer.campus_name == target.campus_name)
+            )
+        elif viewer.role == 'RESIDENT' and target.role == 'RESIDENT':
+            same_group = bool(viewer.barangay and viewer.barangay == target.barangay)
+        return (
+            0 if target.is_community_admin else 1,
+            0 if same_group else 1,
+            0 if not target.is_profile_locked else 1,
+            -parse_float(target.community_score, 0.0),
+            target.handle.casefold(),
+        )
+
+    return sorted(candidates, key=suggestion_rank)[:limit]
+
+def community_group_membership(profile_id, group_id, status='ACTIVE'):
+    query = CommunityGroupMember.query.filter_by(profile_id=profile_id, group_id=group_id)
+    return query.filter_by(status=status).first() if status else query.first()
+
+def community_group_actor(group_id):
+    cust, profile, error = community_api_actor()
+    if error:
+        return cust, profile, None, None, error
+    group = db.session.get(CommunityGroup, group_id)
+    membership = community_group_membership(profile.id, group_id, status='ACTIVE') if group else None
+    if not group or not group.is_active or not membership:
+        return cust, profile, group, membership, (jsonify({'success': False, 'message': 'This group chat is unavailable or you are not an active member.'}), 403)
+    if not profile.is_community_admin and group.channel != community_channel_for_role(profile.role):
+        return cust, profile, group, membership, (jsonify({'success': False, 'message': 'This chat is outside your role-locked community.'}), 403)
+    if profile.role == 'STUDENT' and profile.verification_status != 'VERIFIED' and not profile.is_community_admin:
+        return cust, profile, group, membership, (jsonify({'success': False, 'message': 'Student verification is required before using group chats.'}), 403)
+    return cust, profile, group, membership, None
+
+def community_group_target_allowed(group, target):
+    if not target or target.verification_status == 'REJECTED':
+        return False
+    if target.role == 'STUDENT' and target.verification_status != 'VERIFIED' and not target.is_community_admin:
+        return False
+    return target.is_community_admin or community_channel_for_role(target.role) == group.channel
+
+def community_group_message_payload(message):
+    author = message.author
+    return {
+        'id': message.id,
+        'body': message.body,
+        'handle': f'@{author.handle}' if author else '@member',
+        'profile_url': url_for('community_member_profile', handle=author.handle) if author else None,
+        'avatar': author.customer.profile_image if author and author.customer else None,
+        'created_at': ph_datetime_filter(message.created_at),
+        'flags_count': message.flags_count or 0,
+    }
+
+def community_group_poll_payload(poll, viewer_profile_id=None):
+    votes = CommunityGroupPollVote.query.filter_by(poll_id=poll.id).all()
+    counts = {}
+    selected = None
+    for vote in votes:
+        counts[vote.option_id] = counts.get(vote.option_id, 0) + 1
+        if vote.profile_id == viewer_profile_id:
+            selected = vote.option_id
+    total = len(votes)
+    return {
+        'id': poll.id,
+        'author_profile_id': poll.author_profile_id,
+        'question': poll.question,
+        'status': poll.status,
+        'closes_at': ph_datetime_filter(poll.closes_at) if poll.closes_at else None,
+        'selected_option_id': selected,
+        'total_votes': total,
+        'options': [
+            {
+                'id': option.id,
+                'text': option.option_text,
+                'votes': counts.get(option.id, 0),
+                'percent': round(counts.get(option.id, 0) / total * 100) if total else 0,
+            }
+            for option in poll.options
+        ],
     }
 
 def community_safe_link(value, required=False):
@@ -2591,6 +2867,9 @@ def community_poll_results(post):
 
 def serialize_community_post(post, viewer_customer_id=None):
     author = post.author
+    original = post.reshared_post if post.reshared_post and post.reshared_post.status == 'PUBLISHED' else None
+    original_author = original.author if original else None
+    root_id = original.id if original else post.id
     reaction = CommunityReaction.query.filter_by(post_id=post.id, customer_id=viewer_customer_id).first() if viewer_customer_id else None
     return {
         'id': post.id,
@@ -2609,6 +2888,13 @@ def serialize_community_post(post, viewer_customer_id=None):
         'author_avatar': author.customer.profile_image if author and author.customer else None,
         'reaction_count': CommunityReaction.query.filter_by(post_id=post.id).count(),
         'comment_count': CommunityComment.query.filter_by(post_id=post.id, status='PUBLISHED').count(),
+        'reshare_count': CommunityPost.query.filter_by(reshared_post_id=root_id, status='PUBLISHED').count(),
+        'reshare_root_id': root_id,
+        'original': ({
+            'id': original.id,
+            'body': original.body,
+            'author_handle': f'@{original_author.handle}' if original_author else '@macleens',
+        } if original else None),
         'viewer_reaction': reaction.reaction_type if reaction else None,
         'poll': community_poll_results(post) if post.post_type == 'POLL' else None,
     }
@@ -9089,6 +9375,8 @@ def community_profile_values(form, existing=None):
         'barangay': None,
         'resident_since_year': None,
         'verification_method': (existing.verification_method if existing else ('ID_UPLOAD' if role == 'STUDENT' else 'SELF_DECLARED')),
+        'public_bio': re.sub(r'\s+', ' ', (form.get('public_bio') or '').strip())[:160] or None,
+        'is_profile_locked': str(form.get('is_profile_locked') or '').strip().lower() in {'1', 'true', 'on', 'yes'},
     }
     if role == 'STUDENT':
         campus = (form.get('campus_name') or '').strip()
@@ -9164,6 +9452,9 @@ def community_home():
         post_stats[post.id] = {
             'reactions': CommunityReaction.query.filter_by(post_id=post.id).count(),
             'comments': CommunityComment.query.filter_by(post_id=post.id, status='PUBLISHED').count(),
+            'reshares': CommunityPost.query.filter_by(
+                reshared_post_id=(post.reshared_post_id or post.id), status='PUBLISHED',
+            ).count(),
         }
         if post.post_type == 'POLL':
             poll_results[post.id] = community_poll_results(post)
@@ -9188,7 +9479,38 @@ def community_home():
         follower_profile_id=profile.id, followed_profile_id=main_admin_profile.id,
     ).first())
     main_admin_followers = CommunityFollow.query.filter_by(followed_profile_id=main_admin_profile.id).count() if main_admin_profile else 0
+    followed_ids = {
+        row.followed_profile_id
+        for row in CommunityFollow.query.filter_by(follower_profile_id=profile.id).all()
+    }
+    following_profiles = CommunityProfile.query.filter(
+        CommunityProfile.id.in_(followed_ids)
+    ).order_by(CommunityProfile.handle.asc()).all() if followed_ids else []
+    suggested_profiles = community_suggested_profiles(profile, followed_ids=followed_ids)
+    suggested_ids = [row.id for row in suggested_profiles]
+    suggested_follower_counts = dict(
+        db.session.query(CommunityFollow.followed_profile_id, db.func.count(CommunityFollow.id))
+        .filter(CommunityFollow.followed_profile_id.in_(suggested_ids))
+        .group_by(CommunityFollow.followed_profile_id).all()
+    ) if suggested_ids else {}
     notifications = CommunityNotification.query.filter_by(recipient_profile_id=profile.id).order_by(CommunityNotification.created_at.desc()).limit(12).all()
+    group_memberships = CommunityGroupMember.query.filter_by(
+        profile_id=profile.id, status='ACTIVE',
+    ).order_by(CommunityGroupMember.created_at.desc()).all()
+    community_groups = [row for row in group_memberships if row.group and row.group.is_active]
+    group_unread_counts = {}
+    for membership in group_memberships:
+        if not membership.group or not membership.group.is_active:
+            continue
+        unread_query = CommunityGroupMessage.query.filter_by(group_id=membership.group_id, status='PUBLISHED')
+        if membership.last_read_at:
+            unread_query = unread_query.filter(CommunityGroupMessage.created_at > membership.last_read_at)
+        group_unread_counts[membership.group_id] = unread_query.filter(
+            or_(CommunityGroupMessage.author_profile_id.is_(None), CommunityGroupMessage.author_profile_id != profile.id)
+        ).count()
+    group_invites = CommunityGroupMember.query.filter_by(
+        profile_id=profile.id, status='INVITED',
+    ).order_by(CommunityGroupMember.created_at.desc()).all()
     mentionable_query = CommunityProfile.query.filter(
         CommunityProfile.id != profile.id,
         CommunityProfile.verification_status != 'REJECTED',
@@ -9245,8 +9567,100 @@ def community_home():
         main_admin_profile=main_admin_profile,
         follows_main_admin=follows_main_admin,
         main_admin_followers=main_admin_followers,
+        followed_ids=followed_ids,
+        following_profiles=following_profiles,
+        suggested_profiles=suggested_profiles,
+        suggested_follower_counts=suggested_follower_counts,
         notifications=notifications,
+        community_groups=community_groups,
+        group_unread_counts=group_unread_counts,
+        group_invites=group_invites,
+        community_group_max_members=COMMUNITY_GROUP_MAX_MEMBERS,
         mentionable_profiles=mentionable_profiles,
+    )
+
+@app.route('/community/member/<string:handle>')
+def community_member_profile(handle):
+    cust = get_current_community_customer()
+    if not cust:
+        return redirect(url_for('customer_login', next='community'))
+    viewer = CommunityProfile.query.filter_by(customer_id=cust.id).first()
+    if not viewer:
+        return redirect(url_for('community_home'))
+    requested_handle = handle.strip().lower().lstrip('@')
+    target = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle) == requested_handle).first()
+    if not target or not community_can_view_profile(viewer, target):
+        return render_template(
+            'community_profile_unavailable.html',
+            viewer_profile=viewer,
+            requested_handle=requested_handle,
+        ), 404
+
+    friend_ids = community_friend_profile_ids(viewer.id)
+    is_connected = target.id in friend_ids
+    can_view_details = bool(
+        viewer.id == target.id
+        or viewer.is_community_admin
+        or not target.is_profile_locked
+        or is_connected
+    )
+    followed = bool(CommunityFollow.query.filter_by(
+        follower_profile_id=viewer.id, followed_profile_id=target.id,
+    ).first()) if viewer.id != target.id else False
+    left, right = community_connection_pair(viewer.id, target.id)
+    connection = CommunityConnection.query.filter_by(profile_a_id=left, profile_b_id=right).first() if viewer.id != target.id else None
+    follower_count = CommunityFollow.query.filter_by(followed_profile_id=target.id).count()
+    following_count = CommunityFollow.query.filter_by(follower_profile_id=target.id).count()
+
+    posts = []
+    post_comments = {}
+    reaction_map = {}
+    post_stats = {}
+    if can_view_details:
+        now = utc_now()
+        visible_channels = list(COMMUNITY_CHANNELS) if viewer.is_community_admin else [community_channel_for_role(viewer.role)]
+        posts = CommunityPost.query.filter(
+            CommunityPost.author_profile_id == target.id,
+            CommunityPost.status == 'PUBLISHED',
+            CommunityPost.published_at.isnot(None),
+            CommunityPost.published_at <= now,
+            CommunityPost.channel.in_(visible_channels + ['GLOBAL']),
+            or_(CommunityPost.expires_at.is_(None), CommunityPost.expires_at > now),
+        ).order_by(CommunityPost.created_at.desc()).limit(40).all()
+        for post in posts:
+            post_comments[post.id] = list(reversed(
+                CommunityComment.query.filter_by(post_id=post.id, status='PUBLISHED')
+                .order_by(CommunityComment.created_at.desc()).limit(3).all()
+            ))
+            reaction = CommunityReaction.query.filter_by(post_id=post.id, customer_id=cust.id).first()
+            reaction_map[post.id] = reaction.reaction_type if reaction else None
+            post_stats[post.id] = {
+                'reactions': CommunityReaction.query.filter_by(post_id=post.id).count(),
+                'comments': CommunityComment.query.filter_by(post_id=post.id, status='PUBLISHED').count(),
+                'reshares': CommunityPost.query.filter_by(
+                    reshared_post_id=(post.reshared_post_id or post.id), status='PUBLISHED',
+                ).count(),
+            }
+
+    return render_template(
+        'community_profile.html',
+        viewer=viewer,
+        profile=viewer,
+        member=target,
+        can_view_details=can_view_details,
+        is_connected=is_connected,
+        connection=connection,
+        is_following=followed,
+        follower_count=follower_count,
+        following_count=following_count,
+        posts=posts,
+        post_comments=post_comments,
+        reaction_map=reaction_map,
+        post_stats=post_stats,
+        poll_results={},
+        vote_map={},
+        module_labels={value: label for rows in COMMUNITY_CHANNEL_MODULES.values() for value, label in rows} | {'FLASH_POLL': '8:00 AM Flash Poll'},
+        can_interact=community_can_interact(viewer, community_channel_for_role(viewer.role)),
     )
 
 @app.route('/community/profile', methods=['POST'])
@@ -9280,12 +9694,24 @@ def community_save_profile():
             else:
                 profile.verification_status = 'SELF_DECLARED'
             db.session.add(profile)
+            db.session.flush()
+            community_add_admin_notice(
+                'NEW_MEMBER', f'profile:{profile.id}',
+                f'@{profile.handle} joined as a {profile.role.lower()}. Review their role and verification status.',
+                profile=profile,
+            )
         else:
             for key, value in values.items():
                 setattr(profile, key, value)
         db.session.commit()
         if request.headers.get('X-Macleens-Community') == '1':
-            return jsonify({'success': True, 'message': 'Community profile saved.', 'handle': profile.handle, 'role': profile.role})
+            return jsonify({
+                'success': True,
+                'message': 'Community profile saved.',
+                'handle': profile.handle,
+                'role': profile.role,
+                'profile_locked': bool(profile.is_profile_locked),
+            })
         flash('Your optional community profile is ready. Welcome to Macleen’s Community!', 'success')
         return redirect(url_for('community_home'))
     except OrderValidationError as exc:
@@ -9344,6 +9770,11 @@ def community_student_application():
             profile.student_id_uploaded_at = utc_now()
             profile.student_id_deleted_at = None
             message = 'Student application sent privately. You remain in Town Square until staff approves it.'
+        community_add_admin_notice(
+            'STUDENT_APPLICATION', f'profile:{profile.id}:student-application:{utc_now().isoformat()}',
+            f'@{profile.handle} submitted a student-access application for private staff review.',
+            profile=profile,
+        )
         db.session.commit()
         return jsonify({'success': True, 'message': message, 'status': profile.student_application_status})
     except OrderValidationError as exc:
@@ -9367,6 +9798,11 @@ def community_student_id_resubmit():
         profile.verification_status = 'PENDING'
         profile.verification_method = 'ID_UPLOAD'
         profile.verification_note = None
+        community_add_admin_notice(
+            'STUDENT_ID_RESUBMITTED', f'profile:{profile.id}:student-id:{profile.student_id_uploaded_at.isoformat()}',
+            f'@{profile.handle} submitted a replacement student ID for private staff review.',
+            profile=profile,
+        )
         db.session.commit()
         return jsonify({'success': True, 'message': 'Replacement student ID sent privately for staff review.', 'status': 'PENDING'})
     except OrderValidationError as exc:
@@ -9509,6 +9945,458 @@ def community_read_notifications():
     CommunityNotification.query.filter_by(recipient_profile_id=profile.id, is_read=False).update({'is_read': True})
     db.session.commit()
     return jsonify({'success': True, 'message': 'Notifications marked as read.'})
+
+@app.route('/community/api/groups', methods=['POST'])
+def community_create_group():
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    if not community_can_interact(profile, community_channel_for_role(profile.role)):
+        return jsonify({'success': False, 'message': 'Student verification is required before creating group chats.'}), 403
+    try:
+        community_rate_limit(cust.id, CommunityGroup, 1440, 5, author_field='created_by_profile_id', profile_id=profile.id)
+        data = request.get_json(silent=True) or request.form
+        name = re.sub(r'\s+', ' ', (data.get('name') or '').strip())
+        if len(name) < 3 or len(name) > 80:
+            raise OrderValidationError('Group name must contain 3–80 characters.')
+        channel = (data.get('channel') or '').strip().upper() if profile.is_community_admin else community_channel_for_role(profile.role)
+        if channel not in COMMUNITY_CHANNELS or not community_can_interact(profile, channel):
+            raise OrderValidationError('Choose a group channel you are allowed to manage.')
+        raw_handles = str(data.get('invite_handles') or '')
+        handle_values = []
+        for raw in re.split(r'[,\s]+', raw_handles):
+            candidate = raw.strip().lower().lstrip('@')
+            if candidate and candidate not in handle_values:
+                handle_values.append(candidate)
+        if len(handle_values) > COMMUNITY_GROUP_MAX_MEMBERS - 1:
+            raise OrderValidationError(f'A group can contain at most {COMMUNITY_GROUP_MAX_MEMBERS} members including you.')
+        invitees = []
+        for handle_value in handle_values:
+            target = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle) == handle_value).first()
+            if not target:
+                raise OrderValidationError(f'No community member uses @{handle_value}.')
+            if target.id == profile.id:
+                continue
+            provisional = CommunityGroup(channel=channel)
+            if not community_group_target_allowed(provisional, target):
+                raise OrderValidationError(f'@{target.handle} is outside this role-locked group or still awaiting verification.')
+            invitees.append(target)
+        group = CommunityGroup(name=name, channel=channel, created_by_profile_id=profile.id, is_active=True)
+        db.session.add(group)
+        db.session.flush()
+        db.session.add(CommunityGroupMember(
+            group_id=group.id, profile_id=profile.id, invited_by_profile_id=profile.id,
+            member_role='OWNER', status='ACTIVE', joined_at=utc_now(), last_read_at=utc_now(),
+        ))
+        for target in invitees:
+            membership = CommunityGroupMember(
+                group_id=group.id, profile_id=target.id, invited_by_profile_id=profile.id,
+                member_role='MEMBER', status='INVITED',
+            )
+            db.session.add(membership)
+            db.session.flush()
+            db.session.add(CommunityNotification(
+                recipient_profile_id=target.id, actor_profile_id=profile.id,
+                kind='GROUP_INVITE', target_key=f'group-member:{membership.id}',
+                message=f'@{profile.handle} invited you to the group “{group.name}”.',
+            ))
+        db.session.commit()
+        return jsonify({
+            'success': True, 'message': f'Group “{group.name}” created with {len(invitees)} invitation(s).',
+            'group_id': group.id, 'url': url_for('community_group_chat', group_id=group.id),
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+@app.route('/community/api/group-invites/<int:membership_id>', methods=['POST'])
+def community_group_invite_response(membership_id):
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    membership = db.session.get(CommunityGroupMember, membership_id)
+    if not membership or membership.profile_id != profile.id or membership.status != 'INVITED' or not membership.group or not membership.group.is_active:
+        return jsonify({'success': False, 'message': 'That group invitation is unavailable.'}), 404
+    data = request.get_json(silent=True) or request.form
+    action = (data.get('action') or '').strip().upper()
+    if action == 'ACCEPT':
+        if not community_group_target_allowed(membership.group, profile):
+            return jsonify({'success': False, 'message': 'Your current verified role cannot enter this group.'}), 403
+        membership.status = 'ACTIVE'
+        membership.joined_at = utc_now()
+        membership.last_read_at = utc_now()
+        message = f'You joined “{membership.group.name}”.'
+        group_url = url_for('community_group_chat', group_id=membership.group_id)
+    elif action == 'DECLINE':
+        membership.status = 'DECLINED'
+        message = f'Invitation to “{membership.group.name}” declined.'
+        group_url = None
+    else:
+        return jsonify({'success': False, 'message': 'Choose Accept or Decline.'}), 400
+    db.session.commit()
+    return jsonify({'success': True, 'message': message, 'url': group_url})
+
+@app.route('/community/groups/<int:group_id>')
+def community_group_chat(group_id):
+    cust, profile, group, membership, error = community_group_actor(group_id)
+    if error:
+        flash('That private group chat is unavailable or requires an accepted invitation.', 'error')
+        return redirect(url_for('community_home'))
+    membership.last_read_at = utc_now()
+    db.session.commit()
+    active_memberships = CommunityGroupMember.query.filter_by(group_id=group.id, status='ACTIVE').order_by(CommunityGroupMember.joined_at.asc()).all()
+    existing_profile_ids = {
+        row.profile_id for row in CommunityGroupMember.query.filter_by(group_id=group.id).all()
+    }
+    messages = list(reversed(
+        CommunityGroupMessage.query.filter_by(group_id=group.id, status='PUBLISHED')
+        .order_by(CommunityGroupMessage.id.desc()).limit(120).all()
+    ))
+    tasks = CommunityGroupTask.query.filter_by(group_id=group.id).order_by(
+        CommunityGroupTask.status.asc(), CommunityGroupTask.due_date.asc(), CommunityGroupTask.created_at.desc(),
+    ).limit(100).all()
+    notes = CommunityGroupNote.query.filter_by(group_id=group.id, status='ACTIVE').order_by(
+        CommunityGroupNote.is_pinned.desc(), CommunityGroupNote.updated_at.desc(),
+    ).limit(60).all()
+    polls = CommunityGroupPoll.query.filter_by(group_id=group.id).order_by(CommunityGroupPoll.created_at.desc()).limit(30).all()
+    poll_payloads = {row.id: community_group_poll_payload(row, profile.id) for row in polls}
+    candidate_query = CommunityProfile.query.filter(
+        CommunityProfile.id.notin_(existing_profile_ids),
+        CommunityProfile.verification_status != 'REJECTED',
+    )
+    invite_candidates = [row for row in candidate_query.order_by(CommunityProfile.handle.asc()).limit(300).all() if community_group_target_allowed(group, row)]
+    return render_template(
+        'community_group.html', cust=cust, profile=profile, group=group, membership=membership,
+        active_memberships=active_memberships, messages=messages, tasks=tasks, notes=notes,
+        polls=polls, poll_payloads=poll_payloads, invite_candidates=invite_candidates,
+        is_group_owner=membership.member_role == 'OWNER', task_statuses=COMMUNITY_GROUP_TASK_STATUSES,
+        task_priorities=COMMUNITY_GROUP_TASK_PRIORITIES, report_reasons=COMMUNITY_REPORT_REASONS,
+        today=ph_today(), group_max_members=COMMUNITY_GROUP_MAX_MEMBERS,
+    )
+
+@app.route('/community/api/groups/<int:group_id>/messages', methods=['GET', 'POST'])
+def community_group_messages(group_id):
+    cust, profile, group, membership, error = community_group_actor(group_id)
+    if error:
+        return error
+    if request.method == 'GET':
+        after_id = max(0, parse_int(request.args.get('after_id'), 0))
+        messages = CommunityGroupMessage.query.filter(
+            CommunityGroupMessage.group_id == group.id,
+            CommunityGroupMessage.status == 'PUBLISHED',
+            CommunityGroupMessage.id > after_id,
+        ).order_by(CommunityGroupMessage.id.asc()).limit(100).all()
+        membership.last_read_at = utc_now()
+        db.session.commit()
+        return jsonify({'success': True, 'messages': [community_group_message_payload(row) for row in messages]})
+    try:
+        community_rate_limit(cust.id, CommunityGroupMessage, 60, 30, profile_id=profile.id)
+        data = request.get_json(silent=True) or request.form
+        body = re.sub(r'\s+', ' ', (data.get('body') or '').strip())
+        if not body or len(body) > 1000:
+            raise OrderValidationError('Message must contain 1–1,000 characters.')
+        hits = community_moderation_hits(body)
+        message = CommunityGroupMessage(
+            group_id=group.id, author_profile_id=profile.id, body=body,
+            status='PENDING' if hits else 'PUBLISHED',
+            moderation_hits=json.dumps(hits, ensure_ascii=False) if hits else None,
+        )
+        db.session.add(message)
+        db.session.flush()
+        group.updated_at = utc_now()
+        membership.last_read_at = utc_now()
+        if hits:
+            community_add_admin_notice(
+                'GROUP_MESSAGE_REVIEW', f'group-message:{message.id}',
+                f'A safety phrase held a message in group “{group.name}” from @{profile.handle}.',
+                profile=profile,
+            )
+        db.session.commit()
+        return jsonify({
+            'success': True, 'pending': bool(hits),
+            'message': 'Message held for a private safety review.' if hits else 'Message sent.',
+            'chat_message': None if hits else community_group_message_payload(message),
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+@app.route('/community/api/groups/<int:group_id>/members', methods=['POST'])
+def community_group_members(group_id):
+    cust, profile, group, membership, error = community_group_actor(group_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or request.form
+    action = (data.get('action') or 'INVITE').strip().upper()
+    if action == 'LEAVE':
+        if membership.member_role == 'OWNER':
+            return jsonify({'success': False, 'message': 'The group owner cannot leave. Remove other members or keep the group for now.'}), 400
+        membership.status = 'LEFT'
+        membership.joined_at = None
+        group.updated_at = utc_now()
+        db.session.commit()
+        return jsonify({'success': True, 'message': f'You left “{group.name}”.'})
+    if membership.member_role != 'OWNER' and not profile.is_community_admin:
+        return jsonify({'success': False, 'message': 'Only the group owner can manage invitations.'}), 403
+    try:
+        if action == 'INVITE':
+            total_members = CommunityGroupMember.query.filter(
+                CommunityGroupMember.group_id == group.id,
+                CommunityGroupMember.status.in_(('ACTIVE', 'INVITED')),
+            ).count()
+            if total_members >= COMMUNITY_GROUP_MAX_MEMBERS:
+                raise OrderValidationError(f'This group has reached its {COMMUNITY_GROUP_MAX_MEMBERS}-member limit.')
+            handle = str(data.get('handle') or '').strip().lower().lstrip('@')
+            target = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle) == handle).first()
+            if not community_group_target_allowed(group, target):
+                raise OrderValidationError('That handle is outside this role-locked group or still awaiting verification.')
+            if target.id == profile.id:
+                raise OrderValidationError('You are already in this group.')
+            target_membership = CommunityGroupMember.query.filter_by(group_id=group.id, profile_id=target.id).first()
+            if target_membership and target_membership.status in {'ACTIVE', 'INVITED'}:
+                raise OrderValidationError(f'@{target.handle} is already a member or has a pending invitation.')
+            if target_membership:
+                target_membership.status = 'INVITED'
+                target_membership.invited_by_profile_id = profile.id
+                target_membership.created_at = utc_now()
+                target_membership.joined_at = None
+            else:
+                target_membership = CommunityGroupMember(
+                    group_id=group.id, profile_id=target.id, invited_by_profile_id=profile.id,
+                    member_role='MEMBER', status='INVITED',
+                )
+                db.session.add(target_membership)
+            db.session.flush()
+            if not CommunityNotification.query.filter_by(
+                recipient_profile_id=target.id, kind='GROUP_INVITE', target_key=f'group-member:{target_membership.id}',
+            ).first():
+                db.session.add(CommunityNotification(
+                    recipient_profile_id=target.id, actor_profile_id=profile.id, kind='GROUP_INVITE',
+                    target_key=f'group-member:{target_membership.id}', message=f'@{profile.handle} invited you to “{group.name}”.',
+                ))
+            message = f'Invitation sent to @{target.handle}.'
+        elif action == 'REMOVE':
+            target_membership = db.session.get(CommunityGroupMember, parse_int(data.get('membership_id'), 0))
+            if not target_membership or target_membership.group_id != group.id or target_membership.member_role == 'OWNER':
+                raise OrderValidationError('That group member cannot be removed.')
+            target_membership.status = 'REMOVED'
+            message = 'Member removed from the group.'
+        else:
+            raise OrderValidationError('Choose a valid membership action.')
+        group.updated_at = utc_now()
+        db.session.commit()
+        return jsonify({'success': True, 'message': message})
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+@app.route('/community/api/groups/<int:group_id>/tasks', methods=['POST'])
+def community_group_tasks(group_id):
+    cust, profile, group, membership, error = community_group_actor(group_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or request.form
+    action = (data.get('action') or 'CREATE').strip().upper()
+    try:
+        if action == 'CREATE':
+            community_rate_limit(cust.id, CommunityGroupTask, 1440, 30, author_field='created_by_profile_id', profile_id=profile.id)
+            title = re.sub(r'\s+', ' ', (data.get('title') or '').strip())
+            details = re.sub(r'\s+', ' ', (data.get('details') or '').strip())[:500] or None
+            priority = (data.get('priority') or 'NORMAL').strip().upper()
+            assignee_id = parse_int(data.get('assigned_to_profile_id'), 0)
+            assignee_membership = CommunityGroupMember.query.filter_by(group_id=group.id, profile_id=assignee_id, status='ACTIVE').first()
+            if not title or len(title) > 120:
+                raise OrderValidationError('Task title must contain 1–120 characters.')
+            if priority not in COMMUNITY_GROUP_TASK_PRIORITIES:
+                raise OrderValidationError('Choose Low, Normal, or High priority.')
+            if not assignee_membership:
+                raise OrderValidationError('Assign the task to an active group member.')
+            due_raw = str(data.get('due_date') or '').strip()
+            due_date = date.fromisoformat(due_raw) if due_raw else None
+            if due_date and (due_date < ph_today() or due_date > ph_today() + timedelta(days=730)):
+                raise OrderValidationError('Task due date must be today or within the next two years.')
+            task = CommunityGroupTask(
+                group_id=group.id, created_by_profile_id=profile.id,
+                assigned_to_profile_id=assignee_id, title=title, details=details,
+                priority=priority, status='TODO', due_date=due_date,
+            )
+            db.session.add(task)
+            db.session.flush()
+            if assignee_id != profile.id:
+                db.session.add(CommunityNotification(
+                    recipient_profile_id=assignee_id, actor_profile_id=profile.id, kind='GROUP_TASK',
+                    target_key=f'group-task:{task.id}', message=f'@{profile.handle} assigned you “{task.title}” in {group.name}.',
+                ))
+            message = 'Task created and assigned.'
+        elif action == 'STATUS':
+            task = db.session.get(CommunityGroupTask, parse_int(data.get('task_id'), 0))
+            status = (data.get('status') or '').strip().upper()
+            if not task or task.group_id != group.id or status not in COMMUNITY_GROUP_TASK_STATUSES:
+                raise OrderValidationError('That task or status is unavailable.')
+            allowed = profile.is_community_admin or membership.member_role == 'OWNER' or profile.id in {task.created_by_profile_id, task.assigned_to_profile_id}
+            if not allowed:
+                raise OrderValidationError('Only the assignee, task creator, or group owner can update this task.')
+            task.status = status
+            task.completed_at = utc_now() if status == 'DONE' else None
+            message = f'Task moved to {status.title()}.'
+        else:
+            raise OrderValidationError('Choose a valid task action.')
+        group.updated_at = utc_now()
+        db.session.commit()
+        return jsonify({
+            'success': True, 'message': message,
+            'task': {
+                'id': task.id, 'title': task.title, 'details': task.details,
+                'priority': task.priority, 'status': task.status,
+                'due_date': task.due_date.isoformat() if task.due_date else None,
+                'assignee': f'@{task.assignee.handle}' if task.assignee else 'Unassigned',
+            },
+        })
+    except (OrderValidationError, ValueError) as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc) if str(exc) else 'Enter a valid task due date.'}), 400
+
+@app.route('/community/api/groups/<int:group_id>/notes', methods=['POST'])
+def community_group_notes(group_id):
+    cust, profile, group, membership, error = community_group_actor(group_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or request.form
+    action = (data.get('action') or 'CREATE').strip().upper()
+    try:
+        if action == 'CREATE':
+            community_rate_limit(cust.id, CommunityGroupNote, 1440, 20, profile_id=profile.id)
+            note = CommunityGroupNote(group_id=group.id, author_profile_id=profile.id)
+        else:
+            note = db.session.get(CommunityGroupNote, parse_int(data.get('note_id'), 0))
+            if not note or note.group_id != group.id or note.status != 'ACTIVE':
+                raise OrderValidationError('That shared note is unavailable.')
+            if not (profile.is_community_admin or membership.member_role == 'OWNER' or note.author_profile_id == profile.id):
+                raise OrderValidationError('Only the note author or group owner can change this note.')
+        if action in {'CREATE', 'UPDATE'}:
+            title = re.sub(r'\s+', ' ', (data.get('title') or '').strip())
+            body = (data.get('body') or '').strip()
+            if not title or len(title) > 120 or not body or len(body) > 2000:
+                raise OrderValidationError('A note needs a 1–120 character title and 1–2,000 characters of content.')
+            note.title = title
+            note.body = body
+            if action == 'CREATE':
+                db.session.add(note)
+            message = 'Shared note created.' if action == 'CREATE' else 'Shared note updated.'
+        elif action == 'TOGGLE_PIN':
+            note.is_pinned = not note.is_pinned
+            message = 'Note pin updated.'
+        elif action == 'ARCHIVE':
+            note.status = 'ARCHIVED'
+            message = 'Note archived from the group workspace.'
+        else:
+            raise OrderValidationError('Choose a valid note action.')
+        group.updated_at = utc_now()
+        db.session.commit()
+        return jsonify({
+            'success': True, 'message': message,
+            'note': {'id': note.id, 'title': note.title, 'body': note.body, 'is_pinned': bool(note.is_pinned), 'status': note.status},
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+@app.route('/community/api/groups/<int:group_id>/polls', methods=['POST'])
+def community_group_polls(group_id):
+    cust, profile, group, membership, error = community_group_actor(group_id)
+    if error:
+        return error
+    data = request.get_json(silent=True) or request.form
+    action = (data.get('action') or 'CREATE').strip().upper()
+    try:
+        if action == 'CREATE':
+            community_rate_limit(cust.id, CommunityGroupPoll, 1440, 10, profile_id=profile.id)
+            question = re.sub(r'\s+', ' ', (data.get('question') or '').strip())
+            raw_options = data.get('options') if isinstance(data, dict) else request.form.getlist('option')
+            if isinstance(raw_options, str):
+                raw_options = raw_options.splitlines()
+            options = []
+            seen = set()
+            for raw in raw_options or []:
+                option = re.sub(r'\s+', ' ', str(raw).strip())[:100]
+                if option and option.casefold() not in seen:
+                    seen.add(option.casefold())
+                    options.append(option)
+            if not question or len(question) > 240 or not (2 <= len(options) <= 6):
+                raise OrderValidationError('A poll needs a 1–240 character question and 2–6 different choices.')
+            hours = parse_int(data.get('duration_hours'), 24)
+            if hours not in {1, 6, 12, 24, 48, 72, 168}:
+                raise OrderValidationError('Choose a supported poll duration.')
+            poll = CommunityGroupPoll(
+                group_id=group.id, author_profile_id=profile.id, question=question,
+                status='OPEN', closes_at=utc_now() + timedelta(hours=hours),
+            )
+            db.session.add(poll)
+            db.session.flush()
+            for index, option in enumerate(options):
+                db.session.add(CommunityGroupPollOption(poll_id=poll.id, option_text=option, sort_order=index))
+            db.session.flush()
+            message = 'Group poll opened.'
+        elif action == 'VOTE':
+            poll = db.session.get(CommunityGroupPoll, parse_int(data.get('poll_id'), 0))
+            option = db.session.get(CommunityGroupPollOption, parse_int(data.get('option_id'), 0))
+            if not poll or poll.group_id != group.id or not option or option.poll_id != poll.id:
+                raise OrderValidationError('That poll choice is unavailable.')
+            if poll.status != 'OPEN' or (poll.closes_at and poll.closes_at <= utc_now()):
+                raise OrderValidationError('This poll is closed.')
+            vote = CommunityGroupPollVote.query.filter_by(poll_id=poll.id, profile_id=profile.id).first()
+            if vote:
+                vote.option_id = option.id
+            else:
+                db.session.add(CommunityGroupPollVote(poll_id=poll.id, option_id=option.id, profile_id=profile.id))
+            message = 'Vote recorded. You may change it while the poll is open.'
+        elif action == 'CLOSE':
+            poll = db.session.get(CommunityGroupPoll, parse_int(data.get('poll_id'), 0))
+            if not poll or poll.group_id != group.id:
+                raise OrderValidationError('That poll is unavailable.')
+            if not (profile.is_community_admin or membership.member_role == 'OWNER' or poll.author_profile_id == profile.id):
+                raise OrderValidationError('Only the poll creator or group owner can close it.')
+            poll.status = 'CLOSED'
+            message = 'Poll closed.'
+        else:
+            raise OrderValidationError('Choose a valid poll action.')
+        group.updated_at = utc_now()
+        db.session.commit()
+        return jsonify({'success': True, 'message': message, 'poll': community_group_poll_payload(poll, profile.id)})
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+@app.route('/community/api/group-messages/<int:message_id>/report', methods=['POST'])
+def community_group_message_report(message_id):
+    message = CommunityGroupMessage.query.get_or_404(message_id)
+    cust, profile, group, membership, error = community_group_actor(message.group_id)
+    if error:
+        return error
+    if message.author_profile_id == profile.id:
+        return jsonify({'success': False, 'message': 'You cannot report your own message.'}), 400
+    data = request.get_json(silent=True) or request.form
+    reason = (data.get('reason') or '').strip().upper()
+    details = re.sub(r'\s+', ' ', (data.get('details') or '').strip())[:240] or None
+    if reason not in COMMUNITY_REPORT_REASONS:
+        return jsonify({'success': False, 'message': 'Choose a valid report reason.'}), 400
+    if CommunityGroupMessageReport.query.filter_by(message_id=message.id, reporter_profile_id=profile.id).first():
+        return jsonify({'success': False, 'message': 'You already reported this message.'}), 400
+    db.session.add(CommunityGroupMessageReport(
+        message_id=message.id, reporter_profile_id=profile.id, reason=reason, details=details,
+    ))
+    db.session.flush()
+    count = CommunityGroupMessageReport.query.filter_by(message_id=message.id, status='OPEN').count()
+    message.flags_count = count
+    quarantined = count >= 3
+    if quarantined:
+        message.status = 'QUARANTINED'
+    community_add_admin_notice(
+        'GROUP_MESSAGE_REPORT', f'group-message:{message.id}',
+        f'A member reported a message in private group “{group.name}”.', profile=profile,
+    )
+    db.session.commit()
+    return jsonify({'success': True, 'quarantined': quarantined, 'message': 'Report sent privately to Community Admin.'})
 
 @app.route('/community/api/posts', methods=['POST'])
 def community_create_post():
@@ -9656,6 +10544,76 @@ def community_comment(post_id):
     except OrderValidationError as exc:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(exc)}), 400
+
+@app.route('/community/api/posts/<int:post_id>/reshare', methods=['POST'])
+def community_reshare_post(post_id):
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    source = CommunityPost.query.get_or_404(post_id)
+    root = source.reshared_post if source.reshared_post_id and source.reshared_post else source
+    if source.status != 'PUBLISHED' or root.status != 'PUBLISHED' or not community_can_interact(profile, source.channel):
+        return jsonify({'success': False, 'message': 'This post is unavailable in your role-locked community.'}), 403
+    try:
+        community_rate_limit(cust.id, CommunityPost, 60, 5, profile_id=profile.id)
+        existing = CommunityPost.query.filter(
+            CommunityPost.author_profile_id == profile.id,
+            CommunityPost.reshared_post_id == root.id,
+            CommunityPost.status.in_(('PENDING', 'PUBLISHED')),
+        ).first()
+        if existing:
+            raise OrderValidationError('You already reshared this post. It remains on your wall.')
+        data = request.get_json(silent=True) or request.form
+        if profile.is_community_admin:
+            channel = (data.get('channel') or '').strip().upper()
+            if channel not in COMMUNITY_CHANNELS:
+                channel = root.channel if root.channel in COMMUNITY_CHANNELS else community_channel_for_role(profile.role)
+        else:
+            channel = community_channel_for_role(profile.role)
+        if not community_can_interact(profile, channel):
+            raise OrderValidationError('Choose a community channel you are allowed to use.')
+        original_handle = f'@{root.author.handle}' if root.author else 'Macleen’s'
+        requires_review = not profile.first_post_approved
+        reshare = CommunityPost(
+            author_profile_id=profile.id,
+            reshared_post_id=root.id,
+            channel=channel,
+            module=root.module,
+            post_type='TEXT',
+            body=f'Shared {original_handle}’s post.',
+            image_data=None,
+            link_url=None,
+            status='PENDING' if requires_review else 'PUBLISHED',
+            published_at=None if requires_review else utc_now(),
+            score_awarded=not requires_review,
+        )
+        db.session.add(reshare)
+        db.session.flush()
+        if not requires_review:
+            profile.community_score = round(parse_float(profile.community_score, 0.0) + 1.0, 2)
+            if root.author_profile_id and root.author_profile_id != profile.id:
+                db.session.add(CommunityNotification(
+                    recipient_profile_id=root.author_profile_id,
+                    actor_profile_id=profile.id,
+                    kind='RESHARE',
+                    target_key=f'reshare:{reshare.id}',
+                    message=f'@{profile.handle} reshared your post.',
+                ))
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'pending': requires_review,
+            'message': 'Your reshare was sent for first-post approval.' if requires_review else 'Post reshared to your wall.',
+            'post': None if requires_review else serialize_community_post(reshare, cust.id),
+            'count': CommunityPost.query.filter_by(reshared_post_id=root.id, status='PUBLISHED').count(),
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Community reshare failed for customer_id=%s post_id=%s', cust.id, post_id)
+        return jsonify({'success': False, 'message': 'The post could not be reshared. Nothing was published.'}), 500
 
 @app.route('/community/api/posts/<int:post_id>/report', methods=['POST'])
 def community_report_post(post_id):
@@ -9892,9 +10850,14 @@ def community_push_unsubscribe():
 @require_admin
 def community_admin():
     profiles = CommunityProfile.query.order_by(CommunityProfile.created_at.desc()).all()
+    admin_notices = CommunityAdminNotice.query.order_by(CommunityAdminNotice.created_at.desc()).limit(60).all()
     review_posts = CommunityPost.query.filter(CommunityPost.status.in_(('PENDING', 'QUARANTINED', 'HIDDEN'))).order_by(CommunityPost.created_at.asc()).all()
     pending_comments = CommunityComment.query.filter_by(status='PENDING').order_by(CommunityComment.created_at.asc()).all()
     reports = CommunityReport.query.filter_by(status='OPEN').order_by(CommunityReport.created_at.asc()).all()
+    group_review_messages = CommunityGroupMessage.query.filter(or_(
+        CommunityGroupMessage.status.in_(('PENDING', 'QUARANTINED')),
+        CommunityGroupMessage.flags_count > 0,
+    )).order_by(CommunityGroupMessage.created_at.asc()).all()
     ads = CommunityAd.query.order_by(CommunityAd.created_at.desc()).all()
     alerts = CommunityAlert.query.order_by(CommunityAlert.created_at.desc()).limit(30).all()
     flash_polls = CommunityPost.query.filter_by(is_flash_poll=True).order_by(CommunityPost.publish_date.desc()).limit(30).all()
@@ -9909,17 +10872,20 @@ def community_admin():
         'students': sum(1 for row in profiles if row.role == 'STUDENT'),
         'residents': sum(1 for row in profiles if row.role == 'RESIDENT'),
         'published_posts': CommunityPost.query.filter_by(status='PUBLISHED').count(),
-        'review_queue': len(review_posts) + len(pending_comments),
+        'review_queue': len(review_posts) + len(pending_comments) + len(group_review_messages),
         'open_reports': len(reports),
         'today_checkins': CommunityCheckin.query.filter_by(checkin_date=today).count(),
         'today_store_checkins': CommunityStoreCheckin.query.filter_by(checkin_date=today).count(),
+        'unread_join_notices': sum(1 for row in admin_notices if not row.is_read),
     }
     return render_template(
         'community_admin.html',
         profiles=profiles,
+        admin_notices=admin_notices,
         review_posts=review_posts,
         pending_comments=pending_comments,
         reports=reports,
+        group_review_messages=group_review_messages,
         ads=ads,
         alerts=alerts,
         flash_polls=flash_polls,
@@ -9933,6 +10899,39 @@ def community_admin():
         today=today,
         webpush_configured=bool(os.environ.get('WEBPUSH_VAPID_PUBLIC_KEY') and os.environ.get('WEBPUSH_VAPID_PRIVATE_KEY') and os.environ.get('WEBPUSH_VAPID_SUBJECT')),
     )
+
+@app.route('/admin/community/notices/read', methods=['POST'])
+@require_admin
+def community_admin_read_notices():
+    notice_id = parse_int(request.form.get('notice_id'), 0)
+    query = CommunityAdminNotice.query.filter_by(is_read=False)
+    if notice_id:
+        query = query.filter_by(id=notice_id)
+    updated = query.update({'is_read': True}, synchronize_session=False)
+    db.session.commit()
+    flash(f'{updated} Community Admin alert(s) marked as read.', 'success')
+    return redirect(url_for('community_admin') + '#join-alerts')
+
+@app.route('/admin/community/group-message/<int:message_id>/status', methods=['POST'])
+@require_admin
+def community_admin_group_message_status(message_id):
+    message = CommunityGroupMessage.query.get_or_404(message_id)
+    action = (request.form.get('action') or '').strip().upper()
+    if action not in {'PUBLISH', 'REMOVE'}:
+        flash('Invalid group-message moderation action.', 'error')
+        return redirect(url_for('community_admin') + '#group-message-review')
+    message.status = 'PUBLISHED' if action == 'PUBLISH' else 'REMOVED'
+    message.flags_count = 0
+    CommunityGroupMessageReport.query.filter_by(message_id=message.id, status='OPEN').update({'status': 'CLOSED'})
+    db.session.add(CommunityModerationAction(
+        profile_id=message.author_profile_id,
+        admin_username=session.get('admin_user') or 'admin',
+        action=f'GROUP_MESSAGE_{action}',
+        note=f'Private group message #{message.id} in group #{message.group_id}.',
+    ))
+    db.session.commit()
+    flash(f'Group message #{message.id} is now {message.status.lower()}.', 'success')
+    return redirect(url_for('community_admin') + '#group-message-review')
 
 @app.route('/admin/community/profile/<int:profile_id>/verification', methods=['POST'])
 @require_admin
