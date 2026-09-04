@@ -251,8 +251,9 @@
             {% if post.status not in ['POSTED','SKIPPED'] %}
               <form method="post" action="{{ url_for('marketing_edit_post', post_id=post.id) }}"><textarea name="caption">{{ post.caption }}</textarea><button class="btn btn-light" style="margin-top:5px">Save Edit</button></form>
             {% else %}<div class="caption">{{ post.caption }}</div>{% endif %}
-            {% if post.link_url %}<a href="{{ post.link_url }}" target="_blank" rel="noopener" class="tiny">{{ post.link_url }}</a>{% endif %}
-            {% if post.status != 'SKIPPED' %}<textarea id="copy-{{ post.id }}" style="position:absolute;left:-9999px">{{ post.caption }}{% if post.link_url %}\n\n{{ post.link_url }}{% endif %}</textarea>{% endif %}
+            {% set public_post_link = marketing_post_public_link(post) %}
+            {% if public_post_link %}<a href="{{ public_post_link }}" target="_blank" rel="noopener" class="tiny">{{ public_post_link }}</a>{% endif %}
+            {% if post.status != 'SKIPPED' %}<textarea id="copy-{{ post.id }}" style="position:absolute;left:-9999px">{{ post.caption }}{% if public_post_link %}\n\n{{ public_post_link }}{% endif %}</textarea>{% endif %}
           </td>
           <td>
             <div class="actions">

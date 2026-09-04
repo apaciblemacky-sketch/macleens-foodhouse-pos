@@ -112,11 +112,11 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Running isolated Community behavior checks...
+echo Running isolated Community and social-preview behavior checks...
 %DEPLOY_CHECK_CMD% scripts\community_smoke_check.py
 if errorlevel 1 (
   echo.
-  echo DEPLOYMENT STOPPED: Community behavior checks failed.
+  echo DEPLOYMENT STOPPED: Community or social-preview behavior checks failed.
   pause
   exit /b 1
 )
@@ -193,8 +193,9 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.03-community-v1
-echo Then test /community and /admin/community using COMMUNITY_HUB_UPDATE.md.
+echo Expected release after Render finishes: 2026.09.04-community-role-security-v2
+echo Then test one product link, both role-locked Community dashboards,
+echo @mentions, student approval, and one-time follow/like rewards.
 echo.
 start "" "https://dashboard.render.com/"
 start "" "https://macleens-foodhouse-pos.onrender.com/healthz"

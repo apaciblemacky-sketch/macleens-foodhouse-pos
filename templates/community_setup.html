@@ -22,18 +22,18 @@
       <div class="eyebrow">Optional social profile</div>
       <h1>Your local circle,<br>without exposing your account.</h1>
       <p>Your loyalty account stays private. Other members see only the handle, avatar, role badge, and profile details you choose below—never your mobile number, address, PIN, points balance, or purchase history.</p>
-      <div class="privacy"><strong>Privacy-first verification:</strong> Macleen’s will not retain a student ID image. Students can show an ID to staff in person; residents choose a self-declared barangay that staff may verify later. Your existing unique mobile number and 4-digit PIN remain the login method until a properly consented SMS provider is configured.</div>
+      <div class="privacy"><strong>Privacy-first verification:</strong> Student applicants upload one clear ID picture for authorized staff review only. It is never shown in the community and is automatically erased after approval or rejection. Residents choose a self-declared barangay. Your mobile number, PIN, loyalty points, and purchases stay private.</div>
     </section>
     <section class="panel">
-      <form action="{{ url_for('community_save_profile') }}" method="post" id="communityProfileForm">
+      <form action="{{ url_for('community_save_profile') }}" method="post" enctype="multipart/form-data" id="communityProfileForm">
         <label class="field" for="handle">Public community handle</label>
         <input id="handle" name="handle" maxlength="24" pattern="[A-Za-z0-9][A-Za-z0-9._]{2,23}" placeholder="e.g. macky.bcc" required>
         <div class="verify-note">3–24 letters, numbers, dots, or underscores. Your loyalty name and mobile stay private.</div>
 
         <label class="field">Choose your primary community role</label>
         <div class="role-grid">
-          <label class="role"><input type="radio" name="role" value="STUDENT" checked onchange="syncRoleFields()"><span><strong>🎓 College Student</strong><small>Post, comment, react, and vote in Campus Hub. Town Square remains read-only.</small></span></label>
-          <label class="role"><input type="radio" name="role" value="RESIDENT" onchange="syncRoleFields()"><span><strong>🏘️ Binalbagan Resident</strong><small>Post, comment, react, and vote in Town Square. Campus Hub remains read-only.</small></span></label>
+          <label class="role"><input type="radio" name="role" value="STUDENT" checked onchange="syncRoleFields()"><span><strong>🎓 College Student</strong><small>Your dashboard contains Campus Hub only. Approval is required before you can interact.</small></span></label>
+          <label class="role"><input type="radio" name="role" value="RESIDENT" onchange="syncRoleFields()"><span><strong>🏘️ Binalbagan Resident</strong><small>Your dashboard contains Town Square only; Campus Hub is not loaded or shown.</small></span></label>
         </div>
 
         <div id="studentFields" class="conditional">
@@ -43,7 +43,7 @@
           </div>
           <label class="field" for="graduatingYear">Expected graduating year</label>
           <input id="graduatingYear" type="number" name="graduating_year" min="{{ today.year if today else 2026 }}" max="{{ (today.year + 10) if today else 2036 }}" value="{{ today.year + 1 if today else 2027 }}">
-          <div class="verify-note">Verification status begins as Pending. Show your student ID to authorized staff at the counter; no ID photo is stored.</div>
+          {% if student_preapproved %}<div class="privacy"><strong>Staff pre-approved:</strong> your loyalty account is already tagged as a known student, so no ID upload is needed.</div>{% else %}<label class="field" for="studentId">Student ID picture (private review)</label><input id="studentId" type="file" name="student_id" accept="image/jpeg,image/png,image/webp" required><div class="verify-note">Maximum 3 MB. Upload the front of a valid student ID with readable school and student details. The image is admin-only and erased after approval or rejection.</div>{% endif %}
         </div>
 
         <div id="residentFields" class="conditional" hidden>
@@ -54,7 +54,7 @@
           <div class="verify-note">Barangay is self-declared until staff verifies it. It is used for aggregate Barangay Pride scores, never to reveal your exact address.</div>
         </div>
 
-        <label class="consent"><input type="checkbox" name="privacy_consent" required><span>I choose to create an optional public community profile. I understand the first post requires staff approval, reports are reviewed privately, community score is not cash-value loyalty points, and I can ask Macleen’s to deactivate my public community profile.</span></label>
+        <label class="consent"><input type="checkbox" name="privacy_consent" required><span>I choose to create an optional public community profile. I understand my role controls the only feed I can access, student verification is reviewed by authorized staff, my first post requires approval, and I can ask Macleen’s to deactivate my profile.</span></label>
         <button class="submit" type="submit">Create my community profile</button>
       </form>
     </section>
@@ -67,6 +67,7 @@
       student.hidden=role!=='STUDENT';resident.hidden=role!=='RESIDENT';
       student.querySelectorAll('input,select').forEach(el=>el.disabled=role!=='STUDENT');
       resident.querySelectorAll('input,select').forEach(el=>el.disabled=role!=='RESIDENT');
+      const id=document.getElementById('studentId');if(id)id.required=role==='STUDENT';
     }
     syncRoleFields();
   </script>

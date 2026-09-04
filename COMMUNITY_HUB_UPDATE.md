@@ -1,59 +1,56 @@
-# Macleen’s Community Hub — release and operating guide
+# Macleen’s Community — role security, tags, and rewards
 
-Release: `2026.09.03-community-v1`
+Release: `2026.09.04-community-role-security-v2`
 
-## What is implemented
+## What changed
 
-- Optional public handles layered over private loyalty accounts. The feed never displays mobile numbers, PINs, addresses, loyalty balances, or purchase history.
-- Students can write in Campus Hub and read Town Square. Residents have the inverse permission.
-- Student fields: campus, department, graduating year, vibe. Resident fields: official Binalbagan barangay and resident-since year.
-- Mutual handle-based connections protect student Vibe status; it appears only to accepted connections, not every feed reader.
-- Text posts (280 characters), one compressed image, optional safe public link, and 2–4 choice polls.
-- First post approval. Later safe posts publish immediately; configured phrase matches wait for human review.
-- Three unique open reports temporarily quarantine a post. A person must publish, hide, or remove it; there is no automatic permanent shadowban.
-- Daily check-in streak, 7-day one-use 1.5× points bonus, and a 30-day staff-assigned in-stock freebie.
-- Global 8:00 AM–11:59 PM Flash Polls. Voting grants community score, not spendable points. Student/resident rows remain hidden until at least three voters exist in that group.
-- Campus and Barangay leaderboards are aggregate only; groups remain hidden until at least three members join.
-- PIN-confirmed gifting: 1–20 direct points or one affordable in-stock product voucher, with a 50-point daily send cap. Product inventory is reserved when the voucher is sent so Cashier can honor it once.
-- Role/channel native ads after every fifth post; time-limited in-app Flash Perch alerts; optional browser push.
-- Cashier one-time voucher/freebie claims and loyalty QR/manual lookup. The digital purchase-card display uses existing paid POS spend, preventing duplicate transactions or rewards.
+- Student accounts receive only the Campus Hub dashboard. Resident accounts receive only Town Square. The opposite feed is filtered out by the server, not merely hidden with CSS.
+- The Community now opens like a Facebook-style social page: the Wall is the only main view by default, while Alerts, Rewards, Gifts, People, Rankings, and Settings open as in-page tabs without reloading.
+- Only the reserved `@uzu.macky` main-community-admin profile can switch between both feeds.
+- New student applicants must upload one JPG, PNG, or WEBP student-ID image (maximum 3 MB) unless Admin already tagged their loyalty account as a known student.
+- Student ID images are admin-only, are never returned by customer APIs or public templates, and are erased automatically when Admin approves or rejects the application.
+- Admin can pre-approve a known student using the exact loyalty mobile number or card number. This is a private customer-account flag, not a public label.
+- Existing residents may apply for Student access without losing Town Square during review. Approval changes the primary role to Student.
+- Primary roles cannot be changed from normal profile settings or by modifying a browser request.
+- Member wall posts are text-only, limited to 280 characters, and appear in strict newest-first order on their assigned community feed.
+- Posts and comments support up to 10 valid `@handle` tags. Cross-feed tags are blocked except for the main admin; the tagged member receives an in-app notification.
+- Members can follow/unfollow permitted handles without a page refresh. Following `@uzu.macky` for the first time earns `0.5` spendable loyalty points.
+- Liking any `@uzu.macky` post for the first time earns `0.2` spendable loyalty points. Unliking/refollowing cannot earn the same reward again because each award has a unique database receipt.
+- Likes, comments, reports, follows, connections, gifts, profile edits, student applications, notifications, polls, and vibe changes update in place without reloading the page.
+- The previous Community features remain: first-post review, safety holds, report quarantine, streaks, Mystery Drops, aggregated group leaderboards, gifting, native ads, Flash Polls, Flash Perch alerts, optional Web Push, and Cashier redemption.
 
-## Strong recommendations before public launch
+## First deployment setup
 
-1. Run a 30-day invite-only pilot with 20–50 people. Prove that moderation workload and repeat purchasing improve before opening a broad social network.
-2. Assign a named moderator and response window. Check the queue at least twice daily; threats or exposed private data need an immediate escalation process.
-3. Publish short Community Rules and a privacy notice reviewed for Philippine Data Privacy Act compliance. Define retention periods for reports, moderation notes, and inactive profiles.
-4. Keep student verification in person. Do not collect ID photos unless counsel identifies a necessary purpose, documented retention period, and secure deletion process.
-5. Do not describe self-declared barangay as identity verification. The interface labels it correctly until staff takes a justified verification action.
-6. Keep community score separate from loyalty points, review gift/drop cost weekly, and add a monthly promotional budget ceiling before expanding rewards.
-7. Do not filter ordinary criticism or political viewpoints. Phrase matches should only hold content for contextual review; record a reason for every removal.
-8. Do not promise SMS OTP yet. Select a provider, verify sender/consent requirements, add OTP expiry and attempt limits, and design account recovery before replacing PIN login.
-9. Treat Flash Perch as opt-in marketing. Limit frequency, show exact offer limits, prevent simultaneous over-claims, and honor valid displayed offers.
-10. Back up the production database before deployment and on a schedule afterward. Test restore—not only backup creation.
+1. Deploy the full replacement package.
+2. Open `/healthz` and confirm release `2026.09.04-community-role-security-v2`.
+3. Open `/admin/community`.
+4. If an existing profile already owns `@uzu.macky`, startup promotes it automatically. Otherwise, use **Assign reserved @uzu.macky main admin** and choose the owner’s existing community profile.
+5. Use **Pre-approve known student** only after staff personally confirms the customer and records a valid reason under the store’s verification policy.
 
-## Optional Web Push setup
+## Acceptance test
 
-Create a VAPID key pair with a trusted local tool. Add these only in Render Environment settings:
+1. Register a Student test account. Confirm an ID image is required and the dashboard shows Campus Hub only.
+2. Before approval, confirm posting, reactions, follows, connections, gifts, votes, and vibe changes are blocked.
+3. In `/admin/community`, inspect the private ID, approve the student, and confirm the ID preview disappears immediately.
+4. Confirm the approved Student still receives only Campus Hub. Create a Resident and confirm only Town Square is returned.
+5. Sign in as `@uzu.macky`; confirm both feed buttons appear and work without a reload.
+6. Post text containing another permitted `@handle`; confirm the post appears at the top and the tagged account receives a notification.
+7. Follow `@uzu.macky`; confirm `+0.5` points once. Unfollow and refollow; confirm no second award.
+8. Like an `@uzu.macky` post; confirm `+0.2` points once. Unlike and like again; confirm no second award.
+9. Open every Facebook-style feature tab; confirm the Wall hides, the selected panel opens, and no browser reload occurs.
+10. Test comment, connection, gift, poll, report, profile save, and notification actions; confirm the browser does not reload.
 
-- `WEBPUSH_VAPID_PUBLIC_KEY`
-- `WEBPUSH_VAPID_PRIVATE_KEY`
-- `WEBPUSH_VAPID_SUBJECT` such as `mailto:owner@example.com`
+## Strong operational recommendations
 
-Never commit the private key. Without these variables, alerts still appear inside the app.
+1. Keep the Community invite-only for a 30-day pilot. A two-feed social network creates moderation and privacy work that can exceed its sales value.
+2. Limit student-ID access to named administrators, publish a short retention notice, and review the process with a Philippine privacy professional before public launch.
+3. Move private ID files to encrypted object storage with short automatic expiry if student volume grows. Database data URLs are acceptable for a small pilot, not ideal at scale.
+4. Add CSRF protection and per-IP/device abuse monitoring before promoting rewards publicly.
+5. Budget the `0.5` follow and `0.2` per-post-like rewards. Because every owner post is separately eligible, publish a monthly maximum in the rules or add an account-level monthly cap before a large launch.
+6. Add a clear appeal and correction process for rejected student applications and removed posts.
+7. Never use the keyword list to suppress respectful criticism or political viewpoints. Keep human review and written reasons.
+8. Back up the production database before deployment and test a restore procedure.
 
-## Post-deployment acceptance test
+## Data migration and rollback
 
-1. Open `/healthz`; confirm `2026.09.03-community-v1`.
-2. Log in as a loyalty customer, open `/community`, accept the optional terms, and create a Student test profile.
-3. Submit a first post. Confirm it is pending and appears at `/admin/community`.
-4. Publish it in Admin; verify it appears in Campus Hub and Town Square is read-only for that Student.
-5. Create a Resident test account and verify the inverse permissions.
-6. Schedule a Flash Poll for today and test one vote per account.
-7. Send a point gift using the sender PIN; verify both ledgers. Send a product gift and redeem it once at Cashier; a second claim must fail.
-8. At Cashier, scan or type a loyalty card number, record a paid sale, and confirm points/purchase-card progress update once.
-9. Create an alert and a native ad. Verify targeting, expiry, impression count, and click count.
-10. Submit reports from three different accounts. Confirm temporary quarantine and human resolution.
-
-## Rollback
-
-The schema change is additive. If application rollback is required, redeploy the previous commit; the new tables can remain without affecting older code. Do not delete tables or production records during rollback.
+The migration is additive. Existing products, customers, orders, points, cash flow, Crafts, Digital, Marketing, and investor data are preserved. A code rollback may leave the new Community tables and columns in place safely; do not delete production tables during rollback.

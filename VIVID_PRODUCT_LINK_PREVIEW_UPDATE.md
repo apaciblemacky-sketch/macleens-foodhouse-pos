@@ -1,23 +1,27 @@
-# Vivid Product Link Previews
+# Original Product Photo Link Previews
 
 Every Food House product page now provides Facebook and other social networks
-with a dedicated 1200 x 630 PNG link-preview image.
+with a dedicated 1200 x 630 JPEG link-preview image.
 
 The preview:
 
-- keeps the full product photo visible inside a branded layout;
-- applies social-preview-only color, contrast, brightness, and sharpness
-  enhancement without changing the original catalog image;
+- preserves the complete original product photo without a color filter,
+  dark overlay, recoloring, or cropping;
+- places the untouched photo on a clean white panel with product information
+  on a separate bright panel;
 - includes the product name, category, current starting price, Macleen's Food
   House branding, and a clear View & Order call to action;
-- remains available when an old product image fails by using the Food House
-  branded fallback; and
+- remains clear when an old product image fails by drawing a category-aware
+  food or drink fallback rather than returning an empty frame;
 - changes its share URL when the product name, price, size prices, photo, or
-  active status changes, reducing stale Facebook preview caching.
+  active status changes, reducing stale Facebook preview caching;
+- serves a standard progressive JPEG with an explicit content type and length;
+  and
+- caches generated previews so Facebook receives repeat requests quickly.
 
 Paste or share the product link itself on Facebook. Facebook will scrape the
 page metadata and make the preview image clickable, leading customers to that
-exact product page. Uploading only the PNG as a normal Facebook photo does not
+exact product page. Uploading only the JPEG as a normal Facebook photo does not
 make the entire photo link to the product, so use the system's Share button or
 paste the product URL into the Facebook post.
 

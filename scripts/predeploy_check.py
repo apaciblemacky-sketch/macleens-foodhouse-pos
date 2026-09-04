@@ -31,6 +31,8 @@ REQUIRED_DB_COLUMNS = {
         "login_streak", "last_active_at", "card_theme", "card_logo_scale",
         "card_photo_scale", "card_qr_scale", "card_text_scale", "card_info_scale",
         "campus_name", "break_start", "break_end", "favorite_alerts",
+        "community_student_preapproved", "community_student_preapproved_at",
+        "community_student_preapproved_by",
     },
     "product": {
         "id", "name", "category_name", "price", "cost", "allow_custom_amount",
@@ -85,6 +87,10 @@ REQUIRED_DB_COLUMNS = {
         "id", "customer_id", "handle", "role", "campus_name", "department",
         "graduating_year", "vibe_status", "barangay", "resident_since_year",
         "verification_status", "verification_method", "first_post_approved",
+        "is_community_admin", "student_id_image_data", "student_id_uploaded_at",
+        "student_id_deleted_at", "student_application_status",
+        "student_application_campus", "student_application_department",
+        "student_application_graduating_year",
         "community_score", "community_streak", "last_checkin_date", "push_opt_in",
         "privacy_consent_at", "terms_accepted_at", "created_at", "updated_at",
     },
@@ -97,6 +103,10 @@ REQUIRED_DB_COLUMNS = {
     "community_poll_option": {"id", "post_id", "option_text", "sort_order"},
     "community_poll_vote": {"id", "post_id", "option_id", "customer_id", "role_snapshot", "score_awarded", "created_at"},
     "community_reaction": {"id", "post_id", "customer_id", "reaction_type", "created_at"},
+    "community_follow": {"id", "follower_profile_id", "followed_profile_id", "created_at"},
+    "community_engagement_reward": {"id", "customer_id", "event_type", "target_key", "points_awarded", "created_at"},
+    "community_mention": {"id", "post_id", "mentioned_profile_id", "created_at"},
+    "community_notification": {"id", "recipient_profile_id", "actor_profile_id", "kind", "target_key", "message", "is_read", "created_at"},
     "community_connection": {"id", "profile_a_id", "profile_b_id", "requested_by_profile_id", "status", "created_at", "responded_at"},
     "community_comment": {"id", "post_id", "author_profile_id", "body", "status", "moderation_hits", "score_awarded", "created_at"},
     "community_report": {"id", "post_id", "reporter_customer_id", "reason", "details", "status", "created_at"},
@@ -311,16 +321,19 @@ def main() -> int:
             fail(f"bulk catalog server response repair is missing: {marker}")
     product_detail_text = (TEMPLATES / "product_detail.html").read_text(encoding="utf-8")
     for marker in [
-        "@app.route('/social/product/<int:product_id>.png')", "render_product_social_preview",
-        "ImageEnhance.Color", "product_share_version", "product_share_image",
+        "@app.route('/social/product/<int:product_id>/<version>.jpg')", "render_product_social_preview",
+        "cached_product_social_preview", "image/jpeg", "immutable", "PRODUCT_SHARE_STYLE_VERSION",
+        "_original_product_photo", "ImageOps.contain",
+        "product_share_version", "product_share_image", "facebookexternalhit",
+        "marketing_post_public_link", "?pv={version}",
     ]:
         if marker not in source:
-            fail(f"vivid per-product social preview marker is missing: {marker}")
+            fail(f"original-photo product social preview marker is missing: {marker}")
     for marker in [
         'property="og:image:width" content="1200"',
         'property="og:image:height" content="630"',
-        'property="og:image:type" content="image/png"',
-        "product_share_page_url", "twitter:image:alt",
+        'property="og:image:type" content="image/jpeg"',
+        "product_share_page_url", "twitter:image:alt", 'rel="image_src"',
     ]:
         if marker not in product_detail_text:
             fail(f"product preview metadata marker is missing: {marker}")
@@ -334,10 +347,16 @@ def main() -> int:
     community_markers = [
         "class CommunityProfile(db.Model):", "class CommunityPost(db.Model):",
         "class CommunityGift(db.Model):", "class CommunityPushSubscription(db.Model):", "class CommunityStoreCheckin(db.Model):", "class CommunityConnection(db.Model):",
+        "class CommunityFollow(db.Model):", "class CommunityEngagementReward(db.Model):",
+        "class CommunityMention(db.Model):", "class CommunityNotification(db.Model):",
         "@app.route('/community')", "@app.route('/admin/community')",
         "@app.route('/community/api/posts'", "@app.route('/community/api/gifts'",
         "@app.route('/community/api/push/subscribe'", "@app.route('/community/api/connections'", "@app.route('/pos/community-gift/",
         "COMMUNITY_GROUP_PRIVACY_MINIMUM = 3", "COMMUNITY_GIFT_DAILY_CAP = 50.0",
+        "COMMUNITY_MAIN_ADMIN_HANDLE = 'uzu.macky'", "@app.route('/community/api/student-application'",
+        "@app.route('/community/api/student-id-resubmit'",
+        "@app.route('/community/api/follows/<string:handle>'", "@app.route('/admin/community/student-tag'",
+        "Community member posts are word-only", "student_id_image_data = db.Column",
         "You cannot report your own post", "award_community_drop_reward", "record_community_store_checkin",
     ]
     missing = [marker for marker in community_markers if marker not in source]
@@ -351,6 +370,8 @@ def main() -> int:
     cashier_text = (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")
     for marker in [
         "Campus Hub", "Town Square", "Digital purchase card", "Shout a Friend", "Community connections",
+        "data-main-admin", "Follow / unfollow", "studentApplicationForm", "mentionHandles",
+        "data-community-tab=\"wall\"", "openCommunityTab", "featureCards",
         "Independent community board operated by Macleen’s Food House",
         "enableCommunityPush", "data-community-ad",
     ]:

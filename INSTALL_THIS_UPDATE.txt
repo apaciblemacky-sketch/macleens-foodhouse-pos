@@ -10,8 +10,9 @@ INSTALL AND DEPLOY
 4. Double-click RUN_MACLEENS.bat and test locally.
 5. Double-click DEPLOY_TO_RENDER.bat; type DEPLOY when prompted.
 6. Wait for Render to show Live. Open /healthz and confirm release:
-   2026.09.03-community-v1
-7. Test the exact workflow in COMMUNITY_HUB_UPDATE.md.
+   2026.09.04-community-role-security-v2
+7. Test the exact workflows in ORIGINAL_PRODUCT_PHOTO_PREVIEW_UPDATE.md and
+   COMMUNITY_HUB_UPDATE.md.
 
 MAIN LINKS
 Storefront:       https://macleens-foodhouse-pos.onrender.com/
@@ -22,9 +23,23 @@ Cashier:          https://macleens-foodhouse-pos.onrender.com/pos/cashier
 Health:           https://macleens-foodhouse-pos.onrender.com/healthz
 
 THIS RELEASE ADDS
+- Reliable 1200 x 630 JPEG previews for every Food House product link.
+- Original product photo preserved without darkening, recoloring, or cropping.
+- Bright split-card layout with a category-aware fallback if the source breaks.
+- Versioned image URLs and server caching to prevent stale or empty thumbnails.
+- Legacy PNG preview links redirect safely to the new JPEG image.
 - Optional privacy-separated Community profiles linked to loyalty accounts.
-- Campus Hub and Town Square with role-based write/read permissions.
-- Text, one-image, and single-choice poll posts with first-post approval.
+- Server-locked dashboards: Students receive Campus Hub only; Residents receive
+  Town Square only; reserved @uzu.macky can administer and switch between both.
+- Text-only member wall posts in newest-first order with @handle tags and alerts.
+- Private student-ID application review with automatic image deletion, plus an
+  Admin pre-approval tag for known loyalty customers.
+- In-place follows, likes, comments, reports, connections, gifts, polls, profile
+  edits, and applications without browser refreshes.
+- Facebook-style navigation keeps the Wall dominant; Alerts, Rewards, Gifts,
+  People, Rankings, and Settings open only when their tab is selected.
+- One-time loyalty awards: +0.5 for first following @uzu.macky and +0.2 for the
+  first like on each @uzu.macky post; database receipts block reward farming.
 - Human-reviewed safety phrase holds and temporary three-report quarantine.
 - Daily check-ins, controlled Mystery Drops, and group-level leaderboards.
 - PIN-confirmed point or in-stock product gifting with daily limits.
@@ -39,7 +54,10 @@ THIS RELEASE ADDS
 IMPORTANT
 - SMS OTP is not simulated. Existing mobile + PIN login remains active until a
   real SMS provider, consent flow, rate limits, and recovery policy are chosen.
-- Student ID photos are not stored. Staff verify by viewing ID in person.
+- Student ID pictures are retained only while pending, shown only to Admin, and
+  automatically erased on approval/rejection. Apply a written retention policy.
 - Web Push is optional; in-app alerts work without VAPID configuration.
 - The database upgrade is additive. Existing records are preserved.
 - If a new link is 404 after deployment, confirm app.py is at the GitHub root.
+- Facebook may retain a preview from before deployment. Open Meta Sharing
+  Debugger, enter the exact product URL, and click Scrape Again before reposting.

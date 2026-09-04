@@ -26,7 +26,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import qrcode
 import qrcode.image.svg
 import requests
-from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 from marketing_agent import (
     analyze_marketing_insights, extract_peso_amounts, generate_ai_marketing_decision,
@@ -67,7 +67,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.03-community-v1'
+APP_RELEASE = '2026.09.04-community-role-security-v2'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -176,6 +176,9 @@ class Customer(db.Model):
     break_start = db.Column(db.String(5), nullable=True)
     break_end = db.Column(db.String(5), nullable=True)
     favorite_alerts = db.Column(db.Boolean, default=False)
+    community_student_preapproved = db.Column(db.Boolean, default=False, nullable=False)
+    community_student_preapproved_at = db.Column(db.DateTime, nullable=True)
+    community_student_preapproved_by = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
 class DeliveryZone(db.Model):
@@ -490,6 +493,14 @@ class CommunityProfile(db.Model):
     verification_status = db.Column(db.String(20), nullable=False, default='PENDING')
     verification_method = db.Column(db.String(30), nullable=False, default='IN_PERSON')
     verification_note = db.Column(db.String(255), nullable=True)
+    is_community_admin = db.Column(db.Boolean, nullable=False, default=False)
+    student_id_image_data = db.Column(db.Text, nullable=True)
+    student_id_uploaded_at = db.Column(db.DateTime, nullable=True)
+    student_id_deleted_at = db.Column(db.DateTime, nullable=True)
+    student_application_status = db.Column(db.String(20), nullable=True)
+    student_application_campus = db.Column(db.String(120), nullable=True)
+    student_application_department = db.Column(db.String(80), nullable=True)
+    student_application_graduating_year = db.Column(db.Integer, nullable=True)
     first_post_approved = db.Column(db.Boolean, nullable=False, default=False)
     community_score = db.Column(db.Float, nullable=False, default=0.0)
     community_streak = db.Column(db.Integer, nullable=False, default=0)
@@ -549,6 +560,45 @@ class CommunityReaction(db.Model):
     post_id = db.Column(db.Integer, db.ForeignKey('community_post.id', ondelete='CASCADE'), nullable=False, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False)
     reaction_type = db.Column(db.String(20), nullable=False, default='LIKE')
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityFollow(db.Model):
+    __tablename__ = 'community_follow'
+    __table_args__ = (UniqueConstraint('follower_profile_id', 'followed_profile_id', name='uq_community_follow_pair'),)
+    id = db.Column(db.Integer, primary_key=True)
+    follower_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='CASCADE'), nullable=False, index=True)
+    followed_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityEngagementReward(db.Model):
+    """One-time loyalty award receipt; unfollowing/unliking never resets eligibility."""
+    __tablename__ = 'community_engagement_reward'
+    __table_args__ = (UniqueConstraint('customer_id', 'event_type', 'target_key', name='uq_community_engagement_reward'),)
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False, index=True)
+    event_type = db.Column(db.String(30), nullable=False)
+    target_key = db.Column(db.String(80), nullable=False)
+    points_awarded = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityMention(db.Model):
+    __tablename__ = 'community_mention'
+    __table_args__ = (UniqueConstraint('post_id', 'mentioned_profile_id', name='uq_community_post_mention'),)
+    id = db.Column(db.Integer, primary_key=True)
+    post_id = db.Column(db.Integer, db.ForeignKey('community_post.id', ondelete='CASCADE'), nullable=False, index=True)
+    mentioned_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='CASCADE'), nullable=False, index=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
+class CommunityNotification(db.Model):
+    __tablename__ = 'community_notification'
+    __table_args__ = (UniqueConstraint('recipient_profile_id', 'kind', 'target_key', name='uq_community_notification_target'),)
+    id = db.Column(db.Integer, primary_key=True)
+    recipient_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='CASCADE'), nullable=False, index=True)
+    actor_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True)
+    kind = db.Column(db.String(30), nullable=False)
+    target_key = db.Column(db.String(80), nullable=False)
+    message = db.Column(db.String(180), nullable=False)
+    is_read = db.Column(db.Boolean, nullable=False, default=False)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
 class CommunityConnection(db.Model):
@@ -1228,6 +1278,14 @@ def ensure_community_defaults():
             cta_url='/',
             is_active=True,
         ))
+    # The reserved handle can never be claimed by a new account. If it already
+    # existed before this release, promote it safely and revoke any old main-admin flag.
+    main_profile = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle) == 'uzu.macky').first()
+    if main_profile:
+        CommunityProfile.query.filter(CommunityProfile.id != main_profile.id).update({'is_community_admin': False})
+        main_profile.is_community_admin = True
+        main_profile.verification_status = 'VERIFIED'
+        main_profile.first_post_approved = True
     db.session.commit()
 
 
@@ -1288,6 +1346,9 @@ def run_schema_migrations():
             ('break_start', 'VARCHAR(5)'),
             ('break_end', 'VARCHAR(5)'),
             ('favorite_alerts', 'BOOLEAN DEFAULT FALSE'),
+            ('community_student_preapproved', 'BOOLEAN DEFAULT FALSE'),
+            ('community_student_preapproved_at', 'TIMESTAMP'),
+            ('community_student_preapproved_by', 'VARCHAR(50)'),
         ],
         'order': [
             ('dining_option', "VARCHAR(20) DEFAULT 'DINE-IN'"),
@@ -1353,6 +1414,16 @@ def run_schema_migrations():
             ('cashier_reviewed_by', 'VARCHAR(50)'),
             ('cashier_reviewed_at', 'TIMESTAMP'),
         ],
+        'community_profile': [
+            ('is_community_admin', 'BOOLEAN DEFAULT FALSE'),
+            ('student_id_image_data', 'TEXT'),
+            ('student_id_uploaded_at', 'TIMESTAMP'),
+            ('student_id_deleted_at', 'TIMESTAMP'),
+            ('student_application_status', 'VARCHAR(20)'),
+            ('student_application_campus', 'VARCHAR(120)'),
+            ('student_application_department', 'VARCHAR(80)'),
+            ('student_application_graduating_year', 'INTEGER'),
+        ],
     }
 
     inspector = inspect(db.engine)
@@ -1374,6 +1445,9 @@ def run_schema_migrations():
             conn.execute(text("UPDATE customer SET card_text_scale = 1.0 WHERE card_text_scale IS NULL"))
             conn.execute(text("UPDATE customer SET card_info_scale = 1.0 WHERE card_info_scale IS NULL"))
             conn.execute(text("UPDATE customer SET favorite_alerts = FALSE WHERE favorite_alerts IS NULL"))
+            conn.execute(text("UPDATE customer SET community_student_preapproved = FALSE WHERE community_student_preapproved IS NULL"))
+        if 'community_profile' in tables:
+            conn.execute(text("UPDATE community_profile SET is_community_admin = FALSE WHERE is_community_admin IS NULL"))
         if 'promotion_tracker' in tables:
             conn.execute(text("UPDATE promotion_tracker SET is_visible = TRUE WHERE is_visible IS NULL"))
             conn.execute(text("UPDATE promotion_tracker SET portal_only = FALSE WHERE portal_only IS NULL"))
@@ -1759,12 +1833,16 @@ def product_starting_price(prod):
 
 PRODUCT_SHARE_IMAGE_SIZE = (1200, 630)
 PRODUCT_SHARE_MAX_SOURCE_BYTES = 8_000_000
+PRODUCT_SHARE_CACHE_LIMIT = 128
+PRODUCT_SHARE_STYLE_VERSION = 'original-photo-v3'
+_PRODUCT_SHARE_CACHE = {}
 Image.MAX_IMAGE_PIXELS = 40_000_000
 
 
 def product_share_version(prod):
     """Change the shared URL whenever visible product details change."""
     visible_state = json.dumps([
+        PRODUCT_SHARE_STYLE_VERSION,
         getattr(prod, 'id', None),
         getattr(prod, 'name', ''),
         getattr(prod, 'category_name', ''),
@@ -1818,10 +1896,12 @@ def _download_preview_source(url):
             current,
             stream=True,
             allow_redirects=False,
-            timeout=(3.5, 8),
+            # Facebook's crawler will abandon slow image responses. Keep this
+            # upstream fetch short, then use the bright branded fallback.
+            timeout=(2.0, 4.0),
             headers={
-                'User-Agent': 'MacleensFoodHouse-SocialPreview/1.0',
-                'Accept': 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8',
+                'User-Agent': 'Mozilla/5.0 (compatible; MacleensFoodHouse-SocialPreview/2.0)',
+                'Accept': 'image/jpeg,image/png,image/webp,image/*;q=0.8',
             },
         ) as response:
             if response.status_code in (301, 302, 303, 307, 308):
@@ -1854,6 +1934,55 @@ def _open_preview_image(payload):
         return ImageOps.exif_transpose(source).convert('RGB')
 
 
+def _product_preview_fallback(prod):
+    """Create a colorful food/drink illustration when a remote photo is unusable."""
+    width, height = PRODUCT_SHARE_IMAGE_SIZE
+    canvas = Image.new('RGB', (width, height), '#fb7185')
+    draw = ImageDraw.Draw(canvas)
+    for y in range(height):
+        blend = y / max(1, height - 1)
+        color = (
+            int(251 * (1 - blend) + 190 * blend),
+            int(113 * (1 - blend) + 24 * blend),
+            int(133 * (1 - blend) + 93 * blend),
+        )
+        draw.line((0, y, width, y), fill=color)
+
+    draw.ellipse((-180, -240, 470, 410), fill='#fdba74')
+    draw.ellipse((870, 330, 1390, 850), fill='#0f766e')
+    draw.ellipse((60, 70, 1140, 900), fill='#ffe4e6', outline='#ffffff', width=16)
+
+    keywords = f"{getattr(prod, 'name', '')} {getattr(prod, 'category_name', '')}".casefold()
+    is_drink = any(word in keywords for word in ('shake', 'coffee', 'drink', 'juice', 'tea', 'float', 'beverage'))
+    if is_drink:
+        # Layered iced drink with cream, chocolate drizzle, straw, and glass shine.
+        draw.rounded_rectangle((390, 145, 810, 555), radius=58, fill='#f8fafc', outline='#ffffff', width=14)
+        draw.rounded_rectangle((420, 250, 780, 530), radius=38, fill='#713f12')
+        draw.rectangle((420, 330, 780, 530), fill='#451a03')
+        draw.rectangle((420, 430, 780, 530), fill='#d97706')
+        draw.rounded_rectangle((515, 40, 565, 285), radius=20, fill='#0f766e')
+        for cx, cy, radius in ((455, 245, 72), (535, 210, 88), (625, 205, 92), (715, 245, 74)):
+            draw.ellipse((cx-radius, cy-radius, cx+radius, cy+radius), fill='#fff7ed', outline='#ffffff', width=5)
+        draw.arc((450, 135, 745, 340), start=195, end=345, fill='#7c2d12', width=18)
+        draw.arc((480, 150, 720, 315), start=195, end=345, fill='#be123c', width=10)
+        for cx, cy in ((470, 365), (555, 410), (690, 340), (735, 455), (620, 485)):
+            draw.ellipse((cx-22, cy-15, cx+22, cy+15), fill='#fde68a')
+        draw.rounded_rectangle((446, 280, 480, 500), radius=17, fill='#ffffff')
+    else:
+        # Warm plated meal illustration with rice, viand, vegetables, and steam.
+        draw.ellipse((265, 185, 935, 585), fill='#f8fafc', outline='#ffffff', width=18)
+        draw.ellipse((330, 230, 870, 535), fill='#fecdd3')
+        draw.ellipse((420, 245, 650, 455), fill='#fff7ed', outline='#ffffff', width=8)
+        draw.ellipse((590, 290, 820, 475), fill='#92400e')
+        draw.ellipse((625, 325, 760, 420), fill='#ef4444')
+        for cx, cy, color in ((355, 360, '#16a34a'), (395, 410, '#65a30d'), (790, 265, '#facc15'), (820, 380, '#22c55e')):
+            draw.ellipse((cx-38, cy-24, cx+38, cy+24), fill=color)
+        for x in (485, 580, 680):
+            draw.arc((x, 95, x+90, 255), start=120, end=245, fill='#ffffff', width=13)
+
+    return canvas
+
+
 def _product_preview_photo(prod):
     source_url = (getattr(prod, 'image_url', '') or '').strip()
     try:
@@ -1881,17 +2010,12 @@ def _product_preview_photo(prod):
     ) as exc:
         app.logger.info('Using branded fallback for product preview %s: %s', getattr(prod, 'id', '?'), exc)
 
-    fallback = os.path.join(app.static_folder, 'social', 'foodhouse-share-header.png')
-    with open(fallback, 'rb') as image_file:
-        return _open_preview_image(image_file.read())
+    return _product_preview_fallback(prod)
 
 
-def _vivid_food_photo(photo):
-    vivid = ImageOps.autocontrast(photo.convert('RGB'), cutoff=1)
-    vivid = ImageEnhance.Color(vivid).enhance(1.42)
-    vivid = ImageEnhance.Contrast(vivid).enhance(1.16)
-    vivid = ImageEnhance.Brightness(vivid).enhance(1.04)
-    return ImageEnhance.Sharpness(vivid).enhance(1.22)
+def _original_product_photo(photo):
+    """Preserve the uploaded product photo's original color and brightness."""
+    return photo.convert('RGB').copy()
 
 
 def _wrap_preview_text(draw, text_value, font, max_width, max_lines=3):
@@ -1918,52 +2042,54 @@ def _wrap_preview_text(draw, text_value, font, max_width, max_lines=3):
 
 def render_product_social_preview(prod):
     width, height = PRODUCT_SHARE_IMAGE_SIZE
-    photo = _vivid_food_photo(_product_preview_photo(prod))
+    photo = _original_product_photo(_product_preview_photo(prod))
 
-    background = ImageOps.fit(photo, (width, height), method=Image.Resampling.LANCZOS)
-    background = background.filter(ImageFilter.GaussianBlur(24))
-    background = ImageEnhance.Brightness(background).enhance(0.52)
-    background = Image.blend(background, Image.new('RGB', (width, height), '#9d174d'), 0.22).convert('RGBA')
-
-    overlay = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-    overlay_draw = ImageDraw.Draw(overlay)
-    overlay_draw.ellipse((-120, -190, 390, 320), fill=(236, 72, 153, 105))
-    overlay_draw.ellipse((980, 440, 1320, 760), fill=(15, 118, 110, 120))
-    overlay_draw.rounded_rectangle((39, 49, 711, 591), radius=36, fill=(15, 23, 42, 80))
-    overlay_draw.rounded_rectangle((719, 34, 1174, 600), radius=38, fill=(15, 23, 42, 75))
-    background = Image.alpha_composite(background, overlay)
-
-    photo_width, photo_height = 650, 520
-    photo_backdrop = ImageOps.fit(photo, (photo_width, photo_height), method=Image.Resampling.LANCZOS)
-    photo_backdrop = ImageEnhance.Brightness(photo_backdrop.filter(ImageFilter.GaussianBlur(18))).enhance(0.68)
-    contained = ImageOps.contain(photo, (photo_width, photo_height), method=Image.Resampling.LANCZOS)
-    photo_backdrop.paste(contained, ((photo_width - contained.width) // 2, (photo_height - contained.height) // 2))
-    photo_mask = Image.new('L', (photo_width, photo_height), 0)
-    ImageDraw.Draw(photo_mask).rounded_rectangle((0, 0, photo_width - 1, photo_height - 1), radius=30, fill=255)
-    background.paste(photo_backdrop, (50, 55), photo_mask)
-
+    # Keep the original photo untouched and fully visible. The surrounding
+    # layout supplies the brightness and branding instead of filtering food.
+    background = Image.new('RGBA', (width, height), '#fff7fb')
     draw = ImageDraw.Draw(background)
-    draw.rounded_rectangle((50, 55, 700, 575), radius=30, outline=(255, 255, 255, 235), width=5)
-    draw.rounded_rectangle((730, 45, 1160, 585), radius=32, fill=(255, 255, 255, 244), outline=(249, 168, 212, 255), width=4)
+    for x in range(width):
+        blend = x / max(1, width - 1)
+        color = (
+            int(255 * (1 - blend) + 240 * blend),
+            int(247 * (1 - blend) + 253 * blend),
+            int(251 * (1 - blend) + 250 * blend),
+            255,
+        )
+        draw.line((x, 0, x, height), fill=color)
+    draw.ellipse((-170, -240, 440, 350), fill=(251, 207, 232, 150))
+    draw.ellipse((960, 390, 1340, 780), fill=(153, 246, 228, 145))
+
+    # Soft shadows and bright cards; nothing is placed over the product photo.
+    draw.rounded_rectangle((48, 48, 724, 594), radius=34, fill=(131, 24, 67, 38))
+    draw.rounded_rectangle((750, 48, 1178, 594), radius=34, fill=(131, 24, 67, 38))
+    draw.rounded_rectangle((38, 38, 714, 584), radius=34, fill='white', outline='#f9a8d4', width=4)
+    draw.rounded_rectangle((740, 38, 1168, 584), radius=34, fill='white', outline='#f9a8d4', width=4)
+
+    photo_area = (626, 494)
+    contained = ImageOps.contain(photo, photo_area, method=Image.Resampling.LANCZOS)
+    photo_x = 62 + (photo_area[0] - contained.width) // 2
+    photo_y = 64 + (photo_area[1] - contained.height) // 2
+    background.paste(contained.convert('RGBA'), (photo_x, photo_y))
 
     try:
         with Image.open(os.path.join(app.static_folder, 'logo.png')) as logo_source:
             logo = ImageOps.fit(ImageOps.exif_transpose(logo_source).convert('RGBA'), (70, 70), method=Image.Resampling.LANCZOS)
         logo_mask = Image.new('L', (70, 70), 0)
         ImageDraw.Draw(logo_mask).ellipse((0, 0, 69, 69), fill=255)
-        background.paste(logo, (770, 75), logo_mask)
-        draw.ellipse((769, 74, 841, 146), outline=(236, 72, 153, 255), width=3)
+        background.paste(logo, (772, 68), logo_mask)
+        draw.ellipse((771, 67, 843, 139), outline=(236, 72, 153, 255), width=3)
     except (OSError, UnidentifiedImageError):
         pass
 
-    draw.text((860, 78), "MACLEEN'S", font=_preview_font(30), fill='#831843')
-    draw.text((860, 114), 'FOOD HOUSE', font=_preview_font(22), fill='#ec4899')
+    draw.text((858, 72), "MACLEEN'S", font=_preview_font(28), fill='#831843')
+    draw.text((858, 108), 'FOOD HOUSE', font=_preview_font(21), fill='#ec4899')
 
     category = (getattr(prod, 'category_name', '') or 'MENU PICK').upper()
     category_font = _preview_font(18)
-    category_width = min(330, draw.textbbox((0, 0), category, font=category_font)[2] + 34)
-    draw.rounded_rectangle((770, 170, 770 + category_width, 208), radius=19, fill='#0f766e')
-    draw.text((787, 178), category, font=category_font, fill='white')
+    category_width = min(345, draw.textbbox((0, 0), category, font=category_font)[2] + 34)
+    draw.rounded_rectangle((772, 165, 772 + category_width, 203), radius=19, fill='#0f766e')
+    draw.text((789, 173), category, font=category_font, fill='white')
 
     name = (getattr(prod, 'name', '') or 'Fresh Menu Pick').strip()
     name_font = _preview_font(52)
@@ -1971,18 +2097,32 @@ def render_product_social_preview(prod):
     if len(name_lines) > 2:
         name_font = _preview_font(44)
         name_lines = _wrap_preview_text(draw, name, name_font, 340, max_lines=3)
-    draw.multiline_text((770, 225), '\n'.join(name_lines), font=name_font, fill='#172033', spacing=3)
+    draw.multiline_text((772, 220), '\n'.join(name_lines), font=name_font, fill='#172033', spacing=3)
 
     price_prefix = 'From ' if parse_product_size_schema(getattr(prod, 'size_schema', None), strict=False) else ''
     price_label = f'{price_prefix}₱{product_starting_price(prod):,.2f}'
-    draw.text((770, 420), price_label, font=_preview_font(48), fill='#db2777')
-    draw.text((772, 474), 'Fresh • Affordable • Made for you', font=_preview_font(19), fill='#475569')
-    draw.rounded_rectangle((770, 514, 1122, 562), radius=24, fill='#0f766e')
-    draw.text((797, 526), 'CLICK TO VIEW & ORDER', font=_preview_font(20), fill='white')
+    draw.text((772, 414), price_label, font=_preview_font(48), fill='#db2777')
+    draw.text((774, 468), 'Fresh • Affordable • Made for you', font=_preview_font(17), fill='#475569')
+    draw.rounded_rectangle((772, 512, 1135, 560), radius=24, fill='#0f766e')
+    draw.text((796, 524), 'CLICK TO VIEW & ORDER', font=_preview_font(20), fill='white')
 
     output = io.BytesIO()
-    background.convert('RGB').save(output, format='PNG', optimize=True)
+    background.convert('RGB').save(
+        output, format='JPEG', quality=90, optimize=True, progressive=True, subsampling=0
+    )
     return output.getvalue()
+
+
+def cached_product_social_preview(prod):
+    """Return an immutable JPEG without repeatedly re-fetching the source photo."""
+    cache_key = f"{getattr(prod, 'id', 'new')}:{product_share_version(prod)}"
+    payload = _PRODUCT_SHARE_CACHE.get(cache_key)
+    if payload is None:
+        payload = render_product_social_preview(prod)
+        if len(_PRODUCT_SHARE_CACHE) >= PRODUCT_SHARE_CACHE_LIMIT:
+            _PRODUCT_SHARE_CACHE.pop(next(iter(_PRODUCT_SHARE_CACHE)), None)
+        _PRODUCT_SHARE_CACHE[cache_key] = payload
+    return payload
 
 
 def product_price_for_options(prod, selected_options):
@@ -2168,12 +2308,16 @@ COMMUNITY_REACTIONS = ('LIKE', 'HELPFUL', 'INTERESTED')
 COMMUNITY_REPORT_REASONS = ('HARASSMENT', 'HATE_OR_ABUSE', 'MISINFORMATION', 'SCAM', 'PRIVACY', 'SPAM', 'OTHER')
 COMMUNITY_GIFT_DAILY_CAP = 50.0
 COMMUNITY_GROUP_PRIVACY_MINIMUM = 3
+COMMUNITY_MAIN_ADMIN_HANDLE = 'uzu.macky'
+COMMUNITY_MAIN_ADMIN_FOLLOW_REWARD = 0.5
+COMMUNITY_MAIN_ADMIN_LIKE_REWARD = 0.2
+COMMUNITY_MENTION_PATTERN = re.compile(r'(?<![A-Za-z0-9._])@([A-Za-z0-9][A-Za-z0-9._]{2,23})', re.IGNORECASE)
 
-def normalize_community_handle(value):
+def normalize_community_handle(value, allow_main_admin=False):
     handle = (value or '').strip().lower().lstrip('@')
     if not re.fullmatch(r'[a-z0-9][a-z0-9._]{2,23}', handle):
         raise OrderValidationError('Handle must be 3–24 characters using letters, numbers, dots, or underscores.')
-    if handle in {'admin', 'administrator', 'cashier', 'staff', 'macleens', 'macleensfoodhouse', 'support'}:
+    if handle in {'admin', 'administrator', 'cashier', 'staff', 'macleens', 'macleensfoodhouse', 'support', COMMUNITY_MAIN_ADMIN_HANDLE} and not (allow_main_admin and handle == COMMUNITY_MAIN_ADMIN_HANDLE):
         raise OrderValidationError('That handle is reserved. Please choose another one.')
     return handle
 
@@ -2182,7 +2326,13 @@ def community_channel_for_role(role):
 
 def community_can_interact(profile, channel):
     normalized_channel = (channel or '').upper()
-    return bool(profile) and (normalized_channel == 'GLOBAL' or community_channel_for_role(profile.role) == normalized_channel)
+    if not profile:
+        return False
+    if profile.is_community_admin:
+        return normalized_channel in {'GLOBAL', 'CAMPUS', 'TOWN'}
+    if profile.role == 'STUDENT' and profile.verification_status != 'VERIFIED':
+        return False
+    return normalized_channel == 'GLOBAL' or community_channel_for_role(profile.role) == normalized_channel
 
 def community_connection_pair(first_profile_id, second_profile_id):
     left, right = sorted((parse_int(first_profile_id, 0), parse_int(second_profile_id, 0)))
@@ -2265,6 +2415,101 @@ def community_image_from_request(file_key='image'):
         raise OrderValidationError('The uploaded community image could not be read safely.')
     encoded = base64.b64encode(canvas.getvalue()).decode('ascii')
     return f'data:image/webp;base64,{encoded}'
+
+def community_student_id_from_request(file_key='student_id'):
+    """Read a private student-ID image; never expose it through public serializers."""
+    upload = request.files.get(file_key)
+    if not upload or not upload.filename:
+        return None
+    declared = (upload.mimetype or '').lower()
+    if declared not in {'image/jpeg', 'image/png', 'image/webp'}:
+        raise OrderValidationError('Student ID must be a JPG, PNG, or WEBP image.')
+    raw = upload.read(3_000_001)
+    if len(raw) > 3_000_000:
+        raise OrderValidationError('Student ID image must be 3 MB or smaller.')
+    try:
+        with Image.open(io.BytesIO(raw)) as source:
+            source.verify()
+        with Image.open(io.BytesIO(raw)) as source:
+            image = ImageOps.exif_transpose(source).convert('RGB')
+            image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+            canvas = io.BytesIO()
+            image.save(canvas, format='WEBP', quality=84, method=6)
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise OrderValidationError('The student ID image could not be read safely.')
+    return 'data:image/webp;base64,' + base64.b64encode(canvas.getvalue()).decode('ascii')
+
+def community_award_once(cust, event_type, target_key, amount, reason):
+    """Award loyalty points once per immutable event target to prevent toggle farming."""
+    # Serialize reward writes for one loyalty account on production databases.
+    cust = Customer.query.filter_by(id=cust.id).with_for_update().first() or cust
+    existing = CommunityEngagementReward.query.filter_by(
+        customer_id=cust.id, event_type=event_type, target_key=str(target_key),
+    ).first()
+    if existing:
+        return 0.0
+    amount = round(parse_float(amount, 0.0), 2)
+    db.session.add(CommunityEngagementReward(
+        customer_id=cust.id, event_type=event_type, target_key=str(target_key), points_awarded=amount,
+    ))
+    cust.points_balance = round(parse_float(cust.points_balance, 0.0) + amount, 2)
+    db.session.add(RewardLedger(customer_id=cust.id, points_change=amount, reason=reason[:150]))
+    return amount
+
+def community_mentioned_handles(body):
+    handles = []
+    seen = set()
+    for match in COMMUNITY_MENTION_PATTERN.findall(body or ''):
+        handle = match.lower()
+        if handle not in seen:
+            seen.add(handle)
+            handles.append(handle)
+    if len(handles) > 10:
+        raise OrderValidationError('A post can tag up to 10 people.')
+    return handles
+
+def community_validate_mentions(author_profile, channel, body):
+    handles = community_mentioned_handles(body)
+    if not handles:
+        return []
+    profiles = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle).in_(handles)).all()
+    found = {row.handle.lower(): row for row in profiles}
+    missing = [handle for handle in handles if handle not in found]
+    if missing:
+        raise OrderValidationError('Unknown community handle: @' + missing[0])
+    allowed = []
+    for handle in handles:
+        target = found[handle]
+        same_feed = community_channel_for_role(target.role) == channel
+        if not author_profile.is_community_admin and not target.is_community_admin and not same_feed:
+            raise OrderValidationError(f'@{target.handle} is not available in your community feed.')
+        if target.role == 'STUDENT' and target.verification_status != 'VERIFIED' and not target.is_community_admin:
+            raise OrderValidationError(f'@{target.handle} is not yet a verified student member.')
+        if target.id != author_profile.id:
+            allowed.append(target)
+    return allowed
+
+def community_sync_post_mentions(post, mentioned_profiles=None, notify=True):
+    existing_rows = CommunityMention.query.filter_by(post_id=post.id).all()
+    existing_ids = {row.mentioned_profile_id for row in existing_rows}
+    if mentioned_profiles is None:
+        if existing_ids:
+            mentioned_profiles = CommunityProfile.query.filter(CommunityProfile.id.in_(existing_ids)).all()
+        else:
+            mentioned_profiles = community_validate_mentions(post.author, post.channel, post.body)
+    for target in mentioned_profiles:
+        if target.id not in existing_ids:
+            db.session.add(CommunityMention(post_id=post.id, mentioned_profile_id=target.id))
+        if notify and post.status == 'PUBLISHED':
+            target_key = f'post:{post.id}'
+            if not CommunityNotification.query.filter_by(recipient_profile_id=target.id, kind='MENTION', target_key=target_key).first():
+                db.session.add(CommunityNotification(
+                    recipient_profile_id=target.id,
+                    actor_profile_id=post.author_profile_id,
+                    kind='MENTION',
+                    target_key=target_key,
+                    message=f'@{post.author.handle} tagged you in a post.',
+                ))
 
 def get_current_community_customer():
     customer_id = parse_int(session.get('customer_id'), 0)
@@ -2405,14 +2650,16 @@ def active_community_ads(role, channel):
         ((CommunityAd.end_at.is_(None)) | (CommunityAd.end_at >= now)),
     ).order_by(CommunityAd.created_at.desc()).all()
 
-def active_community_alerts(role):
+def active_community_alerts(role, include_all_roles=False):
     now = utc_now()
-    return CommunityAlert.query.filter(
+    query = CommunityAlert.query.filter(
         CommunityAlert.is_active.is_(True),
-        CommunityAlert.target_role.in_(('ALL', role)),
         CommunityAlert.starts_at <= now,
         CommunityAlert.ends_at >= now,
-    ).order_by(CommunityAlert.created_at.desc()).all()
+    )
+    if not include_all_roles:
+        query = query.filter(CommunityAlert.target_role.in_(('ALL', role)))
+    return query.order_by(CommunityAlert.created_at.desc()).all()
 
 def send_community_alert_push(alert):
     """Send consent-based Web Push when VAPID is configured; keep in-app alerts otherwise."""
@@ -3106,7 +3353,7 @@ def inject_globals():
         app.logger.exception('Logo setting query failed; using /static/logo.png fallback')
         logo = '/static/logo.png'
     status = check_operating_status()
-    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version)
+    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link)
 
 def _staff_auth_failure(target, message):
     """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
@@ -3681,10 +3928,20 @@ def send_messenger_menu_reply(psid):
 def _marketing_source_link(source_kind, source_id, business):
     base = _marketing_public_base_url()
     if source_kind == 'PRODUCT' and source_id:
-        return f'{base}/product/{int(source_id)}'
+        product_id = int(source_id)
+        prod = db.session.get(Product, product_id)
+        version = product_share_version(prod) if prod else APP_RELEASE.replace('.', '-')
+        return f'{base}/product/{product_id}?pv={version}'
     if source_kind == 'CRAFT_ITEM' and source_id:
         return f'{base}/craft/item/{int(source_id)}'
     return f'{base}/craft' if business == 'CRAFT' else f'{base}/'
+
+
+def marketing_post_public_link(post):
+    """Refresh legacy product-draft links without mutating saved post history."""
+    if (getattr(post, 'source_kind', '') or '').upper() == 'PRODUCT' and getattr(post, 'source_id', None):
+        return _marketing_source_link('PRODUCT', post.source_id, 'FOODHOUSE')
+    return (getattr(post, 'link_url', '') or '').strip()
 
 def _product_marketing_rows():
     cutoff = utc_now() - timedelta(days=30)
@@ -4086,12 +4343,20 @@ def product_detail(product_id):
     ip = get_client_ip()
     liked = bool(ProductLike.query.filter_by(product_id=product_id, ip_address=ip).first())
     share_version = product_share_version(prod)
+    crawler_agent = (request.headers.get('User-Agent') or '').casefold()
+    if any(bot in crawler_agent for bot in ('facebookexternalhit', 'facebot', 'twitterbot', 'linkedinbot')):
+        # Social crawlers request the HTML first. Warm the matching image now so
+        # the immediately-following image request cannot time out on a remote photo.
+        try:
+            cached_product_social_preview(prod)
+        except Exception:
+            app.logger.exception('Could not warm product preview %s for social crawler', prod.id)
     return render_template(
         'product_detail.html',
         prod=prod,
         liked=liked,
         product_share_image=url_for(
-            'product_social_preview', product_id=prod.id, v=share_version, _external=True
+            'product_social_preview', product_id=prod.id, version=share_version, _external=True
         ),
         product_share_page_url=url_for(
             'product_detail', product_id=prod.id, pv=share_version, _external=True
@@ -4099,16 +4364,26 @@ def product_detail(product_id):
     )
 
 
-@app.route('/social/product/<int:product_id>.png')
-def product_social_preview(product_id):
+@app.route('/social/product/<int:product_id>/<version>.jpg')
+def product_social_preview(product_id, version):
     prod = Product.query.get_or_404(product_id)
-    version = product_share_version(prod)
-    response = Response(render_product_social_preview(prod), mimetype='image/png')
-    response.headers['Cache-Control'] = 'public, max-age=604800'
-    response.headers['Content-Disposition'] = f'inline; filename="macleens-product-{product_id}.png"'
+    current_version = product_share_version(prod)
+    payload = cached_product_social_preview(prod)
+    response = Response(payload, mimetype='image/jpeg')
+    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable' if version == current_version else 'public, max-age=3600'
+    response.headers['Content-Disposition'] = f'inline; filename="macleens-product-{product_id}-{current_version}.jpg"'
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.set_etag(version)
-    return response.make_conditional(request)
+    response.headers['Content-Length'] = str(len(payload))
+    return response
+
+
+@app.route('/social/product/<int:product_id>.png')
+def product_social_preview_legacy(product_id):
+    """Keep old Facebook links working while moving previews to reliable JPEGs."""
+    prod = Product.query.get_or_404(product_id)
+    return redirect(url_for(
+        'product_social_preview', product_id=prod.id, version=product_share_version(prod)
+    ), code=302)
 
 @app.route('/api/toggle-like/<int:product_id>', methods=['POST'])
 def api_toggle_like(product_id):
@@ -8792,11 +9067,15 @@ def community_api_actor():
     return cust, profile, None
 
 def community_profile_values(form, existing=None):
-    handle = normalize_community_handle(form.get('handle'))
+    handle = normalize_community_handle(form.get('handle'), allow_main_admin=bool(existing and existing.is_community_admin))
+    if existing and existing.is_community_admin and handle != COMMUNITY_MAIN_ADMIN_HANDLE:
+        raise OrderValidationError(f'The main community administrator must keep the reserved @{COMMUNITY_MAIN_ADMIN_HANDLE} handle.')
     duplicate = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle) == handle.lower()).first()
     if duplicate and (not existing or duplicate.id != existing.id):
         raise OrderValidationError('That community handle is already taken.')
-    role = (form.get('role') or '').strip().upper()
+    # A saved primary role is security-sensitive and cannot be switched from
+    # profile settings. Residents use the reviewed student-application route.
+    role = existing.role if existing else (form.get('role') or '').strip().upper()
     if role not in COMMUNITY_ROLES:
         raise OrderValidationError('Choose College Student or Binalbagan Resident.')
     current_year = ph_today().year
@@ -8809,7 +9088,7 @@ def community_profile_values(form, existing=None):
         'vibe_status': None,
         'barangay': None,
         'resident_since_year': None,
-        'verification_method': 'IN_PERSON' if role == 'STUDENT' else 'SELF_DECLARED',
+        'verification_method': (existing.verification_method if existing else ('ID_UPLOAD' if role == 'STUDENT' else 'SELF_DECLARED')),
     }
     if role == 'STUDENT':
         campus = (form.get('campus_name') or '').strip()
@@ -8847,6 +9126,7 @@ def community_home():
         return render_template(
             'community_setup.html',
             cust=cust,
+            student_preapproved=bool(cust.community_student_preapproved),
             campuses=COMMUNITY_CAMPUSES,
             departments=COMMUNITY_DEPARTMENTS,
             barangays=BINALBAGAN_BARANGAYS,
@@ -8856,16 +9136,18 @@ def community_home():
     checkin, new_drop = community_check_in(profile)
     db.session.commit()
     now = utc_now()
+    own_channel = community_channel_for_role(profile.role)
+    visible_channels = list(COMMUNITY_CHANNELS) if profile.is_community_admin else [own_channel]
     posts = CommunityPost.query.filter(
         CommunityPost.status == 'PUBLISHED',
         CommunityPost.published_at.isnot(None),
         CommunityPost.published_at <= now,
+        CommunityPost.channel.in_(visible_channels + ['GLOBAL']),
         or_(CommunityPost.expires_at.is_(None), CommunityPost.expires_at > now),
-    ).order_by(CommunityPost.is_flash_poll.desc(), CommunityPost.created_at.desc()).limit(120).all()
-    global_posts = [post for post in posts if post.channel == 'GLOBAL']
+    ).order_by(CommunityPost.created_at.desc()).limit(120).all()
     channel_posts = {
-        'CAMPUS': (global_posts + [post for post in posts if post.channel == 'CAMPUS'])[:60],
-        'TOWN': (global_posts + [post for post in posts if post.channel == 'TOWN'])[:60],
+        channel: [post for post in posts if post.channel in {'GLOBAL', channel}][:60]
+        for channel in visible_channels
     }
     post_comments = {}
     reaction_map = {}
@@ -8886,7 +9168,6 @@ def community_home():
         if post.post_type == 'POLL':
             poll_results[post.id] = community_poll_results(post)
 
-    own_channel = community_channel_for_role(profile.role)
     campus_leaders, barangay_leaders = community_group_leaderboards()
     incoming_gifts = CommunityGift.query.filter_by(recipient_customer_id=cust.id).order_by(CommunityGift.created_at.desc()).limit(12).all()
     outgoing_gifts = CommunityGift.query.filter_by(sender_customer_id=cust.id).order_by(CommunityGift.created_at.desc()).limit(8).all()
@@ -8902,11 +9183,29 @@ def community_home():
     ).order_by(CommunityConnection.created_at.desc()).all()
     requester_ids = {row.requested_by_profile_id for row in incoming_connection_rows}
     requester_profiles = {row.id: row for row in CommunityProfile.query.filter(CommunityProfile.id.in_(requester_ids)).all()} if requester_ids else {}
+    main_admin_profile = CommunityProfile.query.filter_by(is_community_admin=True).first()
+    follows_main_admin = bool(main_admin_profile and CommunityFollow.query.filter_by(
+        follower_profile_id=profile.id, followed_profile_id=main_admin_profile.id,
+    ).first())
+    main_admin_followers = CommunityFollow.query.filter_by(followed_profile_id=main_admin_profile.id).count() if main_admin_profile else 0
+    notifications = CommunityNotification.query.filter_by(recipient_profile_id=profile.id).order_by(CommunityNotification.created_at.desc()).limit(12).all()
+    mentionable_query = CommunityProfile.query.filter(
+        CommunityProfile.id != profile.id,
+        CommunityProfile.verification_status != 'REJECTED',
+        or_(CommunityProfile.role != 'STUDENT', CommunityProfile.verification_status == 'VERIFIED', CommunityProfile.is_community_admin.is_(True)),
+    )
+    if not profile.is_community_admin:
+        mentionable_query = mentionable_query.filter(or_(
+            CommunityProfile.role == profile.role,
+            CommunityProfile.is_community_admin.is_(True),
+        ))
+    mentionable_profiles = mentionable_query.order_by(CommunityProfile.handle.asc()).limit(300).all()
     return render_template(
         'community.html',
         cust=cust,
         profile=profile,
         own_channel=own_channel,
+        visible_channels=visible_channels,
         channel_posts=channel_posts,
         post_comments=post_comments,
         reaction_map=reaction_map,
@@ -8920,10 +9219,10 @@ def community_home():
         departments=COMMUNITY_DEPARTMENTS,
         barangays=BINALBAGAN_BARANGAYS,
         today=ph_today(),
-        alerts=active_community_alerts(profile.role),
+        alerts=active_community_alerts(profile.role, include_all_roles=bool(profile.is_community_admin)),
         ads_by_channel={
-            'CAMPUS': active_community_ads(profile.role, 'CAMPUS'),
-            'TOWN': active_community_ads(profile.role, 'TOWN'),
+            'CAMPUS': active_community_ads('STUDENT' if profile.is_community_admin else profile.role, 'CAMPUS'),
+            'TOWN': active_community_ads('RESIDENT' if profile.is_community_admin else profile.role, 'TOWN'),
         },
         campus_leaders=campus_leaders,
         barangay_leaders=barangay_leaders,
@@ -8942,6 +9241,12 @@ def community_home():
         friends=friends,
         incoming_connections=incoming_connection_rows,
         requester_profiles=requester_profiles,
+        can_interact=community_can_interact(profile, own_channel),
+        main_admin_profile=main_admin_profile,
+        follows_main_admin=follows_main_admin,
+        main_admin_followers=main_admin_followers,
+        notifications=notifications,
+        mentionable_profiles=mentionable_profiles,
     )
 
 @app.route('/community/profile', methods=['POST'])
@@ -8957,18 +9262,27 @@ def community_save_profile():
         if is_new and not request.form.get('privacy_consent'):
             raise OrderValidationError('You must accept the community privacy notice and rules before joining.')
         values = community_profile_values(request.form, existing=profile)
-        old_role = profile.role if profile else None
         if not profile:
             profile = CommunityProfile(customer_id=cust.id, **values)
+            if profile.role == 'STUDENT':
+                if cust.community_student_preapproved:
+                    profile.verification_status = 'VERIFIED'
+                    profile.verification_method = 'ADMIN_TAG'
+                    profile.verification_note = 'Pre-approved by authorized staff before community registration.'
+                else:
+                    student_id = community_student_id_from_request('student_id')
+                    if not student_id:
+                        raise OrderValidationError('Upload a clear student ID picture to apply for Campus Hub access.')
+                    profile.student_id_image_data = student_id
+                    profile.student_id_uploaded_at = utc_now()
+                    profile.verification_status = 'PENDING'
+                    profile.verification_method = 'ID_UPLOAD'
+            else:
+                profile.verification_status = 'SELF_DECLARED'
             db.session.add(profile)
         else:
             for key, value in values.items():
                 setattr(profile, key, value)
-            if old_role != profile.role:
-                profile.verification_status = 'PENDING' if profile.role == 'STUDENT' else 'SELF_DECLARED'
-                profile.first_post_approved = False
-        if profile.role == 'RESIDENT' and is_new:
-            profile.verification_status = 'SELF_DECLARED'
         db.session.commit()
         if request.headers.get('X-Macleens-Community') == '1':
             return jsonify({'success': True, 'message': 'Community profile saved.', 'handle': profile.handle, 'role': profile.role})
@@ -8982,19 +9296,90 @@ def community_save_profile():
         return render_template(
             'community_setup.html',
             cust=cust,
+            student_preapproved=bool(cust.community_student_preapproved),
             campuses=COMMUNITY_CAMPUSES,
             departments=COMMUNITY_DEPARTMENTS,
             barangays=BINALBAGAN_BARANGAYS,
             today=ph_today(),
         ), 400
 
+@app.route('/community/api/student-application', methods=['POST'])
+def community_student_application():
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    if profile.role != 'RESIDENT' or profile.is_community_admin:
+        return jsonify({'success': False, 'message': 'Only a resident profile can submit this student application.'}), 403
+    try:
+        campus = (request.form.get('campus_name') or '').strip()
+        department = (request.form.get('department') or '').strip()
+        graduating_year = parse_int(request.form.get('graduating_year'), 0)
+        current_year = ph_today().year
+        if campus not in COMMUNITY_CAMPUSES:
+            raise OrderValidationError('Choose a campus from the provided list.')
+        if department not in COMMUNITY_DEPARTMENTS:
+            raise OrderValidationError('Choose your department or select Other.')
+        if graduating_year < current_year or graduating_year > current_year + 10:
+            raise OrderValidationError(f'Graduating year must be from {current_year} to {current_year + 10}.')
+        profile.student_application_campus = campus
+        profile.student_application_department = department
+        profile.student_application_graduating_year = graduating_year
+        profile.student_application_status = 'PENDING'
+        if cust.community_student_preapproved:
+            profile.role = 'STUDENT'
+            profile.campus_name = campus
+            profile.department = department
+            profile.graduating_year = graduating_year
+            profile.vibe_status = 'Quiet study mode'
+            profile.verification_status = 'VERIFIED'
+            profile.verification_method = 'ADMIN_TAG'
+            profile.student_application_status = 'APPROVED'
+            profile.first_post_approved = False
+            message = 'Student role approved from the staff pre-verification tag. Open Community again to enter Campus Hub.'
+        else:
+            student_id = community_student_id_from_request('student_id')
+            if not student_id:
+                raise OrderValidationError('Upload a clear student ID picture for private staff review.')
+            profile.student_id_image_data = student_id
+            profile.student_id_uploaded_at = utc_now()
+            profile.student_id_deleted_at = None
+            message = 'Student application sent privately. You remain in Town Square until staff approves it.'
+        db.session.commit()
+        return jsonify({'success': True, 'message': message, 'status': profile.student_application_status})
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
+@app.route('/community/api/student-id-resubmit', methods=['POST'])
+def community_student_id_resubmit():
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    if profile.role != 'STUDENT' or profile.is_community_admin or profile.verification_status == 'VERIFIED':
+        return jsonify({'success': False, 'message': 'This student ID resubmission is not available.'}), 403
+    try:
+        student_id = community_student_id_from_request('student_id')
+        if not student_id:
+            raise OrderValidationError('Choose a clear student ID picture to resubmit.')
+        profile.student_id_image_data = student_id
+        profile.student_id_uploaded_at = utc_now()
+        profile.student_id_deleted_at = None
+        profile.verification_status = 'PENDING'
+        profile.verification_method = 'ID_UPLOAD'
+        profile.verification_note = None
+        db.session.commit()
+        return jsonify({'success': True, 'message': 'Replacement student ID sent privately for staff review.', 'status': 'PENDING'})
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+
 @app.route('/community/api/vibe', methods=['POST'])
 def community_update_vibe():
     cust, profile, error = community_api_actor()
     if error:
         return error
-    if profile.role != 'STUDENT':
-        return jsonify({'success': False, 'message': 'Vibe status is available to student profiles.'}), 403
+    if profile.role != 'STUDENT' or not community_can_interact(profile, 'CAMPUS'):
+        return jsonify({'success': False, 'message': 'Vibe status is available after student verification.'}), 403
     data = request.get_json(silent=True) or request.form
     vibe = (data.get('vibe') or '').strip()
     if vibe not in COMMUNITY_VIBES:
@@ -9008,6 +9393,8 @@ def community_connections():
     cust, profile, error = community_api_actor()
     if error:
         return error
+    if profile.role == 'STUDENT' and not community_can_interact(profile, 'CAMPUS'):
+        return jsonify({'success': False, 'message': 'Student verification is required before connecting.'}), 403
     data = request.get_json(silent=True) or request.form
     action = (data.get('action') or 'REQUEST').strip().upper()
     try:
@@ -9017,8 +9404,13 @@ def community_connections():
             target = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle) == handle.lower()).first()
             if not target:
                 raise OrderValidationError('No community member uses that handle.')
+            if target.role == 'STUDENT' and target.verification_status != 'VERIFIED' and not target.is_community_admin:
+                raise OrderValidationError('That student profile is still awaiting verification.')
             if target.id == profile.id:
                 raise OrderValidationError('You cannot connect with your own profile.')
+            same_feed = community_channel_for_role(target.role) == community_channel_for_role(profile.role)
+            if not profile.is_community_admin and not target.is_community_admin and not same_feed:
+                raise OrderValidationError('Connections are limited to members in your role-locked community.')
             left, right = community_connection_pair(profile.id, target.id)
             connection = CommunityConnection.query.filter_by(profile_a_id=left, profile_b_id=right).first()
             if connection and connection.status == 'ACCEPTED':
@@ -9063,6 +9455,61 @@ def community_connections():
         db.session.rollback()
         return jsonify({'success': False, 'message': str(exc)}), 400
 
+@app.route('/community/api/follows/<string:handle>', methods=['POST'])
+def community_toggle_follow(handle):
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    if profile.role == 'STUDENT' and not community_can_interact(profile, 'CAMPUS'):
+        return jsonify({'success': False, 'message': 'Student verification is required before following members.'}), 403
+    target = CommunityProfile.query.filter(db.func.lower(CommunityProfile.handle) == handle.strip().lower().lstrip('@')).first()
+    if not target:
+        return jsonify({'success': False, 'message': 'That community member was not found.'}), 404
+    if target.role == 'STUDENT' and target.verification_status != 'VERIFIED' and not target.is_community_admin:
+        return jsonify({'success': False, 'message': 'That student profile is still awaiting verification.'}), 403
+    if target.id == profile.id:
+        return jsonify({'success': False, 'message': 'You cannot follow your own profile.'}), 400
+    same_feed = community_channel_for_role(target.role) == community_channel_for_role(profile.role)
+    if not profile.is_community_admin and not target.is_community_admin and not same_feed:
+        return jsonify({'success': False, 'message': 'That member is outside your role-locked community.'}), 403
+    existing = CommunityFollow.query.filter_by(follower_profile_id=profile.id, followed_profile_id=target.id).first()
+    awarded = 0.0
+    if existing:
+        db.session.delete(existing)
+        following = False
+        message = f'You unfollowed @{target.handle}.'
+    else:
+        db.session.add(CommunityFollow(follower_profile_id=profile.id, followed_profile_id=target.id))
+        following = True
+        message = f'You are now following @{target.handle}.'
+        if target.is_community_admin and target.handle.lower() == COMMUNITY_MAIN_ADMIN_HANDLE:
+            awarded = community_award_once(
+                cust, 'FOLLOW_MAIN_ADMIN', f'handle:{COMMUNITY_MAIN_ADMIN_HANDLE}', COMMUNITY_MAIN_ADMIN_FOLLOW_REWARD,
+                f'Community: first follow of @{COMMUNITY_MAIN_ADMIN_HANDLE}',
+            )
+        notification_key = f'follower:{profile.id}'
+        if not CommunityNotification.query.filter_by(recipient_profile_id=target.id, kind='FOLLOW', target_key=notification_key).first():
+            db.session.add(CommunityNotification(
+                recipient_profile_id=target.id, actor_profile_id=profile.id, kind='FOLLOW',
+                target_key=notification_key, message=f'@{profile.handle} followed you.',
+            ))
+    db.session.commit()
+    if awarded:
+        message += f' +{awarded:g} loyalty points (one-time reward).'
+    return jsonify({
+        'success': True, 'following': following, 'count': CommunityFollow.query.filter_by(followed_profile_id=target.id).count(),
+        'points_awarded': awarded, 'points_balance': round(parse_float(cust.points_balance, 0.0), 2), 'message': message,
+    })
+
+@app.route('/community/api/notifications/read', methods=['POST'])
+def community_read_notifications():
+    cust, profile, error = community_api_actor()
+    if error:
+        return error
+    CommunityNotification.query.filter_by(recipient_profile_id=profile.id, is_read=False).update({'is_read': True})
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'Notifications marked as read.'})
+
 @app.route('/community/api/posts', methods=['POST'])
 def community_create_post():
     cust, profile, error = community_api_actor()
@@ -9081,22 +9528,9 @@ def community_create_post():
         if not body or len(body) > 280:
             raise OrderValidationError('Post text must contain 1–280 characters.')
         post_type = (request.form.get('post_type') or 'TEXT').strip().upper()
-        if post_type not in {'TEXT', 'IMAGE', 'POLL'}:
-            raise OrderValidationError('Choose text, image, or poll format.')
-        link_url = community_safe_link(request.form.get('link_url'))
-        image_data = community_image_from_request('image') if post_type == 'IMAGE' else None
-        if post_type == 'IMAGE' and not image_data:
-            raise OrderValidationError('Choose one JPG, PNG, or WEBP image for an image post.')
-        raw_options = [re.sub(r'\s+', ' ', value.strip()) for value in request.form.getlist('poll_option') if value.strip()]
-        unique_options = []
-        seen = set()
-        for option in raw_options:
-            key = option.casefold()
-            if key not in seen:
-                seen.add(key)
-                unique_options.append(option[:80])
-        if post_type == 'POLL' and not (2 <= len(unique_options) <= 4):
-            raise OrderValidationError('A poll needs 2–4 different choices.')
+        if post_type != 'TEXT' or request.files.get('image') or request.form.get('link_url') or request.form.getlist('poll_option'):
+            raise OrderValidationError('Community member posts are word-only. Images, links, and member polls are disabled.')
+        mentioned_profiles = community_validate_mentions(profile, channel, body)
         hits = community_moderation_hits(body)
         requires_review = not profile.first_post_approved or bool(hits)
         post = CommunityPost(
@@ -9105,8 +9539,8 @@ def community_create_post():
             module=module,
             post_type=post_type,
             body=body,
-            image_data=image_data,
-            link_url=link_url,
+            image_data=None,
+            link_url=None,
             status='PENDING' if requires_review else 'PUBLISHED',
             moderation_hits=json.dumps(hits, ensure_ascii=False) if hits else None,
             published_at=None if requires_review else utc_now(),
@@ -9114,8 +9548,7 @@ def community_create_post():
         )
         db.session.add(post)
         db.session.flush()
-        for index, option in enumerate(unique_options):
-            db.session.add(CommunityPollOption(post_id=post.id, option_text=option, sort_order=index))
+        community_sync_post_mentions(post, mentioned_profiles, notify=not requires_review)
         if not requires_review:
             profile.community_score = round(parse_float(profile.community_score, 0.0) + 2.0, 2)
         db.session.commit()
@@ -9155,8 +9588,22 @@ def community_react(post_id):
         reaction.reaction_type = reaction_type
     else:
         db.session.add(CommunityReaction(post_id=post.id, customer_id=cust.id, reaction_type=reaction_type))
+    awarded = 0.0
+    if active and reaction_type == 'LIKE' and post.author and post.author.is_community_admin and post.author.handle.lower() == COMMUNITY_MAIN_ADMIN_HANDLE and post.author_profile_id != profile.id:
+        awarded = community_award_once(
+            cust, 'LIKE_MAIN_ADMIN_POST', f'post:{post.id}', COMMUNITY_MAIN_ADMIN_LIKE_REWARD,
+            f'Community: first like on @{COMMUNITY_MAIN_ADMIN_HANDLE} post #{post.id}',
+        )
+    if active and post.author_profile_id and post.author_profile_id != profile.id:
+        key = f'post:{post.id}:actor:{profile.id}'
+        if not CommunityNotification.query.filter_by(recipient_profile_id=post.author_profile_id, kind='REACTION', target_key=key).first():
+            db.session.add(CommunityNotification(
+                recipient_profile_id=post.author_profile_id, actor_profile_id=profile.id,
+                kind='REACTION', target_key=key, message=f'@{profile.handle} liked your post.',
+            ))
     db.session.commit()
-    return jsonify({'success': True, 'active': active, 'reaction_type': reaction_type, 'count': CommunityReaction.query.filter_by(post_id=post.id).count()})
+    message = f'+{awarded:g} loyalty points earned (one time for this post).' if awarded else ('Post liked.' if active else 'Like removed.')
+    return jsonify({'success': True, 'active': active, 'reaction_type': reaction_type, 'count': CommunityReaction.query.filter_by(post_id=post.id).count(), 'points_awarded': awarded, 'points_balance': round(parse_float(cust.points_balance, 0.0), 2), 'message': message})
 
 @app.route('/community/api/posts/<int:post_id>/comments', methods=['POST'])
 def community_comment(post_id):
@@ -9172,6 +9619,7 @@ def community_comment(post_id):
         body = re.sub(r'\s+', ' ', (data.get('body') or '').strip())
         if not body or len(body) > 280:
             raise OrderValidationError('Comment must contain 1–280 characters.')
+        mentioned_profiles = community_validate_mentions(profile, post.channel, body)
         hits = community_moderation_hits(body)
         comment = CommunityComment(
             post_id=post.id,
@@ -9182,6 +9630,14 @@ def community_comment(post_id):
             score_awarded=not bool(hits),
         )
         db.session.add(comment)
+        db.session.flush()
+        if not hits:
+            for target in mentioned_profiles:
+                if not CommunityNotification.query.filter_by(recipient_profile_id=target.id, kind='COMMENT_MENTION', target_key=f'comment:{comment.id}').first():
+                    db.session.add(CommunityNotification(
+                        recipient_profile_id=target.id, actor_profile_id=profile.id, kind='COMMENT_MENTION',
+                        target_key=f'comment:{comment.id}', message=f'@{profile.handle} tagged you in a comment.',
+                    ))
         if not hits:
             profile.community_score = round(parse_float(profile.community_score, 0.0) + 0.5, 2)
         db.session.commit()
@@ -9207,6 +9663,8 @@ def community_report_post(post_id):
     if error:
         return error
     post = CommunityPost.query.get_or_404(post_id)
+    if not community_can_interact(profile, post.channel):
+        return jsonify({'success': False, 'message': 'This post is outside your role-locked community or your student verification is pending.'}), 403
     if post.author_profile_id == profile.id:
         return jsonify({'success': False, 'message': 'You cannot report your own post. Ask staff if you need it removed.'}), 400
     if post.status != 'PUBLISHED':
@@ -9274,6 +9732,8 @@ def community_send_gift():
     cust, profile, error = community_api_actor()
     if error:
         return error
+    if profile.role == 'STUDENT' and not community_can_interact(profile, 'CAMPUS'):
+        return jsonify({'success': False, 'message': 'Student verification is required before sending gifts.'}), 403
     try:
         data = request.get_json(silent=True) or request.form
         if not check_password_hash(cust.pin_hash, str(data.get('pin') or '').strip()):
@@ -9442,6 +9902,7 @@ def community_admin():
     pending_drops = CommunityDrop.query.filter_by(reward_type='STAFF_FREEBIE').order_by(CommunityDrop.created_at.asc()).all()
     recent_actions = CommunityModerationAction.query.order_by(CommunityModerationAction.created_at.desc()).limit(40).all()
     active_products = Product.query.filter(Product.is_active.is_(True), Product.stock > 0).order_by(Product.name.asc()).all()
+    main_admin_profile = CommunityProfile.query.filter_by(is_community_admin=True).first()
     today = ph_today()
     stats = {
         'profiles': len(profiles),
@@ -9466,6 +9927,7 @@ def community_admin():
         pending_drops=pending_drops,
         recent_actions=recent_actions,
         active_products=active_products,
+        main_admin_profile=main_admin_profile,
         stats=stats,
         report_reasons=COMMUNITY_REPORT_REASONS,
         today=today,
@@ -9480,8 +9942,22 @@ def community_admin_verify_profile(profile_id):
     if action not in {'VERIFY', 'REJECT', 'RESET'}:
         flash('Invalid community verification action.', 'error')
         return redirect(url_for('community_admin'))
-    profile.verification_status = {'VERIFY': 'VERIFIED', 'REJECT': 'REJECTED', 'RESET': 'PENDING'}[action]
+    reviewing_application = profile.role == 'RESIDENT' and profile.student_application_status == 'PENDING'
+    if action == 'VERIFY' and reviewing_application:
+        profile.role = 'STUDENT'
+        profile.campus_name = profile.student_application_campus
+        profile.department = profile.student_application_department
+        profile.graduating_year = profile.student_application_graduating_year
+        profile.vibe_status = profile.vibe_status or 'Quiet study mode'
+        profile.student_application_status = 'APPROVED'
+        profile.first_post_approved = False
+    elif action == 'REJECT' and reviewing_application:
+        profile.student_application_status = 'REJECTED'
+    profile.verification_status = {'VERIFY': 'VERIFIED', 'REJECT': ('SELF_DECLARED' if reviewing_application else 'REJECTED'), 'RESET': 'PENDING'}[action]
     profile.verification_note = re.sub(r'\s+', ' ', (request.form.get('note') or '').strip())[:255] or None
+    if action in {'VERIFY', 'REJECT'} and profile.student_id_image_data:
+        profile.student_id_image_data = None
+        profile.student_id_deleted_at = utc_now()
     db.session.add(CommunityModerationAction(
         profile_id=profile.id,
         admin_username=session.get('admin_user') or 'admin',
@@ -9490,6 +9966,60 @@ def community_admin_verify_profile(profile_id):
     ))
     db.session.commit()
     flash(f'@{profile.handle} verification set to {profile.verification_status}.', 'success')
+    return redirect(url_for('community_admin') + '#profiles')
+
+@app.route('/admin/community/student-tag', methods=['POST'])
+@require_admin
+def community_admin_student_tag():
+    identifier = (request.form.get('customer_identifier') or '').strip()
+    cust = get_customer_by_identifier(identifier)
+    if not cust:
+        flash('Customer not found. Enter the exact mobile number or loyalty card number.', 'error')
+        return redirect(url_for('community_admin') + '#profiles')
+    cust.community_student_preapproved = True
+    cust.community_student_preapproved_at = utc_now()
+    cust.community_student_preapproved_by = session.get('admin_user') or 'admin'
+    profile = CommunityProfile.query.filter_by(customer_id=cust.id).first()
+    if profile and profile.role == 'STUDENT':
+        profile.verification_status = 'VERIFIED'
+        profile.verification_method = 'ADMIN_TAG'
+        if profile.student_id_image_data:
+            profile.student_id_image_data = None
+            profile.student_id_deleted_at = utc_now()
+    db.session.add(CommunityModerationAction(
+        profile_id=profile.id if profile else None,
+        admin_username=session.get('admin_user') or 'admin', action='STUDENT_PREAPPROVAL',
+        note=f'Private loyalty customer #{cust.id} marked as known student by staff.',
+    ))
+    db.session.commit()
+    flash(f'{cust.name} is pre-approved as a student. Their mobile number remains private.', 'success')
+    return redirect(url_for('community_admin') + '#profiles')
+
+@app.route('/admin/community/main-admin', methods=['POST'])
+@require_admin
+def community_admin_assign_main_admin():
+    target = db.session.get(CommunityProfile, parse_int(request.form.get('profile_id'), 0))
+    if not target:
+        flash('Choose an existing community profile.', 'error')
+        return redirect(url_for('community_admin') + '#profiles')
+    conflict = CommunityProfile.query.filter(
+        db.func.lower(CommunityProfile.handle) == COMMUNITY_MAIN_ADMIN_HANDLE,
+        CommunityProfile.id != target.id,
+    ).first()
+    if conflict:
+        flash(f'@{COMMUNITY_MAIN_ADMIN_HANDLE} already belongs to another profile. Select that profile or resolve the duplicate first.', 'error')
+        return redirect(url_for('community_admin') + '#profiles')
+    CommunityProfile.query.filter(CommunityProfile.id != target.id).update({'is_community_admin': False})
+    target.handle = COMMUNITY_MAIN_ADMIN_HANDLE
+    target.is_community_admin = True
+    target.verification_status = 'VERIFIED'
+    target.first_post_approved = True
+    db.session.add(CommunityModerationAction(
+        profile_id=target.id, admin_username=session.get('admin_user') or 'admin',
+        action='ASSIGN_MAIN_COMMUNITY_ADMIN', note=f'Assigned reserved @{COMMUNITY_MAIN_ADMIN_HANDLE} access to both role feeds.',
+    ))
+    db.session.commit()
+    flash(f'@{COMMUNITY_MAIN_ADMIN_HANDLE} is now the main administrator for Campus Hub and Town Square.', 'success')
     return redirect(url_for('community_admin') + '#profiles')
 
 @app.route('/admin/community/post/<int:post_id>/status', methods=['POST'])
@@ -9501,7 +10031,7 @@ def community_admin_post_status(post_id):
         flash('Invalid community post action.', 'error')
         return redirect(url_for('community_admin'))
     if action == 'PUBLISH' and post.author and post.author.role == 'STUDENT' and post.author.verification_status != 'VERIFIED':
-        flash(f'Verify @{post.author.handle} in person before publishing a Campus Hub post. No student ID image should be stored.', 'error')
+        flash(f'Approve @{post.author.handle} in the private student verification queue before publishing a Campus Hub post.', 'error')
         return redirect(url_for('community_admin') + '#profiles')
     old_status = post.status
     post.status = {'PUBLISH': 'PUBLISHED', 'HIDE': 'HIDDEN', 'REMOVE': 'REMOVED'}[action]
@@ -9512,6 +10042,8 @@ def community_admin_post_status(post_id):
             if not post.score_awarded:
                 post.author.community_score = round(parse_float(post.author.community_score, 0.0) + 2.0, 2)
                 post.score_awarded = True
+        if post.author:
+            community_sync_post_mentions(post, notify=True)
         CommunityReport.query.filter_by(post_id=post.id, status='OPEN').update({'status': 'RESOLVED'})
         post.flags_count = 0
     note = re.sub(r'\s+', ' ', (request.form.get('note') or '').strip())[:240] or None
