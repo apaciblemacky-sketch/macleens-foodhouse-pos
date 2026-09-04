@@ -1,6 +1,6 @@
-# Macleen’s Community Lite v6
+# Macleen’s Community Projects & Profiles v7
 
-Release: `2026.09.04-community-lite-scale-safety-v6`
+Release: `2026.09.04-community-project-cover-v7`
 
 This is the recommended public-beta shape of the Community. It keeps the parts
 that directly support loyalty, repeat visits, useful local information, and
@@ -12,12 +12,15 @@ database load, fraud, privacy exposure, or moderation work.
 - role-separated Campus Hub and Town Square feeds
 - `@handle` profiles, optional profile lock, follows, likes, comments, mentions,
   notifications, reports, and blocks/connections
-- Town Square classifieds and Campus study/collaboration categories
+- Town Square classifieds and Campus Study & Collab, Campus Board, Buy & Sell,
+  Discussions, and Lost & Found categories
+- uploadable 1600x600 profile cover photos, normalized to compact WEBP images
+- up to 25 unique role-safe `@mentions` per post
 - word-only posts, newest first, with a 25-post page window
 - first three posts reviewed by staff; safe trusted posts publish immediately
 - keyword safety holds and three-report quarantine pending human review
 - Admin summaries for new members and pending student checks
-- small invite-only group workspaces with tasks, shared notes, and polls
+- small invite-only project workspaces with progress, tasks, shared notes, and polls
 - optional external Messenger group link set by the workspace owner
 - loyalty balance, purchase-based punch card, Flash Perch alerts, relevant store
   promotions, and the Digital Business link
@@ -31,9 +34,9 @@ database load, fraud, privacy exposure, or moderation work.
 - Public reshares: avoids duplicate feed content and reduces moderation volume.
 - Community streaks, Mystery Drops, and leaderboards: removes daily write load,
   reward liability, and incentives for low-quality activity.
-- Internal Messenger-style chat and five-second polling: removes continuous
-  requests and sensitive-message storage. Workspaces retain tasks, notes, polls,
-  and may link to Messenger externally.
+- Internal Messenger-style chat is removed, including its composer and polling
+  code. Historical tables remain only to avoid destructive migration; project
+  workspaces retain progress, tasks, notes, polls, and an optional Messenger link.
 - Student-ID image uploads: no new ID image is accepted. Existing stored ID blobs
   are erased by the migration. Staff can pre-approve a known loyalty customer or
   visually check a current ID in person without keeping a copy.
@@ -50,6 +53,7 @@ issued vouchers stay redeemable at Cashier, but customers cannot create new ones
 - first 3 posts require approval (`COMMUNITY_TRUSTED_POST_THRESHOLD`)
 - maximum 2 active workspaces owned by a member (`COMMUNITY_MAX_OWNED_GROUPS`)
 - maximum 25 members in a workspace
+- maximum 25 unique tagged handles in one 280-character post
 - maximum 5 posts per hour and 20 comments per hour per profile
 - maximum 10 reports per day per customer
 - up to 25 recent posts are loaded per visible role feed
@@ -63,9 +67,8 @@ Set an environment variable to `false`, then redeploy:
 - `COMMUNITY_POSTING_OPEN` — pauses new posts and comments
 - `COMMUNITY_GROUP_WORKSPACES_OPEN` — pauses new workspaces
 
-Keep these disabled in the beta unless you deliberately reverse the decision:
+These abuse-prone features remain disabled in the beta:
 
-- `COMMUNITY_INTERNAL_CHAT_OPEN=false`
 - `COMMUNITY_SOCIAL_REWARDS_OPEN=false`
 - `COMMUNITY_GIFTING_OPEN=false`
 - `COMMUNITY_RESHARING_OPEN=false`
@@ -97,9 +100,12 @@ a tested restore procedure before a large public announcement.
 4. Confirm the first three posts enter Admin review and the fourth safe post is
    immediate after the earlier three are approved.
 5. Confirm likes, follows, comments, tasks, notes, and polls do not refresh pages.
-6. Confirm reshare, gifting, and group-message APIs report that they are paused.
+6. Confirm reshare and gifting APIs report that they are paused, and the legacy
+   group-message API returns HTTP 410 with no chat UI present.
 7. Confirm student signup requests an in-person visual check and stores no image.
-8. Test the three emergency switches during a planned maintenance window.
+8. Upload and remove a profile cover photo; confirm it is cropped to a wide cover.
+9. Confirm Main Admin pages do not show student or resident demographic fields.
+10. Test the three emergency switches during a planned maintenance window.
 
 Local checks:
 

@@ -90,7 +90,7 @@ REQUIRED_DB_COLUMNS = {
         "is_community_admin", "student_id_image_data", "student_id_uploaded_at",
         "student_id_deleted_at", "student_application_status",
         "student_application_campus", "student_application_department",
-        "student_application_graduating_year", "public_bio", "is_profile_locked",
+        "student_application_graduating_year", "public_bio", "is_profile_locked", "cover_image_data",
         "community_score", "community_streak", "last_checkin_date", "push_opt_in",
         "privacy_consent_at", "terms_accepted_at", "created_at", "updated_at",
     },
@@ -379,10 +379,10 @@ def main() -> int:
         "@app.route('/community/api/follows/<string:handle>'", "@app.route('/admin/community/student-tag'",
         "Community member posts are word-only", "student_id_image_data = db.Column",
         "You cannot report your own post", "award_community_drop_reward", "record_community_store_checkin",
-        "COMMUNITY_TRUSTED_POST_THRESHOLD", "COMMUNITY_MAX_OWNED_GROUPS",
+        "COMMUNITY_TRUSTED_POST_THRESHOLD", "COMMUNITY_MAX_OWNED_GROUPS", "COMMUNITY_MAX_POST_MENTIONS",
         "COMMUNITY_INTERNAL_CHAT_OPEN", "COMMUNITY_SOCIAL_REWARDS_OPEN",
         "COMMUNITY_GIFTING_OPEN", "COMMUNITY_RESHARING_OPEN",
-        "external_chat_url = db.Column", "mode': 'clicks_only'",
+        "external_chat_url = db.Column", "cover_image_data = db.Column", "community_cover_image_from_request", "community_group_task_summary", "mode': 'clicks_only'",
     ]
     missing = [marker for marker in community_markers if marker not in source]
     if missing:
@@ -396,8 +396,8 @@ def main() -> int:
     for marker in [
         "Campus Hub", "Town Square", "Digital purchase card", "People you may know", "Community Lite",
         "data-main-admin", "Follow / unfollow", "studentApplicationForm", "mentionHandles",
-        "suggestedPeople", "Lock my profile", "Small group workspaces", "No points for likes or follows",
-        "communityGroupCreateForm", "respondGroupInvite", "data-community-tab=\"chats\"",
+        "suggestedPeople", "Lock my profile", "Project workspaces", "No points for likes or follows",
+        "coverPhotoInput", "Tag up to", "communityGroupCreateForm", "respondGroupInvite", "data-community-tab=\"projects\"",
         "data-community-tab=\"wall\"", "openCommunityTab", "featureCards",
         "Independent community board operated by Macleen’s Food House",
         "enableCommunityPush", "data-community-ad",
@@ -409,7 +409,7 @@ def main() -> int:
     setup_text = (TEMPLATES / "community_setup.html").read_text(encoding="utf-8")
     if 'name="student_id"' in setup_text or 'name="student_id"' in community_text:
         fail("Student-ID upload control is still exposed in the Community customer UI")
-    for marker in ["Community Lite safety controls", "Priority verification and safety alerts", "Moderation review", "Private group-message safety review", "8:00 AM Flash Poll", "Flash Perch alerts", "Native in-feed ads", "Safety phrase holds"]:
+    for marker in ["Community Lite safety controls", "Priority verification and safety alerts", "Moderation review", "8:00 AM Flash Poll", "Flash Perch alerts", "Native in-feed ads", "Safety phrase holds"]:
         if marker not in community_admin_text:
             fail(f"Community Admin marker is missing: {marker}")
     for marker in ["Scan loyalty QR", "selectScannedMember", "Community reward claims"]:
@@ -417,14 +417,15 @@ def main() -> int:
             fail(f"Community Cashier integration marker is missing: {marker}")
     group_text = (TEMPLATES / "community_group.html").read_text(encoding="utf-8")
     for marker in [
-        "Purpose-based Community Lite workspace", "taskForm", "noteForm", "pollForm",
-        "assigned_to_profile_id", "external Messenger link",
-        "Leave this group", "Results update immediately without refreshing",
+        "Project monitoring workspace", "Project progress", "progressPercent", "taskForm", "noteForm", "pollForm",
+        "assigned_to_profile_id", "Facebook Messenger link",
+        "Leave this project", "Results update immediately without refreshing",
     ]:
         if marker not in group_text:
             fail(f"Community group-workspace marker is missing: {marker}")
-    if "setInterval(pollMessages,5000)" in group_text:
-        fail("Retired 5-second group-chat polling is still present")
+    for retired_chat_marker in ['id="messageForm"', 'data-panel="chat"', "pollMessages", "/messages"]:
+        if retired_chat_marker in group_text:
+            fail(f"Retired internal-chat UI marker is still present: {retired_chat_marker}")
     sw_text = service_worker.read_text(encoding="utf-8")
     for marker in ["addEventListener('push'", "showNotification", "addEventListener('notificationclick'"]:
         if marker not in sw_text:

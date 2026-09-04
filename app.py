@@ -67,7 +67,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.04-community-lite-scale-safety-v6'
+APP_RELEASE = '2026.09.04-community-project-cover-v7'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -496,6 +496,7 @@ class CommunityProfile(db.Model):
     is_community_admin = db.Column(db.Boolean, nullable=False, default=False)
     public_bio = db.Column(db.String(160), nullable=True)
     is_profile_locked = db.Column(db.Boolean, nullable=False, default=False)
+    cover_image_data = db.Column(db.Text, nullable=True)
     student_id_image_data = db.Column(db.Text, nullable=True)
     student_id_uploaded_at = db.Column(db.DateTime, nullable=True)
     student_id_deleted_at = db.Column(db.DateTime, nullable=True)
@@ -1414,6 +1415,12 @@ def ensure_community_defaults():
         main_profile.is_community_admin = True
         main_profile.verification_status = 'VERIFIED'
         main_profile.first_post_approved = True
+        main_profile.campus_name = None
+        main_profile.department = None
+        main_profile.graduating_year = None
+        main_profile.vibe_status = None
+        main_profile.barangay = None
+        main_profile.resident_since_year = None
     db.session.commit()
 
 
@@ -1546,6 +1553,7 @@ def run_schema_migrations():
             ('is_community_admin', 'BOOLEAN DEFAULT FALSE'),
             ('public_bio', 'VARCHAR(160)'),
             ('is_profile_locked', 'BOOLEAN DEFAULT FALSE'),
+            ('cover_image_data', 'TEXT'),
             ('student_id_image_data', 'TEXT'),
             ('student_id_uploaded_at', 'TIMESTAMP'),
             ('student_id_deleted_at', 'TIMESTAMP'),
@@ -2417,7 +2425,8 @@ COMMUNITY_CHANNEL_MODULES = {
     'CAMPUS': (
         ('STUDY_COLLAB', 'Study & Collab'),
         ('CAMPUS_BOARD', 'Campus Board'),
-        ('BUY_SELL_SWAP', 'Textbook Buy / Sell / Swap'),
+        ('BUY_SELL_SWAP', 'Buy & Sell'),
+        ('DISCUSSIONS', 'Discussions'),
         ('LOST_FOUND', 'Lost & Found'),
     ),
     'TOWN': (
@@ -2437,7 +2446,7 @@ COMMUNITY_DEPARTMENTS = (
     'Engineering / Technology', 'Arts & Sciences', 'Other',
 )
 COMMUNITY_VIBES = (
-    'Quiet study mode', 'Group cramming', 'Free to chat', 'On a break', 'Offline',
+    'Quiet study mode', 'Group cramming', 'Free to collaborate', 'On a break', 'Offline',
 )
 BINALBAGAN_BARANGAYS = (
     'Amontay', 'Bagroy', 'Bi-ao', 'Canmoros', 'Enclaro', 'Marina', 'Paglaum',
@@ -2452,6 +2461,7 @@ COMMUNITY_MAIN_ADMIN_HANDLE = 'uzu.macky'
 COMMUNITY_GROUP_MAX_MEMBERS = 25
 COMMUNITY_TRUSTED_POST_THRESHOLD = max(1, int(os.environ.get('COMMUNITY_TRUSTED_POST_THRESHOLD', '3')))
 COMMUNITY_MAX_OWNED_GROUPS = max(1, int(os.environ.get('COMMUNITY_MAX_OWNED_GROUPS', '2')))
+COMMUNITY_MAX_POST_MENTIONS = max(1, min(50, int(os.environ.get('COMMUNITY_MAX_POST_MENTIONS', '25'))))
 COMMUNITY_GROUP_TASK_STATUSES = ('TODO', 'DOING', 'DONE')
 COMMUNITY_GROUP_TASK_PRIORITIES = ('LOW', 'NORMAL', 'HIGH')
 COMMUNITY_MENTION_PATTERN = re.compile(r'(?<![A-Za-z0-9._])@([A-Za-z0-9][A-Za-z0-9._]{2,23})', re.IGNORECASE)
@@ -2465,8 +2475,9 @@ def community_env_enabled(name, default=True):
 COMMUNITY_REGISTRATION_OPEN = community_env_enabled('COMMUNITY_REGISTRATION_OPEN', True)
 COMMUNITY_POSTING_OPEN = community_env_enabled('COMMUNITY_POSTING_OPEN', True)
 COMMUNITY_GROUP_WORKSPACES_OPEN = community_env_enabled('COMMUNITY_GROUP_WORKSPACES_OPEN', True)
-# Expensive or abuse-prone v5 features are intentionally paused in Community Lite.
-COMMUNITY_INTERNAL_CHAT_OPEN = community_env_enabled('COMMUNITY_INTERNAL_CHAT_OPEN', False)
+# Internal chat is retired. Historical tables remain only so an upgrade never
+# destroys existing records; every old message endpoint returns HTTP 410.
+COMMUNITY_INTERNAL_CHAT_OPEN = False
 COMMUNITY_SOCIAL_REWARDS_OPEN = community_env_enabled('COMMUNITY_SOCIAL_REWARDS_OPEN', False)
 COMMUNITY_GIFTING_OPEN = community_env_enabled('COMMUNITY_GIFTING_OPEN', False)
 COMMUNITY_RESHARING_OPEN = community_env_enabled('COMMUNITY_RESHARING_OPEN', False)
@@ -2621,6 +2632,22 @@ def community_group_message_payload(message):
         'flags_count': message.flags_count or 0,
     }
 
+def community_group_task_summary(group_id, tasks=None):
+    """Small project dashboard derived from the workspace task list."""
+    rows = list(tasks) if tasks is not None else CommunityGroupTask.query.filter_by(group_id=group_id).all()
+    total = len(rows)
+    done = sum(1 for row in rows if row.status == 'DONE')
+    doing = sum(1 for row in rows if row.status == 'DOING')
+    overdue = sum(1 for row in rows if row.status != 'DONE' and row.due_date and row.due_date < ph_today())
+    return {
+        'total': total,
+        'todo': max(0, total - done - doing),
+        'doing': doing,
+        'done': done,
+        'overdue': overdue,
+        'percent': round((done / total) * 100) if total else 0,
+    }
+
 def community_group_poll_payload(poll, viewer_profile_id=None):
     votes = CommunityGroupPollVote.query.filter_by(poll_id=poll.id).all()
     counts = {}
@@ -2717,6 +2744,32 @@ def community_image_from_request(file_key='image'):
     encoded = base64.b64encode(canvas.getvalue()).decode('ascii')
     return f'data:image/webp;base64,{encoded}'
 
+def community_cover_image_from_request(file_key='cover_photo'):
+    """Turn a phone photo into one compact, consistent profile cover image."""
+    upload = request.files.get(file_key)
+    if not upload or not upload.filename:
+        return None
+    declared = (upload.mimetype or '').lower()
+    if declared not in {'image/jpeg', 'image/png', 'image/webp'}:
+        raise OrderValidationError('Cover photos must be JPG, PNG, or WEBP images.')
+    raw = upload.read(5_000_001)
+    if len(raw) > 5_000_000:
+        raise OrderValidationError('Cover photos must be 5 MB or smaller.')
+    try:
+        with Image.open(io.BytesIO(raw)) as source:
+            source.verify()
+        with Image.open(io.BytesIO(raw)) as source:
+            image = ImageOps.exif_transpose(source).convert('RGB')
+            image = ImageOps.fit(
+                image, (1600, 600), method=Image.Resampling.LANCZOS,
+                centering=(0.5, 0.5),
+            )
+            canvas = io.BytesIO()
+            image.save(canvas, format='WEBP', quality=82, method=6)
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise OrderValidationError('The cover photo could not be read safely.')
+    return 'data:image/webp;base64,' + base64.b64encode(canvas.getvalue()).decode('ascii')
+
 def community_student_id_from_request(file_key='student_id'):
     """Read a private student-ID image; never expose it through public serializers."""
     upload = request.files.get(file_key)
@@ -2767,8 +2820,8 @@ def community_mentioned_handles(body):
         if handle not in seen:
             seen.add(handle)
             handles.append(handle)
-    if len(handles) > 10:
-        raise OrderValidationError('A post can tag up to 10 people.')
+    if len(handles) > COMMUNITY_MAX_POST_MENTIONS:
+        raise OrderValidationError(f'A post can tag up to {COMMUNITY_MAX_POST_MENTIONS} people.')
     return handles
 
 def community_validate_mentions(author_profile, channel, body):
@@ -9405,6 +9458,10 @@ def community_profile_values(form, existing=None):
         'public_bio': re.sub(r'\s+', ' ', (form.get('public_bio') or '').strip())[:160] or None,
         'is_profile_locked': str(form.get('is_profile_locked') or '').strip().lower() in {'1', 'true', 'on', 'yes'},
     }
+    # The main administrator manages both communities and is not presented as
+    # a student or resident profile. Saving settings also clears old role data.
+    if existing and existing.is_community_admin:
+        return values
     if role == 'STUDENT':
         campus = (form.get('campus_name') or '').strip()
         department = (form.get('department') or '').strip()
@@ -9596,6 +9653,7 @@ def community_home():
         community_posting_open=COMMUNITY_POSTING_OPEN,
         community_group_workspaces_open=COMMUNITY_GROUP_WORKSPACES_OPEN,
         community_trusted_post_threshold=COMMUNITY_TRUSTED_POST_THRESHOLD,
+        community_max_post_mentions=COMMUNITY_MAX_POST_MENTIONS,
         mentionable_profiles=mentionable_profiles,
     )
 
@@ -9698,6 +9756,8 @@ def community_save_profile():
         if is_new and not request.form.get('privacy_consent'):
             raise OrderValidationError('You must accept the community privacy notice and rules before joining.')
         values = community_profile_values(request.form, existing=profile)
+        cover_image = community_cover_image_from_request()
+        remove_cover = str(request.form.get('remove_cover_photo') or '').strip().lower() in {'1', 'true', 'on', 'yes'}
         if not profile:
             profile = CommunityProfile(customer_id=cust.id, **values)
             if profile.role == 'STUDENT':
@@ -9721,6 +9781,10 @@ def community_save_profile():
         else:
             for key, value in values.items():
                 setattr(profile, key, value)
+        if remove_cover:
+            profile.cover_image_data = None
+        elif cover_image:
+            profile.cover_image_data = cover_image
         db.session.commit()
         if request.headers.get('X-Macleens-Community') == '1':
             return jsonify({
@@ -9729,6 +9793,7 @@ def community_save_profile():
                 'handle': profile.handle,
                 'role': profile.role,
                 'profile_locked': bool(profile.is_profile_locked),
+                'cover_image': profile.cover_image_data,
             })
         flash('Your optional community profile is ready. Welcome to Macleen’s Community!', 'success')
         return redirect(url_for('community_home'))
@@ -10043,10 +10108,10 @@ def community_group_chat(group_id):
     existing_profile_ids = {
         row.profile_id for row in CommunityGroupMember.query.filter_by(group_id=group.id).all()
     }
-    messages = []
     tasks = CommunityGroupTask.query.filter_by(group_id=group.id).order_by(
         CommunityGroupTask.status.asc(), CommunityGroupTask.due_date.asc(), CommunityGroupTask.created_at.desc(),
     ).limit(100).all()
+    task_summary = community_group_task_summary(group.id)
     notes = CommunityGroupNote.query.filter_by(group_id=group.id, status='ACTIVE').order_by(
         CommunityGroupNote.is_pinned.desc(), CommunityGroupNote.updated_at.desc(),
     ).limit(60).all()
@@ -10059,12 +10124,11 @@ def community_group_chat(group_id):
     invite_candidates = [row for row in candidate_query.order_by(CommunityProfile.handle.asc()).limit(300).all() if community_group_target_allowed(group, row)]
     return render_template(
         'community_group.html', cust=cust, profile=profile, group=group, membership=membership,
-        active_memberships=active_memberships, messages=messages, tasks=tasks, notes=notes,
+        active_memberships=active_memberships, tasks=tasks, task_summary=task_summary, notes=notes,
         polls=polls, poll_payloads=poll_payloads, invite_candidates=invite_candidates,
         is_group_owner=membership.member_role == 'OWNER', task_statuses=COMMUNITY_GROUP_TASK_STATUSES,
         task_priorities=COMMUNITY_GROUP_TASK_PRIORITIES, report_reasons=COMMUNITY_REPORT_REASONS,
         today=ph_today(), group_max_members=COMMUNITY_GROUP_MAX_MEMBERS,
-        internal_chat_open=COMMUNITY_INTERNAL_CHAT_OPEN,
     )
 
 @app.route('/community/api/groups/<int:group_id>/messages', methods=['GET', 'POST'])
@@ -10075,7 +10139,7 @@ def community_group_messages(group_id):
     if not COMMUNITY_INTERNAL_CHAT_OPEN:
         return jsonify({
             'success': False,
-            'message': 'Internal live chat is paused in Community Lite. Use the workspace tasks, notes, polls, or the owner’s optional external Messenger link.',
+            'message': 'Internal chat is not part of Community project workspaces. Use tasks, notes, polls, or the optional Facebook Messenger link.',
         }), 410
     if request.method == 'GET':
         after_id = max(0, parse_int(request.args.get('after_id'), 0))
@@ -10249,6 +10313,7 @@ def community_group_tasks(group_id):
                 'due_date': task.due_date.isoformat() if task.due_date else None,
                 'assignee': f'@{task.assignee.handle}' if task.assignee else 'Unassigned',
             },
+            'progress': community_group_task_summary(group.id),
         })
     except (OrderValidationError, ValueError) as exc:
         db.session.rollback()
@@ -10846,10 +10911,7 @@ def community_admin():
     review_posts = CommunityPost.query.filter(CommunityPost.status.in_(('PENDING', 'QUARANTINED', 'HIDDEN'))).order_by(CommunityPost.created_at.asc()).all()
     pending_comments = CommunityComment.query.filter_by(status='PENDING').order_by(CommunityComment.created_at.asc()).all()
     reports = CommunityReport.query.filter_by(status='OPEN').order_by(CommunityReport.created_at.asc()).all()
-    group_review_messages = [] if not COMMUNITY_INTERNAL_CHAT_OPEN else CommunityGroupMessage.query.filter(or_(
-        CommunityGroupMessage.status.in_(('PENDING', 'QUARANTINED')),
-        CommunityGroupMessage.flags_count > 0,
-    )).order_by(CommunityGroupMessage.created_at.asc()).all()
+    group_review_messages = []
     ads = CommunityAd.query.order_by(CommunityAd.created_at.desc()).all()
     alerts = CommunityAlert.query.order_by(CommunityAlert.created_at.desc()).limit(30).all()
     flash_polls = CommunityPost.query.filter_by(is_flash_poll=True).order_by(CommunityPost.publish_date.desc()).limit(30).all()
@@ -10906,7 +10968,6 @@ def community_admin():
             'registration': COMMUNITY_REGISTRATION_OPEN,
             'posting': COMMUNITY_POSTING_OPEN,
             'workspaces': COMMUNITY_GROUP_WORKSPACES_OPEN,
-            'internal_chat': COMMUNITY_INTERNAL_CHAT_OPEN,
             'social_rewards': COMMUNITY_SOCIAL_REWARDS_OPEN,
             'gifting': COMMUNITY_GIFTING_OPEN,
             'resharing': COMMUNITY_RESHARING_OPEN,
@@ -11026,6 +11087,12 @@ def community_admin_assign_main_admin():
     target.is_community_admin = True
     target.verification_status = 'VERIFIED'
     target.first_post_approved = True
+    target.campus_name = None
+    target.department = None
+    target.graduating_year = None
+    target.vibe_status = None
+    target.barangay = None
+    target.resident_since_year = None
     db.session.add(CommunityModerationAction(
         profile_id=target.id, admin_username=session.get('admin_user') or 'admin',
         action='ASSIGN_MAIN_COMMUNITY_ADMIN', note=f'Assigned reserved @{COMMUNITY_MAIN_ADMIN_HANDLE} access to both role feeds.',

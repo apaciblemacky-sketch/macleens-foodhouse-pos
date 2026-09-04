@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Isolated behavioral smoke test for Community Lite v6."""
+"""Isolated behavioral smoke test for Community Projects v7."""
 from __future__ import annotations
 
 import os
 import sys
 import tempfile
+import base64
+import io
 from datetime import datetime
 from pathlib import Path
 
@@ -17,12 +19,12 @@ def main() -> int:
         db_path = (Path(folder) / "community.db").resolve().as_posix()
         os.environ["DATABASE_URL"] = f"sqlite:///{db_path}"
         os.environ["SECRET_KEY"] = "isolated-community-lite-check"
-        os.environ["COMMUNITY_INTERNAL_CHAT_OPEN"] = "false"
         os.environ["COMMUNITY_SOCIAL_REWARDS_OPEN"] = "false"
         os.environ["COMMUNITY_GIFTING_OPEN"] = "false"
         os.environ["COMMUNITY_RESHARING_OPEN"] = "false"
 
         from werkzeug.security import generate_password_hash
+        from PIL import Image
         import app as m
 
         m.app.config.update(TESTING=True)
@@ -31,7 +33,7 @@ def main() -> int:
             rows = (
                 ("Campus Tester", "campus.tester", "STUDENT"),
                 ("Town Tester", "town.tester", "RESIDENT"),
-                ("Community Owner", "uzu.macky", "RESIDENT"),
+                ("Community Owner", "uzu.macky", "STUDENT"),
                 ("Town Viewer", "town.viewer", "RESIDENT"),
             )
             for index, (name, handle, role) in enumerate(rows, 1):
@@ -79,6 +81,18 @@ def main() -> int:
             assert b'data-community-tab="gifts"' not in campus_page.data
             assert b'data-community-tab="rankings"' not in campus_page.data
             assert b"No points for likes or follows" in campus_page.data
+            assert b"Buy &amp; Sell" in campus_page.data
+            assert b"Discussions" in campus_page.data
+            assert b"Textbook Buy" not in campus_page.data
+
+            # Posts can tag several people, with a firm anti-spam ceiling.
+            assert len(m.community_mentioned_handles(" ".join(f"@user{index:02d}" for index in range(25)))) == 25
+            try:
+                m.community_mentioned_handles(" ".join(f"@user{index:02d}" for index in range(26)))
+            except m.OrderValidationError as exc:
+                assert "up to 25" in str(exc)
+            else:
+                raise AssertionError("The 25-person mention ceiling was not enforced")
 
             # The first three safe posts need review; the fourth publishes immediately.
             for number in range(1, 4):
@@ -146,7 +160,7 @@ def main() -> int:
             assert m.CommunityAdminNotice.query.filter_by(kind="NEW_MEMBER", profile_id=applicant_profile.id).count() == 0
             assert client.post("/community/api/student-id-resubmit").status_code == 410
 
-            # Two workspaces per member; tasks/notes/polls stay, live chat is off.
+            # Two project workspaces per member; tasks/notes/polls stay and chat is absent.
             login("town.tester")
             invalid_group = client.post("/community/api/groups", json={"name": "Mixed Role Group", "invite_handles": "@campus.tester"})
             assert invalid_group.status_code == 400
@@ -172,9 +186,37 @@ def main() -> int:
                 "action": "CREATE", "question": "Preferred time?", "options": "2 PM\n3 PM", "duration_hours": 24,
             })
             assert task.status_code == note.status_code == poll.status_code == 200
+            assert task.json["progress"]["total"] == 1 and task.json["progress"]["percent"] == 0
             group_page = client.get(first_group.json["url"])
-            assert b"Purpose-based Community Lite workspace" in group_page.data
-            assert b"setInterval(pollMessages,5000)" not in group_page.data
+            assert b"Project monitoring workspace" in group_page.data
+            assert b"Project progress" in group_page.data
+            assert b'id="messageForm"' not in group_page.data
+            assert b'data-panel="chat"' not in group_page.data
+            assert b"/messages" not in group_page.data
+
+            # Main admin is not shown as a student profile and can upload a safe cover.
+            login("town.tester")
+            admin_profile_page = client.get("/community/member/uzu.macky")
+            assert admin_profile_page.status_code == 200 and b"MAIN ADMIN" in admin_profile_page.data
+            assert b"<strong>Campus</strong>" not in admin_profile_page.data
+            assert b"<strong>Department</strong>" not in admin_profile_page.data
+            assert b"<strong>Graduating year</strong>" not in admin_profile_page.data
+            cover = io.BytesIO()
+            Image.new("RGB", (900, 1200), (19, 128, 110)).save(cover, format="JPEG")
+            cover.seek(0)
+            login("uzu.macky")
+            saved_cover = client.post("/community/profile", data={
+                "handle": "uzu.macky", "public_bio": "Community administrator",
+                "cover_photo": (cover, "cover.jpg"),
+            }, headers={"X-Macleens-Community": "1"}, content_type="multipart/form-data")
+            assert saved_cover.status_code == 200
+            owner_profile = people["uzu.macky"][1]
+            m.db.session.refresh(owner_profile)
+            assert owner_profile.campus_name is None and owner_profile.department is None and owner_profile.graduating_year is None
+            assert owner_profile.cover_image_data.startswith("data:image/webp;base64,")
+            with Image.open(io.BytesIO(base64.b64decode(owner_profile.cover_image_data.split(",", 1)[1]))) as normalized:
+                assert normalized.size == (1600, 600)
+            assert b"cover photo" in client.get("/community/member/uzu.macky").data.lower()
 
             # Ad views do not create writes; deliberate clicks remain measurable.
             before = ad.impression_count
@@ -189,6 +231,7 @@ def main() -> int:
             assert b"Community Lite safety controls" in admin_page.data
             assert b"Student checks pending" in admin_page.data
             assert b"Priority verification and safety alerts" in admin_page.data
+            assert b"Private group-message safety review" not in admin_page.data
 
             # Migration erases any legacy ID blob without deleting the profile.
             applicant_profile.student_id_image_data = "data:image/webp;base64,legacy"
@@ -202,7 +245,7 @@ def main() -> int:
             health = client.get("/healthz")
             assert health.status_code == 200 and health.json["community_mode"] == "lite"
 
-    print("COMMUNITY LITE SMOKE CHECK PASSED")
+    print("COMMUNITY PROJECTS V7 SMOKE CHECK PASSED")
     return 0
 
 

@@ -21,8 +21,6 @@ services:
         value: "true"
       - key: COMMUNITY_GROUP_WORKSPACES_OPEN
         value: "true"
-      - key: COMMUNITY_INTERNAL_CHAT_OPEN
-        value: "false"
       - key: COMMUNITY_SOCIAL_REWARDS_OPEN
         value: "false"
       - key: COMMUNITY_GIFTING_OPEN
