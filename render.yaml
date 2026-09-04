@@ -4,11 +4,35 @@ services:
     name: macleens-foodhouse-pos
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    # One worker is safe with the bundled/local SQLite fallback. The threads
+    # handle short concurrent requests without duplicating scheduled work.
+    startCommand: gunicorn --workers 1 --threads 4 --timeout 120 app:app
     healthCheckPath: /healthz
     envVars:
       - key: SECRET_KEY
         generateValue: true
+      # Strongly recommended before public Community growth: paste the internal
+      # connection URL from a managed PostgreSQL database. Never commit it.
+      - key: DATABASE_URL
+        sync: false
+      - key: COMMUNITY_REGISTRATION_OPEN
+        value: "true"
+      - key: COMMUNITY_POSTING_OPEN
+        value: "true"
+      - key: COMMUNITY_GROUP_WORKSPACES_OPEN
+        value: "true"
+      - key: COMMUNITY_INTERNAL_CHAT_OPEN
+        value: "false"
+      - key: COMMUNITY_SOCIAL_REWARDS_OPEN
+        value: "false"
+      - key: COMMUNITY_GIFTING_OPEN
+        value: "false"
+      - key: COMMUNITY_RESHARING_OPEN
+        value: "false"
+      - key: COMMUNITY_TRUSTED_POST_THRESHOLD
+        value: "3"
+      - key: COMMUNITY_MAX_OWNED_GROUPS
+        value: "2"
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MARKETING_MODEL

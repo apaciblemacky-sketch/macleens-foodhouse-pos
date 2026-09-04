@@ -9,20 +9,22 @@
   <style>
     :root{--ink:#172033;--muted:#64748b;--line:#dbe4ee;--teal:#0f766e;--pink:#e72f83;--cream:#fffaf5;--campus:#4f46e5;--town:#ea580c}
     *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top left,#ccfbf1,transparent 34%),radial-gradient(circle at top right,#fce7f3,transparent 32%),#f8fafc;color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}.shell{width:min(920px,calc(100% - 28px));margin:24px auto 60px}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}.brand{display:flex;align-items:center;gap:11px}.brand img{width:58px;height:58px;border-radius:19px;object-fit:cover;box-shadow:0 8px 24px #0f766e33}.brand strong{font-size:1.1rem}.brand small{display:block;color:var(--muted);margin-top:2px}.back{color:var(--teal);font-weight:850;text-decoration:none}.hero,.panel{background:#ffffffdd;border:1px solid #fff;border-radius:25px;box-shadow:0 22px 60px #0f172a12}.hero{padding:28px;margin-bottom:16px}.eyebrow{font-size:.72rem;font-weight:900;color:var(--teal);text-transform:uppercase;letter-spacing:.12em}.hero h1{font-size:clamp(2rem,6vw,3.55rem);line-height:.98;margin:10px 0 12px;letter-spacing:-.055em}.hero p{max-width:680px;color:var(--muted);line-height:1.55;margin:0}.privacy{margin-top:18px;padding:13px 15px;border-radius:16px;background:#ecfdf5;border:1px solid #99f6e4;color:#115e59;font-size:.82rem;line-height:1.45}.panel{padding:24px}.role-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0 22px}.role{position:relative;cursor:pointer}.role input{position:absolute;opacity:0}.role span{display:block;border:2px solid var(--line);border-radius:18px;padding:17px;min-height:120px;background:#fff;transition:.18s}.role strong{font-size:1rem}.role small{display:block;color:var(--muted);line-height:1.45;margin-top:7px}.role input:checked+span{border-color:var(--teal);box-shadow:0 0 0 4px #ccfbf1;transform:translateY(-2px)}label.field{display:block;font-size:.76rem;font-weight:850;margin:12px 0 5px}.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}input,select{width:100%;padding:12px 13px;border:1px solid #cbd5e1;border-radius:12px;background:white;color:var(--ink);font:inherit;outline:none}input:focus,select:focus{border-color:var(--teal);box-shadow:0 0 0 3px #ccfbf1}.conditional{padding:14px;border-radius:16px;background:#f8fafc;border:1px solid var(--line);margin-top:13px}.verify-note{font-size:.78rem;color:var(--muted);line-height:1.45;margin-top:10px}.consent{display:flex;gap:10px;align-items:flex-start;background:var(--cream);border:1px solid #fed7aa;border-radius:14px;padding:13px;margin:16px 0;font-size:.78rem;line-height:1.45}.consent input{width:auto;margin-top:3px}.submit{width:100%;border:0;border-radius:14px;padding:13px 18px;background:linear-gradient(135deg,var(--teal),#0d9488);color:white;font-size:.9rem;font-weight:900;cursor:pointer;box-shadow:0 10px 24px #0f766e38}.footer{text-align:center;color:var(--muted);font-size:.7rem;line-height:1.45;margin-top:18px}@media(max-width:620px){.shell{margin-top:14px}.hero,.panel{padding:19px;border-radius:20px}.role-grid,.field-row{grid-template-columns:1fr}.top{align-items:flex-start}.brand small{max-width:180px}}
+    .registration-closed .panel{display:none}
   </style>
 </head>
-<body>
+<body class="{{ 'registration-closed' if registration_closed|default(false) else '' }}">
   <main class="shell">
     <div class="top">
       <div class="brand"><img src="{{ store_logo }}" alt="Macleen’s logo"><div><strong>Macleen’s Community</strong><small>Local updates, useful connections, real rewards</small></div></div>
       <a class="back" href="/portal/dashboard">My rewards</a>
     </div>
     {% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="privacy" style="{% if category == 'error' %}background:#fef2f2;border-color:#fecaca;color:#991b1b{% endif %}">{{ message }}</div>{% endfor %}{% endwith %}
+    {% if registration_closed|default(false) %}<div class="privacy" style="background:#fffbeb;border-color:#fde68a;color:#92400e"><strong>Community registration is temporarily paused.</strong> Existing loyalty, ordering, Crafts, and Digital Business features remain available. Please try Community registration again after the maintenance notice is cleared.</div>{% endif %}
     <section class="hero">
       <div class="eyebrow">Optional social profile</div>
       <h1>Your local circle,<br>without exposing your account.</h1>
       <p>Your loyalty account stays private. Other members see only the handle, avatar, role badge, and profile details you choose below—never your mobile number, address, PIN, points balance, or purchase history.</p>
-      <div class="privacy"><strong>Privacy-first verification:</strong> Student applicants upload one clear ID picture for authorized staff review only. It is never shown in the community and is automatically erased after approval or rejection. Residents choose a self-declared barangay. Your mobile number, PIN, loyalty points, and purchases stay private.</div>
+      <div class="privacy"><strong>Privacy-first verification:</strong> Macleen’s does not upload or retain student-ID images. Unless staff already pre-approved your loyalty account, show your current ID privately in person before Campus interactions unlock. Residents choose a self-declared barangay. Your mobile number, PIN, loyalty points, and purchases stay private.</div>
     </section>
     <section class="panel">
       <form action="{{ url_for('community_save_profile') }}" method="post" enctype="multipart/form-data" id="communityProfileForm">
@@ -43,7 +45,7 @@
           </div>
           <label class="field" for="graduatingYear">Expected graduating year</label>
           <input id="graduatingYear" type="number" name="graduating_year" min="{{ today.year if today else 2026 }}" max="{{ (today.year + 10) if today else 2036 }}" value="{{ today.year + 1 if today else 2027 }}">
-          {% if student_preapproved %}<div class="privacy"><strong>Staff pre-approved:</strong> your loyalty account is already tagged as a known student, so no ID upload is needed.</div>{% else %}<label class="field" for="studentId">Student ID picture (private review)</label><input id="studentId" type="file" name="student_id" accept="image/jpeg,image/png,image/webp" required><div class="verify-note">Maximum 3 MB. Upload the front of a valid student ID with readable school and student details. The image is admin-only and erased after approval or rejection.</div>{% endif %}
+          {% if student_preapproved %}<div class="privacy"><strong>Staff pre-approved:</strong> your loyalty account is already tagged as a known student, so you can enter Campus Hub immediately.</div>{% else %}<div class="privacy"><strong>Private visual check required:</strong> create the profile now, then bring your current student ID to Macleen’s. Staff checks it without photographing or storing a copy.</div>{% endif %}
         </div>
 
         <div id="residentFields" class="conditional" hidden>
@@ -54,7 +56,7 @@
           <div class="verify-note">Barangay is self-declared until staff verifies it. It is used for aggregate Barangay Pride scores, never to reveal your exact address.</div>
         </div>
 
-        <label class="consent"><input type="checkbox" name="privacy_consent" required><span>I choose to create an optional public community profile. I understand my role controls the only feed I can access, student verification is reviewed by authorized staff, my first post requires approval, and I can ask Macleen’s to deactivate my profile.</span></label>
+        <label class="consent"><input type="checkbox" name="privacy_consent" required><span>I choose to create an optional public community profile. I understand my role controls the only feed I can access, student status is checked privately by staff, my first three posts require approval, and I can ask Macleen’s to deactivate my profile.</span></label>
         <button class="submit" type="submit">Create my community profile</button>
       </form>
     </section>

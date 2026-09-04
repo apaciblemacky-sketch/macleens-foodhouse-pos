@@ -1,18 +1,19 @@
-MACLEEN'S FOOD HOUSE - FULL REPLACEMENT UPDATE
+MACLEEN'S FOOD HOUSE - COMPLETE FLAT REPLACEMENT
 
-This ZIP is ROOT-LEVEL / FLAT. When opened, app.py, requirements.txt,
-templates, static, RUN_MACLEENS.bat, and DEPLOY_TO_RENDER.bat appear immediately.
+Release: 2026.09.04-community-lite-scale-safety-v6
 
-INSTALL AND DEPLOY
-1. Open the local GitHub-connected Macleen's project folder.
-2. Keep the hidden .git folder and any private .env file.
-3. Copy every item from this ZIP into that folder and approve Replace All.
-4. Double-click RUN_MACLEENS.bat and test locally.
-5. Double-click DEPLOY_TO_RENDER.bat; type DEPLOY when prompted.
-6. Wait for Render to show Live. Open /healthz and confirm release:
-   2026.09.04-community-group-collaboration-v5
-7. Test the exact workflows in ORIGINAL_PRODUCT_PHOTO_PREVIEW_UPDATE.md and
-   COMMUNITY_HUB_UPDATE.md.
+The ZIP opens directly to app.py, requirements.txt, templates, static,
+RUN_MACLEENS.bat, and DEPLOY_TO_RENDER.bat. It contains the whole current system,
+not only the changed Community files.
+
+REPLACE AND TEST
+1. Open your local GitHub-connected Macleen's project folder.
+2. Keep its hidden .git folder and any private .env file.
+3. Copy every item from this ZIP into that folder and choose Replace All.
+4. Double-click RUN_MACLEENS.bat and complete the local checks.
+5. Review COMMUNITY_LITE_SCALE_UPDATE.md.
+6. Double-click DEPLOY_TO_RENDER.bat and type DEPLOY when prompted.
+7. Wait for Render to show Live, then open /healthz and confirm the release.
 
 MAIN LINKS
 Storefront:       https://macleens-foodhouse-pos.onrender.com/
@@ -22,54 +23,34 @@ Community Admin:  https://macleens-foodhouse-pos.onrender.com/admin/community
 Cashier:          https://macleens-foodhouse-pos.onrender.com/pos/cashier
 Health:           https://macleens-foodhouse-pos.onrender.com/healthz
 
-THIS RELEASE ADDS
-- Reliable 1200 x 630 JPEG previews for every Food House product link.
-- Original product photo preserved without darkening, recoloring, or cropping.
-- Bright split-card layout with a category-aware fallback if the source breaks.
-- Versioned image URLs and server caching to prevent stale or empty thumbnails.
-- Legacy PNG preview links redirect safely to the new JPEG image.
-- Optional privacy-separated Community profiles linked to loyalty accounts.
-- Viewable same-role community profiles with an optional profile lock.
-- Suggested People cards plus no-refresh follow and connection controls.
-- No-refresh likes, comments, and word-only reshares on community posts.
-- Private Community Admin alerts for every new join and student-ID review event.
-- Server-locked dashboards: Students receive Campus Hub only; Residents receive
-  Town Square only; reserved @uzu.macky can administer and switch between both.
-- Text-only member wall posts in newest-first order with @handle tags and alerts.
-- Private student-ID application review with automatic image deletion, plus an
-  Admin pre-approval tag for known loyalty customers.
-- In-place follows, likes, comments, reports, connections, gifts, polls, profile
-  edits, and applications without browser refreshes.
-- Facebook-style navigation keeps the Wall dominant; Alerts, Rewards, Gifts,
-  People, Chats, Rankings, and Settings open only when their tab is selected.
-- Invite-only, role-locked group chats for up to 25 accepted members.
-- Messenger-style in-place messaging with five-second polling and no page reload.
-- Group task assignment, due dates and statuses; editable/pinnable shared notes;
-  live single-choice polls; owner-managed invitations and member removal.
-- Ordinary group chat stays member-only. Only held or reported messages appear
-  in the private Community Admin safety queue. Chats are not end-to-end encrypted.
-- One-time loyalty awards: +0.5 for first following @uzu.macky and +0.2 for the
-  first like on each @uzu.macky post; database receipts block reward farming.
-- Human-reviewed safety phrase holds and temporary three-report quarantine.
-- Daily check-ins, controlled Mystery Drops, and group-level leaderboards.
-- PIN-confirmed point or in-stock product gifting with daily limits.
-- Role/channel-targeted native ads after each fifth feed post.
-- Admin-scheduled 8:00 AM Flash Polls and time-limited Flash Perch alerts.
-- Optional consent-based browser Web Push when VAPID variables are configured.
-- Cashier member QR/manual lookup, one-time gift/freebie redemption, and a
-  digital purchase-card view derived from the existing paid-spend ledger.
-- Existing POS, products, ordering, points discounts, Crafts, Digital,
-  Marketing, cash flow, and private investor features remain in the package.
+COMMUNITY LITE V6
+- Keeps role-separated feeds, viewable/lockable profiles, People suggestions,
+  follows, likes, comments, mentions, reports, classifieds, Digital Business,
+  alerts, ads, and purpose-based group workspaces.
+- Keeps no-refresh customer interactions.
+- Reviews each member's first three posts, then publishes later safe posts.
+- Shows Admin summary counts instead of creating one notification per join.
+- Uses in-person student-ID visual checks or a staff pre-approval tag. No ID
+  image is uploaded or retained; legacy pending ID blobs are erased on migration.
+- Caps ordinary members at two active owned workspaces. Workspaces retain tasks,
+  notes, polls, members, and an optional external Messenger link.
+- Pauses internal live chat, social reward points, new peer gifts, public
+  reshares, streak prizes, Mystery Drops, leaderboards, and per-view ad writes.
+- Adds Render emergency switches for registration, posting, and workspaces.
+- Warns in /healthz and Admin if a production service still uses SQLite.
 
-IMPORTANT
-- SMS OTP is not simulated. Existing mobile + PIN login remains active until a
-  real SMS provider, consent flow, rate limits, and recovery policy are chosen.
-- Student ID pictures are retained only while pending, shown only to Admin, and
-  automatically erased on approval/rejection. Apply a written retention policy.
-- Web Push is optional; in-app alerts work without VAPID configuration.
-- Group chat is intentionally a small-community pilot. Do not use it for IDs,
-  PINs, payment information, private addresses, or confidential records.
-- The database upgrade is additive. Existing records are preserved.
-- If a new link is 404 after deployment, confirm app.py is at the GitHub root.
-- Facebook may retain a preview from before deployment. Open Meta Sharing
-  Debugger, enter the exact product URL, and click Scrape Again before reposting.
+EXISTING BUSINESS FEATURES RETAINED
+POS, Cashier, Food House products and ordering, exact product choices and custom
+amounts, points discounts, loyalty cards, Crafts, Digital Business, AI Marketing,
+Meta insights, Facebook menu automation, cash flow, and private investor tools
+remain in this complete replacement package.
+
+BEFORE A LARGE PUBLIC LAUNCH
+- Configure a managed PostgreSQL DATABASE_URL; do not rely on SQLite for many
+  simultaneous members or multiple Render instances.
+- Back up and test a restore of production data.
+- Change default Admin/Cashier PINs and keep all tokens only in Render variables.
+- Test the three emergency switches and moderation workflow.
+- Review privacy, retention, terms, and breach-response procedures with a
+  qualified Philippine privacy/legal professional.
+

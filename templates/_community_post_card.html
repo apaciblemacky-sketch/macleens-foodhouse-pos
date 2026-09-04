@@ -30,7 +30,6 @@
     <div class="actions">
       <button class="action-btn {{ 'active' if reaction_map.get(post.id) == 'LIKE' else '' }}" type="button" onclick="reactCommunityPost({{ post.id }},this)">♥ Like <span>{{ post_stats[post.id].reactions }}</span></button>
       <button class="action-btn" type="button" onclick="focusComment({{ post.id }})">💬 Comment <span id="commentCount-{{ post.id }}">{{ post_stats[post.id].comments }}</span></button>
-      <button class="action-btn" type="button" data-reshare-root="{{ post.reshared_post_id or post.id }}" onclick="reshareCommunityPost({{ post.id }},this)">↻ Reshare <span>{{ post_stats[post.id].reshares }}</span></button>
       {% if not post.author or post.author_profile_id != profile.id %}<button class="action-btn report" type="button" onclick="reportCommunityPost({{ post.id }})">Report</button>{% endif %}
     </div>
     <div class="comments" id="comments-{{ post.id }}">{% for comment in post_comments.get(post.id,[]) %}<div class="comment mention-text">{% if comment.author %}<a href="{{ url_for('community_member_profile', handle=comment.author.handle) }}">@{{ comment.author.handle }}</a>{% else %}<strong>@member</strong>{% endif %} {{ comment.body }}</div>{% endfor %}</div>

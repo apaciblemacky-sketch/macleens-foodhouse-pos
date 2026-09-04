@@ -67,7 +67,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.04-community-group-collaboration-v5'
+APP_RELEASE = '2026.09.04-community-lite-scale-safety-v6'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -624,6 +624,7 @@ class CommunityGroup(db.Model):
     name = db.Column(db.String(80), nullable=False)
     channel = db.Column(db.String(20), nullable=False)
     created_by_profile_id = db.Column(db.Integer, db.ForeignKey('community_profile.id', ondelete='SET NULL'), nullable=True, index=True)
+    external_chat_url = db.Column(db.String(500), nullable=True)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
@@ -1556,6 +1557,9 @@ def run_schema_migrations():
         'community_post': [
             ('reshared_post_id', 'INTEGER'),
         ],
+        'community_group': [
+            ('external_chat_url', 'VARCHAR(500)'),
+        ],
     }
 
     inspector = inspect(db.engine)
@@ -1581,6 +1585,9 @@ def run_schema_migrations():
         if 'community_profile' in tables:
             conn.execute(text("UPDATE community_profile SET is_community_admin = FALSE WHERE is_community_admin IS NULL"))
             conn.execute(text("UPDATE community_profile SET is_profile_locked = FALSE WHERE is_profile_locked IS NULL"))
+            # Community Lite never retains student-ID images. Existing images are
+            # erased during migration; verification continues through staff review.
+            conn.execute(text("UPDATE community_profile SET student_id_image_data = NULL, student_id_deleted_at = CURRENT_TIMESTAMP WHERE student_id_image_data IS NOT NULL"))
         if 'promotion_tracker' in tables:
             conn.execute(text("UPDATE promotion_tracker SET is_visible = TRUE WHERE is_visible IS NULL"))
             conn.execute(text("UPDATE promotion_tracker SET portal_only = FALSE WHERE portal_only IS NULL"))
@@ -2442,12 +2449,27 @@ COMMUNITY_REPORT_REASONS = ('HARASSMENT', 'HATE_OR_ABUSE', 'MISINFORMATION', 'SC
 COMMUNITY_GIFT_DAILY_CAP = 50.0
 COMMUNITY_GROUP_PRIVACY_MINIMUM = 3
 COMMUNITY_MAIN_ADMIN_HANDLE = 'uzu.macky'
-COMMUNITY_MAIN_ADMIN_FOLLOW_REWARD = 0.5
-COMMUNITY_MAIN_ADMIN_LIKE_REWARD = 0.2
 COMMUNITY_GROUP_MAX_MEMBERS = 25
+COMMUNITY_TRUSTED_POST_THRESHOLD = max(1, int(os.environ.get('COMMUNITY_TRUSTED_POST_THRESHOLD', '3')))
+COMMUNITY_MAX_OWNED_GROUPS = max(1, int(os.environ.get('COMMUNITY_MAX_OWNED_GROUPS', '2')))
 COMMUNITY_GROUP_TASK_STATUSES = ('TODO', 'DOING', 'DONE')
 COMMUNITY_GROUP_TASK_PRIORITIES = ('LOW', 'NORMAL', 'HIGH')
 COMMUNITY_MENTION_PATTERN = re.compile(r'(?<![A-Za-z0-9._])@([A-Za-z0-9][A-Za-z0-9._]{2,23})', re.IGNORECASE)
+
+def community_env_enabled(name, default=True):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {'0', 'false', 'no', 'off', 'disabled'}
+
+COMMUNITY_REGISTRATION_OPEN = community_env_enabled('COMMUNITY_REGISTRATION_OPEN', True)
+COMMUNITY_POSTING_OPEN = community_env_enabled('COMMUNITY_POSTING_OPEN', True)
+COMMUNITY_GROUP_WORKSPACES_OPEN = community_env_enabled('COMMUNITY_GROUP_WORKSPACES_OPEN', True)
+# Expensive or abuse-prone v5 features are intentionally paused in Community Lite.
+COMMUNITY_INTERNAL_CHAT_OPEN = community_env_enabled('COMMUNITY_INTERNAL_CHAT_OPEN', False)
+COMMUNITY_SOCIAL_REWARDS_OPEN = community_env_enabled('COMMUNITY_SOCIAL_REWARDS_OPEN', False)
+COMMUNITY_GIFTING_OPEN = community_env_enabled('COMMUNITY_GIFTING_OPEN', False)
+COMMUNITY_RESHARING_OPEN = community_env_enabled('COMMUNITY_RESHARING_OPEN', False)
 
 def normalize_community_handle(value, allow_main_admin=False):
     handle = (value or '').strip().lower().lstrip('@')
@@ -2496,6 +2518,10 @@ def community_can_view_profile(viewer, target):
 
 def community_add_admin_notice(kind, target_key, message, profile=None):
     """Queue an idempotent private notice for the Community Admin page."""
+    # New-member activity is summarized from profiles on the Admin page. Avoid
+    # one database notification per join; retain urgent verification/safety notices.
+    if kind == 'NEW_MEMBER':
+        return
     if not CommunityAdminNotice.query.filter_by(kind=kind, target_key=target_key).first():
         db.session.add(CommunityAdminNotice(
             profile_id=profile.id if profile else None,
@@ -2505,7 +2531,6 @@ def community_add_admin_notice(kind, target_key, message, profile=None):
         ))
     main_admin = CommunityProfile.query.filter_by(is_community_admin=True).first()
     member_kind = {
-        'NEW_MEMBER': 'MEMBER_JOIN',
         'STUDENT_APPLICATION': 'STUDENT_REVIEW',
         'STUDENT_ID_RESUBMITTED': 'STUDENT_REVIEW',
     }.get(kind)
@@ -2570,11 +2595,11 @@ def community_group_actor(group_id):
     group = db.session.get(CommunityGroup, group_id)
     membership = community_group_membership(profile.id, group_id, status='ACTIVE') if group else None
     if not group or not group.is_active or not membership:
-        return cust, profile, group, membership, (jsonify({'success': False, 'message': 'This group chat is unavailable or you are not an active member.'}), 403)
+        return cust, profile, group, membership, (jsonify({'success': False, 'message': 'This group workspace is unavailable or you are not an active member.'}), 403)
     if not profile.is_community_admin and group.channel != community_channel_for_role(profile.role):
-        return cust, profile, group, membership, (jsonify({'success': False, 'message': 'This chat is outside your role-locked community.'}), 403)
+        return cust, profile, group, membership, (jsonify({'success': False, 'message': 'This workspace is outside your role-locked community.'}), 403)
     if profile.role == 'STUDENT' and profile.verification_status != 'VERIFIED' and not profile.is_community_admin:
-        return cust, profile, group, membership, (jsonify({'success': False, 'message': 'Student verification is required before using group chats.'}), 403)
+        return cust, profile, group, membership, (jsonify({'success': False, 'message': 'Student verification is required before using group workspaces.'}), 403)
     return cust, profile, group, membership, None
 
 def community_group_target_allowed(group, target):
@@ -2717,6 +2742,8 @@ def community_student_id_from_request(file_key='student_id'):
 
 def community_award_once(cust, event_type, target_key, amount, reason):
     """Award loyalty points once per immutable event target to prevent toggle farming."""
+    if not COMMUNITY_SOCIAL_REWARDS_OPEN:
+        return 0.0
     # Serialize reward writes for one loyalty account on production databases.
     cust = Customer.query.filter_by(id=cust.id).with_for_update().first() or cust
     existing = CommunityEngagementReward.query.filter_by(
@@ -9374,7 +9401,7 @@ def community_profile_values(form, existing=None):
         'vibe_status': None,
         'barangay': None,
         'resident_since_year': None,
-        'verification_method': (existing.verification_method if existing else ('ID_UPLOAD' if role == 'STUDENT' else 'SELF_DECLARED')),
+        'verification_method': (existing.verification_method if existing else ('IN_PERSON_PENDING' if role == 'STUDENT' else 'SELF_DECLARED')),
         'public_bio': re.sub(r'\s+', ' ', (form.get('public_bio') or '').strip())[:160] or None,
         'is_profile_locked': str(form.get('is_profile_locked') or '').strip().lower() in {'1', 'true', 'on', 'yes'},
     }
@@ -9411,6 +9438,8 @@ def community_home():
         return redirect(url_for('customer_login', next='community'))
     profile = CommunityProfile.query.filter_by(customer_id=cust.id).first()
     if not profile:
+        if not COMMUNITY_REGISTRATION_OPEN:
+            return render_template('community_setup.html', cust=cust, registration_closed=True, student_preapproved=False, campuses=COMMUNITY_CAMPUSES, departments=COMMUNITY_DEPARTMENTS, barangays=BINALBAGAN_BARANGAYS, today=ph_today()), 503
         return render_template(
             'community_setup.html',
             cust=cust,
@@ -9421,8 +9450,7 @@ def community_home():
             today=ph_today(),
         )
 
-    checkin, new_drop = community_check_in(profile)
-    db.session.commit()
+    checkin, new_drop = None, None
     now = utc_now()
     own_channel = community_channel_for_role(profile.role)
     visible_channels = list(COMMUNITY_CHANNELS) if profile.is_community_admin else [own_channel]
@@ -9432,9 +9460,9 @@ def community_home():
         CommunityPost.published_at <= now,
         CommunityPost.channel.in_(visible_channels + ['GLOBAL']),
         or_(CommunityPost.expires_at.is_(None), CommunityPost.expires_at > now),
-    ).order_by(CommunityPost.created_at.desc()).limit(120).all()
+    ).order_by(CommunityPost.created_at.desc()).limit(50).all()
     channel_posts = {
-        channel: [post for post in posts if post.channel in {'GLOBAL', channel}][:60]
+        channel: [post for post in posts if post.channel in {'GLOBAL', channel}][:25]
         for channel in visible_channels
     }
     post_comments = {}
@@ -9459,11 +9487,8 @@ def community_home():
         if post.post_type == 'POLL':
             poll_results[post.id] = community_poll_results(post)
 
-    campus_leaders, barangay_leaders = community_group_leaderboards()
-    incoming_gifts = CommunityGift.query.filter_by(recipient_customer_id=cust.id).order_by(CommunityGift.created_at.desc()).limit(12).all()
-    outgoing_gifts = CommunityGift.query.filter_by(sender_customer_id=cust.id).order_by(CommunityGift.created_at.desc()).limit(8).all()
-    drops = CommunityDrop.query.filter_by(customer_id=cust.id).order_by(CommunityDrop.created_at.desc()).limit(8).all()
-    gift_products = Product.query.filter(Product.is_active.is_(True), Product.stock > 0).order_by(Product.name.asc()).all()
+    campus_leaders, barangay_leaders = [], []
+    incoming_gifts, outgoing_gifts, drops, gift_products = [], [], [], []
     lifetime_punches = max(0, int(parse_float(cust.accumulated_spend, 0.0) // 30))
     friend_profile_ids = community_friend_profile_ids(profile.id)
     friends = CommunityProfile.query.filter(CommunityProfile.id.in_(friend_profile_ids)).order_by(CommunityProfile.handle.asc()).all() if friend_profile_ids else []
@@ -9499,15 +9524,6 @@ def community_home():
     ).order_by(CommunityGroupMember.created_at.desc()).all()
     community_groups = [row for row in group_memberships if row.group and row.group.is_active]
     group_unread_counts = {}
-    for membership in group_memberships:
-        if not membership.group or not membership.group.is_active:
-            continue
-        unread_query = CommunityGroupMessage.query.filter_by(group_id=membership.group_id, status='PUBLISHED')
-        if membership.last_read_at:
-            unread_query = unread_query.filter(CommunityGroupMessage.created_at > membership.last_read_at)
-        group_unread_counts[membership.group_id] = unread_query.filter(
-            or_(CommunityGroupMessage.author_profile_id.is_(None), CommunityGroupMessage.author_profile_id != profile.id)
-        ).count()
     group_invites = CommunityGroupMember.query.filter_by(
         profile_id=profile.id, status='INVITED',
     ).order_by(CommunityGroupMember.created_at.desc()).all()
@@ -9576,6 +9592,10 @@ def community_home():
         group_unread_counts=group_unread_counts,
         group_invites=group_invites,
         community_group_max_members=COMMUNITY_GROUP_MAX_MEMBERS,
+        community_max_owned_groups=COMMUNITY_MAX_OWNED_GROUPS,
+        community_posting_open=COMMUNITY_POSTING_OPEN,
+        community_group_workspaces_open=COMMUNITY_GROUP_WORKSPACES_OPEN,
+        community_trusted_post_threshold=COMMUNITY_TRUSTED_POST_THRESHOLD,
         mentionable_profiles=mentionable_profiles,
     )
 
@@ -9673,6 +9693,8 @@ def community_save_profile():
     profile = CommunityProfile.query.filter_by(customer_id=cust.id).first()
     is_new = profile is None
     try:
+        if is_new and not COMMUNITY_REGISTRATION_OPEN:
+            raise OrderValidationError('Community registration is temporarily paused by the administrator.')
         if is_new and not request.form.get('privacy_consent'):
             raise OrderValidationError('You must accept the community privacy notice and rules before joining.')
         values = community_profile_values(request.form, existing=profile)
@@ -9684,13 +9706,9 @@ def community_save_profile():
                     profile.verification_method = 'ADMIN_TAG'
                     profile.verification_note = 'Pre-approved by authorized staff before community registration.'
                 else:
-                    student_id = community_student_id_from_request('student_id')
-                    if not student_id:
-                        raise OrderValidationError('Upload a clear student ID picture to apply for Campus Hub access.')
-                    profile.student_id_image_data = student_id
-                    profile.student_id_uploaded_at = utc_now()
                     profile.verification_status = 'PENDING'
-                    profile.verification_method = 'ID_UPLOAD'
+                    profile.verification_method = 'IN_PERSON_PENDING'
+                    profile.verification_note = 'Visit Macleen’s with a current student ID for private visual verification; no ID image is retained.'
             else:
                 profile.verification_status = 'SELF_DECLARED'
             db.session.add(profile)
@@ -9763,13 +9781,9 @@ def community_student_application():
             profile.first_post_approved = False
             message = 'Student role approved from the staff pre-verification tag. Open Community again to enter Campus Hub.'
         else:
-            student_id = community_student_id_from_request('student_id')
-            if not student_id:
-                raise OrderValidationError('Upload a clear student ID picture for private staff review.')
-            profile.student_id_image_data = student_id
-            profile.student_id_uploaded_at = utc_now()
-            profile.student_id_deleted_at = None
-            message = 'Student application sent privately. You remain in Town Square until staff approves it.'
+            profile.verification_method = 'IN_PERSON_PENDING'
+            profile.verification_note = 'Awaiting private in-person student-ID check; no ID image is stored.'
+            message = 'Student application sent. Bring your current student ID to Macleen’s for a private visual check; no ID photo is stored. You remain in Town Square until approval.'
         community_add_admin_notice(
             'STUDENT_APPLICATION', f'profile:{profile.id}:student-application:{utc_now().isoformat()}',
             f'@{profile.handle} submitted a student-access application for private staff review.',
@@ -9786,28 +9800,10 @@ def community_student_id_resubmit():
     cust, profile, error = community_api_actor()
     if error:
         return error
-    if profile.role != 'STUDENT' or profile.is_community_admin or profile.verification_status == 'VERIFIED':
-        return jsonify({'success': False, 'message': 'This student ID resubmission is not available.'}), 403
-    try:
-        student_id = community_student_id_from_request('student_id')
-        if not student_id:
-            raise OrderValidationError('Choose a clear student ID picture to resubmit.')
-        profile.student_id_image_data = student_id
-        profile.student_id_uploaded_at = utc_now()
-        profile.student_id_deleted_at = None
-        profile.verification_status = 'PENDING'
-        profile.verification_method = 'ID_UPLOAD'
-        profile.verification_note = None
-        community_add_admin_notice(
-            'STUDENT_ID_RESUBMITTED', f'profile:{profile.id}:student-id:{profile.student_id_uploaded_at.isoformat()}',
-            f'@{profile.handle} submitted a replacement student ID for private staff review.',
-            profile=profile,
-        )
-        db.session.commit()
-        return jsonify({'success': True, 'message': 'Replacement student ID sent privately for staff review.', 'status': 'PENDING'})
-    except OrderValidationError as exc:
-        db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
+    return jsonify({
+        'success': False,
+        'message': 'ID-image uploads are retired for privacy. Bring your current student ID to Macleen’s for a private visual check; no copy is retained.',
+    }), 410
 
 @app.route('/community/api/vibe', methods=['POST'])
 def community_update_vibe():
@@ -9918,11 +9914,6 @@ def community_toggle_follow(handle):
         db.session.add(CommunityFollow(follower_profile_id=profile.id, followed_profile_id=target.id))
         following = True
         message = f'You are now following @{target.handle}.'
-        if target.is_community_admin and target.handle.lower() == COMMUNITY_MAIN_ADMIN_HANDLE:
-            awarded = community_award_once(
-                cust, 'FOLLOW_MAIN_ADMIN', f'handle:{COMMUNITY_MAIN_ADMIN_HANDLE}', COMMUNITY_MAIN_ADMIN_FOLLOW_REWARD,
-                f'Community: first follow of @{COMMUNITY_MAIN_ADMIN_HANDLE}',
-            )
         notification_key = f'follower:{profile.id}'
         if not CommunityNotification.query.filter_by(recipient_profile_id=target.id, kind='FOLLOW', target_key=notification_key).first():
             db.session.add(CommunityNotification(
@@ -9951,10 +9942,15 @@ def community_create_group():
     cust, profile, error = community_api_actor()
     if error:
         return error
+    if not COMMUNITY_GROUP_WORKSPACES_OPEN:
+        return jsonify({'success': False, 'message': 'New Community workspaces are temporarily paused by the administrator.'}), 503
     if not community_can_interact(profile, community_channel_for_role(profile.role)):
-        return jsonify({'success': False, 'message': 'Student verification is required before creating group chats.'}), 403
+        return jsonify({'success': False, 'message': 'Student verification is required before creating group workspaces.'}), 403
     try:
-        community_rate_limit(cust.id, CommunityGroup, 1440, 5, author_field='created_by_profile_id', profile_id=profile.id)
+        active_owned = CommunityGroup.query.filter_by(created_by_profile_id=profile.id, is_active=True).count()
+        if active_owned >= COMMUNITY_MAX_OWNED_GROUPS and not profile.is_community_admin:
+            raise OrderValidationError(f'Each member can own up to {COMMUNITY_MAX_OWNED_GROUPS} active workspaces. Reuse an existing workspace or ask staff for help.')
+        community_rate_limit(cust.id, CommunityGroup, 1440, COMMUNITY_MAX_OWNED_GROUPS, author_field='created_by_profile_id', profile_id=profile.id)
         data = request.get_json(silent=True) or request.form
         name = re.sub(r'\s+', ' ', (data.get('name') or '').strip())
         if len(name) < 3 or len(name) > 80:
@@ -9962,6 +9958,7 @@ def community_create_group():
         channel = (data.get('channel') or '').strip().upper() if profile.is_community_admin else community_channel_for_role(profile.role)
         if channel not in COMMUNITY_CHANNELS or not community_can_interact(profile, channel):
             raise OrderValidationError('Choose a group channel you are allowed to manage.')
+        external_chat_url = community_safe_link(data.get('external_chat_url'))
         raw_handles = str(data.get('invite_handles') or '')
         handle_values = []
         for raw in re.split(r'[,\s]+', raw_handles):
@@ -9981,7 +9978,7 @@ def community_create_group():
             if not community_group_target_allowed(provisional, target):
                 raise OrderValidationError(f'@{target.handle} is outside this role-locked group or still awaiting verification.')
             invitees.append(target)
-        group = CommunityGroup(name=name, channel=channel, created_by_profile_id=profile.id, is_active=True)
+        group = CommunityGroup(name=name, channel=channel, created_by_profile_id=profile.id, external_chat_url=external_chat_url, is_active=True)
         db.session.add(group)
         db.session.flush()
         db.session.add(CommunityGroupMember(
@@ -10040,18 +10037,13 @@ def community_group_invite_response(membership_id):
 def community_group_chat(group_id):
     cust, profile, group, membership, error = community_group_actor(group_id)
     if error:
-        flash('That private group chat is unavailable or requires an accepted invitation.', 'error')
+        flash('That private group workspace is unavailable or requires an accepted invitation.', 'error')
         return redirect(url_for('community_home'))
-    membership.last_read_at = utc_now()
-    db.session.commit()
     active_memberships = CommunityGroupMember.query.filter_by(group_id=group.id, status='ACTIVE').order_by(CommunityGroupMember.joined_at.asc()).all()
     existing_profile_ids = {
         row.profile_id for row in CommunityGroupMember.query.filter_by(group_id=group.id).all()
     }
-    messages = list(reversed(
-        CommunityGroupMessage.query.filter_by(group_id=group.id, status='PUBLISHED')
-        .order_by(CommunityGroupMessage.id.desc()).limit(120).all()
-    ))
+    messages = []
     tasks = CommunityGroupTask.query.filter_by(group_id=group.id).order_by(
         CommunityGroupTask.status.asc(), CommunityGroupTask.due_date.asc(), CommunityGroupTask.created_at.desc(),
     ).limit(100).all()
@@ -10072,6 +10064,7 @@ def community_group_chat(group_id):
         is_group_owner=membership.member_role == 'OWNER', task_statuses=COMMUNITY_GROUP_TASK_STATUSES,
         task_priorities=COMMUNITY_GROUP_TASK_PRIORITIES, report_reasons=COMMUNITY_REPORT_REASONS,
         today=ph_today(), group_max_members=COMMUNITY_GROUP_MAX_MEMBERS,
+        internal_chat_open=COMMUNITY_INTERNAL_CHAT_OPEN,
     )
 
 @app.route('/community/api/groups/<int:group_id>/messages', methods=['GET', 'POST'])
@@ -10079,6 +10072,11 @@ def community_group_messages(group_id):
     cust, profile, group, membership, error = community_group_actor(group_id)
     if error:
         return error
+    if not COMMUNITY_INTERNAL_CHAT_OPEN:
+        return jsonify({
+            'success': False,
+            'message': 'Internal live chat is paused in Community Lite. Use the workspace tasks, notes, polls, or the owner’s optional external Messenger link.',
+        }), 410
     if request.method == 'GET':
         after_id = max(0, parse_int(request.args.get('after_id'), 0))
         messages = CommunityGroupMessage.query.filter(
@@ -10403,6 +10401,8 @@ def community_create_post():
     cust, profile, error = community_api_actor()
     if error:
         return error
+    if not COMMUNITY_POSTING_OPEN:
+        return jsonify({'success': False, 'message': 'Community posting is temporarily paused by the administrator.'}), 503
     try:
         community_rate_limit(cust.id, CommunityPost, 60, 5, profile_id=profile.id)
         channel = (request.form.get('channel') or '').strip().upper()
@@ -10420,7 +10420,8 @@ def community_create_post():
             raise OrderValidationError('Community member posts are word-only. Images, links, and member polls are disabled.')
         mentioned_profiles = community_validate_mentions(profile, channel, body)
         hits = community_moderation_hits(body)
-        requires_review = not profile.first_post_approved or bool(hits)
+        published_count = CommunityPost.query.filter_by(author_profile_id=profile.id, status='PUBLISHED').count()
+        requires_review = (not profile.is_community_admin and published_count < COMMUNITY_TRUSTED_POST_THRESHOLD) or bool(hits)
         post = CommunityPost(
             author_profile_id=profile.id,
             channel=channel,
@@ -10432,15 +10433,13 @@ def community_create_post():
             status='PENDING' if requires_review else 'PUBLISHED',
             moderation_hits=json.dumps(hits, ensure_ascii=False) if hits else None,
             published_at=None if requires_review else utc_now(),
-            score_awarded=not requires_review,
+            score_awarded=False,
         )
         db.session.add(post)
         db.session.flush()
         community_sync_post_mentions(post, mentioned_profiles, notify=not requires_review)
-        if not requires_review:
-            profile.community_score = round(parse_float(profile.community_score, 0.0) + 2.0, 2)
         db.session.commit()
-        message = 'Your first post was sent for staff approval.' if not profile.first_post_approved else 'Post held for a quick safety review.' if hits else 'Post published.'
+        message = ('Post held for a quick safety review.' if hits else f'Your first {COMMUNITY_TRUSTED_POST_THRESHOLD} posts require staff approval.') if requires_review else 'Post published.'
         return jsonify({
             'success': True,
             'pending': requires_review,
@@ -10477,11 +10476,6 @@ def community_react(post_id):
     else:
         db.session.add(CommunityReaction(post_id=post.id, customer_id=cust.id, reaction_type=reaction_type))
     awarded = 0.0
-    if active and reaction_type == 'LIKE' and post.author and post.author.is_community_admin and post.author.handle.lower() == COMMUNITY_MAIN_ADMIN_HANDLE and post.author_profile_id != profile.id:
-        awarded = community_award_once(
-            cust, 'LIKE_MAIN_ADMIN_POST', f'post:{post.id}', COMMUNITY_MAIN_ADMIN_LIKE_REWARD,
-            f'Community: first like on @{COMMUNITY_MAIN_ADMIN_HANDLE} post #{post.id}',
-        )
     if active and post.author_profile_id and post.author_profile_id != profile.id:
         key = f'post:{post.id}:actor:{profile.id}'
         if not CommunityNotification.query.filter_by(recipient_profile_id=post.author_profile_id, kind='REACTION', target_key=key).first():
@@ -10498,6 +10492,8 @@ def community_comment(post_id):
     cust, profile, error = community_api_actor()
     if error:
         return error
+    if not COMMUNITY_POSTING_OPEN:
+        return jsonify({'success': False, 'message': 'Community comments are temporarily paused by the administrator.'}), 503
     post = CommunityPost.query.get_or_404(post_id)
     if post.status != 'PUBLISHED' or not community_can_interact(profile, post.channel):
         return jsonify({'success': False, 'message': 'This channel is read-only for your role.'}), 403
@@ -10515,7 +10511,7 @@ def community_comment(post_id):
             body=body,
             status='PENDING' if hits else 'PUBLISHED',
             moderation_hits=json.dumps(hits, ensure_ascii=False) if hits else None,
-            score_awarded=not bool(hits),
+            score_awarded=False,
         )
         db.session.add(comment)
         db.session.flush()
@@ -10526,8 +10522,6 @@ def community_comment(post_id):
                         recipient_profile_id=target.id, actor_profile_id=profile.id, kind='COMMENT_MENTION',
                         target_key=f'comment:{comment.id}', message=f'@{profile.handle} tagged you in a comment.',
                     ))
-        if not hits:
-            profile.community_score = round(parse_float(profile.community_score, 0.0) + 0.5, 2)
         db.session.commit()
         return jsonify({
             'success': True,
@@ -10550,6 +10544,8 @@ def community_reshare_post(post_id):
     cust, profile, error = community_api_actor()
     if error:
         return error
+    if not COMMUNITY_RESHARING_OPEN:
+        return jsonify({'success': False, 'message': 'Public resharing is paused in Community Lite. Share the original post link outside the app if appropriate.'}), 410
     source = CommunityPost.query.get_or_404(post_id)
     root = source.reshared_post if source.reshared_post_id and source.reshared_post else source
     if source.status != 'PUBLISHED' or root.status != 'PUBLISHED' or not community_can_interact(profile, source.channel):
@@ -10673,23 +10669,24 @@ def community_poll_vote(post_id):
         return jsonify({'success': False, 'message': 'Choose a valid poll option.'}), 400
     if CommunityPollVote.query.filter_by(post_id=post.id, customer_id=cust.id).first():
         return jsonify({'success': False, 'message': 'You already voted in this poll.'}), 400
-    score = 1.0 if post.is_flash_poll else 0.25
+    score = 0.0
     db.session.add(CommunityPollVote(
         post_id=post.id,
         option_id=option.id,
         customer_id=cust.id,
         role_snapshot=profile.role,
-        score_awarded=True,
+        score_awarded=False,
     ))
-    profile.community_score = round(parse_float(profile.community_score, 0.0) + score, 2)
     db.session.commit()
-    return jsonify({'success': True, 'message': f'Vote recorded. +{score:g} community score.', 'score': profile.community_score, 'results': community_poll_results(post)})
+    return jsonify({'success': True, 'message': 'Vote recorded.', 'score': profile.community_score, 'results': community_poll_results(post)})
 
 @app.route('/community/api/gifts', methods=['POST'])
 def community_send_gift():
     cust, profile, error = community_api_actor()
     if error:
         return error
+    if not COMMUNITY_GIFTING_OPEN:
+        return jsonify({'success': False, 'message': 'New peer gifts are paused in Community Lite to protect loyalty balances. Existing issued vouchers remain valid.'}), 410
     if profile.role == 'STUDENT' and not community_can_interact(profile, 'CAMPUS'):
         return jsonify({'success': False, 'message': 'Student verification is required before sending gifts.'}), 403
     try:
@@ -10788,15 +10785,10 @@ def community_ad_impression(ad_id):
     cust, profile, error = community_api_actor()
     if error:
         return error
-    ad = CommunityAd.query.get_or_404(ad_id)
-    seen = session.get('community_ad_impressions', [])
-    marker = f'{ad.id}:{ph_today().isoformat()}'
-    if marker not in seen:
-        ad.impression_count = (ad.impression_count or 0) + 1
-        seen = (seen + [marker])[-30:]
-        session['community_ad_impressions'] = seen
-        db.session.commit()
-    return jsonify({'success': True})
+    CommunityAd.query.get_or_404(ad_id)
+    # Do not write one database row/update per screen view. Clicks remain the
+    # useful low-volume conversion signal until batched analytics is added.
+    return jsonify({'success': True, 'recorded': False, 'mode': 'clicks_only'})
 
 @app.route('/community/ad/<int:ad_id>/click')
 def community_ad_click(ad_id):
@@ -10854,7 +10846,7 @@ def community_admin():
     review_posts = CommunityPost.query.filter(CommunityPost.status.in_(('PENDING', 'QUARANTINED', 'HIDDEN'))).order_by(CommunityPost.created_at.asc()).all()
     pending_comments = CommunityComment.query.filter_by(status='PENDING').order_by(CommunityComment.created_at.asc()).all()
     reports = CommunityReport.query.filter_by(status='OPEN').order_by(CommunityReport.created_at.asc()).all()
-    group_review_messages = CommunityGroupMessage.query.filter(or_(
+    group_review_messages = [] if not COMMUNITY_INTERNAL_CHAT_OPEN else CommunityGroupMessage.query.filter(or_(
         CommunityGroupMessage.status.in_(('PENDING', 'QUARANTINED')),
         CommunityGroupMessage.flags_count > 0,
     )).order_by(CommunityGroupMessage.created_at.asc()).all()
@@ -10862,11 +10854,20 @@ def community_admin():
     alerts = CommunityAlert.query.order_by(CommunityAlert.created_at.desc()).limit(30).all()
     flash_polls = CommunityPost.query.filter_by(is_flash_poll=True).order_by(CommunityPost.publish_date.desc()).limit(30).all()
     keywords = CommunityKeyword.query.order_by(CommunityKeyword.category.asc(), CommunityKeyword.phrase.asc()).all()
-    pending_drops = CommunityDrop.query.filter_by(reward_type='STAFF_FREEBIE').order_by(CommunityDrop.created_at.asc()).all()
+    pending_drops = []
     recent_actions = CommunityModerationAction.query.order_by(CommunityModerationAction.created_at.desc()).limit(40).all()
     active_products = Product.query.filter(Product.is_active.is_(True), Product.stock > 0).order_by(Product.name.asc()).all()
     main_admin_profile = CommunityProfile.query.filter_by(is_community_admin=True).first()
     today = ph_today()
+    start_today, next_day = ph_day_utc_bounds(today)
+    new_members_today = CommunityProfile.query.filter(
+        CommunityProfile.created_at >= start_today,
+        CommunityProfile.created_at < next_day,
+    ).count()
+    pending_students = CommunityProfile.query.filter(
+        CommunityProfile.role == 'STUDENT',
+        CommunityProfile.verification_status == 'PENDING',
+    ).count() + CommunityProfile.query.filter_by(student_application_status='PENDING').count()
     stats = {
         'profiles': len(profiles),
         'students': sum(1 for row in profiles if row.role == 'STUDENT'),
@@ -10876,6 +10877,8 @@ def community_admin():
         'open_reports': len(reports),
         'today_checkins': CommunityCheckin.query.filter_by(checkin_date=today).count(),
         'today_store_checkins': CommunityStoreCheckin.query.filter_by(checkin_date=today).count(),
+        'new_members_today': new_members_today,
+        'pending_students': pending_students,
         'unread_join_notices': sum(1 for row in admin_notices if not row.is_read),
     }
     return render_template(
@@ -10898,6 +10901,16 @@ def community_admin():
         report_reasons=COMMUNITY_REPORT_REASONS,
         today=today,
         webpush_configured=bool(os.environ.get('WEBPUSH_VAPID_PUBLIC_KEY') and os.environ.get('WEBPUSH_VAPID_PRIVATE_KEY') and os.environ.get('WEBPUSH_VAPID_SUBJECT')),
+        production_sqlite_warning=bool(IS_PRODUCTION and db.engine.dialect.name == 'sqlite'),
+        community_controls={
+            'registration': COMMUNITY_REGISTRATION_OPEN,
+            'posting': COMMUNITY_POSTING_OPEN,
+            'workspaces': COMMUNITY_GROUP_WORKSPACES_OPEN,
+            'internal_chat': COMMUNITY_INTERNAL_CHAT_OPEN,
+            'social_rewards': COMMUNITY_SOCIAL_REWARDS_OPEN,
+            'gifting': COMMUNITY_GIFTING_OPEN,
+            'resharing': COMMUNITY_RESHARING_OPEN,
+        },
     )
 
 @app.route('/admin/community/notices/read', methods=['POST'])
@@ -11037,10 +11050,9 @@ def community_admin_post_status(post_id):
     if action == 'PUBLISH':
         post.published_at = post.published_at or utc_now()
         if post.author:
-            post.author.first_post_approved = True
-            if not post.score_awarded:
-                post.author.community_score = round(parse_float(post.author.community_score, 0.0) + 2.0, 2)
-                post.score_awarded = True
+            approved_count = CommunityPost.query.filter_by(author_profile_id=post.author.id, status='PUBLISHED').count()
+            post.author.first_post_approved = approved_count >= COMMUNITY_TRUSTED_POST_THRESHOLD
+            post.score_awarded = False
         if post.author:
             community_sync_post_mentions(post, notify=True)
         CommunityReport.query.filter_by(post_id=post.id, status='OPEN').update({'status': 'RESOLVED'})
@@ -11066,9 +11078,8 @@ def community_admin_comment_status(comment_id):
         flash('Invalid comment action.', 'error')
         return redirect(url_for('community_admin'))
     comment.status = 'PUBLISHED' if action == 'PUBLISH' else 'REMOVED'
-    if action == 'PUBLISH' and comment.author and not comment.score_awarded:
-        comment.author.community_score = round(parse_float(comment.author.community_score, 0.0) + 0.5, 2)
-        comment.score_awarded = True
+    if action == 'PUBLISH':
+        comment.score_awarded = False
     db.session.add(CommunityModerationAction(
         post_id=comment.post_id,
         profile_id=comment.author_profile_id,
@@ -11733,7 +11744,12 @@ def staff_logout():
 def healthz():
     try:
         db.session.execute(text('SELECT 1'))
-        return jsonify({'status': 'ok', 'release': APP_RELEASE, 'time_ph': ph_now().isoformat()})
+        return jsonify({
+            'status': 'ok', 'release': APP_RELEASE, 'time_ph': ph_now().isoformat(),
+            'community_mode': 'lite',
+            'database': db.engine.dialect.name,
+            'production_database_warning': bool(IS_PRODUCTION and db.engine.dialect.name == 'sqlite'),
+        })
     except Exception:
         app.logger.exception('Health check failed')
         return jsonify({'status': 'error'}), 500
