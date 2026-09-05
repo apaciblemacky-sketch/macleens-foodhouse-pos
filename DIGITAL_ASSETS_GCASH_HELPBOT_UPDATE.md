@@ -1,78 +1,82 @@
-# Digital Assets, GCash Checkout & Help Bot — v10
+# Digital Assets, Gemini Help Bot & App Activation — v11
+
+## Payment Flow: Manual GCash + Cashier Verification
+
+Digital Business is deliberately set to **Manual GCash + cashier verification**.
+The customer creates an order, follows your normal GCash payment instructions,
+and waits for a cashier/admin to verify payment. There is no automatic payment
+page redirect in this release.
+
+After verification, a ready download unlocks automatically. Customers should
+keep their private order page; it displays their download access code, delivery
+instructions, and any app/activation details that you release.
 
 ## Protected Digital Asset Uploads
 
-Open **Admin Control → Digital Business**.
+Open **Admin Control → Digital Business**. Each Digital offer can have one
+protected downloadable asset. It is stored in the system, never in the public
+`/static` folder, and is forced to download after payment.
 
-Each Digital offer can now have one protected downloadable asset. Upload a file
-while creating or editing an offer. The file is stored in the system and is
-never placed in the public `/static` folder.
+- Allowed: PDF, DOCX, XLSX, CSV, images, ZIP packages, HTML, and other safe
+  non-executable files.
+- Not allowed: APK, EXE, MSI, BAT, CMD, DLL, PS1, and other installer/script
+  formats. Do not distribute an Android installer through this portal.
+- Default maximum: **20 MB**. `DIGITAL_ASSET_MAX_MB` can be set to 1–25 MB in
+  Render only when the database/hosting plan can safely handle it.
+- HTML is downloaded rather than run inside the Food House system.
 
-- Allowed: PDF, DOCX, XLSX, CSV, images, ZIP files, HTML files, and other
-  non-executable digital assets.
-- Not allowed: installers and executable/script files such as EXE, APK, MSI,
-  BAT, CMD, DLL, or PS1. Package source/project files as a ZIP instead.
-- Default maximum upload: **20 MB**. Adjust `DIGITAL_ASSET_MAX_MB` in Render
-  only if the database and hosting plan can safely handle a larger value. The
-  system permits 1–25 MB.
-- HTML is supplied as a forced download. It is not run or hosted inside the
-  Food House system, which protects customers from active content.
+Each order has an unguessable private link and a separate `MFH-...` download
+access code. The access code protects the download only; it is **not**
+automatically an app password. Existing orders retain the file version they
+were originally assigned even if the catalog file is later replaced.
 
-When an offer's file is replaced, existing orders keep the file version that
-was attached when they ordered. New orders receive the replacement file.
+## Gemini-Powered Help Bot
 
-## Paid Download and Access Code
+The public Digital portal has clickable suggested questions plus a free-text
+question box. Admin controls the final suggested questions and answers in
+**Admin Control → Digital Business → Suggested AI Help Bot questions**.
 
-Every Digital order receives a private tracking link and a unique `MFH-...`
-access code.
+1. In Render Environment, add `GEMINI_API_KEY` with your Gemini API key.
+2. Restart/redeploy Render.
+3. In Digital Admin, choose **Gemini only** or **Auto** as the Help Bot
+   provider and save.
+4. Write a customer question, click **Draft with Gemini**, review the answer,
+   edit it if needed, then save it.
 
-1. Customer submits an order.
-2. Cashier verifies manual Cash/GCash payment, or the online gateway verifies
-   GCash payment.
-3. A ready downloadable product unlocks automatically.
-4. The private order page displays the access code.
-5. Customer enters that code to download the file.
+Gemini receives only the active Digital catalog and admin-prepared help
+answers—never customer orders, GCash PINs, OTPs, download codes, or secret
+keys. If Gemini is unavailable, the portal uses a labelled smart-help fallback
+and offers the Facebook support handoff.
 
-Both the private tracking link and the access code are needed. The system
-forces the file to download instead of opening it in the browser. It records
-downloads and limits each order to five by default. An Admin can reset an
-order's access code if it was exposed or the customer needs a new one.
+## One-Time App Activation Codes (2–3 Devices)
 
-## GCash Payment Setup
+When creating or editing each Digital product, choose **Maximum app devices**:
+no codes, 1, 2, or 3 devices. That product limit is copied to every new order,
+so a later product change does not alter earlier buyers. After payment is
+confirmed, the system issues one different `MFH-APP-...` code for each allowed
+device. Admin can increase or reduce unused codes for one paid order when
+needed; already activated devices are never silently removed. The customer sees
+unused codes on their private paid order page; used codes become marked
+Activated.
 
-Manual GCash + cashier verification is the safe default and works immediately.
+This is deliberately separate from the download access code and from an
+optional manual license key/password entered by staff.
 
-For hosted online GCash checkout, the system is prepared for **PayMongo**:
+The 2–3 device limit becomes technically enforceable only when the digital app
+or system calls these APIs on first use:
 
-1. Open/activate a PayMongo merchant account and enable GCash.
-2. In Render → your service → Environment, add `PAYMONGO_SECRET_KEY` with the
-   server secret from PayMongo. Never put it in the Admin page, source code, or
-   a public post.
-3. Set `PUBLIC_BASE_URL=https://macleens-foodhouse-pos.onrender.com` in Render
-   if it is not already set.
-4. Deploy this update.
-5. In **Admin Control → Digital Business**, choose **PayMongo hosted GCash
-   checkout** and save.
-6. Make a small real/test GCash payment. The customer returns to the private
-   order page, where the system verifies the checkout server-to-server before
-   releasing the download.
+- `POST /api/digital/app/activate` with `activation_code`, a stable app-owned
+  `device_id`, and optional `device_name`. It binds one code to one device and
+  returns an activation token once.
+- `POST /api/digital/app/validate` with that activation token and the same
+  `device_id`. It confirms that the device remains authorized.
 
-If a customer closes the payment page before returning, they can tap **Check
-GCash payment** on their private order page, or staff can verify the linked
-cashier order. Keep Manual mode selected until PayMongo has approved the
-merchant account and the key is in Render.
+An offline HTML file, ZIP, APK, or copied folder cannot be device-limited by a
+portal alone. If you sell an actual mobile app or hosted web system, build the
+activation API into that product. For ordinary templates/files, use the
+protected download code and clear license terms instead.
 
-## Digital Help Bot and Facebook Handoff
-
-The Digital portal now has a help panel. It answers catalog, download, GCash,
-and custom-work questions, but never asks for GCash PINs, OTPs, payment
-passwords, or download codes.
-
-Its support handoff is fixed to:
+For account-specific, payment, refund, lost-code, or custom-project concerns,
+the bot routes customers to:
 
 `https://www.facebook.com/macleensdigital/`
-
-The bot uses Gemini or OpenAI only when the existing matching environment key
-is configured. Without an AI key it still supplies safe built-in answers and
-the Facebook handoff. Choose the provider in **Admin Control → Digital
-Business → GCash & Help Bot settings**.

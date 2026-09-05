@@ -5,7 +5,7 @@
   <span class="badge">Private order page</span><h1>Digital Order #{{ order.id }}</h1>
   <p><strong>{{ order.item.name }}</strong> · ₱{{ '%.2f'|format(order.total_price) }}</p>
   <p>Status: <span class="badge">{{ order.status.replace('_',' ').title() }}</span> · Payment: <span class="badge">{{ order.payment_status }}</span></p>
-  <p class="muted">Keep this private page bookmarked. It is part of the protection for your file and must not be posted publicly.</p>
+  <p class="muted">Keep this private page bookmarked. It is part of the protection for your file and must not be posted publicly. Your download code protects the file download; it is not automatically an app password.</p>
 
   {% if order.payment_gateway == 'PAYMONGO' and order.payment_status != 'PAID' %}
   <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:13px;padding:12px;margin:13px 0"><strong>GCash checkout awaiting confirmation.</strong><p class="muted" style="margin:6px 0 10px">After completing GCash, return here and check your payment. The server verifies the gateway result before releasing a file.</p><form method="post" action="{{ url_for('digital_check_payment',token=order.tracking_token) }}"><button class="btn" type="submit">Check GCash payment</button></form></div>
@@ -17,6 +17,7 @@
     <p>Your access code is <strong id="accessCode" style="letter-spacing:.08em">{{ order.delivery_access_code }}</strong> <button class="btn btn-light" type="button" id="copyAccessCode" style="padding:5px 8px;font-size:.76rem">Copy code</button></p>
     <p class="muted">Enter this code below to download. Do not share the code or this private page. Downloads used: {{ order.download_count or 0 }} / {{ payment_settings.download_limit }}.</p>
     <form method="post" data-no-live action="{{ url_for('digital_download_asset',token=order.tracking_token) }}"><label>Download access code</label><input name="access_code" required autocomplete="one-time-code" placeholder="MFH-XXXXXXXXXX"><button class="btn" type="submit">Download {{ order.asset_file.download_filename }}</button></form>
+    {% if order.item.delivery_instructions %}<div style="margin-top:12px;background:#fff;border:1px solid #dbe7e4;border-radius:12px;padding:11px"><strong>Product delivery instructions</strong><p style="white-space:pre-wrap;margin:7px 0 0">{{ order.item.delivery_instructions }}</p></div>{% endif %}
   </div>
   {% elif order.payment_status == 'PAID' and order.asset_file_id %}
   <div style="background:#fff7ed;border-radius:13px;padding:12px"><strong>Your payment is confirmed.</strong> The file is being prepared; refresh this private page when the order becomes Ready.</div>
@@ -24,8 +25,16 @@
   <div style="background:#fff7ed;border-radius:13px;padding:12px"><strong>Download locked until payment is confirmed.</strong> For manual GCash or cash orders, the cashier will verify payment first.</div>
   {% endif %}
 
+  {% if activation_codes %}
+  <div style="background:#fdf4ff;border:1px solid #f5d0fe;border-radius:15px;padding:14px;margin:13px 0">
+    <h2 style="margin-top:0">🔐 Your app activation codes</h2>
+    <p class="muted">Use one unused code on one device only. These are separate from your download code. The app must support Macleen’s Digital activation for the 2–3 device limit to work.</p>
+    <ol>{% for activation in activation_codes %}<li><strong>Device {{ loop.index }}:</strong> {% if activation.status == 'UNUSED' %}<code>{{ activation.activation_code }}</code>{% elif activation.status == 'ACTIVATED' %}<span class="badge">Activated{% if activation.device_name %} · {{ activation.device_name }}{% endif %}</span>{% endif %}</li>{% endfor %}</ol>
+  </div>
+  {% endif %}
+
   {% if can_open_external_delivery %}<p style="margin-top:14px"><a class="btn" target="_blank" rel="noopener" href="{{ order.fulfillment_url }}">Open staff-provided delivery</a></p>{% endif %}
-  {% if order.license_key %}<p><strong>License key:</strong> {{ order.license_key }}</p>{% endif %}
+  {% if order.license_key %}<p><strong>App password, license key, or activation detail:</strong> {{ order.license_key }}</p>{% endif %}
   {% if order.fulfillment_notes %}<p style="white-space:pre-wrap">{{ order.fulfillment_notes }}</p>{% endif %}
   <p style="margin-top:18px"><a class="btn btn-pink" target="_blank" rel="noopener" href="{{ payment_settings.support_url }}">Need help? Message Macleen’s Digital on Facebook</a></p>
 </section>

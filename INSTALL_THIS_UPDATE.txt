@@ -1,6 +1,6 @@
 MACLEEN'S FOOD HOUSE - COMPLETE FLAT REPLACEMENT
 
-Release: 2026.09.05-digital-assets-gcash-support-v10
+Release: 2026.09.05-digital-ai-faq-delivery-v11
 
 The ZIP opens directly to app.py, requirements.txt, templates, static,
 RUN_MACLEENS.bat, and DEPLOY_TO_RENDER.bat. It contains the whole current system,
@@ -52,18 +52,24 @@ FINANCIAL STATEMENTS & BUNDLE DEALS V9
   priced sizes yet; sell those individually until a chosen-option bundle flow is
   added. This avoids silently using the wrong flavor, size, or preparation.
 
-DIGITAL ASSETS, GCASH & HELP BOT V10
+DIGITAL ASSETS, GEMINI HELP BOT & APP ACTIVATION V11
 - Lets Admin upload protected PDF, document, spreadsheet, image, ZIP, HTML,
   and other non-executable digital assets up to 20 MB by default.
 - Releases a ready download only after payment is confirmed. Each order has a
   private tracking link plus a unique access code, protected download limits,
   and Admin code reset controls.
 - Keeps HTML files as forced downloads instead of running them in the system.
-- Adds PayMongo hosted GCash checkout support when PAYMONGO_SECRET_KEY is set
-  only in Render Environment Variables; Manual GCash/cashier verification stays
-  available until the merchant setup is complete.
-- Adds a Digital Help Bot with safe built-in/AI answers and a direct Facebook
-  support handoff to https://www.facebook.com/macleensdigital/.
+- Keeps Manual GCash + cashier verification as the customer payment flow. There
+  is no automatic PayMongo redirect; a verified payment unlocks ready downloads.
+- Adds clickable, admin-editable Help Bot questions and a Gemini drafting tool.
+  Add GEMINI_API_KEY only in Render, restart, then select Gemini/Auto in Digital
+  Admin. The bot keeps the direct Facebook support handoff to
+  https://www.facebook.com/macleensdigital/.
+- Adds a per-product Maximum app devices setting (none, 1, 2, or 3). Paid
+  orders receive separate one-time MFH-APP activation codes up to that saved
+  limit; order-level adjustments cannot silently remove an activated device.
+  An integrated app can activate/validate a device through the supplied API;
+  an offline copied HTML/ZIP/APK cannot be device-limited by the portal alone.
 
 COMMUNITY PROJECTS & PROFILES V7
 - Keeps role-separated feeds, viewable/lockable profiles, People suggestions,

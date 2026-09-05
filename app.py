@@ -31,7 +31,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 from marketing_agent import (
     analyze_marketing_insights, extract_peso_amounts, generate_ai_marketing_decision,
-    gemini_configured, openai_configured,
+    gemini_configured, openai_configured, _extract_gemini_output_text,
 )
 
 logging.basicConfig(
@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.05-digital-assets-gcash-support-v10'
+APP_RELEASE = '2026.09.05-digital-ai-faq-delivery-v11'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -1113,6 +1113,11 @@ class DigitalItem(db.Model):
     asset_file_id = db.Column(db.Integer, db.ForeignKey('digital_asset_file.id', ondelete='SET NULL'), nullable=True)
     file_format = db.Column(db.String(80), nullable=True)
     license_terms = db.Column(db.Text, nullable=True)
+    # Customer-facing instructions such as installation steps or "this product
+    # has no separate password". Never use this for a shared admin password.
+    delivery_instructions = db.Column(db.Text, nullable=True)
+    # 0 means this is a normal file/product with no app-device activation.
+    app_device_limit = db.Column(db.Integer, nullable=False, default=0)
     turnaround_days = db.Column(db.Integer, default=0)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     is_featured = db.Column(db.Boolean, default=False)
@@ -1120,6 +1125,18 @@ class DigitalItem(db.Model):
     orders_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=utc_now)
     asset_file = db.relationship('DigitalAssetFile', foreign_keys=[asset_file_id], lazy=True)
+
+
+class DigitalSupportFAQ(db.Model):
+    """Admin-owned questions shown as fast, safe customer-help shortcuts."""
+    __tablename__ = 'digital_support_faq'
+    id = db.Column(db.Integer, primary_key=True)
+    question = db.Column(db.String(350), nullable=False)
+    answer = db.Column(db.Text, nullable=False)
+    is_active = db.Column(db.Boolean, default=True, nullable=False)
+    sort_order = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
 
 class DigitalOrder(db.Model):
     __tablename__ = 'digital_order'
@@ -1148,6 +1165,7 @@ class DigitalOrder(db.Model):
     gateway_checkout_url = db.Column(db.Text, nullable=True)
     gateway_checked_at = db.Column(db.DateTime, nullable=True)
     gateway_response = db.Column(db.Text, nullable=True)
+    activation_device_limit = db.Column(db.Integer, nullable=False, default=0)
     license_key = db.Column(db.String(255), nullable=True)
     fulfillment_notes = db.Column(db.Text, nullable=True)
     tracking_token = db.Column(db.String(64), unique=True, nullable=False, default=lambda: secrets.token_urlsafe(24))
@@ -1157,6 +1175,22 @@ class DigitalOrder(db.Model):
     item = db.relationship('DigitalItem', lazy=True)
     main_order = db.relationship('Order', lazy=True, foreign_keys=[main_order_id])
     asset_file = db.relationship('DigitalAssetFile', foreign_keys=[asset_file_id], lazy=True)
+
+
+class DigitalAppActivationCode(db.Model):
+    """One device-bound activation code for an app that calls this portal's API."""
+    __tablename__ = 'digital_app_activation_code'
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('digital_order.id', ondelete='CASCADE'), nullable=False, index=True)
+    activation_code = db.Column(db.String(48), unique=True, nullable=False, index=True)
+    status = db.Column(db.String(20), nullable=False, default='UNUSED')
+    device_fingerprint_hash = db.Column(db.String(64), nullable=True)
+    device_name = db.Column(db.String(120), nullable=True)
+    activation_token_hash = db.Column(db.String(64), nullable=True, index=True)
+    activated_at = db.Column(db.DateTime, nullable=True)
+    last_validated_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    order = db.relationship('DigitalOrder', lazy=True, foreign_keys=[order_id])
 
 class MarketingInsightImport(db.Model):
     __tablename__ = 'marketing_insight_import'
@@ -1660,6 +1694,8 @@ def run_schema_migrations():
         ],
         'digital_item': [
             ('asset_file_id', 'INTEGER'),
+            ('delivery_instructions', 'TEXT'),
+            ('app_device_limit', 'INTEGER DEFAULT 0'),
         ],
         'digital_order': [
             ('asset_file_id', 'INTEGER'),
@@ -1671,6 +1707,7 @@ def run_schema_migrations():
             ('gateway_checkout_url', 'TEXT'),
             ('gateway_checked_at', 'TIMESTAMP'),
             ('gateway_response', 'TEXT'),
+            ('activation_device_limit', 'INTEGER DEFAULT 0'),
         ],
     }
 
@@ -1713,6 +1750,9 @@ def run_schema_migrations():
             conn.execute(text("UPDATE investor_interest SET is_counter_offer = FALSE WHERE is_counter_offer IS NULL"))
         if 'digital_order' in tables:
             conn.execute(text("UPDATE digital_order SET download_count = 0 WHERE download_count IS NULL"))
+            conn.execute(text("UPDATE digital_order SET activation_device_limit = 0 WHERE activation_device_limit IS NULL"))
+        if 'digital_item' in tables:
+            conn.execute(text("UPDATE digital_item SET app_device_limit = 0 WHERE app_device_limit IS NULL"))
 
 def run_db_setup():
     global _DB_INITIALIZED
@@ -1744,6 +1784,7 @@ def run_db_setup():
         for category_name in ('School', 'Internship & Work', 'Personal Finance', 'Small Business', 'Productivity', 'General'):
             if not DigitalCategory.query.filter(db.func.lower(DigitalCategory.name) == category_name.lower()).first():
                 db.session.add(DigitalCategory(name=category_name, is_active=True))
+        ensure_default_digital_support_faqs()
         db.session.commit()
 
         # Existing orders pre-date private tracking links. Backfill them once with
@@ -3974,12 +4015,16 @@ def inject_globals():
         logo = setting.value if setting else '/static/logo.png'
         support_setting = StoreSetting.query.filter_by(key='digital_support_facebook_url').first()
         digital_support_facebook_url = support_setting.value if support_setting else 'https://www.facebook.com/macleensdigital/'
+        digital_support_faqs = DigitalSupportFAQ.query.filter_by(is_active=True).order_by(
+            DigitalSupportFAQ.sort_order.asc(), DigitalSupportFAQ.id.asc()
+        ).limit(8).all()
     except Exception:
         app.logger.exception('Logo setting query failed; using /static/logo.png fallback')
         logo = '/static/logo.png'
         digital_support_facebook_url = 'https://www.facebook.com/macleensdigital/'
+        digital_support_faqs = []
     status = check_operating_status()
-    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link, digital_support_facebook_url=digital_support_facebook_url)
+    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link, digital_support_facebook_url=digital_support_facebook_url, digital_support_faqs=digital_support_faqs)
 
 def _staff_auth_failure(target, message):
     """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
@@ -6897,6 +6942,28 @@ DIGITAL_ASSET_BLOCKED_EXTENSIONS = {
     '.ps1', '.scr', '.sh', '.vbs', '.wsf',
 }
 DIGITAL_SUPPORT_FACEBOOK_DEFAULT = 'https://www.facebook.com/macleensdigital/'
+DIGITAL_SUPPORT_DEFAULT_FAQS = (
+    (
+        'How do I buy a digital product?',
+        'Choose the product, enter your order details, and select GCash or another available payment method. Your order stays private and the system releases a ready file only after payment is confirmed.',
+    ),
+    (
+        'How do I download after payment?',
+        'After payment is confirmed, return to your private order page. It will show your download access code. Enter that code to download your paid file. Please save the private page and never share the code.',
+    ),
+    (
+        'Is the download code the password of my app?',
+        'Not automatically. The access code protects your download. It becomes an app or file password only when that specific product’s delivery instructions clearly say so. Any separate license key, login, or activation detail appears on the paid order page.',
+    ),
+    (
+        'What files can I buy here?',
+        'Macleen’s Digital can deliver protected documents, spreadsheets, templates, images, ZIP packages, and HTML files. For safety, installer files such as APK or EXE are not directly delivered through the portal.',
+    ),
+    (
+        'Can I request a custom system, tracker, or web résumé?',
+        'Yes. Choose a custom-service offer and describe what you need. The team will confirm the scope, price, and delivery schedule before the work starts.',
+    ),
+)
 
 
 def digital_setting(key, default=''):
@@ -6913,9 +6980,10 @@ def save_digital_setting(key, value):
 
 
 def digital_payment_settings():
-    mode = digital_setting('digital_gcash_gateway_mode', 'MANUAL').strip().upper()
-    if mode not in {'MANUAL', 'PAYMONGO'}:
-        mode = 'MANUAL'
+    # Digital orders intentionally stay in the cashier-verification flow. This
+    # avoids redirecting customers away from the store while payment proof is
+    # reviewed and delivery/access details are prepared.
+    mode = 'MANUAL'
     support_url = digital_setting('digital_support_facebook_url', DIGITAL_SUPPORT_FACEBOOK_DEFAULT).strip()
     if not support_url.startswith(('https://www.facebook.com/', 'https://facebook.com/', 'https://m.facebook.com/')):
         support_url = DIGITAL_SUPPORT_FACEBOOK_DEFAULT
@@ -6926,11 +6994,78 @@ def digital_payment_settings():
         'download_limit': max(1, min(20, parse_int(os.environ.get('DIGITAL_ASSET_DOWNLOAD_LIMIT', '5'), 5))),
         'asset_max_mb': DIGITAL_ASSET_MAX_MB,
         'bot_provider': digital_setting('digital_support_bot_provider', 'AUTO').strip().upper(),
+        'gemini_ready': gemini_configured(),
+        'gemini_model': (os.environ.get('GEMINI_DIGITAL_SUPPORT_MODEL') or os.environ.get('GEMINI_MARKETING_MODEL') or 'gemini-3.5-flash-lite').strip(),
+        'paymongo_webhook_url': (os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/') + '/api/paymongo/webhook') if os.environ.get('PUBLIC_BASE_URL', '').strip() else '',
     }
 
 
 def digital_access_code():
     return 'MFH-' + secrets.token_urlsafe(7).replace('-', '').replace('_', '').upper()[:10]
+
+
+def digital_app_activation_code():
+    """Return a short random code that is distinct from the download access code."""
+    for _ in range(12):
+        code = 'MFH-APP-' + secrets.token_urlsafe(7).replace('-', '').replace('_', '').upper()[:10]
+        if not DigitalAppActivationCode.query.filter_by(activation_code=code).first():
+            return code
+    raise OrderValidationError('Could not create a unique app activation code. Please try again.')
+
+
+def digital_paid_order(order):
+    return bool(order and order.payment_status == 'PAID' and order.status in {'PAID', 'IN_PROGRESS', 'READY', 'DELIVERED'})
+
+
+def digital_active_activation_codes(order):
+    if not order:
+        return []
+    return DigitalAppActivationCode.query.filter(
+        DigitalAppActivationCode.order_id == order.id,
+        DigitalAppActivationCode.status != 'REVOKED',
+    ).order_by(DigitalAppActivationCode.id.asc()).all()
+
+
+def digital_set_activation_device_limit(order, target_limit):
+    """Issue/revoke unused one-device codes without ever undoing an activation."""
+    if not digital_paid_order(order):
+        raise OrderValidationError('Confirm payment before issuing app activation codes.')
+    target_limit = max(1, min(3, parse_int(target_limit, 2)))
+    active = digital_active_activation_codes(order)
+    used = [entry for entry in active if entry.status == 'ACTIVATED']
+    if len(used) > target_limit:
+        raise OrderValidationError(f'{len(used)} device(s) are already activated. The limit cannot be lower than that.')
+    unused = [entry for entry in active if entry.status == 'UNUSED']
+    keep_unused = max(0, target_limit - len(used))
+    for entry in unused[keep_unused:]:
+        entry.status = 'REVOKED'
+    current_total = len(used) + min(len(unused), keep_unused)
+    for _ in range(current_total, target_limit):
+        db.session.add(DigitalAppActivationCode(order_id=order.id, activation_code=digital_app_activation_code(), status='UNUSED'))
+    order.activation_device_limit = target_limit
+
+
+def digital_device_hash(value):
+    return hashlib.sha256(value.encode('utf-8')).hexdigest()
+
+
+def ensure_default_digital_support_faqs():
+    """Seed useful customer shortcuts once, without replacing admin-written answers."""
+    if DigitalSupportFAQ.query.count():
+        return
+    for position, (question, answer) in enumerate(DIGITAL_SUPPORT_DEFAULT_FAQS, start=1):
+        db.session.add(DigitalSupportFAQ(question=question, answer=answer, is_active=True, sort_order=position * 10))
+
+
+def digital_support_prepared_answer(question):
+    normalized = re.sub(r'\W+', ' ', (question or '').casefold()).strip()
+    if not normalized:
+        return ''
+    for faq in DigitalSupportFAQ.query.filter_by(is_active=True).order_by(DigitalSupportFAQ.sort_order.asc(), DigitalSupportFAQ.id.asc()).all():
+        faq_normalized = re.sub(r'\W+', ' ', (faq.question or '').casefold()).strip()
+        if normalized == faq_normalized:
+            return (faq.answer or '').strip()
+    return ''
 
 
 def digital_asset_from_upload(upload):
@@ -6979,6 +7114,8 @@ def digital_mark_order_paid(order, payment_gateway=None):
         order.status = 'IN_PROGRESS'
     else:
         order.status = 'PAID'
+    if 1 <= parse_int(order.activation_device_limit, 0) <= 3:
+        digital_set_activation_device_limit(order, order.activation_device_limit)
 
 
 def digital_confirm_gateway_payment(order):
@@ -7017,6 +7154,8 @@ def digital_create_paymongo_checkout(order):
             'success_url': success_url, 'cancel_url': cancel_url,
             'description': f"Macleen's Digital Order #{order.id}",
             'metadata': {'digital_order_id': str(order.id)},
+            'billing': {'name': order.customer_name, 'email': order.email, 'phone': order.contact_number},
+            'send_email_receipt': True,
         }}
     }
     try:
@@ -7082,51 +7221,78 @@ def digital_check_paymongo_payment(order):
     return False
 
 
+def digital_paymongo_webhook_checkout_ids(payload):
+    """Extract Checkout Session IDs only; each is re-verified with PayMongo before fulfillment."""
+    found = []
+    def visit(value):
+        if isinstance(value, dict):
+            for nested in value.values():
+                visit(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                visit(nested)
+        elif isinstance(value, str) and value.startswith('cs_') and len(value) <= 120:
+            found.append(value)
+    visit(payload)
+    return list(dict.fromkeys(found))[:8]
+
+
 def digital_support_fallback(question):
     text_value = (question or '').casefold()
-    if any(term in text_value for term in ('download', 'code', 'password', 'file')):
-        return 'After payment is confirmed, open your private order link. The page will show your access code and let you download the attached digital file.'
+    if any(term in text_value for term in ('password', 'app password', 'license', 'activation')):
+        return 'Your paid private order page shows the download access code and any staff-provided license key or activation notes. The download code is not automatically an app password unless the product instructions specifically say it is.'
+    if any(term in text_value for term in ('download', 'code', 'file')):
+        return 'After payment is confirmed, open your private order link. The page will show your access code and let you download the attached digital file. Save that private page and keep the code private.'
     if any(term in text_value for term in ('gcash', 'pay', 'payment', 'refund')):
         return 'GCash orders are released only after payment is verified. If your payment is still pending, keep your private tracking link and contact Macleen’s Digital with your order details.'
     if any(term in text_value for term in ('custom', 'website', 'resume', 'tracker', 'system')):
         return 'For custom systems, web résumés, trackers, and other made-for-you work, submit your requirements on the item page. The team will confirm the scope and delivery timeline.'
-    return 'I can help explain Digital products, downloads, order status, GCash checkout, and custom work. For account-specific, payment, or detailed project concerns, please message Macleen’s Digital on Facebook.'
+    return 'I can help explain Digital products, downloads, order status, GCash checkout, app access, and custom work. For account-specific, payment, or detailed project concerns, please message Macleen’s Digital on Facebook.'
 
 
-def digital_support_ai_reply(question):
+def digital_support_ai_reply(question, use_prepared_answer=True):
     settings = digital_payment_settings()
     provider = settings['bot_provider']
     if provider not in {'AUTO', 'GEMINI', 'OPENAI', 'TEMPLATE'}:
         provider = 'AUTO'
+    if use_prepared_answer:
+        prepared_answer = digital_support_prepared_answer(question)
+        if prepared_answer:
+            return prepared_answer[:1400], 'prepared-answer'
     catalog = [
         {'name': item.name, 'category': item.category_name, 'type': item.product_type, 'description': (item.description or '')[:220]}
         for item in DigitalItem.query.filter_by(is_active=True).order_by(DigitalItem.is_featured.desc(), DigitalItem.name.asc()).limit(30).all()
     ]
+    prepared_faqs = [
+        {'question': faq.question, 'answer': faq.answer[:500]}
+        for faq in DigitalSupportFAQ.query.filter_by(is_active=True).order_by(DigitalSupportFAQ.sort_order.asc(), DigitalSupportFAQ.id.asc()).limit(12).all()
+    ]
     prompt = (
         "You are the Macleen's Digital customer-help assistant in Binalbagan, Philippines. "
-        "Answer only about the supplied digital catalog, downloads, payment process, and custom-work ordering. "
+        "Give a genuinely helpful, specific answer only about the supplied digital catalog, prepared help answers, downloads, payment process, app access, and custom-work ordering. "
+        "Use the prepared help answers as factual guidance, but adapt them to the customer's exact question instead of copying blindly. "
+        "Explain steps in plain language when useful. Never pretend a file is an installable mobile app, and never say a download access code is an app password unless supplied product instructions say that. "
         "Never ask for a GCash PIN, OTP, full card details, passwords, or access codes. Never claim that payment is confirmed unless the system says so. "
         "For order-specific, payment, refund, or unclear concerns, direct the customer to Macleen's Digital Facebook page. "
         "Keep the answer warm, practical, and below 180 words.\n\n"
-        f"CATALOG: {json.dumps(catalog, ensure_ascii=False)}\nQUESTION: {question}"
+        f"CATALOG: {json.dumps(catalog, ensure_ascii=False)}\nPREPARED HELP: {json.dumps(prepared_faqs, ensure_ascii=False)}\nQUESTION: {question}"
     )
-    attempts = []
     if provider in {'AUTO', 'GEMINI'} and gemini_configured():
         try:
             api_key = (os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY') or '').strip()
             response = requests.post(
                 'https://generativelanguage.googleapis.com/v1beta/interactions',
                 headers={'x-goog-api-key': api_key, 'Content-Type': 'application/json'},
-                json={'model': os.environ.get('GEMINI_DIGITAL_SUPPORT_MODEL', 'gemini-3.5-flash-lite'), 'input': prompt, 'response_format': {'type': 'text'}},
-                timeout=35,
+                json={'model': settings['gemini_model'], 'input': prompt, 'response_format': {'type': 'text'}},
+                timeout=45,
             )
             body = response.json() if response.content else {}
-            answer = body.get('output_text', '').strip() if isinstance(body, dict) else ''
+            answer = _extract_gemini_output_text(body) if isinstance(body, dict) else ''
             if response.ok and answer:
-                return answer[:1400], 'gemini'
-            attempts.append('Gemini unavailable')
+                return answer[:1400], f"gemini:{settings['gemini_model']}"
+            app.logger.warning('Gemini Digital Help Bot returned no usable answer (%s).', response.status_code)
         except Exception:
-            attempts.append('Gemini unavailable')
+            app.logger.exception('Gemini Digital Help Bot request failed.')
     if provider in {'AUTO', 'OPENAI'} and openai_configured():
         try:
             response = requests.post(
@@ -7143,9 +7309,8 @@ def digital_support_ai_reply(question):
                         answer += content.get('text', '')
             if response.ok and answer.strip():
                 return answer.strip()[:1400], 'openai'
-            attempts.append('OpenAI unavailable')
         except Exception:
-            attempts.append('OpenAI unavailable')
+            app.logger.exception('OpenAI Digital Help Bot request failed.')
     return digital_support_fallback(question), 'smart-help'
 
 
@@ -7191,7 +7356,8 @@ def digital_item_detail(item_id):
     order = DigitalOrder(item_id=item.id, customer_name=name, contact_number=contact, email=email,
         quantity=qty, unit_price=item.price, unit_cost=item.cost or 0, total_price=item.price * qty,
         payment_method=method, gcash_ref=ref, asset_file_id=item.asset_file_id,
-        delivery_access_code=digital_access_code(), requirements=request.form.get('requirements','').strip()[:3000] or None)
+        delivery_access_code=digital_access_code(), activation_device_limit=max(0, min(3, parse_int(item.app_device_limit, 0))),
+        requirements=request.form.get('requirements','').strip()[:3000] or None)
     db.session.add(order); db.session.flush(); create_main_digital_order(order)
     item.orders_count = parse_int(item.orders_count, 0) + qty; db.session.commit()
     if method == 'GCASH' and payment_settings['gateway_mode'] == 'PAYMONGO':
@@ -7215,6 +7381,7 @@ def digital_order_status(token):
     return render_template(
         'digital/order_status.html', order=order, can_download=digital_order_can_download(order),
         can_open_external_delivery=digital_order_can_open_external_delivery(order), payment_settings=digital_payment_settings(),
+        activation_codes=digital_active_activation_codes(order) if digital_paid_order(order) else [],
     )
 
 
@@ -7240,6 +7407,27 @@ def digital_check_payment(token):
         db.session.commit()
         flash('Payment is not confirmed yet. Please wait a moment, then try again or contact Macleen’s Digital on Facebook.', 'info')
     return redirect(url_for('digital_order_status', token=order.tracking_token))
+
+
+@app.route('/api/paymongo/webhook', methods=['POST'])
+def paymongo_webhook():
+    """Fulfill paid Digital checkout sessions without trusting the webhook body itself.
+
+    Each candidate Checkout Session ID is matched to a local order and retrieved
+    again from PayMongo using the merchant's secret key. This means a spoofed or
+    replayed request cannot unlock an unpaid order.
+    """
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({'received': True, 'processed': 0}), 200
+    processed = 0
+    for checkout_id in digital_paymongo_webhook_checkout_ids(payload):
+        order = DigitalOrder.query.filter_by(payment_gateway='PAYMONGO', gateway_checkout_id=checkout_id).first()
+        if order and digital_check_paymongo_payment(order):
+            processed += 1
+    if processed:
+        db.session.commit()
+    return jsonify({'received': True, 'processed': processed}), 200
 
 
 @app.route('/digital/order/<token>/download', methods=['POST'])
@@ -7271,6 +7459,52 @@ def digital_download_asset(token):
     return response
 
 
+@app.route('/api/digital/app/activate', methods=['POST'])
+def digital_app_activate():
+    """Bind one issued activation code to one app/device during first use."""
+    payload = request.get_json(silent=True) or {}
+    code = re.sub(r'\s+', '', str(payload.get('activation_code', '')).upper())[:48]
+    device_id = str(payload.get('device_id', '')).strip()[:255]
+    device_name = re.sub(r'\s+', ' ', str(payload.get('device_name', '')).strip())[:120]
+    if len(code) < 12 or len(device_id) < 12:
+        return jsonify({'success': False, 'message': 'A valid activation code and this device identifier are required.'}), 400
+    activation = DigitalAppActivationCode.query.filter_by(activation_code=code).first()
+    if not activation or activation.status != 'UNUSED' or not digital_paid_order(activation.order):
+        return jsonify({'success': False, 'message': 'This activation code is invalid, already used, revoked, or not paid yet.'}), 403
+    device_hash = digital_device_hash(device_id)
+    activation_token = secrets.token_urlsafe(32)
+    activation.device_fingerprint_hash = device_hash
+    activation.device_name = device_name or 'Customer device'
+    activation.activation_token_hash = digital_device_hash(activation_token)
+    activation.status = 'ACTIVATED'
+    activation.activated_at = utc_now()
+    activation.last_validated_at = utc_now()
+    db.session.commit()
+    return jsonify({
+        'success': True, 'activation_token': activation_token,
+        'product_name': activation.order.item.name if activation.order.item else 'Macleen’s Digital product',
+        'message': 'This device is activated. Store the activation token securely and use it for future validation.',
+    })
+
+
+@app.route('/api/digital/app/validate', methods=['POST'])
+def digital_app_validate():
+    """Allow an integrated app to validate a previously bound device token."""
+    payload = request.get_json(silent=True) or {}
+    token = str(payload.get('activation_token', '')).strip()[:200]
+    device_id = str(payload.get('device_id', '')).strip()[:255]
+    if len(token) < 20 or len(device_id) < 12:
+        return jsonify({'success': False, 'message': 'Activation token and device identifier are required.'}), 400
+    activation = DigitalAppActivationCode.query.filter_by(activation_token_hash=digital_device_hash(token)).first()
+    if not activation or activation.status != 'ACTIVATED' or not digital_paid_order(activation.order):
+        return jsonify({'success': False, 'message': 'This device activation is no longer valid.'}), 403
+    if not hmac.compare_digest(activation.device_fingerprint_hash or '', digital_device_hash(device_id)):
+        return jsonify({'success': False, 'message': 'This activation belongs to a different device.'}), 403
+    activation.last_validated_at = utc_now()
+    db.session.commit()
+    return jsonify({'success': True, 'product_name': activation.order.item.name if activation.order.item else 'Macleen’s Digital product'})
+
+
 @app.route('/api/digital-support-bot', methods=['POST'])
 def digital_support_bot():
     payload = request.get_json(silent=True) or {}
@@ -7286,12 +7520,64 @@ def digital_support_bot():
         answer = answer.rstrip() + handoff
     return jsonify({'success': True, 'answer': answer[:1700], 'model': model, 'support_url': support_url})
 
+
+@app.route('/admin/digital/support-faq/save', methods=['POST'])
+@require_admin
+def digital_support_faq_save():
+    faq_id = parse_int(request.form.get('faq_id'), 0)
+    faq = db.session.get(DigitalSupportFAQ, faq_id) if faq_id else DigitalSupportFAQ()
+    question = re.sub(r'\s+', ' ', request.form.get('question', '').strip())[:350]
+    answer = request.form.get('answer', '').strip()[:3000]
+    if not question or len(question) < 5 or not answer or len(answer) < 10:
+        flash('Enter a clear suggested question and an answer of at least 10 characters.', 'error')
+        return redirect(url_for('digital_admin'))
+    faq.question = question
+    faq.answer = answer
+    faq.sort_order = max(0, min(9999, parse_int(request.form.get('sort_order'), 0)))
+    faq.is_active = request.form.get('is_active') == '1'
+    if not faq_id:
+        db.session.add(faq)
+    db.session.commit()
+    flash('Suggested Help Bot question saved.', 'success')
+    return redirect(url_for('digital_admin'))
+
+
+@app.route('/admin/digital/support-faq/<int:faq_id>/delete', methods=['POST'])
+@require_admin
+def digital_support_faq_delete(faq_id):
+    faq = DigitalSupportFAQ.query.get_or_404(faq_id)
+    db.session.delete(faq)
+    db.session.commit()
+    flash('Suggested Help Bot question removed.', 'success')
+    return redirect(url_for('digital_admin'))
+
+
+@app.route('/admin/digital/support-faq/ai-draft', methods=['POST'])
+@require_admin
+def digital_support_faq_ai_draft():
+    payload = request.get_json(silent=True) or {}
+    question = re.sub(r'\s+', ' ', str(payload.get('question', '')).strip())[:350]
+    if len(question) < 5:
+        return jsonify({'success': False, 'message': 'Enter a clear question before asking Gemini for a draft.'}), 400
+    answer, model = digital_support_ai_reply(question, use_prepared_answer=False)
+    is_ai = model.startswith(('gemini:', 'openai'))
+    message = '' if is_ai else 'Gemini is not connected yet, so this is an editable smart-help draft. Add GEMINI_API_KEY in Render, restart, and choose Gemini in Digital Admin for AI-written drafts.'
+    return jsonify({'success': True, 'answer': answer[:3000], 'model': model, 'is_ai': is_ai, 'message': message})
+
+
 @app.route('/admin/digital')
 @require_admin
 def digital_admin():
+    orders = DigitalOrder.query.order_by(DigitalOrder.created_at.desc()).limit(200).all()
+    order_ids = [order.id for order in orders]
+    activation_codes_by_order = {}
+    if order_ids:
+        for activation in DigitalAppActivationCode.query.filter(DigitalAppActivationCode.order_id.in_(order_ids)).order_by(DigitalAppActivationCode.id.asc()).all():
+            activation_codes_by_order.setdefault(activation.order_id, []).append(activation)
     return render_template('digital/admin.html', items=DigitalItem.query.order_by(DigitalItem.is_active.desc(), DigitalItem.name).all(),
-        categories=DigitalCategory.query.order_by(DigitalCategory.name).all(), orders=DigitalOrder.query.order_by(DigitalOrder.created_at.desc()).limit(200).all(),
-        payment_settings=digital_payment_settings())
+        categories=DigitalCategory.query.order_by(DigitalCategory.name).all(), orders=orders,
+        payment_settings=digital_payment_settings(), support_faqs=DigitalSupportFAQ.query.order_by(DigitalSupportFAQ.sort_order.asc(), DigitalSupportFAQ.id.asc()).all(),
+        activation_codes_by_order=activation_codes_by_order)
 
 @app.route('/admin/digital/category/add', methods=['POST'])
 @require_admin
@@ -7318,6 +7604,8 @@ def digital_item_save():
     item.cost=max(0,parse_float(request.form.get('cost'),0)); item.image_url=request.form.get('image_url','').strip() or CRAFT_DEFAULT_IMAGE
     item.sample_url=request.form.get('sample_url','').strip() or None; item.file_format=request.form.get('file_format','').strip()[:80] or None
     item.license_terms=request.form.get('license_terms','').strip()[:3000] or None
+    item.delivery_instructions=request.form.get('delivery_instructions','').strip()[:3000] or None
+    item.app_device_limit=max(0, min(3, parse_int(request.form.get('app_device_limit'), 0)))
     item.turnaround_days=max(0,parse_int(request.form.get('turnaround_days'),0)); item.is_active=request.form.get('is_active') == '1'
     item.is_featured=bool(request.form.get('is_featured'))
     upload = request.files.get('asset_file')
@@ -7343,10 +7631,10 @@ def digital_item_save():
 @app.route('/admin/digital/payment-settings', methods=['POST'])
 @require_admin
 def digital_payment_settings_save():
-    mode = request.form.get('gateway_mode', 'MANUAL').strip().upper()
+    mode = 'MANUAL'
     provider = request.form.get('bot_provider', 'AUTO').strip().upper()
     support_url = request.form.get('support_url', '').strip() or DIGITAL_SUPPORT_FACEBOOK_DEFAULT
-    if mode not in {'MANUAL', 'PAYMONGO'} or provider not in {'AUTO', 'GEMINI', 'OPENAI', 'TEMPLATE'}:
+    if provider not in {'AUTO', 'GEMINI', 'OPENAI', 'TEMPLATE'}:
         flash('Invalid Digital payment or support-bot setting.', 'error')
         return redirect(url_for('digital_admin'))
     if not support_url.startswith(('https://www.facebook.com/', 'https://facebook.com/', 'https://m.facebook.com/')):
@@ -7356,10 +7644,7 @@ def digital_payment_settings_save():
     save_digital_setting('digital_support_bot_provider', provider)
     save_digital_setting('digital_support_facebook_url', support_url[:500])
     db.session.commit()
-    if mode == 'PAYMONGO' and not os.environ.get('PAYMONGO_SECRET_KEY', '').strip():
-        flash('Settings saved, but live checkout remains off until PAYMONGO_SECRET_KEY is added in Render environment variables.', 'info')
-    else:
-        flash('Digital payment and support settings saved.', 'success')
+    flash('Digital payment and support settings saved. Digital orders stay on Manual GCash + cashier verification.', 'success')
     return redirect(url_for('digital_admin'))
 
 @app.route('/admin/digital/order/<int:order_id>/update', methods=['POST'])
@@ -7388,6 +7673,20 @@ def digital_reset_access_code(order_id):
     order.delivery_access_code = digital_access_code()
     db.session.commit()
     flash(f'Order #{order.id} received a new download access code. Give the new code only to the customer.', 'success')
+    return redirect(url_for('digital_admin'))
+
+
+@app.route('/admin/digital/order/<int:order_id>/activation-codes', methods=['POST'])
+@require_admin
+def digital_order_activation_codes(order_id):
+    order = DigitalOrder.query.get_or_404(order_id)
+    try:
+        digital_set_activation_device_limit(order, request.form.get('device_limit'))
+        db.session.commit()
+        flash(f'App activation codes are ready for up to {order.activation_device_limit} device(s). Give one code per device only after payment is confirmed.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
     return redirect(url_for('digital_admin'))
 
 # ==================== EXPENSE PAYMENT CENTER ====================

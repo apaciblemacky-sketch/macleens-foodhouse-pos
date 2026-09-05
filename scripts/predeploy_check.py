@@ -52,8 +52,10 @@ REQUIRED_DB_COLUMNS = {
     "bundle_deal": {"id", "name", "description", "discount_type", "discount_value", "is_active", "created_by", "created_at"},
     "bundle_deal_item": {"id", "bundle_id", "product_id", "quantity"},
     "digital_asset_file": {"id", "original_filename", "download_filename", "content_type", "file_size", "sha256", "file_data", "uploaded_by", "created_at"},
-    "digital_item": {"id", "name", "product_type", "price", "asset_file_id", "is_active", "created_at"},
-    "digital_order": {"id", "item_id", "payment_status", "asset_file_id", "delivery_access_code", "download_count", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response"},
+    "digital_item": {"id", "name", "product_type", "price", "asset_file_id", "delivery_instructions", "app_device_limit", "is_active", "created_at"},
+    "digital_order": {"id", "item_id", "payment_status", "asset_file_id", "delivery_access_code", "download_count", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "activation_device_limit"},
+    "digital_support_faq": {"id", "question", "answer", "is_active", "sort_order", "created_at", "updated_at"},
+    "digital_app_activation_code": {"id", "order_id", "activation_code", "status", "device_fingerprint_hash", "device_name", "activation_token_hash", "activated_at", "last_validated_at", "created_at"},
     "financial_source_exclusion": {"id", "source_kind", "source_key", "is_excluded", "note", "updated_by", "created_at", "updated_at"},
     "financial_journal_entry": {"id", "entry_date", "entry_ref", "description", "account", "debit", "credit", "source_kind", "source_key", "is_adjusting", "notes", "created_by", "created_at"},
     "product_suggestion": {"id", "customer_id", "customer_name", "suggestion_text", "status", "created_at"},
@@ -275,11 +277,17 @@ def main() -> int:
         "class DigitalAssetFile(db.Model):",
         "class DigitalItem(db.Model):",
         "class DigitalOrder(db.Model):",
+        "class DigitalSupportFAQ(db.Model):",
+        "class DigitalAppActivationCode(db.Model):",
         "@app.route('/digital')",
         "@app.route('/digital/item/<int:item_id>'",
         "@app.route('/digital/order/<token>')",
         "@app.route('/digital/order/<token>/download'",
         "@app.route('/api/digital-support-bot'",
+        "@app.route('/api/digital/app/activate'",
+        "@app.route('/api/digital/app/validate'",
+        "@app.route('/admin/digital/support-faq/ai-draft'",
+        "@app.route('/admin/digital/order/<int:order_id>/activation-codes'",
         "@app.route('/admin/digital/payment-settings'",
         "@app.route('/admin/digital')",
         "create_main_digital_order",
@@ -287,6 +295,7 @@ def main() -> int:
         "digital_create_paymongo_checkout",
         "digital_check_paymongo_payment",
         "digital_asset_from_upload",
+        "app_device_limit",
     ]
     missing = [marker for marker in digital_markers if marker not in source]
     if missing:
@@ -295,7 +304,7 @@ def main() -> int:
         if not (TEMPLATES / name).exists():
             fail(f"Digital Business template is missing: {name}")
     digital_template_text = "\n".join((TEMPLATES / name).read_text(encoding="utf-8") for name in ["digital/base.html", "digital/item.html", "digital/order_status.html", "digital/admin.html"])
-    for marker in ["protected digital asset", "Download access code", "digital-support-bot", "PAYMONGO_SECRET_KEY", "Message Macleen’s Digital on Facebook"]:
+    for marker in ["protected digital asset", "Download access code", "digital-support-bot", "Suggested AI Help Bot questions", "GEMINI_API_KEY", "One-time app codes", "Message Macleen’s Digital on Facebook"]:
         if marker not in digital_template_text:
             fail(f"Digital asset/payment/support UI marker is missing: {marker}")
     digital_smoke = ROOT / "scripts" / "digital_assets_gateway_smoke_check.py"
@@ -305,7 +314,7 @@ def main() -> int:
         py_compile.compile(str(digital_smoke), doraise=True)
     except py_compile.PyCompileError as exc:
         fail(f"Digital asset smoke-check script does not compile: {exc.msg}")
-    ok("Digital Business catalog, protected downloads, gateway-ready checkout, support bot, and cashier sync are present")
+    ok("Digital Business catalog, protected downloads, manual cashier payment, Gemini help, and app activation are present")
 
     student_markers = [
         "class GroupOrder(db.Model):", "class GroupOrderLine(db.Model):",
