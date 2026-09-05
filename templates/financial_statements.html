@@ -61,7 +61,7 @@
     <button class="tab" data-tab="position" type="button">Balance Sheet</button>
     <button class="tab" data-tab="cash" type="button">Cash Flows</button>
     <button class="tab" data-tab="journal" type="button">Journal & Adjustments</button>
-    <button class="tab" data-tab="sources" type="button">Included Sources</button>
+    <button class="tab" data-tab="sources" type="button">Recurring Plans</button>
   </nav>
 
   <section class="panel tab-panel active" data-panel="income">
@@ -104,9 +104,9 @@
   </section>
 
   <section class="panel tab-panel" data-panel="cash">
-    <div class="report-head"><div><h2>Statement of Cash Flows</h2><p>Cash and digital collection movements during the selected period, grouped by operating, investing, and financing activity.</p></div><span class="badge auto">AUTO-GENERATED</span></div>
+    <div class="report-head"><div><h2>Statement of Cash Flows</h2><p>Cash and digital collection movements during the selected period, grouped by operating activities, financing activities, and any manual cash adjustments.</p></div><span class="badge auto">AUTO-GENERATED</span></div>
     <div class="mini-grid">
-      {% for code, label, amount, color in [('OPERATING','Operating activities',cash_flow.operating,'#0f766e'),('INVESTING','Investing activities',cash_flow.investing,'#0369a1'),('FINANCING','Financing activities',cash_flow.financing,'#7c3aed')] %}
+      {% for code, label, amount, color in [('OPERATING','Operating activities',cash_flow.operating,'#0f766e'),('FINANCING','Financing activities',cash_flow.financing,'#7c3aed'),('OTHER','Other manual cash adjustments',cash_flow.other,'#0369a1')] %}
       <div class="scroll" style="max-height:270px;"><table><thead><tr><th colspan="2" style="color:{{ color }};">{{ label }}</th></tr></thead><tbody>
         {% for row in cash_flow.detail[code] %}<tr><td><strong>{{ row.description }}</strong><div class="line-muted">{{ row.date.strftime('%b %d, %Y') }} · {{ 'Automatic' if row.is_auto else 'Manual' }}</div></td><td class="num {{ 'positive' if row.amount >= 0 else 'negative' }}">{{ '+' if row.amount >= 0 else '−' }}₱{{ "{:,.2f}".format(row.amount|abs) }}</td></tr>{% endfor %}
         {% if not cash_flow.detail[code] %}<tr><td colspan="2" class="empty">No {{ label|lower }} cash entries.</td></tr>{% endif %}
@@ -146,16 +146,16 @@
   </section>
 
   <section class="panel tab-panel" data-panel="sources">
-    <div class="report-head"><div><h2>Included Sources & Optional Exclusions</h2><p>All direct expenses, sales, vault drops, paid plans, and relevant cash-flow plans are included by default. Excluding one only changes this financial report; it does not delete or edit the original source record.</p></div><span class="badge manual">REPORT CONTROL</span></div>
-    <div class="note info" style="margin-bottom:10px;"><strong>Recommendation:</strong> Keep real business expenses included. If a personal cash-flow item appears, use this control to exclude it from business reporting, then later record it correctly as an Owner Drawing with a balanced adjustment if needed.</div>
+    <div class="report-head"><div><h2>Cash Flow Manager Recurring Plans</h2><p>Only whole recurring plans created in Cash Flow Manager can be excluded. One choice applies to every paid, unpaid, and scheduled occurrence of that plan in the Financial Statements.</p></div><span class="badge manual">REPORT CONTROL</span></div>
+    <div class="note info" style="margin-bottom:10px;"><strong>Always included:</strong> completed cashier/POS orders, vault drops, and direct expenses. They have no exclusion buttons, so the report retains its day-to-day operating record. Use this control only for recurring personal or non-business items entered through Cash Flow Manager.</div>
     <div class="control-list">
       {% for source in source_controls %}
       <div class="source-row {% if source.is_excluded %}excluded{% endif %}">
         <div class="source-title">{{ source.title }}</div><div class="source-meta">{{ source.date.strftime('%b %d, %Y') if source.date else 'No date' }} · {{ source.direction }} · {{ source.detail or source.source_kind }}</div><div style="margin-top:4px;font-size:.9rem;font-weight:950;">₱{{ "{:,.2f}".format(source.amount) }}</div>
-        <div class="source-actions"><form action="{{ url_for('financial_source_visibility') }}" method="POST"><input type="hidden" name="source_kind" value="{{ source.source_kind }}"><input type="hidden" name="source_key" value="{{ source.source_key }}"><input type="hidden" name="action" value="{{ 'INCLUDE' if source.is_excluded else 'EXCLUDE' }}"><input type="hidden" name="period_start" value="{{ period_start.isoformat() }}"><input type="hidden" name="period_end" value="{{ period_end.isoformat() }}"><input type="hidden" name="include_scheduled" value="{{ '1' if include_scheduled else '0' }}"><button type="submit" class="btn {{ 'btn-teal' if source.is_excluded else 'btn-amber' }}">{{ 'Include in report' if source.is_excluded else 'Exclude from report' }}</button></form><span class="line-muted">{{ 'Currently excluded' if source.is_excluded else 'Currently included' }}</span></div>
+        <div class="source-actions"><form action="{{ url_for('financial_source_visibility') }}" method="POST"><input type="hidden" name="source_kind" value="{{ source.source_kind }}"><input type="hidden" name="source_key" value="{{ source.source_key }}"><input type="hidden" name="action" value="{{ 'INCLUDE' if source.is_excluded else 'EXCLUDE' }}"><input type="hidden" name="period_start" value="{{ period_start.isoformat() }}"><input type="hidden" name="period_end" value="{{ period_end.isoformat() }}"><input type="hidden" name="include_scheduled" value="{{ '1' if include_scheduled else '0' }}"><button type="submit" class="btn {{ 'btn-teal' if source.is_excluded else 'btn-amber' }}">{{ 'Include full series' if source.is_excluded else 'Exclude full series' }}</button></form><span class="line-muted">{{ 'Full series excluded' if source.is_excluded else 'Full series included' }}</span></div>
       </div>
       {% endfor %}
-      {% if not source_controls %}<div class="empty">No report sources found in this period.</div>{% endif %}
+      {% if not source_controls %}<div class="empty">No Cash Flow Manager recurring plan occurs in this reporting period.</div>{% endif %}
     </div>
   </section>
 

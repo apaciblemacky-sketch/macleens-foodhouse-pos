@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated behavioral smoke check for Financial Statements v8 and bundle deals."""
+"""Isolated behavioral smoke check for Financial Statements v9 and bundle deals."""
 from __future__ import annotations
 
 import os
@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix='mfh-financial-v8-') as folder:
+    with tempfile.TemporaryDirectory(prefix='mfh-financial-v9-') as folder:
         db_path = (Path(folder) / 'financial.db').resolve().as_posix()
         os.environ['DATABASE_URL'] = f'sqlite:///{db_path}'
         os.environ['SECRET_KEY'] = 'financial-bundle-smoke-check'
@@ -75,6 +75,18 @@ def main() -> int:
             assert round(pnl['cogs'], 2) == 19.00
             assert any(row['source_kind'] == 'CASHFLOW_PLAN' for row in controls)
 
+            # Excluding a Cash Flow Manager plan suppresses the whole recurring
+            # series, while completed cashier/POS records continue to appear.
+            # A legacy individual-order exclusion must be ignored: cashier/POS
+            # transactions are always included in the reports.
+            m.db.session.add(m.FinancialSourceExclusion(source_kind='ORDER', source_key=str(order.id), is_excluded=True))
+            m.db.session.add(m.FinancialSourceExclusion(source_kind='CASHFLOW_PLAN', source_key=str(plan.id), is_excluded=True))
+            m.db.session.commit()
+            journal, controls = m.financial_build_journal(today, today, 60, include_scheduled=True)
+            assert any(row['source_kind'] == 'ORDER' for row in journal)
+            assert not any(row['source_kind'] == 'CASHFLOW_PLAN' for row in journal)
+            assert any(row['source_kind'] == 'CASHFLOW_PLAN' and row['is_excluded'] for row in controls)
+
             m.db.session.add_all([
                 m.FinancialJournalEntry(entry_date=today, entry_ref='ADJ-SMOKE', description='Opening capital', account='Cash & Digital Collections', debit=100, credit=0, created_by='admin'),
                 m.FinancialJournalEntry(entry_date=today, entry_ref='ADJ-SMOKE', description='Opening capital', account='Owner Capital', debit=0, credit=100, created_by='admin'),
@@ -82,7 +94,8 @@ def main() -> int:
             m.db.session.commit()
             journal, _ = m.financial_build_journal(today, today, 60, include_scheduled=True)
             assert any(row['entry_ref'] == 'ADJ-SMOKE' and not row['is_auto'] for row in journal)
-            assert m.financial_cash_flows(journal)['financing'] == 100
+            cash_flow = m.financial_cash_flows(journal)
+            assert cash_flow['financing'] == 100 and 'investing' not in cash_flow
 
             client = m.app.test_client()
             with client.session_transaction() as browser:
@@ -96,7 +109,7 @@ def main() -> int:
             storefront = client.get('/')
             assert storefront.status_code == 200 and b'Lunch Bundle' in storefront.data
 
-    print('FINANCIAL STATEMENTS + BUNDLE DEALS V8 SMOKE CHECK PASSED')
+    print('FINANCIAL STATEMENTS + BUNDLE DEALS V9 SMOKE CHECK PASSED')
     return 0
 
 

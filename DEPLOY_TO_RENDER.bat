@@ -130,6 +130,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running Digital Assets, GCash, and Help Bot behavior checks...
+%DEPLOY_CHECK_CMD% scripts\digital_assets_gateway_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Digital Assets, GCash, or Help Bot checks failed.
+  pause
+  exit /b 1
+)
+
 echo.
 echo GitHub remote:
 echo %DEPLOY_REMOTE%
@@ -202,10 +211,11 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.05-financial-statements-v8
+echo Expected release after Render finishes: 2026.09.05-digital-assets-gcash-support-v10
 echo Then test one product link, both role-locked Community dashboards,
 echo 25-person @mentions, cover photos, no-refresh comments, project workspaces,
-echo Financial Statements, and one bundle checkout.
+echo Financial Statements, one bundle checkout, one protected digital download,
+echo the Digital Help Bot, and (after credentials are added) one GCash checkout.
 echo.
 start "" "https://dashboard.render.com/"
 start "" "https://macleens-foodhouse-pos.onrender.com/healthz"

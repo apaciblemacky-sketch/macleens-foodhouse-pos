@@ -21,6 +21,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text, UniqueConstraint, and_, or_
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import qrcode
@@ -59,6 +60,14 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True}
 # product. Keep the guarded fallback usable for catalogs larger than 70 items;
 # the modern editor sends only changed rows and normally stays far below this.
 app.config['MAX_FORM_PARTS'] = 5000
+# Digital assets are kept in the database and released only through a paid
+# order's protected download route. The limit is intentionally bounded so one
+# upload cannot exhaust a small Render/SQLite deployment.
+try:
+    DIGITAL_ASSET_MAX_MB = max(1, min(25, int(os.environ.get('DIGITAL_ASSET_MAX_MB', '20'))))
+except (TypeError, ValueError):
+    DIGITAL_ASSET_MAX_MB = 20
+app.config['MAX_CONTENT_LENGTH'] = (DIGITAL_ASSET_MAX_MB + 1) * 1024 * 1024
 app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -67,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.05-financial-statements-v8'
+APP_RELEASE = '2026.09.05-digital-assets-gcash-support-v10'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -347,7 +356,7 @@ class CashFlowExpensePayment(db.Model):
 
 
 class FinancialSourceExclusion(db.Model):
-    """Keeps reporting choices separate from the original POS/cash-flow record."""
+    """Stores report-only exclusion choices for entire Cash Flow Manager plans."""
     __tablename__ = 'financial_source_exclusion'
     __table_args__ = (UniqueConstraint('source_kind', 'source_key', name='uq_financial_source_exclusion'),)
     id = db.Column(db.Integer, primary_key=True)
@@ -1077,6 +1086,19 @@ class DigitalCategory(db.Model):
     name = db.Column(db.String(80), unique=True, nullable=False)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
 
+class DigitalAssetFile(db.Model):
+    """A protected downloadable file; never served from the public static folder."""
+    __tablename__ = 'digital_asset_file'
+    id = db.Column(db.Integer, primary_key=True)
+    original_filename = db.Column(db.String(255), nullable=False)
+    download_filename = db.Column(db.String(255), nullable=False)
+    content_type = db.Column(db.String(150), nullable=True)
+    file_size = db.Column(db.Integer, nullable=False, default=0)
+    sha256 = db.Column(db.String(64), nullable=False, index=True)
+    file_data = db.Column(db.LargeBinary, nullable=False)
+    uploaded_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+
 class DigitalItem(db.Model):
     __tablename__ = 'digital_item'
     id = db.Column(db.Integer, primary_key=True)
@@ -1088,6 +1110,7 @@ class DigitalItem(db.Model):
     cost = db.Column(db.Float, default=0.0)
     image_url = db.Column(db.Text, nullable=True)
     sample_url = db.Column(db.Text, nullable=True)
+    asset_file_id = db.Column(db.Integer, db.ForeignKey('digital_asset_file.id', ondelete='SET NULL'), nullable=True)
     file_format = db.Column(db.String(80), nullable=True)
     license_terms = db.Column(db.Text, nullable=True)
     turnaround_days = db.Column(db.Integer, default=0)
@@ -1096,6 +1119,7 @@ class DigitalItem(db.Model):
     views = db.Column(db.Integer, default=0)
     orders_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=utc_now)
+    asset_file = db.relationship('DigitalAssetFile', foreign_keys=[asset_file_id], lazy=True)
 
 class DigitalOrder(db.Model):
     __tablename__ = 'digital_order'
@@ -1115,6 +1139,15 @@ class DigitalOrder(db.Model):
     status = db.Column(db.String(30), default='PENDING_PAYMENT', nullable=False)
     requirements = db.Column(db.Text, nullable=True)
     fulfillment_url = db.Column(db.Text, nullable=True)
+    asset_file_id = db.Column(db.Integer, db.ForeignKey('digital_asset_file.id', ondelete='SET NULL'), nullable=True)
+    delivery_access_code = db.Column(db.String(24), nullable=True)
+    download_count = db.Column(db.Integer, nullable=False, default=0)
+    last_download_at = db.Column(db.DateTime, nullable=True)
+    payment_gateway = db.Column(db.String(30), nullable=True)
+    gateway_checkout_id = db.Column(db.String(120), nullable=True, index=True)
+    gateway_checkout_url = db.Column(db.Text, nullable=True)
+    gateway_checked_at = db.Column(db.DateTime, nullable=True)
+    gateway_response = db.Column(db.Text, nullable=True)
     license_key = db.Column(db.String(255), nullable=True)
     fulfillment_notes = db.Column(db.Text, nullable=True)
     tracking_token = db.Column(db.String(64), unique=True, nullable=False, default=lambda: secrets.token_urlsafe(24))
@@ -1123,6 +1156,7 @@ class DigitalOrder(db.Model):
     completed_at = db.Column(db.DateTime, nullable=True)
     item = db.relationship('DigitalItem', lazy=True)
     main_order = db.relationship('Order', lazy=True, foreign_keys=[main_order_id])
+    asset_file = db.relationship('DigitalAssetFile', foreign_keys=[asset_file_id], lazy=True)
 
 class MarketingInsightImport(db.Model):
     __tablename__ = 'marketing_insight_import'
@@ -1624,6 +1658,20 @@ def run_schema_migrations():
         'community_group': [
             ('external_chat_url', 'VARCHAR(500)'),
         ],
+        'digital_item': [
+            ('asset_file_id', 'INTEGER'),
+        ],
+        'digital_order': [
+            ('asset_file_id', 'INTEGER'),
+            ('delivery_access_code', 'VARCHAR(24)'),
+            ('download_count', 'INTEGER DEFAULT 0'),
+            ('last_download_at', 'TIMESTAMP'),
+            ('payment_gateway', 'VARCHAR(30)'),
+            ('gateway_checkout_id', 'VARCHAR(120)'),
+            ('gateway_checkout_url', 'TEXT'),
+            ('gateway_checked_at', 'TIMESTAMP'),
+            ('gateway_response', 'TEXT'),
+        ],
     }
 
     inspector = inspect(db.engine)
@@ -1663,6 +1711,8 @@ def run_schema_migrations():
         if 'investor_interest' in tables:
             conn.execute(text("UPDATE investor_interest SET offer_code = 'GENERAL' WHERE offer_code IS NULL OR offer_code = ''"))
             conn.execute(text("UPDATE investor_interest SET is_counter_offer = FALSE WHERE is_counter_offer IS NULL"))
+        if 'digital_order' in tables:
+            conn.execute(text("UPDATE digital_order SET download_count = 0 WHERE download_count IS NULL"))
 
 def run_db_setup():
     global _DB_INITIALIZED
@@ -1704,6 +1754,17 @@ def run_db_setup():
         for existing_order in tokenless_orders:
             existing_order.public_token = secrets.token_urlsafe(24)
         if tokenless_orders:
+            db.session.commit()
+
+        # An access code is intentionally separate from the unguessable private
+        # tracking link. Existing digital orders receive one during upgrade so
+        # paid orders remain usable after this feature is installed.
+        uncoded_digital_orders = DigitalOrder.query.filter(
+            (DigitalOrder.delivery_access_code.is_(None)) | (DigitalOrder.delivery_access_code == '')
+        ).all()
+        for digital_order in uncoded_digital_orders:
+            digital_order.delivery_access_code = 'MFH-' + secrets.token_urlsafe(7).replace('-', '').replace('_', '').upper()[:10]
+        if uncoded_digital_orders:
             db.session.commit()
 
         ensure_default_promos()
@@ -3911,11 +3972,14 @@ def inject_globals():
     try:
         setting = StoreSetting.query.filter_by(key='logo_url').first()
         logo = setting.value if setting else '/static/logo.png'
+        support_setting = StoreSetting.query.filter_by(key='digital_support_facebook_url').first()
+        digital_support_facebook_url = support_setting.value if support_setting else 'https://www.facebook.com/macleensdigital/'
     except Exception:
         app.logger.exception('Logo setting query failed; using /static/logo.png fallback')
         logo = '/static/logo.png'
+        digital_support_facebook_url = 'https://www.facebook.com/macleensdigital/'
     status = check_operating_status()
-    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link)
+    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link, digital_support_facebook_url=digital_support_facebook_url)
 
 def _staff_auth_failure(target, message):
     """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
@@ -4066,8 +4130,9 @@ def sync_digital_order_after_main_verification(main_order, accepted):
     if not digital_order:
         return
     if accepted:
-        digital_order.payment_status = 'PAID'
-        digital_order.status = 'IN_PROGRESS' if digital_order.item.product_type == 'CUSTOM_SERVICE' else 'PAID'
+        # Ready downloads release automatically once cashier payment is
+        # confirmed. Custom work remains in progress until staff fulfills it.
+        digital_mark_order_paid(digital_order)
     else:
         digital_order.payment_status = 'CANCELLED'
         digital_order.status = 'CANCELLED'
@@ -6827,6 +6892,276 @@ def craft_record_transaction():
 
 # ==================== DIGITAL BUSINESS PORTAL ====================
 
+DIGITAL_ASSET_BLOCKED_EXTENSIONS = {
+    '.apk', '.app', '.bat', '.cmd', '.com', '.dll', '.dmg', '.exe', '.jar', '.msi',
+    '.ps1', '.scr', '.sh', '.vbs', '.wsf',
+}
+DIGITAL_SUPPORT_FACEBOOK_DEFAULT = 'https://www.facebook.com/macleensdigital/'
+
+
+def digital_setting(key, default=''):
+    row = StoreSetting.query.filter_by(key=key).first()
+    return row.value if row else default
+
+
+def save_digital_setting(key, value):
+    row = StoreSetting.query.filter_by(key=key).first()
+    if row:
+        row.value = str(value)
+    else:
+        db.session.add(StoreSetting(key=key, value=str(value)))
+
+
+def digital_payment_settings():
+    mode = digital_setting('digital_gcash_gateway_mode', 'MANUAL').strip().upper()
+    if mode not in {'MANUAL', 'PAYMONGO'}:
+        mode = 'MANUAL'
+    support_url = digital_setting('digital_support_facebook_url', DIGITAL_SUPPORT_FACEBOOK_DEFAULT).strip()
+    if not support_url.startswith(('https://www.facebook.com/', 'https://facebook.com/', 'https://m.facebook.com/')):
+        support_url = DIGITAL_SUPPORT_FACEBOOK_DEFAULT
+    return {
+        'gateway_mode': mode,
+        'paymongo_ready': bool(os.environ.get('PAYMONGO_SECRET_KEY', '').strip()),
+        'support_url': support_url,
+        'download_limit': max(1, min(20, parse_int(os.environ.get('DIGITAL_ASSET_DOWNLOAD_LIMIT', '5'), 5))),
+        'asset_max_mb': DIGITAL_ASSET_MAX_MB,
+        'bot_provider': digital_setting('digital_support_bot_provider', 'AUTO').strip().upper(),
+    }
+
+
+def digital_access_code():
+    return 'MFH-' + secrets.token_urlsafe(7).replace('-', '').replace('_', '').upper()[:10]
+
+
+def digital_asset_from_upload(upload):
+    """Accept a downloadable asset, never executable content served inline."""
+    original_name = secure_filename((getattr(upload, 'filename', '') or '').strip())
+    if not original_name:
+        raise OrderValidationError('Choose a named digital file to upload.')
+    extension = os.path.splitext(original_name)[1].lower()
+    if extension in DIGITAL_ASSET_BLOCKED_EXTENSIONS:
+        raise OrderValidationError('Executable or installer files cannot be sold through this portal. Package source files as a ZIP instead.')
+    raw = upload.read(DIGITAL_ASSET_MAX_MB * 1024 * 1024 + 1)
+    if not raw:
+        raise OrderValidationError('The uploaded digital file is empty.')
+    if len(raw) > DIGITAL_ASSET_MAX_MB * 1024 * 1024:
+        raise OrderValidationError(f'Digital assets must be {DIGITAL_ASSET_MAX_MB} MB or smaller.')
+    return DigitalAssetFile(
+        original_filename=original_name[:255],
+        download_filename=original_name[:255],
+        content_type=(getattr(upload, 'mimetype', '') or 'application/octet-stream')[:150],
+        file_size=len(raw), sha256=hashlib.sha256(raw).hexdigest(), file_data=raw,
+        uploaded_by=session.get('admin_user') or 'admin',
+    )
+
+
+def digital_order_can_download(order):
+    return bool(
+        order and order.asset_file_id and order.asset_file and
+        order.payment_status == 'PAID' and order.status in {'READY', 'DELIVERED'}
+    )
+
+
+def digital_order_can_open_external_delivery(order):
+    return bool(order and order.fulfillment_url and order.payment_status == 'PAID' and order.status in {'READY', 'DELIVERED'})
+
+
+def digital_mark_order_paid(order, payment_gateway=None):
+    """Release a ready-uploaded download after server-side payment confirmation."""
+    if not order:
+        return
+    order.payment_status = 'PAID'
+    if payment_gateway:
+        order.payment_gateway = payment_gateway
+    if order.item and order.item.product_type == 'DOWNLOAD' and order.asset_file_id:
+        order.status = 'READY'
+    elif order.item and order.item.product_type == 'CUSTOM_SERVICE':
+        order.status = 'IN_PROGRESS'
+    else:
+        order.status = 'PAID'
+
+
+def digital_confirm_gateway_payment(order):
+    """Mark both the Digital order and its linked cashier order as paid once."""
+    if not order or order.payment_status == 'PAID':
+        return False
+    digital_mark_order_paid(order, payment_gateway='PAYMONGO')
+    main_order = order.main_order
+    if main_order and main_order.status == 'VERIFICATION':
+        main_order.payment_verified = True
+        main_order.is_unpaid = False
+        main_order.status = 'COMPLETED'
+        main_order.fulfillment_status = 'READY' if order.status == 'READY' else 'PREPARING'
+    return True
+
+
+def digital_public_base_url():
+    configured = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
+    return configured or request.url_root.rstrip('/')
+
+
+def digital_create_paymongo_checkout(order):
+    secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
+    if not secret_key:
+        raise OrderValidationError('Online GCash checkout is not configured yet. Use the displayed GCash payment instructions and wait for cashier verification.')
+    success_url = digital_public_base_url() + url_for('digital_payment_return', token=order.tracking_token)
+    cancel_url = digital_public_base_url() + url_for('digital_order_status', token=order.tracking_token)
+    payload = {
+        'data': {'attributes': {
+            'line_items': [{
+                'currency': 'PHP', 'amount': max(1, int(round(order.unit_price * 100))),
+                'name': (order.item.name if order.item else 'Macleen’s Digital Asset')[:120],
+                'quantity': max(1, parse_int(order.quantity, 1)),
+            }],
+            'payment_method_types': ['gcash'],
+            'success_url': success_url, 'cancel_url': cancel_url,
+            'description': f"Macleen's Digital Order #{order.id}",
+            'metadata': {'digital_order_id': str(order.id)},
+        }}
+    }
+    try:
+        response = requests.post(
+            'https://api.paymongo.com/v1/checkout_sessions', auth=(secret_key, ''),
+            json=payload, timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError) as exc:
+        raise OrderValidationError('Could not start the GCash checkout. Please try again or message Macleen’s Digital on Facebook.') from exc
+    if not response.ok:
+        message = ((body.get('errors') or [{}])[0].get('detail') if isinstance(body, dict) else '') or 'The payment gateway declined the checkout request.'
+        raise OrderValidationError(str(message)[:240])
+    data = body.get('data') if isinstance(body, dict) else None
+    attributes = data.get('attributes') if isinstance(data, dict) else None
+    checkout_url = (attributes.get('checkout_url') if isinstance(attributes, dict) else '') or ''
+    parsed = urlparse(checkout_url)
+    if not isinstance(data, dict) or not data.get('id') or parsed.scheme != 'https' or not parsed.netloc:
+        raise OrderValidationError('The payment gateway returned an invalid checkout link. No payment was taken.')
+    order.payment_gateway = 'PAYMONGO'
+    order.gateway_checkout_id = str(data['id'])[:120]
+    order.gateway_checkout_url = checkout_url[:2000]
+    order.gateway_checked_at = utc_now()
+    order.gateway_response = json.dumps({'checkout_created': True}, separators=(',', ':'))
+    return checkout_url
+
+
+def digital_check_paymongo_payment(order):
+    """Verify a checkout server-to-server; never trust a browser return alone."""
+    if not order or order.payment_status == 'PAID' or order.payment_gateway != 'PAYMONGO' or not order.gateway_checkout_id:
+        return False
+    secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
+    if not secret_key:
+        return False
+    try:
+        response = requests.get(
+            f'https://api.paymongo.com/v1/checkout_sessions/{order.gateway_checkout_id}',
+            auth=(secret_key, ''), timeout=(4, 20),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError):
+        app.logger.warning('Could not verify PayMongo checkout for digital order %s', order.id)
+        return False
+    order.gateway_checked_at = utc_now()
+    if not response.ok or not isinstance(body, dict):
+        order.gateway_response = json.dumps({'checkout_verified': False, 'http_status': response.status_code}, separators=(',', ':'))
+        return False
+    statuses = []
+    def collect_statuses(value):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key == 'status' and isinstance(nested, str):
+                    statuses.append(nested.strip().lower())
+                collect_statuses(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect_statuses(nested)
+    collect_statuses(body.get('data') or {})
+    paid = bool({'paid', 'succeeded', 'successful'} & set(statuses))
+    order.gateway_response = json.dumps({'checkout_verified': True, 'statuses': sorted(set(statuses))[:8]}, separators=(',', ':'))
+    if paid:
+        return digital_confirm_gateway_payment(order)
+    return False
+
+
+def digital_support_fallback(question):
+    text_value = (question or '').casefold()
+    if any(term in text_value for term in ('download', 'code', 'password', 'file')):
+        return 'After payment is confirmed, open your private order link. The page will show your access code and let you download the attached digital file.'
+    if any(term in text_value for term in ('gcash', 'pay', 'payment', 'refund')):
+        return 'GCash orders are released only after payment is verified. If your payment is still pending, keep your private tracking link and contact Macleen’s Digital with your order details.'
+    if any(term in text_value for term in ('custom', 'website', 'resume', 'tracker', 'system')):
+        return 'For custom systems, web résumés, trackers, and other made-for-you work, submit your requirements on the item page. The team will confirm the scope and delivery timeline.'
+    return 'I can help explain Digital products, downloads, order status, GCash checkout, and custom work. For account-specific, payment, or detailed project concerns, please message Macleen’s Digital on Facebook.'
+
+
+def digital_support_ai_reply(question):
+    settings = digital_payment_settings()
+    provider = settings['bot_provider']
+    if provider not in {'AUTO', 'GEMINI', 'OPENAI', 'TEMPLATE'}:
+        provider = 'AUTO'
+    catalog = [
+        {'name': item.name, 'category': item.category_name, 'type': item.product_type, 'description': (item.description or '')[:220]}
+        for item in DigitalItem.query.filter_by(is_active=True).order_by(DigitalItem.is_featured.desc(), DigitalItem.name.asc()).limit(30).all()
+    ]
+    prompt = (
+        "You are the Macleen's Digital customer-help assistant in Binalbagan, Philippines. "
+        "Answer only about the supplied digital catalog, downloads, payment process, and custom-work ordering. "
+        "Never ask for a GCash PIN, OTP, full card details, passwords, or access codes. Never claim that payment is confirmed unless the system says so. "
+        "For order-specific, payment, refund, or unclear concerns, direct the customer to Macleen's Digital Facebook page. "
+        "Keep the answer warm, practical, and below 180 words.\n\n"
+        f"CATALOG: {json.dumps(catalog, ensure_ascii=False)}\nQUESTION: {question}"
+    )
+    attempts = []
+    if provider in {'AUTO', 'GEMINI'} and gemini_configured():
+        try:
+            api_key = (os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY') or '').strip()
+            response = requests.post(
+                'https://generativelanguage.googleapis.com/v1beta/interactions',
+                headers={'x-goog-api-key': api_key, 'Content-Type': 'application/json'},
+                json={'model': os.environ.get('GEMINI_DIGITAL_SUPPORT_MODEL', 'gemini-3.5-flash-lite'), 'input': prompt, 'response_format': {'type': 'text'}},
+                timeout=35,
+            )
+            body = response.json() if response.content else {}
+            answer = body.get('output_text', '').strip() if isinstance(body, dict) else ''
+            if response.ok and answer:
+                return answer[:1400], 'gemini'
+            attempts.append('Gemini unavailable')
+        except Exception:
+            attempts.append('Gemini unavailable')
+    if provider in {'AUTO', 'OPENAI'} and openai_configured():
+        try:
+            response = requests.post(
+                'https://api.openai.com/v1/responses',
+                headers={'Authorization': f"Bearer {os.environ.get('OPENAI_API_KEY', '').strip()}", 'Content-Type': 'application/json'},
+                json={'model': os.environ.get('OPENAI_DIGITAL_SUPPORT_MODEL', os.environ.get('OPENAI_MARKETING_MODEL', 'gpt-5.5')), 'instructions': 'Give a safe, concise digital-business support answer. Do not handle credentials, payment confirmations, or private account data.', 'input': prompt, 'max_output_tokens': 350},
+                timeout=35,
+            )
+            body = response.json() if response.content else {}
+            answer = ''
+            for part in (body.get('output') or []) if isinstance(body, dict) else []:
+                for content in part.get('content') or []:
+                    if content.get('type') == 'output_text':
+                        answer += content.get('text', '')
+            if response.ok and answer.strip():
+                return answer.strip()[:1400], 'openai'
+            attempts.append('OpenAI unavailable')
+        except Exception:
+            attempts.append('OpenAI unavailable')
+    return digital_support_fallback(question), 'smart-help'
+
+
+def digital_support_rate_allowed():
+    now = int(datetime.now(timezone.utc).timestamp())
+    history = [parse_int(value, 0) for value in (session.get('digital_support_bot_times') or [])]
+    history = [value for value in history if value >= now - 600]
+    if len(history) >= 8:
+        session['digital_support_bot_times'] = history
+        session.modified = True
+        return False
+    history.append(now)
+    session['digital_support_bot_times'] = history
+    session.modified = True
+    return True
+
 @app.route('/digital')
 def digital_store():
     category = request.args.get('category', '').strip()
@@ -6834,14 +7169,15 @@ def digital_store():
     if category:
         query = query.filter_by(category_name=category)
     return render_template('digital/index.html', items=query.order_by(DigitalItem.is_featured.desc(), DigitalItem.name.asc()).all(),
-                           categories=DigitalCategory.query.filter_by(is_active=True).order_by(DigitalCategory.name).all(), selected_category=category)
+                           categories=DigitalCategory.query.filter_by(is_active=True).order_by(DigitalCategory.name).all(), selected_category=category,
+                           payment_settings=digital_payment_settings())
 
 @app.route('/digital/item/<int:item_id>', methods=['GET', 'POST'])
 def digital_item_detail(item_id):
     item = DigitalItem.query.filter_by(id=item_id, is_active=True).first_or_404()
     if request.method == 'GET':
         item.views = parse_int(item.views, 0) + 1; db.session.commit()
-        return render_template('digital/item.html', item=item)
+        return render_template('digital/item.html', item=item, payment_settings=digital_payment_settings())
     name = request.form.get('customer_name', '').strip()[:100]
     contact = request.form.get('contact_number', '').strip()[:50]
     email = request.form.get('email', '').strip()[:120]
@@ -6851,24 +7187,111 @@ def digital_item_detail(item_id):
     if not name or not contact or '@' not in email or method not in CRAFT_PAYMENT_METHODS:
         flash('Name, contact number, a valid delivery email, and payment method are required.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
+    payment_settings = digital_payment_settings()
     order = DigitalOrder(item_id=item.id, customer_name=name, contact_number=contact, email=email,
         quantity=qty, unit_price=item.price, unit_cost=item.cost or 0, total_price=item.price * qty,
-        payment_method=method, gcash_ref=ref, requirements=request.form.get('requirements','').strip()[:3000] or None)
+        payment_method=method, gcash_ref=ref, asset_file_id=item.asset_file_id,
+        delivery_access_code=digital_access_code(), requirements=request.form.get('requirements','').strip()[:3000] or None)
     db.session.add(order); db.session.flush(); create_main_digital_order(order)
     item.orders_count = parse_int(item.orders_count, 0) + qty; db.session.commit()
+    if method == 'GCASH' and payment_settings['gateway_mode'] == 'PAYMONGO':
+        try:
+            checkout_url = digital_create_paymongo_checkout(order)
+            db.session.commit()
+            return redirect(checkout_url)
+        except OrderValidationError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+    elif method == 'GCASH' and not ref:
+        flash('Your order was created. Add the GCash reference when you message us or when cashier verifies the payment.', 'info')
     return redirect(url_for('digital_order_status', token=order.tracking_token))
 
 @app.route('/digital/order/<token>')
 def digital_order_status(token):
     order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
-    can_download = order.payment_status == 'PAID' and order.status in ('READY', 'DELIVERED')
-    return render_template('digital/order_status.html', order=order, can_download=can_download)
+    digital_check_paymongo_payment(order)
+    if order.payment_gateway == 'PAYMONGO':
+        db.session.commit()
+    return render_template(
+        'digital/order_status.html', order=order, can_download=digital_order_can_download(order),
+        can_open_external_delivery=digital_order_can_open_external_delivery(order), payment_settings=digital_payment_settings(),
+    )
+
+
+@app.route('/digital/order/<token>/payment-return')
+def digital_payment_return(token):
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    if digital_check_paymongo_payment(order):
+        db.session.commit()
+        flash('GCash payment confirmed. Your download is ready when an uploaded asset is attached to this product.', 'success')
+    else:
+        db.session.commit()
+        flash('Payment is still awaiting confirmation. You can check again shortly or message Macleen’s Digital on Facebook.', 'info')
+    return redirect(url_for('digital_order_status', token=order.tracking_token))
+
+
+@app.route('/digital/order/<token>/check-payment', methods=['POST'])
+def digital_check_payment(token):
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    if digital_check_paymongo_payment(order):
+        db.session.commit()
+        flash('GCash payment confirmed. Your protected download is ready.', 'success')
+    else:
+        db.session.commit()
+        flash('Payment is not confirmed yet. Please wait a moment, then try again or contact Macleen’s Digital on Facebook.', 'info')
+    return redirect(url_for('digital_order_status', token=order.tracking_token))
+
+
+@app.route('/digital/order/<token>/download', methods=['POST'])
+def digital_download_asset(token):
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    if not digital_order_can_download(order):
+        flash('This file is released only after confirmed payment and ready fulfillment.', 'error')
+        return redirect(url_for('digital_order_status', token=token))
+    supplied_code = re.sub(r'\s+', '', request.form.get('access_code', '')).upper()
+    expected_code = re.sub(r'\s+', '', order.delivery_access_code or '').upper()
+    if not supplied_code or not expected_code or not hmac.compare_digest(supplied_code, expected_code):
+        flash('That download access code is not correct. Use the code shown on your paid order page.', 'error')
+        return redirect(url_for('digital_order_status', token=token))
+    settings = digital_payment_settings()
+    if parse_int(order.download_count, 0) >= settings['download_limit']:
+        flash(f'This protected file has reached its {settings["download_limit"]}-download limit. Please contact Macleen’s Digital on Facebook for help.', 'error')
+        return redirect(url_for('digital_order_status', token=token))
+    asset = order.asset_file
+    order.download_count = parse_int(order.download_count, 0) + 1
+    order.last_download_at = utc_now()
+    db.session.commit()
+    filename = secure_filename(asset.download_filename) or 'macleens-digital-download'
+    response = Response(asset.file_data, mimetype=asset.content_type or 'application/octet-stream')
+    response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response.headers['Cache-Control'] = 'private, no-store, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Content-Security-Policy'] = 'sandbox'
+    return response
+
+
+@app.route('/api/digital-support-bot', methods=['POST'])
+def digital_support_bot():
+    payload = request.get_json(silent=True) or {}
+    question = re.sub(r'\s+', ' ', str(payload.get('question', '')).strip())[:650]
+    if len(question) < 2:
+        return jsonify({'success': False, 'message': 'Please enter a short question.'}), 400
+    if not digital_support_rate_allowed():
+        return jsonify({'success': False, 'message': 'Please wait a few minutes before asking more questions.', 'support_url': digital_payment_settings()['support_url']}), 429
+    answer, model = digital_support_ai_reply(question)
+    support_url = digital_payment_settings()['support_url']
+    handoff = ' For payment, order-specific, or detailed project concerns, message Macleen’s Digital on Facebook.'
+    if 'facebook' not in answer.casefold():
+        answer = answer.rstrip() + handoff
+    return jsonify({'success': True, 'answer': answer[:1700], 'model': model, 'support_url': support_url})
 
 @app.route('/admin/digital')
 @require_admin
 def digital_admin():
     return render_template('digital/admin.html', items=DigitalItem.query.order_by(DigitalItem.is_active.desc(), DigitalItem.name).all(),
-        categories=DigitalCategory.query.order_by(DigitalCategory.name).all(), orders=DigitalOrder.query.order_by(DigitalOrder.created_at.desc()).limit(200).all())
+        categories=DigitalCategory.query.order_by(DigitalCategory.name).all(), orders=DigitalOrder.query.order_by(DigitalOrder.created_at.desc()).limit(200).all(),
+        payment_settings=digital_payment_settings())
 
 @app.route('/admin/digital/category/add', methods=['POST'])
 @require_admin
@@ -6888,14 +7311,56 @@ def digital_item_save():
         flash('Enter a name and price greater than zero.', 'error'); return redirect(url_for('digital_admin'))
     item.name=request.form['name'].strip()[:120]; item.description=request.form.get('description','').strip()[:5000]
     item.category_name=request.form.get('category_name','General').strip()[:80] or 'General'
-    item.product_type=request.form.get('product_type','DOWNLOAD').upper(); item.price=price
+    product_type = request.form.get('product_type','DOWNLOAD').upper()
+    if product_type not in {'DOWNLOAD', 'CUSTOM_SERVICE', 'SUBSCRIPTION'}:
+        flash('Choose a valid digital product type.', 'error'); return redirect(url_for('digital_admin'))
+    item.product_type=product_type; item.price=price
     item.cost=max(0,parse_float(request.form.get('cost'),0)); item.image_url=request.form.get('image_url','').strip() or CRAFT_DEFAULT_IMAGE
     item.sample_url=request.form.get('sample_url','').strip() or None; item.file_format=request.form.get('file_format','').strip()[:80] or None
     item.license_terms=request.form.get('license_terms','').strip()[:3000] or None
-    item.turnaround_days=max(0,parse_int(request.form.get('turnaround_days'),0)); item.is_active=bool(request.form.get('is_active', '1'))
+    item.turnaround_days=max(0,parse_int(request.form.get('turnaround_days'),0)); item.is_active=request.form.get('is_active') == '1'
     item.is_featured=bool(request.form.get('is_featured'))
-    if not item_id: db.session.add(item)
-    db.session.commit(); flash('Digital offer saved.', 'success'); return redirect(url_for('digital_admin'))
+    upload = request.files.get('asset_file')
+    try:
+        if upload and (upload.filename or '').strip():
+            asset = digital_asset_from_upload(upload)
+            db.session.add(asset); db.session.flush()
+            item.asset_file_id = asset.id
+            if not item.file_format:
+                item.file_format = os.path.splitext(asset.download_filename)[1].lstrip('.').upper() or 'Digital download'
+        elif request.form.get('clear_asset'):
+            item.asset_file_id = None
+        if not item_id: db.session.add(item)
+        db.session.commit()
+        flash('Digital offer saved. Attached files are protected until payment is confirmed.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback(); flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback(); app.logger.exception('Digital asset save failed'); flash('Could not save the digital offer or uploaded file.', 'error')
+    return redirect(url_for('digital_admin'))
+
+
+@app.route('/admin/digital/payment-settings', methods=['POST'])
+@require_admin
+def digital_payment_settings_save():
+    mode = request.form.get('gateway_mode', 'MANUAL').strip().upper()
+    provider = request.form.get('bot_provider', 'AUTO').strip().upper()
+    support_url = request.form.get('support_url', '').strip() or DIGITAL_SUPPORT_FACEBOOK_DEFAULT
+    if mode not in {'MANUAL', 'PAYMONGO'} or provider not in {'AUTO', 'GEMINI', 'OPENAI', 'TEMPLATE'}:
+        flash('Invalid Digital payment or support-bot setting.', 'error')
+        return redirect(url_for('digital_admin'))
+    if not support_url.startswith(('https://www.facebook.com/', 'https://facebook.com/', 'https://m.facebook.com/')):
+        flash('Use the full Macleen’s Digital Facebook Page URL for support.', 'error')
+        return redirect(url_for('digital_admin'))
+    save_digital_setting('digital_gcash_gateway_mode', mode)
+    save_digital_setting('digital_support_bot_provider', provider)
+    save_digital_setting('digital_support_facebook_url', support_url[:500])
+    db.session.commit()
+    if mode == 'PAYMONGO' and not os.environ.get('PAYMONGO_SECRET_KEY', '').strip():
+        flash('Settings saved, but live checkout remains off until PAYMONGO_SECRET_KEY is added in Render environment variables.', 'info')
+    else:
+        flash('Digital payment and support settings saved.', 'success')
+    return redirect(url_for('digital_admin'))
 
 @app.route('/admin/digital/order/<int:order_id>/update', methods=['POST'])
 @require_admin
@@ -6911,6 +7376,19 @@ def digital_order_update(order_id):
     order.fulfillment_notes=request.form.get('fulfillment_notes','').strip()[:3000] or None
     if status == 'DELIVERED': order.completed_at=utc_now()
     db.session.commit(); flash('Digital order updated.', 'success'); return redirect(url_for('digital_admin'))
+
+
+@app.route('/admin/digital/order/<int:order_id>/reset-access-code', methods=['POST'])
+@require_admin
+def digital_reset_access_code(order_id):
+    order = DigitalOrder.query.get_or_404(order_id)
+    if not order.asset_file_id:
+        flash('This order has no uploaded digital file to protect.', 'error')
+        return redirect(url_for('digital_admin'))
+    order.delivery_access_code = digital_access_code()
+    db.session.commit()
+    flash(f'Order #{order.id} received a new download access code. Give the new code only to the customer.', 'success')
+    return redirect(url_for('digital_admin'))
 
 # ==================== EXPENSE PAYMENT CENTER ====================
 
@@ -6993,9 +7471,10 @@ def cashflow_order_is_excluded(order):
 
 
 # ==================== FINANCIAL STATEMENTS & JOURNAL ====================
-# The finance portal intentionally keeps its reporting rules separate from the
-# POS/cash-flow source records.  That makes it possible to exclude a personal
-# item from a report without deleting it from the operational audit trail.
+# The finance portal intentionally keeps report choices separate from the
+# operational audit trail. Only a whole recurring Cash Flow Manager plan can be
+# excluded. Completed cashier/POS activity and direct expenses are always
+# included, so a report cannot quietly omit individual real transactions.
 FINANCIAL_ACCOUNT_META = {
     'Cash & Digital Collections': ('ASSET', 'Cash & Digital Collections'),
     'Accounts Receivable': ('ASSET', 'Accounts Receivable'),
@@ -7023,7 +7502,7 @@ FINANCIAL_ACCOUNT_META = {
     'Depreciation': ('EXPENSE', 'Depreciation'),
 }
 FINANCIAL_ACCOUNT_OPTIONS = tuple(FINANCIAL_ACCOUNT_META)
-FINANCIAL_SOURCE_KINDS = {'ORDER', 'VAULT_DROP', 'EXPENSE', 'CASHFLOW_PLAN', 'CASHFLOW_PAYMENT'}
+FINANCIAL_SOURCE_KINDS = {'CASHFLOW_PLAN'}
 
 
 def financial_setting(key, default=''):
@@ -7098,7 +7577,9 @@ def financial_period_from_request():
 def financial_exclusion_map():
     return {
         (row.source_kind, row.source_key)
-        for row in FinancialSourceExclusion.query.filter_by(is_excluded=True).all()
+        for row in FinancialSourceExclusion.query.filter_by(
+            source_kind='CASHFLOW_PLAN', is_excluded=True,
+        ).all()
     }
 
 
@@ -7146,10 +7627,16 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
     lines, controls, control_index = [], [], {}
 
     def source_control(source_kind, source_key, entry_date, title, direction, amount, detail=''):
+        """Expose exclusions only for whole Cash Flow Manager recurring plans."""
+        if source_kind != 'CASHFLOW_PLAN':
+            return False
         signature = (source_kind, str(source_key))
         hidden = financial_is_excluded(exclusions, source_kind, source_key)
         if signature in control_index:
-            control_index[signature]['amount'] += max(0.0, parse_float(amount, 0.0))
+            control = control_index[signature]
+            control['amount'] += max(0.0, parse_float(amount, 0.0))
+            if entry_date and (not control['date'] or entry_date > control['date']):
+                control['date'] = entry_date
             return hidden
         row = {
             'source_kind': source_kind, 'source_key': str(source_key), 'date': entry_date,
@@ -7245,9 +7732,11 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
             continue
         transaction_day = utc_naive_to_ph(payment.paid_at).date()
         amount = max(0.0, parse_float(payment.amount, 0.0))
-        plan_hidden = financial_is_excluded(exclusions, 'CASHFLOW_PLAN', plan.id)
-        payment_hidden = source_control('CASHFLOW_PAYMENT', payment.id, transaction_day, f'Paid plan — {plan.title}', 'Expense', amount, plan.category or 'Cash-flow payment')
-        if plan_hidden or payment_hidden or amount <= 0:
+        plan_hidden = source_control(
+            'CASHFLOW_PLAN', plan.id, transaction_day, plan.title, 'Recurring expense plan', amount,
+            f'Cash Flow Manager · {plan.category or plan.frequency} · paid occurrence',
+        )
+        if plan_hidden or amount <= 0:
             continue
         paid_occurrences.add((plan.id, payment.occurrence_date))
         financial_add_entry(lines, transaction_day, f'PLAN-PAYMENT-{payment.id}', f'Paid plan expense — {plan.title}', 'CASHFLOW_PAYMENT', payment.id, [
@@ -7267,9 +7756,7 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
             if not occurrences:
                 continue
             amount = max(0.0, parse_float(plan.amount, 0.0))
-            direction = 'Income plan' if plan.entry_type == 'INCOME' else 'Expense plan'
-            hidden = source_control('CASHFLOW_PLAN', plan.id, plan.start_date, plan.title, direction, amount * len(occurrences), plan.category or plan.frequency)
-            if hidden or amount <= 0:
+            if amount <= 0:
                 continue
             for occurrence in occurrences:
                 payment = payment_by_occurrence.get((plan.id, occurrence))
@@ -7277,11 +7764,23 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
                     # Paid records are journaled using their actual paid date above.
                     if payment and payment.status == 'PAID':
                         continue
+                    hidden = source_control(
+                        'CASHFLOW_PLAN', plan.id, occurrence, plan.title, 'Recurring expense plan', amount,
+                        f'Cash Flow Manager · {plan.category or plan.frequency} · unpaid occurrence',
+                    )
+                    if hidden:
+                        continue
                     financial_add_entry(lines, occurrence, f'PLAN-{plan.id}-{occurrence.isoformat()}', f'Payable plan expense — {plan.title}', 'CASHFLOW_PLAN', plan.id, [
                         (financial_expense_account(plan.category, plan.title), amount, 0.0),
                         ('Accounts Payable', 0.0, amount),
                     ], note='Scheduled / unpaid cash-flow item; it is included as a payable until marked paid.')
                 elif plan.entry_type == 'INCOME':
+                    hidden = source_control(
+                        'CASHFLOW_PLAN', plan.id, occurrence, plan.title, 'Recurring income plan', amount,
+                        f'Cash Flow Manager · {plan.category or plan.frequency} · scheduled occurrence',
+                    )
+                    if hidden:
+                        continue
                     financial_add_entry(lines, occurrence, f'PLAN-INCOME-{plan.id}-{occurrence.isoformat()}', f'Scheduled income — {plan.title}', 'CASHFLOW_PLAN', plan.id, [
                         ('Accounts Receivable', amount, 0.0), ('Other Income', 0.0, amount),
                     ], note='Scheduled cash-flow income; confirm or exclude it if it should not appear in the report.')
@@ -7365,8 +7864,8 @@ def financial_cash_flows(lines):
             'date': row['date'], 'description': row['description'], 'source_kind': row['source_kind'], 'lines': [],
         })
         entry['lines'].append(row)
-    totals = {'OPERATING': 0.0, 'INVESTING': 0.0, 'FINANCING': 0.0}
-    detail = {'OPERATING': [], 'INVESTING': [], 'FINANCING': []}
+    totals = {'OPERATING': 0.0, 'FINANCING': 0.0, 'OTHER': 0.0}
+    detail = {'OPERATING': [], 'FINANCING': [], 'OTHER': []}
     for entry in entries.values():
         cash_change = sum(row['debit'] - row['credit'] for row in entry['lines'] if row['account'] == 'Cash & Digital Collections')
         if abs(cash_change) < 0.004:
@@ -7379,13 +7878,13 @@ def financial_cash_flows(lines):
             if groups & {'LIABILITY', 'EQUITY'}:
                 classification = 'FINANCING'
             elif any(account in ('Equipment & Furniture', 'Other Non-current Assets') for account in other_accounts):
-                classification = 'INVESTING'
+                classification = 'OTHER'
         totals[classification] += cash_change
         detail[classification].append({'date': entry['date'], 'description': entry['description'], 'amount': cash_change, 'is_auto': kind != 'MANUAL'})
     for rows in detail.values():
         rows.sort(key=lambda row: (row['date'], row['description']))
     return {
-        'operating': totals['OPERATING'], 'investing': totals['INVESTING'], 'financing': totals['FINANCING'],
+        'operating': totals['OPERATING'], 'financing': totals['FINANCING'], 'other': totals['OTHER'],
         'net_change': sum(totals.values()), 'detail': detail,
     }
 
@@ -7496,9 +7995,14 @@ def financial_source_visibility():
     source_key = request.form.get('source_key', '').strip()[:140]
     action = request.form.get('action', '').strip().upper()
     note = re.sub(r'\s+', ' ', request.form.get('note', '').strip())[:255]
-    if source_kind not in FINANCIAL_SOURCE_KINDS or not source_key or action not in {'INCLUDE', 'EXCLUDE'}:
-        flash('Invalid financial source visibility request.', 'error')
+    plan_id = parse_int(source_key, 0)
+    if source_kind not in FINANCIAL_SOURCE_KINDS or plan_id <= 0 or action not in {'INCLUDE', 'EXCLUDE'}:
+        flash('Only a valid Cash Flow Manager recurring plan can be included or excluded.', 'error')
         return financial_portal_redirect()
+    if not db.session.get(CashFlowPlan, plan_id):
+        flash('That Cash Flow Manager plan no longer exists.', 'error')
+        return financial_portal_redirect()
+    source_key = str(plan_id)
     row = FinancialSourceExclusion.query.filter_by(source_kind=source_kind, source_key=source_key).first()
     if not row:
         row = FinancialSourceExclusion(source_kind=source_kind, source_key=source_key)
@@ -7507,7 +8011,7 @@ def financial_source_visibility():
     row.note = note or None
     row.updated_by = session.get('admin_user') or 'admin'
     db.session.commit()
-    flash('This source is now ' + ('excluded from' if row.is_excluded else 'included in') + ' Financial Statements. Original records were not changed.', 'success')
+    flash('This full recurring Cash Flow Manager plan is now ' + ('excluded from' if row.is_excluded else 'included in') + ' Financial Statements. Cashier/POS and direct expense records remain included.', 'success')
     return financial_portal_redirect()
 
 

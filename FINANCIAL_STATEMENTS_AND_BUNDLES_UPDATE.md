@@ -1,4 +1,4 @@
-# Financial Statements & Bundle Deals — v8
+# Financial Statements & Bundle Deals — v9
 
 ## New Admin Portal
 
@@ -10,9 +10,9 @@ The portal contains five tabs:
 
 1. **Income Statement** — revenue, cost of goods sold, operating expenses, gross profit, and net income for the selected period.
 2. **Balance Sheet** — assets, liabilities, and equity as of the selected end date.
-3. **Statement of Cash Flows** — operating, investing, and financing cash movements.
+3. **Statement of Cash Flows** — operating and financing cash movements, plus any manual cash adjustments. The separate Investing Activities section has been removed.
 4. **Journal & Adjustments** — compressed and expanded debit/credit entries plus manual adjusting entries.
-5. **Included Sources** — visible controls to include or exclude a reporting source without editing/deleting the original POS or cash-flow record.
+5. **Cash Flow Manager Recurring Plans** — a single report-only control for each recurring Cash Flow Manager plan.
 
 ## How Automatic Entries Work
 
@@ -41,7 +41,13 @@ Before using this as an official statement:
 4. Record opening cash, capital, loans, equipment, or corrections using a balanced manual adjustment.
 5. Have a qualified Philippine accountant review reports needed for tax, BIR, lending, or investor decisions.
 
-Personal withdrawals should normally be recorded as **Owner Drawings**, not operating expenses. The portal includes every original source by default because the owner requested full visibility; use Included Sources to remove personal items from a business-only view without losing the audit record.
+Personal withdrawals should normally be recorded as **Owner Drawings**, not operating expenses. The portal includes completed cashier/POS sales, vault drops, and direct expenses at all times. If a recurring personal or non-business item was set up in **Cash Flow Manager**, use the recurring-plan control to remove the whole series from a business-only view without losing the operational audit record.
+
+## Cash Flow Manager Exclusions
+
+The report never offers an exclusion button for an individual cashier/POS sale, vault drop, direct expense, or single paid bill. Those sources are always included.
+
+For a Cash Flow Manager recurring plan, choose **Exclude full series** once. It removes every paid, unpaid, and scheduled occurrence of that plan from the Financial Statements. Choose **Include full series** to restore all occurrences. The original Cash Flow Manager plan and payment history are never deleted or edited.
 
 ## Profit Margin % and Cost %
 

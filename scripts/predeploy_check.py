@@ -51,6 +51,9 @@ REQUIRED_DB_COLUMNS = {
     "vault_drop": {"id", "drop_number", "amount", "cash_breakdown", "created_at"},
     "bundle_deal": {"id", "name", "description", "discount_type", "discount_value", "is_active", "created_by", "created_at"},
     "bundle_deal_item": {"id", "bundle_id", "product_id", "quantity"},
+    "digital_asset_file": {"id", "original_filename", "download_filename", "content_type", "file_size", "sha256", "file_data", "uploaded_by", "created_at"},
+    "digital_item": {"id", "name", "product_type", "price", "asset_file_id", "is_active", "created_at"},
+    "digital_order": {"id", "item_id", "payment_status", "asset_file_id", "delivery_access_code", "download_count", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response"},
     "financial_source_exclusion": {"id", "source_kind", "source_key", "is_excluded", "note", "updated_by", "created_at", "updated_at"},
     "financial_journal_entry": {"id", "entry_date", "entry_ref", "description", "account", "debit", "credit", "source_kind", "source_key", "is_adjusting", "notes", "created_by", "created_at"},
     "product_suggestion": {"id", "customer_id", "customer_name", "suggestion_text", "status", "created_at"},
@@ -269,14 +272,21 @@ def main() -> int:
     ok("progressive no-refresh UI is present and globally attached")
 
     digital_markers = [
+        "class DigitalAssetFile(db.Model):",
         "class DigitalItem(db.Model):",
         "class DigitalOrder(db.Model):",
         "@app.route('/digital')",
         "@app.route('/digital/item/<int:item_id>'",
         "@app.route('/digital/order/<token>')",
+        "@app.route('/digital/order/<token>/download'",
+        "@app.route('/api/digital-support-bot'",
+        "@app.route('/admin/digital/payment-settings'",
         "@app.route('/admin/digital')",
         "create_main_digital_order",
         "sync_digital_order_after_main_verification",
+        "digital_create_paymongo_checkout",
+        "digital_check_paymongo_payment",
+        "digital_asset_from_upload",
     ]
     missing = [marker for marker in digital_markers if marker not in source]
     if missing:
@@ -284,7 +294,18 @@ def main() -> int:
     for name in ["digital/base.html", "digital/index.html", "digital/item.html", "digital/order_status.html", "digital/admin.html"]:
         if not (TEMPLATES / name).exists():
             fail(f"Digital Business template is missing: {name}")
-    ok("Digital Business catalog, checkout, tracking, admin, and cashier sync are present")
+    digital_template_text = "\n".join((TEMPLATES / name).read_text(encoding="utf-8") for name in ["digital/base.html", "digital/item.html", "digital/order_status.html", "digital/admin.html"])
+    for marker in ["protected digital asset", "Download access code", "digital-support-bot", "PAYMONGO_SECRET_KEY", "Message Macleen’s Digital on Facebook"]:
+        if marker not in digital_template_text:
+            fail(f"Digital asset/payment/support UI marker is missing: {marker}")
+    digital_smoke = ROOT / "scripts" / "digital_assets_gateway_smoke_check.py"
+    if not digital_smoke.exists():
+        fail("scripts/digital_assets_gateway_smoke_check.py is missing")
+    try:
+        py_compile.compile(str(digital_smoke), doraise=True)
+    except py_compile.PyCompileError as exc:
+        fail(f"Digital asset smoke-check script does not compile: {exc.msg}")
+    ok("Digital Business catalog, protected downloads, gateway-ready checkout, support bot, and cashier sync are present")
 
     student_markers = [
         "class GroupOrder(db.Model):", "class GroupOrderLine(db.Model):",
@@ -634,6 +655,7 @@ def main() -> int:
         "financial_balance_sheet", "financial_compact_entries", "financial_target_profit_margin_percent",
         "financial_fallback_cost_percent", "@app.route('/admin/financial-statements')",
         "@app.route('/admin/financial-statements/journal'", "@app.route('/admin/financial-statements/source-visibility'",
+        "FINANCIAL_SOURCE_KINDS = {'CASHFLOW_PLAN'}",
     ]
     missing_financial = [marker for marker in financial_markers if marker not in source]
     if missing_financial:
@@ -642,9 +664,11 @@ def main() -> int:
     if not financial_template.exists():
         fail("Financial Statements template is missing")
     financial_text = financial_template.read_text(encoding="utf-8")
-    for marker in ["Income Statement", "Balance Sheet", "Statement of Cash Flows", "Daily adjusting entry", "Debit / Credit", "Fallback Cost %", "Included Sources"]:
+    for marker in ["Income Statement", "Balance Sheet", "Statement of Cash Flows", "Daily adjusting entry", "Debit / Credit", "Fallback Cost %", "Cash Flow Manager Recurring Plans"]:
         if marker not in financial_text:
             fail(f"Financial Statements UI marker is missing: {marker}")
+    if "Investing activities" in financial_text or "cash_flow.investing" in financial_text:
+        fail("Financial Statements still displays the removed Investing Activities section")
     financial_smoke = ROOT / "scripts" / "financial_bundle_smoke_check.py"
     if not financial_smoke.exists():
         fail("scripts/financial_bundle_smoke_check.py is missing")

@@ -51,6 +51,22 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running Financial Statements and Bundle Deals checks...
+"%PYTHON_CMD%" scripts\financial_bundle_smoke_check.py
+if errorlevel 1 (
+  echo Financial Statements or Bundle Deals checks failed. The system was not started.
+  pause
+  exit /b 1
+)
+
+echo Running Digital Assets, GCash, and Help Bot checks...
+"%PYTHON_CMD%" scripts\digital_assets_gateway_smoke_check.py
+if errorlevel 1 (
+  echo Digital Assets, GCash, or Help Bot checks failed. The system was not started.
+  pause
+  exit /b 1
+)
+
 echo Starting Macleen's Food House at http://127.0.0.1:5000
 start "" http://127.0.0.1:5000
 "%PYTHON_CMD%" app.py

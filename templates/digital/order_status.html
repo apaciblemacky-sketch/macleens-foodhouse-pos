@@ -1,1 +1,33 @@
-{% extends 'digital/base.html' %}{% block content %}<div class="card"><h1>Digital Order #{{ order.id }}</h1><p><strong>{{ order.item.name }}</strong> · ₱{{ '%.2f'|format(order.total_price) }}</p><p>Status: <span class="badge">{{ order.status.replace('_',' ').title() }}</span> · Payment: <span class="badge">{{ order.payment_status }}</span></p><p class="muted">Bookmark this private tracking page. Files or links appear only after cashier payment confirmation and fulfillment.</p>{% if can_download and order.fulfillment_url %}<a class="btn" target="_blank" rel="noopener" href="{{ order.fulfillment_url }}">Open Secure Delivery</a>{% endif %}{% if can_download and order.license_key %}<p><strong>License key:</strong> {{ order.license_key }}</p>{% endif %}{% if order.fulfillment_notes %}<p>{{ order.fulfillment_notes }}</p>{% endif %}</div>{% endblock %}
+{% extends 'digital/base.html' %}
+{% block title %}Digital Order #{{ order.id }} | Macleen's{% endblock %}
+{% block content %}
+<section class="card" style="max-width:760px;margin:0 auto 16px">
+  <span class="badge">Private order page</span><h1>Digital Order #{{ order.id }}</h1>
+  <p><strong>{{ order.item.name }}</strong> · ₱{{ '%.2f'|format(order.total_price) }}</p>
+  <p>Status: <span class="badge">{{ order.status.replace('_',' ').title() }}</span> · Payment: <span class="badge">{{ order.payment_status }}</span></p>
+  <p class="muted">Keep this private page bookmarked. It is part of the protection for your file and must not be posted publicly.</p>
+
+  {% if order.payment_gateway == 'PAYMONGO' and order.payment_status != 'PAID' %}
+  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:13px;padding:12px;margin:13px 0"><strong>GCash checkout awaiting confirmation.</strong><p class="muted" style="margin:6px 0 10px">After completing GCash, return here and check your payment. The server verifies the gateway result before releasing a file.</p><form method="post" action="{{ url_for('digital_check_payment',token=order.tracking_token) }}"><button class="btn" type="submit">Check GCash payment</button></form></div>
+  {% endif %}
+
+  {% if can_download %}
+  <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:15px;padding:14px;margin:13px 0">
+    <h2 style="margin-top:0">✅ Your protected download is ready</h2>
+    <p>Your access code is <strong id="accessCode" style="letter-spacing:.08em">{{ order.delivery_access_code }}</strong> <button class="btn btn-light" type="button" id="copyAccessCode" style="padding:5px 8px;font-size:.76rem">Copy code</button></p>
+    <p class="muted">Enter this code below to download. Do not share the code or this private page. Downloads used: {{ order.download_count or 0 }} / {{ payment_settings.download_limit }}.</p>
+    <form method="post" data-no-live action="{{ url_for('digital_download_asset',token=order.tracking_token) }}"><label>Download access code</label><input name="access_code" required autocomplete="one-time-code" placeholder="MFH-XXXXXXXXXX"><button class="btn" type="submit">Download {{ order.asset_file.download_filename }}</button></form>
+  </div>
+  {% elif order.payment_status == 'PAID' and order.asset_file_id %}
+  <div style="background:#fff7ed;border-radius:13px;padding:12px"><strong>Your payment is confirmed.</strong> The file is being prepared; refresh this private page when the order becomes Ready.</div>
+  {% elif order.payment_status != 'PAID' %}
+  <div style="background:#fff7ed;border-radius:13px;padding:12px"><strong>Download locked until payment is confirmed.</strong> For manual GCash or cash orders, the cashier will verify payment first.</div>
+  {% endif %}
+
+  {% if can_open_external_delivery %}<p style="margin-top:14px"><a class="btn" target="_blank" rel="noopener" href="{{ order.fulfillment_url }}">Open staff-provided delivery</a></p>{% endif %}
+  {% if order.license_key %}<p><strong>License key:</strong> {{ order.license_key }}</p>{% endif %}
+  {% if order.fulfillment_notes %}<p style="white-space:pre-wrap">{{ order.fulfillment_notes }}</p>{% endif %}
+  <p style="margin-top:18px"><a class="btn btn-pink" target="_blank" rel="noopener" href="{{ payment_settings.support_url }}">Need help? Message Macleen’s Digital on Facebook</a></p>
+</section>
+<script>document.getElementById('copyAccessCode')?.addEventListener('click',async()=>{const button=document.getElementById('copyAccessCode');try{await navigator.clipboard.writeText(document.getElementById('accessCode').textContent.trim());button.textContent='Copied';setTimeout(()=>button.textContent='Copy code',1400);}catch(_){button.textContent='Copy the code above';}});</script>
+{% endblock %}
