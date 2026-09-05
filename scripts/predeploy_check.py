@@ -49,6 +49,10 @@ REQUIRED_DB_COLUMNS = {
     },
     "promotion_tracker": {"id", "promo_code", "promo_price", "promo_cost", "is_visible", "portal_only", "description"},
     "vault_drop": {"id", "drop_number", "amount", "cash_breakdown", "created_at"},
+    "bundle_deal": {"id", "name", "description", "discount_type", "discount_value", "is_active", "created_by", "created_at"},
+    "bundle_deal_item": {"id", "bundle_id", "product_id", "quantity"},
+    "financial_source_exclusion": {"id", "source_kind", "source_key", "is_excluded", "note", "updated_by", "created_at", "updated_at"},
+    "financial_journal_entry": {"id", "entry_date", "entry_ref", "description", "account", "debit", "credit", "source_kind", "source_key", "is_adjusting", "notes", "created_by", "created_at"},
     "product_suggestion": {"id", "customer_id", "customer_name", "suggestion_text", "status", "created_at"},
     "menu_vote_candidate": {"id", "name", "normalized_name", "category_name", "product_id", "is_active", "created_at"},
     "menu_preference_vote": {"id", "customer_id", "candidate_id", "period_key", "created_at"},
@@ -613,7 +617,7 @@ def main() -> int:
         "allow_storefront_custom_amount=True",
         "collectSpecificAmount",
         "Specific amount available",
-        "cart[id].customAmount ? { unit_price:",
+        "item.customAmount ? { unit_price:",
         "Amount cannot be below",
     ]
     missing_storefront_amount = [
@@ -623,6 +627,48 @@ def main() -> int:
     if missing_storefront_amount:
         fail("storefront specific-amount safeguards are missing: " + ", ".join(missing_storefront_amount))
     ok("storefront specific amounts appear after sub-options and remain minimum-enforced")
+
+    financial_markers = [
+        "class FinancialSourceExclusion(db.Model):", "class FinancialJournalEntry(db.Model):",
+        "financial_build_journal", "financial_income_statement", "financial_cash_flows",
+        "financial_balance_sheet", "financial_compact_entries", "financial_target_profit_margin_percent",
+        "financial_fallback_cost_percent", "@app.route('/admin/financial-statements')",
+        "@app.route('/admin/financial-statements/journal'", "@app.route('/admin/financial-statements/source-visibility'",
+    ]
+    missing_financial = [marker for marker in financial_markers if marker not in source]
+    if missing_financial:
+        fail("Financial Statements portal markers missing: " + ", ".join(missing_financial))
+    financial_template = TEMPLATES / "financial_statements.html"
+    if not financial_template.exists():
+        fail("Financial Statements template is missing")
+    financial_text = financial_template.read_text(encoding="utf-8")
+    for marker in ["Income Statement", "Balance Sheet", "Statement of Cash Flows", "Daily adjusting entry", "Debit / Credit", "Fallback Cost %", "Included Sources"]:
+        if marker not in financial_text:
+            fail(f"Financial Statements UI marker is missing: {marker}")
+    financial_smoke = ROOT / "scripts" / "financial_bundle_smoke_check.py"
+    if not financial_smoke.exists():
+        fail("scripts/financial_bundle_smoke_check.py is missing")
+    try:
+        py_compile.compile(str(financial_smoke), doraise=True)
+    except py_compile.PyCompileError as exc:
+        fail(f"Financial/bundle smoke-check script does not compile: {exc.msg}")
+    ok("Financial Statements, source exclusions, cost/profit settings, and balanced journal adjustments are present")
+
+    bundle_markers = [
+        "class BundleDeal(db.Model):", "class BundleDealItem(db.Model):", "bundle_deal_pricing",
+        "expand_bundle_cart_items", "@app.route('/admin/bundles/create'", "@app.route('/admin/bundles/<int:bundle_id>/update'",
+        "Bundle deal", "_bundle_unit_price",
+    ]
+    missing_bundles = [marker for marker in bundle_markers if marker not in source]
+    if missing_bundles:
+        fail("Bundle-deal server safeguards are missing: " + ", ".join(missing_bundles))
+    for marker in ["Bundle deals", "addBundleToCart", "bundle_id: Number(item.bundleId)"]:
+        if marker not in storefront:
+            fail(f"Bundle-deal storefront UI marker is missing: {marker}")
+    for marker in ["Product Bundle Deals", "addBundleItemRow", "Create Bundle Deal"]:
+        if marker not in admin_template:
+            fail(f"Bundle-deal admin UI marker is missing: {marker}")
+    ok("server-priced bundle deals, percentage/fixed discounts, storefront checkout, and stock safeguards are present")
 
     option_markers = [
         "option_schema = db.Column",

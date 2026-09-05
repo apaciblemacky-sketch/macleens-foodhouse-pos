@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Macleen's Food House — Financial Statements</title>
+  <style>
+    :root{--ink:#172033;--muted:#64748b;--line:#dbe7e4;--panel:#fff;--teal:#0f766e;--teal-soft:#ccfbf1;--pink:#db2777;--pink-soft:#fff1f6;--blue:#0369a1;--blue-soft:#e0f2fe;--red:#b91c1c;--amber:#b45309}
+    *{box-sizing:border-box} body{margin:0;background:linear-gradient(145deg,#f8fafc,#effcf8 55%,#fff4f8);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:18px}
+    .shell{max-width:1450px;margin:0 auto}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;background:rgba(255,255,255,.95);border:1px solid var(--line);border-radius:18px;padding:17px;box-shadow:0 12px 30px rgba(15,23,42,.06)}
+    h1,h2,h3,h4,p{margin:0}.eyebrow{font-size:.72rem;font-weight:900;color:var(--teal);text-transform:uppercase;letter-spacing:.08em}.sub{color:var(--muted);font-size:.8rem;margin-top:5px;max-width:800px;line-height:1.45}.actions{display:flex;gap:7px;flex-wrap:wrap}.btn{border:0;border-radius:10px;padding:9px 12px;font-size:.78rem;font-weight:850;text-decoration:none;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px}.btn-teal{background:var(--teal);color:#fff}.btn-blue{background:var(--blue);color:#fff}.btn-light{background:#fff;color:#334155;border:1px solid #cbd5e1}.btn-danger{background:#fee2e2;color:#991b1b}.btn-amber{background:#fef3c7;color:#92400e}.panel{margin-top:14px;background:rgba(255,255,255,.96);border:1px solid var(--line);border-radius:16px;padding:15px;box-shadow:0 10px 26px rgba(15,23,42,.05)}
+    .filters{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.field{display:grid;gap:4px;min-width:145px}.field label{font-size:.69rem;font-weight:850;color:#475569}.field input,.field select,.field textarea{border:1px solid #cbd5e1;border-radius:9px;padding:8px;font:inherit;font-size:.79rem;background:#fff;color:var(--ink)}.field textarea{min-height:70px;resize:vertical}.check{display:flex;align-items:center;gap:6px;font-size:.76rem;font-weight:750;color:#334155;padding:8px 0}
+    .metrics{display:grid;grid-template-columns:repeat(5,minmax(145px,1fr));gap:10px;margin-top:14px}.metric{border:1px solid var(--line);border-radius:13px;background:linear-gradient(145deg,#fff,#f8fafc);padding:12px}.metric .label{font-size:.67rem;color:var(--muted);font-weight:850;text-transform:uppercase;letter-spacing:.04em}.metric .value{font-size:1.25rem;font-weight:950;margin-top:4px}.metric small{display:block;color:var(--muted);font-size:.67rem;margin-top:4px;line-height:1.3}.positive{color:#047857}.negative{color:#b91c1c}.blue{color:#0369a1}.pink{color:var(--pink)}
+    .tabs{display:flex;gap:6px;overflow:auto;padding-bottom:2px;margin-top:14px}.tab{white-space:nowrap;border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:999px;padding:8px 12px;font-size:.76rem;font-weight:850;cursor:pointer}.tab.active{background:var(--teal);border-color:var(--teal);color:#fff}.tab-panel{display:none}.tab-panel.active{display:block}.report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;margin-bottom:10px}.report-head p{font-size:.74rem;color:var(--muted);margin-top:4px;line-height:1.45}
+    table{border-collapse:collapse;width:100%;font-size:.78rem}th{background:#f8fafc;color:#475569;text-align:left;font-size:.67rem;text-transform:uppercase;letter-spacing:.035em;position:sticky;top:0;z-index:1}th,td{padding:8px;border-bottom:1px solid #edf2f1;vertical-align:top}.num{text-align:right;font-variant-numeric:tabular-nums}.total td{font-weight:950;background:#f8fafc;border-top:2px solid #94a3b8}.section-row td{background:#effcf8;font-size:.72rem;font-weight:950;color:#115e59;text-transform:uppercase;letter-spacing:.04em}.scroll{overflow:auto;max-height:500px;border:1px solid #e2e8f0;border-radius:11px}.note{border-radius:10px;padding:10px 12px;font-size:.75rem;line-height:1.45}.note.info{background:#eff6ff;color:#1e3a8a;border:1px solid #bfdbfe}.note.warn{background:#fffbeb;color:#78350f;border:1px solid #fde68a}.note.success{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(330px,.9fr);gap:14px}.mini-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.badge{display:inline-block;border-radius:999px;padding:3px 7px;font-size:.63rem;font-weight:900}.badge.auto{background:#dbeafe;color:#1d4ed8}.badge.manual{background:#fce7f3;color:#9d174d}.badge.estimate{background:#fef3c7;color:#92400e}.line-muted{font-size:.68rem;color:var(--muted);line-height:1.35}.control-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px}.source-row{border:1px solid #dbe7e4;border-radius:11px;padding:10px;background:#fff}.source-row.excluded{background:#fff7f7;border-color:#fecaca;opacity:.85}.source-title{font-size:.79rem;font-weight:900}.source-meta{font-size:.68rem;color:var(--muted);margin-top:3px}.source-actions{display:flex;gap:5px;align-items:center;margin-top:8px}.source-actions .btn{padding:5px 8px;font-size:.68rem}.settings-box{background:#fafcff;border:1px solid #bfdbfe;border-radius:12px;padding:11px}.journal-tools{display:flex;gap:7px;flex-wrap:wrap;align-items:center}.hidden{display:none!important}.statement-caption{font-size:.69rem;color:#64748b;margin-top:8px;line-height:1.4}.empty{padding:22px;text-align:center;color:#64748b}.flash{margin-top:12px;border-radius:10px;padding:10px 12px;font-size:.78rem;font-weight:750}.flash.success{color:#166534;background:#ecfdf5;border:1px solid #86efac}.flash.error{color:#991b1b;background:#fef2f2;border:1px solid #fca5a5}.flash.info{color:#1e40af;background:#eff6ff;border:1px solid #93c5fd}
+    @media(max-width:900px){body{padding:10px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.split{grid-template-columns:1fr}.mini-grid{grid-template-columns:1fr}.top{padding:14px}.panel{padding:12px}}@media(max-width:460px){.metrics{grid-template-columns:1fr}.btn{padding:8px 10px}}
+  </style>
+</head>
+<body>
+<main class="shell">
+  <header class="top">
+    <div>
+      <div class="eyebrow">Admin accounting workspace</div>
+      <h1 style="font-size:1.45rem;margin-top:4px;">📒 Financial Statements</h1>
+      <p class="sub">System-generated, double-entry reporting from completed sales, vault drops, direct expenses, paid cash-flow items, and optionally scheduled cash-flow plans. It is a management report—not a substitute for a licensed accountant, BIR filing, or bank reconciliation.</p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-light" href="{{ url_for('admin_dashboard') }}">← Admin Control</a>
+      <a class="btn btn-light" href="{{ url_for('cash_flow_portal') }}">💵 Cash Flow Manager</a>
+      <a class="btn btn-teal" href="#journal">+ Adjusting Entry</a>
+    </div>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}<div class="flash {{ category }}" role="status">{{ message }}</div>{% endfor %}
+  {% endwith %}
+
+  <section class="panel">
+    <form class="filters" method="GET" action="{{ url_for('financial_statements_portal') }}">
+      <div class="field"><label>Reporting period — start</label><input type="date" name="start" value="{{ period_start.isoformat() }}"></div>
+      <div class="field"><label>Reporting period — end</label><input type="date" name="end" value="{{ period_end.isoformat() }}"></div>
+      <label class="check"><input type="checkbox" name="scheduled" value="1" {% if include_scheduled %}checked{% endif %}> Include unpaid scheduled cash-flow plans as accruals/payables</label>
+      <button class="btn btn-teal" type="submit">Apply report period</button>
+    </form>
+    <div class="note {{ 'warn' if include_scheduled else 'info' }}" style="margin-top:10px;">
+      {% if include_scheduled %}<strong>Scheduled plans are included.</strong> Unpaid expense plans appear as Expenses and Accounts Payable; scheduled income appears as Accounts Receivable and Other Income. Paid plan expenses are recorded as actual cash movements only once.
+      {% else %}<strong>Scheduled plans are excluded.</strong> The statements show completed sales, vault drops, direct expenses, paid plan expenses, and your manual entries only.{% endif %}
+    </div>
+  </section>
+
+  <section class="metrics">
+    <div class="metric"><div class="label">Net income</div><div class="value {{ 'positive' if income_statement.net_income >= 0 else 'negative' }}">₱{{ "{:,.2f}".format(income_statement.net_income) }}</div><small>{{ "{:.1f}".format(income_statement.net_margin_percent) }}% actual · {{ "{:.1f}".format(settings.target_profit_margin_percent) }}% target margin</small></div>
+    <div class="metric"><div class="label">Gross profit</div><div class="value blue">₱{{ "{:,.2f}".format(income_statement.gross_profit) }}</div><small>Sales less COGS</small></div>
+    <div class="metric"><div class="label">Cash movement</div><div class="value {{ 'positive' if cash_flow.net_change >= 0 else 'negative' }}">₱{{ "{:,.2f}".format(cash_flow.net_change) }}</div><small>System-recorded movement during period</small></div>
+    <div class="metric"><div class="label">Accounts payable</div><div class="value pink">₱{{ "{:,.2f}".format(balance_sheet.liabilities[0].amount) }}</div><small>Scheduled unpaid expenses as of {{ period_end.strftime('%b %d, %Y') }}</small></div>
+    <div class="metric"><div class="label">Current inventory</div><div class="value blue">₱{{ "{:,.2f}".format(balance_sheet.inventory_value) }}</div><small>Current product and craft stock at recorded cost</small></div>
+  </section>
+
+  <nav class="tabs" aria-label="Financial statement tabs">
+    <button class="tab active" data-tab="income" type="button">Income Statement</button>
+    <button class="tab" data-tab="position" type="button">Balance Sheet</button>
+    <button class="tab" data-tab="cash" type="button">Cash Flows</button>
+    <button class="tab" data-tab="journal" type="button">Journal & Adjustments</button>
+    <button class="tab" data-tab="sources" type="button">Included Sources</button>
+  </nav>
+
+  <section class="panel tab-panel active" data-panel="income">
+    <div class="report-head"><div><h2>Income Statement (Profit & Loss)</h2><p>For {{ period_start.strftime('%B %d, %Y') }} to {{ period_end.strftime('%B %d, %Y') }}.</p></div><span class="badge auto">AUTO-GENERATED</span></div>
+    <div class="scroll"><table>
+      <tbody>
+        <tr class="section-row"><td colspan="2">Revenue</td></tr>
+        {% for row in income_statement.revenue_rows %}<tr><td>{{ row.account }}</td><td class="num">₱{{ "{:,.2f}".format(row.amount) }}</td></tr>{% endfor %}
+        {% if not income_statement.revenue_rows %}<tr><td colspan="2" class="empty">No included revenue in this period.</td></tr>{% endif %}
+        <tr class="total"><td>Total Revenue</td><td class="num">₱{{ "{:,.2f}".format(income_statement.total_revenue) }}</td></tr>
+        <tr><td>Less: Cost of Goods Sold</td><td class="num">(₱{{ "{:,.2f}".format(income_statement.cogs) }})</td></tr>
+        <tr class="total"><td>Gross Profit</td><td class="num {{ 'positive' if income_statement.gross_profit >= 0 else 'negative' }}">₱{{ "{:,.2f}".format(income_statement.gross_profit) }}</td></tr>
+        <tr class="section-row"><td colspan="2">Operating Expenses</td></tr>
+        {% for row in income_statement.operating_expenses %}<tr><td>{{ row.account }}</td><td class="num">(₱{{ "{:,.2f}".format(row.amount) }})</td></tr>{% endfor %}
+        {% if not income_statement.operating_expenses %}<tr><td colspan="2" class="empty">No included operating expenses in this period.</td></tr>{% endif %}
+        <tr class="total"><td>Net Income / (Loss)</td><td class="num {{ 'positive' if income_statement.net_income >= 0 else 'negative' }}">₱{{ "{:,.2f}".format(income_statement.net_income) }}</td></tr>
+      </tbody>
+    </table></div>
+    <p class="statement-caption">Recorded product costs are used when an order item has them. The saved Cost % fills only sales with no recorded cost, including vault drops. Target Profit Margin % is a planning benchmark and never overwrites historical sales.</p>
+  </section>
+
+  <section class="panel tab-panel" data-panel="position">
+    <div class="report-head"><div><h2>Balance Sheet (Statement of Financial Position)</h2><p>As of {{ period_end.strftime('%B %d, %Y') }}. Uses all included system history up to this date.</p></div><span class="badge auto">AUTO-GENERATED</span></div>
+    <div class="split">
+      <div class="scroll"><table><tbody>
+        <tr class="section-row"><td colspan="2">Assets</td></tr>
+        {% for row in balance_sheet.assets %}<tr><td>{{ row.account }}</td><td class="num">₱{{ "{:,.2f}".format(row.amount) }}</td></tr>{% endfor %}
+        <tr class="total"><td>Total Assets</td><td class="num">₱{{ "{:,.2f}".format(balance_sheet.total_assets) }}</td></tr>
+      </tbody></table></div>
+      <div class="scroll"><table><tbody>
+        <tr class="section-row"><td colspan="2">Liabilities</td></tr>
+        {% for row in balance_sheet.liabilities %}<tr><td>{{ row.account }}</td><td class="num">₱{{ "{:,.2f}".format(row.amount) }}</td></tr>{% endfor %}
+        <tr class="total"><td>Total Liabilities</td><td class="num">₱{{ "{:,.2f}".format(balance_sheet.total_liabilities) }}</td></tr>
+        <tr class="section-row"><td colspan="2">Owner's Equity</td></tr>
+        {% for row in balance_sheet.equity %}<tr><td>{{ row.account }}</td><td class="num {{ 'negative' if row.amount < 0 else '' }}">₱{{ "{:,.2f}".format(row.amount) }}</td></tr>{% endfor %}
+        <tr class="total"><td>Total Liabilities & Equity</td><td class="num">₱{{ "{:,.2f}".format(balance_sheet.total_liabilities + balance_sheet.total_equity) }}</td></tr>
+      </tbody></table></div>
+    </div>
+    <div class="note warn" style="margin-top:10px;"><strong>Important:</strong> “Unreconciled opening balance / capital” is the amount needed to reconcile old source records that did not include an opening cash, inventory, loan, or owner-capital entry. Add a balanced manual entry after comparing the report to cash-on-hand, GCash/bank, loans, and inventory; do not treat that balancing line as verified capital.</div>
+  </section>
+
+  <section class="panel tab-panel" data-panel="cash">
+    <div class="report-head"><div><h2>Statement of Cash Flows</h2><p>Cash and digital collection movements during the selected period, grouped by operating, investing, and financing activity.</p></div><span class="badge auto">AUTO-GENERATED</span></div>
+    <div class="mini-grid">
+      {% for code, label, amount, color in [('OPERATING','Operating activities',cash_flow.operating,'#0f766e'),('INVESTING','Investing activities',cash_flow.investing,'#0369a1'),('FINANCING','Financing activities',cash_flow.financing,'#7c3aed')] %}
+      <div class="scroll" style="max-height:270px;"><table><thead><tr><th colspan="2" style="color:{{ color }};">{{ label }}</th></tr></thead><tbody>
+        {% for row in cash_flow.detail[code] %}<tr><td><strong>{{ row.description }}</strong><div class="line-muted">{{ row.date.strftime('%b %d, %Y') }} · {{ 'Automatic' if row.is_auto else 'Manual' }}</div></td><td class="num {{ 'positive' if row.amount >= 0 else 'negative' }}">{{ '+' if row.amount >= 0 else '−' }}₱{{ "{:,.2f}".format(row.amount|abs) }}</td></tr>{% endfor %}
+        {% if not cash_flow.detail[code] %}<tr><td colspan="2" class="empty">No {{ label|lower }} cash entries.</td></tr>{% endif %}
+        <tr class="total"><td>Net {{ label }}</td><td class="num {{ 'positive' if amount >= 0 else 'negative' }}">₱{{ "{:,.2f}".format(amount) }}</td></tr>
+      </tbody></table></div>
+      {% endfor %}
+    </div>
+    <div class="metric" style="margin-top:10px;max-width:350px;"><div class="label">Net change in cash & digital collections</div><div class="value {{ 'positive' if cash_flow.net_change >= 0 else 'negative' }}">₱{{ "{:,.2f}".format(cash_flow.net_change) }}</div></div>
+  </section>
+
+  <section class="panel tab-panel" data-panel="journal" id="journal">
+    <div class="report-head"><div><h2>Transaction Journal — Debit / Credit</h2><p>Automatic lines are generated from the source records every time. Manual entries are balanced pairs and can be deleted without changing original orders or expenses.</p></div><div class="journal-tools"><button type="button" class="btn btn-light" id="compactJournalBtn">⇲ Compress entries</button><button type="button" class="btn btn-light" id="expandJournalBtn">⇱ Expand debit / credit lines</button></div></div>
+    <div id="compactJournal"><div class="scroll"><table><thead><tr><th>Date</th><th>Entry / Description</th><th>Source</th><th class="num">Debit</th><th class="num">Credit</th><th>Action</th></tr></thead><tbody>
+      {% for entry in journal_entries %}<tr><td>{{ entry.date.strftime('%b %d') }}</td><td><strong>{{ entry.description }}</strong><div class="line-muted">{{ entry.entry_ref }} · {{ entry.line_count }} lines{% if entry.is_estimated %} · contains Cost % estimate{% endif %}</div></td><td>{% if entry.is_auto %}<span class="badge auto">AUTO</span>{% else %}<span class="badge manual">ADJUSTING</span>{% endif %}</td><td class="num">₱{{ "{:,.2f}".format(entry.debit) }}</td><td class="num">₱{{ "{:,.2f}".format(entry.credit) }}</td><td>{% if not entry.is_auto %}<form action="{{ url_for('financial_delete_journal_entry', entry_ref=entry.entry_ref) }}" method="POST"><input type="hidden" name="period_start" value="{{ period_start.isoformat() }}"><input type="hidden" name="period_end" value="{{ period_end.isoformat() }}"><input type="hidden" name="include_scheduled" value="{{ '1' if include_scheduled else '0' }}"><button type="submit" class="btn btn-danger" style="padding:5px 8px;font-size:.67rem;" onclick="return confirm('Remove this manual adjusting entry?');">Remove</button></form>{% else %}<span class="line-muted">Generated</span>{% endif %}</td></tr>{% endfor %}
+      {% if not journal_entries %}<tr><td colspan="6" class="empty">No included journal entries in this period.</td></tr>{% endif %}
+    </tbody></table></div></div>
+    <div id="expandedJournal" class="hidden"><div class="scroll"><table><thead><tr><th>Date</th><th>Entry / Account</th><th>Source</th><th class="num">Debit</th><th class="num">Credit</th></tr></thead><tbody>
+      {% for line in journal_lines %}<tr><td>{{ line.date.strftime('%b %d') }}</td><td><strong>{{ line.account }}</strong><div class="line-muted">{{ line.description }} · {{ line.entry_ref }}{% if line.note %}<br>{{ line.note }}{% endif %}</div></td><td>{% if line.is_auto %}<span class="badge auto">AUTO</span>{% else %}<span class="badge manual">MANUAL</span>{% endif %}{% if line.is_estimated %}<span class="badge estimate">EST.</span>{% endif %}</td><td class="num">{% if line.debit %}₱{{ "{:,.2f}".format(line.debit) }}{% endif %}</td><td class="num">{% if line.credit %}₱{{ "{:,.2f}".format(line.credit) }}{% endif %}</td></tr>{% endfor %}
+      {% if not journal_lines %}<tr><td colspan="5" class="empty">No included journal lines in this period.</td></tr>{% endif %}
+    </tbody></table></div></div>
+
+    <div class="split" style="margin-top:14px;">
+      <form class="settings-box" action="{{ url_for('financial_save_settings') }}" method="POST">
+        <h3 style="font-size:.94rem;color:#075985;">Report assumptions you can edit</h3><p class="line-muted" style="margin-top:4px;">These values are transparent inputs, not retroactive changes to completed orders.</p>
+        <div class="mini-grid" style="margin-top:9px;"><div class="field"><label>Target Profit Margin %</label><input type="number" min="0" max="100" step=".01" name="target_profit_margin_percent" value="{{ settings.target_profit_margin_percent }}"></div><div class="field"><label>Fallback Cost %</label><input type="number" min="0" max="100" step=".01" name="fallback_cost_percent" value="{{ settings.fallback_cost_percent }}"></div></div>
+        <input type="hidden" name="period_start" value="{{ period_start.isoformat() }}"><input type="hidden" name="period_end" value="{{ period_end.isoformat() }}"><input type="hidden" name="include_scheduled" value="{{ '1' if include_scheduled else '0' }}"><button class="btn btn-blue" type="submit" style="margin-top:10px;">Save report settings</button>
+      </form>
+      <form action="{{ url_for('financial_add_journal_entry') }}" method="POST" style="border:1px solid #f9a8d4;border-radius:12px;padding:11px;background:#fff8fb;">
+        <h3 style="font-size:.94rem;color:#9d174d;">Daily adjusting entry</h3><p class="line-muted" style="margin-top:4px;">Creates one debit line and one credit line for the same amount.</p>
+        <div class="mini-grid" style="margin-top:9px;"><div class="field"><label>Date *</label><input type="date" name="entry_date" value="{{ period_end.isoformat() }}" required></div><div class="field"><label>Amount *</label><input type="number" min=".01" step=".01" name="amount" required placeholder="0.00"></div></div>
+        <div class="field" style="margin-top:8px;"><label>Description *</label><input name="description" required maxlength="255" placeholder="e.g. Record opening cash balance"></div>
+        <div class="mini-grid" style="margin-top:8px;"><div class="field"><label>Debit account *</label><select name="debit_account" required>{% for account in financial_accounts %}<option value="{{ account }}">{{ account }}</option>{% endfor %}</select></div><div class="field"><label>Credit account *</label><select name="credit_account" required><option value="">Choose credit account</option>{% for account in financial_accounts %}<option value="{{ account }}">{{ account }}</option>{% endfor %}</select></div></div>
+        <div class="field" style="margin-top:8px;"><label>Notes (optional)</label><textarea name="notes" maxlength="2000" placeholder="Reason, receipt reference, or reconciliation note"></textarea></div>
+        <input type="hidden" name="period_start" value="{{ period_start.isoformat() }}"><input type="hidden" name="period_end" value="{{ period_end.isoformat() }}"><input type="hidden" name="include_scheduled" value="{{ '1' if include_scheduled else '0' }}"><button class="btn" style="background:#db2777;color:#fff;margin-top:10px;" type="submit">Save balanced adjustment</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="panel tab-panel" data-panel="sources">
+    <div class="report-head"><div><h2>Included Sources & Optional Exclusions</h2><p>All direct expenses, sales, vault drops, paid plans, and relevant cash-flow plans are included by default. Excluding one only changes this financial report; it does not delete or edit the original source record.</p></div><span class="badge manual">REPORT CONTROL</span></div>
+    <div class="note info" style="margin-bottom:10px;"><strong>Recommendation:</strong> Keep real business expenses included. If a personal cash-flow item appears, use this control to exclude it from business reporting, then later record it correctly as an Owner Drawing with a balanced adjustment if needed.</div>
+    <div class="control-list">
+      {% for source in source_controls %}
+      <div class="source-row {% if source.is_excluded %}excluded{% endif %}">
+        <div class="source-title">{{ source.title }}</div><div class="source-meta">{{ source.date.strftime('%b %d, %Y') if source.date else 'No date' }} · {{ source.direction }} · {{ source.detail or source.source_kind }}</div><div style="margin-top:4px;font-size:.9rem;font-weight:950;">₱{{ "{:,.2f}".format(source.amount) }}</div>
+        <div class="source-actions"><form action="{{ url_for('financial_source_visibility') }}" method="POST"><input type="hidden" name="source_kind" value="{{ source.source_kind }}"><input type="hidden" name="source_key" value="{{ source.source_key }}"><input type="hidden" name="action" value="{{ 'INCLUDE' if source.is_excluded else 'EXCLUDE' }}"><input type="hidden" name="period_start" value="{{ period_start.isoformat() }}"><input type="hidden" name="period_end" value="{{ period_end.isoformat() }}"><input type="hidden" name="include_scheduled" value="{{ '1' if include_scheduled else '0' }}"><button type="submit" class="btn {{ 'btn-teal' if source.is_excluded else 'btn-amber' }}">{{ 'Include in report' if source.is_excluded else 'Exclude from report' }}</button></form><span class="line-muted">{{ 'Currently excluded' if source.is_excluded else 'Currently included' }}</span></div>
+      </div>
+      {% endfor %}
+      {% if not source_controls %}<div class="empty">No report sources found in this period.</div>{% endif %}
+    </div>
+  </section>
+
+  <p class="statement-caption" style="padding:18px 2px 0;">Generated {{ generated_at.strftime('%b %d, %Y %I:%M %p') }} Philippine time · Macleen’s Financial Statements v8</p>
+</main>
+<script>
+  (function(){
+    const tabs = Array.from(document.querySelectorAll('.tab'));
+    const panels = Array.from(document.querySelectorAll('.tab-panel'));
+    function showTab(name){tabs.forEach(tab=>tab.classList.toggle('active',tab.dataset.tab===name));panels.forEach(panel=>panel.classList.toggle('active',panel.dataset.panel===name));}
+    tabs.forEach(tab=>tab.addEventListener('click',()=>showTab(tab.dataset.tab)));
+    const compact=document.getElementById('compactJournal'), expanded=document.getElementById('expandedJournal');
+    document.getElementById('compactJournalBtn')?.addEventListener('click',()=>{compact.classList.remove('hidden');expanded.classList.add('hidden');});
+    document.getElementById('expandJournalBtn')?.addEventListener('click',()=>{compact.classList.add('hidden');expanded.classList.remove('hidden');});
+    if(location.hash==='#journal') showTab('journal');
+  })();
+</script>
+</body>
+</html>

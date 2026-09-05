@@ -156,6 +156,26 @@
       <div class="search-result-summary" id="searchResultSummary" aria-live="polite"></div>
     </div>
 
+    {% if bundle_deals %}
+    <div class="section-title" id="bundleDeals"><span>🎁 Bundle deals</span></div>
+    <div class="section-subtitle">Ready-made combinations with a built-in discount. The regular price and savings are shown before you add one.</div>
+    <div class="carousel-track" id="bundleTrack">
+      {% for bundle in bundle_deals %}
+      <div class="carousel-card" style="min-width:230px;max-width:230px;border-color:#14b8a6;background:linear-gradient(145deg,#f0fdfa,#fff);">
+        <div>
+          {% if bundle.image_url %}<img src="{{ bundle.image_url }}" referrerpolicy="no-referrer" loading="lazy" alt="{{ bundle.name }}" style="width:100%;height:96px;object-fit:cover;border-radius:12px;margin-bottom:7px;filter:saturate(1.12) contrast(1.03);">{% endif %}
+          <span style="display:inline-block;background:#0f766e;color:white;border-radius:999px;padding:3px 7px;font-size:.62rem;font-weight:900;">SAVE ₱{{ "{:,.2f}".format(bundle.discount_amount) }}</span>
+          <div style="font-weight:950;font-size:.95rem;margin-top:7px;color:#134e4a;">{{ bundle.name }}</div>
+          <div style="font-size:.7rem;color:#475569;line-height:1.35;margin-top:3px;">{{ bundle.items_label }}</div>
+          {% if bundle.description %}<div style="font-size:.69rem;color:#64748b;margin-top:5px;">{{ bundle.description }}</div>{% endif %}
+          <div style="margin-top:8px;"><span style="font-size:.72rem;color:#64748b;text-decoration:line-through;">₱{{ "{:,.2f}".format(bundle.regular_price) }}</span> <strong style="font-size:1.15rem;color:#0f766e;">₱{{ "{:,.2f}".format(bundle.bundle_price) }}</strong></div>
+        </div>
+        <button class="btn-add" style="background:linear-gradient(135deg,#0f766e,#14b8a6);margin-top:10px;" onclick='addBundleToCart({{ bundle.id }}, {{ bundle.name|tojson }}, {{ bundle.bundle_price }}, {{ bundle.regular_price }})'>Add bundle</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
     {% if student_picks %}
     <div id="studentPicks" class="section-title"><span>🎓 Student budget picks</span></div>
     <div class="section-subtitle">Quick choices at ₱50 or less, selected from what is available right now.</div>
@@ -702,6 +722,21 @@
       showToast(`${name} added to your basket.`);
     }
 
+    function addBundleToCart(bundleId, name, bundlePrice, regularPrice) {
+      const key = `bundle-${Number(bundleId)}`;
+      if (cart[key]) {
+        cart[key].qty += 1;
+      } else {
+        cart[key] = {
+          bundleId: Number(bundleId), name: String(name), price: Number(bundlePrice),
+          regularPrice: Number(regularPrice), qty: 1, isBundle: true, options: {}
+        };
+      }
+      saveCart();
+      renderCart();
+      showToast(`${name} bundle added to your basket.`);
+    }
+
     function updateQty(id, delta) {
       id = String(id);
       if (cart[id]) {
@@ -804,6 +839,7 @@
           <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px dashed #fbcfe8;">
             <div>
               <strong style="font-size:0.85rem;">${item.name}</strong>
+              ${item.isBundle ? `<div style="font-size:0.69rem;color:#0f766e;font-weight:900;">🎁 Bundle deal • saved ₱${Math.max(0, (item.regularPrice || item.price) - item.price).toFixed(2)}</div>` : ''}
               ${optionSummary(item.options) ? `<div style="font-size:0.72rem; color:#b45309;">${optionSummary(item.options)}</div>` : ''}
               <div style="font-size:0.75rem; color:#64748b;">₱${item.price.toFixed(2)} ea${item.customAmount ? ' • Specific amount' : ''}</div>
             </div>
@@ -936,12 +972,16 @@
       if (pay === 'GCASH' && gcash.length < 6) return showToast("Please input the 6-digit GCash Reference Number.");
 
       const payload = {
-        items: keys.map(id => ({
-          product_id: cart[id].productId || parseInt(id),
-          quantity: cart[id].qty,
-          options: cart[id].options || {},
-          ...(cart[id].customAmount ? { unit_price: Number(cart[id].price) } : {})
-        })),
+        items: keys.map(id => {
+          const item = cart[id];
+          if (item.bundleId) return { bundle_id: Number(item.bundleId), quantity: item.qty };
+          return {
+            product_id: item.productId || parseInt(id),
+            quantity: item.qty,
+            options: item.options || {},
+            ...(item.customAmount ? { unit_price: Number(item.price) } : {})
+          };
+        }),
         order_type: orderType,
         delivery_zone_id: orderType === 'DELIVERY' ? document.getElementById('deliveryZone').value : null,
         target_time: targetTime,

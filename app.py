@@ -67,7 +67,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.04-community-project-cover-v7'
+APP_RELEASE = '2026.09.05-financial-statements-v8'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -218,6 +218,30 @@ class Product(db.Model):
     total_likes = db.Column(db.Integer, default=0)
     comments = db.relationship('ProductComment', backref='product_rel', cascade="all, delete-orphan", lazy=True)
 
+
+class BundleDeal(db.Model):
+    """A server-priced deal made from existing food-house products."""
+    __tablename__ = 'bundle_deal'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(140), nullable=False)
+    description = db.Column(db.String(255), nullable=True)
+    discount_type = db.Column(db.String(12), nullable=False, default='PERCENT')  # PERCENT or FIXED
+    discount_value = db.Column(db.Float, nullable=False, default=0.0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    items = db.relationship('BundleDealItem', backref='bundle', cascade='all, delete-orphan', lazy=True)
+
+
+class BundleDealItem(db.Model):
+    __tablename__ = 'bundle_deal_item'
+    __table_args__ = (UniqueConstraint('bundle_id', 'product_id', name='uq_bundle_deal_product'),)
+    id = db.Column(db.Integer, primary_key=True)
+    bundle_id = db.Column(db.Integer, db.ForeignKey('bundle_deal.id', ondelete='CASCADE'), nullable=False, index=True)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='RESTRICT'), nullable=False, index=True)
+    quantity = db.Column(db.Integer, nullable=False, default=1)
+    product = db.relationship('Product', lazy=True)
+
 class ProductLike(db.Model):
     __tablename__ = 'product_like'
     id = db.Column(db.Integer, primary_key=True)
@@ -320,6 +344,38 @@ class CashFlowExpensePayment(db.Model):
     notes = db.Column(db.String(255), nullable=True)
     updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now)
     plan = db.relationship('CashFlowPlan', lazy=True)
+
+
+class FinancialSourceExclusion(db.Model):
+    """Keeps reporting choices separate from the original POS/cash-flow record."""
+    __tablename__ = 'financial_source_exclusion'
+    __table_args__ = (UniqueConstraint('source_kind', 'source_key', name='uq_financial_source_exclusion'),)
+    id = db.Column(db.Integer, primary_key=True)
+    source_kind = db.Column(db.String(40), nullable=False, index=True)
+    source_key = db.Column(db.String(140), nullable=False, index=True)
+    is_excluded = db.Column(db.Boolean, nullable=False, default=True)
+    note = db.Column(db.String(255), nullable=True)
+    updated_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+
+class FinancialJournalEntry(db.Model):
+    """One balanced manual journal line. Automatic lines are generated on demand."""
+    __tablename__ = 'financial_journal_entry'
+    id = db.Column(db.Integer, primary_key=True)
+    entry_date = db.Column(db.Date, nullable=False, index=True)
+    entry_ref = db.Column(db.String(48), nullable=False, index=True)
+    description = db.Column(db.String(255), nullable=False)
+    account = db.Column(db.String(100), nullable=False)
+    debit = db.Column(db.Float, nullable=False, default=0.0)
+    credit = db.Column(db.Float, nullable=False, default=0.0)
+    source_kind = db.Column(db.String(40), nullable=False, default='MANUAL')
+    source_key = db.Column(db.String(140), nullable=True)
+    is_adjusting = db.Column(db.Boolean, nullable=False, default=True)
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
 class VaultDrop(db.Model):
     __tablename__ = 'vault_drop'
@@ -3231,6 +3287,132 @@ def customer_available_credit(cust, include_pending=True):
         used += float(pending)
     return max(0.0, limit - used)
 
+
+def bundle_deal_pricing(bundle):
+    """Return the authoritative regular price, discount and selling price for one bundle."""
+    components = []
+    for item in sorted(bundle.items, key=lambda row: row.id):
+        product = item.product
+        if not product:
+            raise OrderValidationError('A product in this bundle no longer exists.')
+        quantity = max(0, parse_int(item.quantity, 0))
+        if quantity < 1:
+            raise OrderValidationError('A bundle contains an invalid product quantity.')
+        if product_choice_groups(product.option_schema, product.size_schema):
+            raise OrderValidationError(
+                f'{product.name} has required choices or sizes and cannot be used in a fixed bundle yet.'
+            )
+        unit_cents = int(round(max(0.0, parse_float(product.price, 0.0)) * 100))
+        if unit_cents < 1:
+            raise OrderValidationError(f'{product.name} has an invalid regular price.')
+        components.append({'product': product, 'quantity': quantity, 'unit_cents': unit_cents})
+    if not components:
+        raise OrderValidationError('This bundle has no products.')
+    regular_cents = sum(row['unit_cents'] * row['quantity'] for row in components)
+    discount_value = max(0.0, parse_float(bundle.discount_value, 0.0))
+    if bundle.discount_type == 'PERCENT':
+        discount_cents = int(round(regular_cents * min(100.0, discount_value) / 100.0))
+    else:
+        discount_cents = int(round(discount_value * 100))
+    discount_cents = min(regular_cents, max(0, discount_cents))
+    return {
+        'components': components, 'regular_cents': regular_cents, 'discount_cents': discount_cents,
+        'total_cents': regular_cents - discount_cents,
+        'regular_price': regular_cents / 100.0, 'discount_amount': discount_cents / 100.0,
+        'bundle_price': (regular_cents - discount_cents) / 100.0,
+    }
+
+
+def bundle_deal_is_available(bundle):
+    if not bundle or not bundle.is_active:
+        return False
+    try:
+        pricing = bundle_deal_pricing(bundle)
+    except OrderValidationError:
+        return False
+    return all(
+        product.is_active and is_product_available_now(product) and max(0, parse_int(product.stock, 0)) >= quantity
+        for product, quantity in ((row['product'], row['quantity']) for row in pricing['components'])
+    )
+
+
+def bundle_deal_storefront_rows():
+    rows = []
+    for bundle in BundleDeal.query.filter_by(is_active=True).order_by(BundleDeal.id.desc()).all():
+        try:
+            pricing = bundle_deal_pricing(bundle)
+        except OrderValidationError:
+            continue
+        if not bundle_deal_is_available(bundle):
+            continue
+        rows.append({
+            'id': bundle.id, 'name': bundle.name, 'description': bundle.description or '',
+            'discount_type': bundle.discount_type, 'discount_value': bundle.discount_value,
+            'regular_price': pricing['regular_price'], 'discount_amount': pricing['discount_amount'],
+            'bundle_price': pricing['bundle_price'],
+            'items_label': ' + '.join(
+                f"{row['product'].name}{' ×' + str(row['quantity']) if row['quantity'] > 1 else ''}"
+                for row in pricing['components']
+            ),
+            'image_url': next((row['product'].image_url for row in pricing['components'] if row['product'].image_url), ''),
+        })
+    return rows
+
+
+def expand_bundle_cart_items(raw_items):
+    """Expand trusted bundle identifiers into server-priced product lines.
+
+    Browser payloads contain only a bundle id and count.  Prices and component
+    quantities are always recalculated here, so a customer cannot modify the
+    deal price in developer tools.
+    """
+    if not isinstance(raw_items, list):
+        raise OrderValidationError('No items were selected.')
+    expanded = []
+    bundle_count = 0
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            raise OrderValidationError('Invalid cart item.')
+        bundle_id = parse_int(raw.get('bundle_id'), 0)
+        if not bundle_id:
+            expanded.append(raw)
+            continue
+        quantity = parse_int(raw.get('quantity'), 0)
+        if quantity < 1 or quantity > 50:
+            raise OrderValidationError('Bundle quantity must be between 1 and 50.')
+        bundle = BundleDeal.query.get(bundle_id)
+        if not bundle or not bundle.is_active:
+            raise OrderValidationError('This bundle deal is no longer active.')
+        if not bundle_deal_is_available(bundle):
+            raise OrderValidationError('One or more products in this bundle are currently unavailable.')
+        pricing = bundle_deal_pricing(bundle)
+        unit_rows = []
+        for component in pricing['components']:
+            unit_rows.extend([component] * component['quantity'])
+        if len(unit_rows) * quantity + bundle_count > 250:
+            raise OrderValidationError('Too many bundle items were selected at one time.')
+        bundle_count += len(unit_rows) * quantity
+        for _ in range(quantity):
+            remaining_total = pricing['total_cents']
+            remaining_regular = pricing['regular_cents']
+            for index, component in enumerate(unit_rows):
+                if index == len(unit_rows) - 1:
+                    allocated_cents = remaining_total
+                else:
+                    allocated_cents = int(round(remaining_total * component['unit_cents'] / max(1, remaining_regular)))
+                    allocated_cents = min(remaining_total, max(0, allocated_cents))
+                remaining_total -= allocated_cents
+                remaining_regular -= component['unit_cents']
+                expanded.append({
+                    'product_id': component['product'].id,
+                    'quantity': 1,
+                    'options': {},
+                    '_bundle_unit_price': allocated_cents / 100.0,
+                    '_bundle_name': bundle.name,
+                    '_bundle_id': bundle.id,
+                })
+    return expanded
+
 def validate_and_lock_cart(
     raw_items,
     require_available=True,
@@ -3244,6 +3426,8 @@ def validate_and_lock_cart(
     """
     if not isinstance(raw_items, list) or not raw_items:
         raise OrderValidationError('No items were selected.')
+
+    raw_items = expand_bundle_cart_items(raw_items)
 
     raw_entries = []
     for raw in raw_items:
@@ -3270,6 +3454,9 @@ def validate_and_lock_cart(
             'quantity': quantity,
             'requested_price': requested_price,
             'raw_options': raw.get('options', {}),
+            'bundle_unit_price': raw.get('_bundle_unit_price'),
+            'bundle_name': str(raw.get('_bundle_name') or '').strip()[:140],
+            'bundle_id': parse_int(raw.get('_bundle_id'), 0),
         })
 
     product_cache = {}
@@ -3298,6 +3485,15 @@ def validate_and_lock_cart(
             raise OrderValidationError(f'{prod.name} has an invalid selling price.')
         selected_options = validate_product_options(prod, entry['raw_options'])
         unit_price = product_price_for_options(prod, selected_options)
+
+        bundle_unit_price = entry.get('bundle_unit_price')
+        if bundle_unit_price is not None:
+            if product_choice_groups(prod.option_schema, prod.size_schema):
+                raise OrderValidationError(f'{prod.name} cannot be sold through this fixed bundle because it needs choices.')
+            unit_price = round(parse_float(bundle_unit_price, -1.0), 2)
+            if unit_price < 0:
+                raise OrderValidationError('Bundle price could not be calculated safely.')
+            selected_options = {**selected_options, 'Bundle deal': entry.get('bundle_name') or 'Bundle deal'}
 
         requested_price = entry['requested_price']
         if requested_price is not None:
@@ -4652,6 +4848,7 @@ def store_catalog():
     status = check_operating_status()
     active_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True, portal_only=False).all()
     active_promos = [p for p in active_promos if not p.created_at or (utc_now() - p.created_at).days <= 3]
+    bundle_deals = bundle_deal_storefront_rows()
 
     cust = None
     credit_available = 0.0
@@ -4683,6 +4880,7 @@ def store_catalog():
                            favorite_ids=favorite_ids,
                            trending_ids=trending_ids,
                            student_picks=student_picks,
+                           bundle_deals=bundle_deals,
                            reorder_cart=reorder_cart,
                            messenger_menu_url=(messenger_menu_start_url() if marketing_settings()['daily_menu_messenger_reply'] else ''),
                            product_is_available_now=is_product_available_now)
@@ -6793,6 +6991,575 @@ def cashflow_order_is_excluded(order):
     ).casefold()
     return any(cashflow_text_matches_term(haystack, term) for term in CASH_FLOW_EXCLUDED_INCOME_TERMS)
 
+
+# ==================== FINANCIAL STATEMENTS & JOURNAL ====================
+# The finance portal intentionally keeps its reporting rules separate from the
+# POS/cash-flow source records.  That makes it possible to exclude a personal
+# item from a report without deleting it from the operational audit trail.
+FINANCIAL_ACCOUNT_META = {
+    'Cash & Digital Collections': ('ASSET', 'Cash & Digital Collections'),
+    'Accounts Receivable': ('ASSET', 'Accounts Receivable'),
+    'Inventory': ('ASSET', 'Inventory'),
+    'Prepaid & Other Current Assets': ('ASSET', 'Prepaid & Other Current Assets'),
+    'Equipment & Furniture': ('ASSET', 'Equipment & Furniture'),
+    'Other Non-current Assets': ('ASSET', 'Other Non-current Assets'),
+    'Accounts Payable': ('LIABILITY', 'Accounts Payable'),
+    'Loans Payable': ('LIABILITY', 'Loans Payable'),
+    'Other Liabilities': ('LIABILITY', 'Other Liabilities'),
+    'Owner Capital': ('EQUITY', 'Owner Capital'),
+    'Owner Drawings': ('EQUITY', 'Owner Drawings'),
+    'Retained Earnings': ('EQUITY', 'Retained Earnings'),
+    'Food & Beverage Sales': ('INCOME', 'Food & Beverage Sales'),
+    'Craft & Service Sales': ('INCOME', 'Craft & Service Sales'),
+    'Other Income': ('INCOME', 'Other Income'),
+    'Cost of Goods Sold': ('EXPENSE', 'Cost of Goods Sold'),
+    'Payroll & Labor': ('EXPENSE', 'Payroll & Labor'),
+    'Rent & Utilities': ('EXPENSE', 'Rent & Utilities'),
+    'Marketing': ('EXPENSE', 'Marketing'),
+    'Supplies & Ingredients': ('EXPENSE', 'Supplies & Ingredients'),
+    'Transport': ('EXPENSE', 'Transport'),
+    'Repairs & Maintenance': ('EXPENSE', 'Repairs & Maintenance'),
+    'General & Miscellaneous': ('EXPENSE', 'General & Miscellaneous'),
+    'Depreciation': ('EXPENSE', 'Depreciation'),
+}
+FINANCIAL_ACCOUNT_OPTIONS = tuple(FINANCIAL_ACCOUNT_META)
+FINANCIAL_SOURCE_KINDS = {'ORDER', 'VAULT_DROP', 'EXPENSE', 'CASHFLOW_PLAN', 'CASHFLOW_PAYMENT'}
+
+
+def financial_setting(key, default=''):
+    row = StoreSetting.query.filter_by(key=key).first()
+    return row.value if row else default
+
+
+def save_financial_setting(key, value):
+    row = StoreSetting.query.filter_by(key=key).first()
+    if row:
+        row.value = str(value)
+    else:
+        db.session.add(StoreSetting(key=key, value=str(value)))
+
+
+def financial_settings():
+    """Return report settings. Cost is only a fallback when a sale has no recorded cost."""
+    return {
+        'target_profit_margin_percent': max(0.0, min(100.0, parse_float(
+            financial_setting('financial_target_profit_margin_percent', '20'), 20.0
+        ))),
+        'fallback_cost_percent': max(0.0, min(100.0, parse_float(
+            financial_setting('financial_fallback_cost_percent', '60'), 60.0
+        ))),
+    }
+
+
+def financial_account_group(account):
+    return FINANCIAL_ACCOUNT_META.get(account, ('EXPENSE', account))[0]
+
+
+def financial_expense_account(category, title=''):
+    haystack = f'{category or ""} {title or ""}'.casefold()
+    if any(term in haystack for term in ('payroll', 'salary', 'wage', 'labor', 'allowance')):
+        return 'Payroll & Labor'
+    if any(term in haystack for term in ('rent', 'utility', 'electric', 'water', 'internet', 'wifi')):
+        return 'Rent & Utilities'
+    if any(term in haystack for term in ('market', 'advert', 'boost', 'promo', 'facebook')):
+        return 'Marketing'
+    if any(term in haystack for term in ('ingredient', 'supply', 'packaging', 'material', 'raw')):
+        return 'Supplies & Ingredients'
+    if any(term in haystack for term in ('transport', 'fuel', 'motor', 'delivery', 'fare')):
+        return 'Transport'
+    if any(term in haystack for term in ('repair', 'maintenance', 'fix')):
+        return 'Repairs & Maintenance'
+    return 'General & Miscellaneous'
+
+
+def financial_sales_account(order, item=None):
+    name = str(getattr(item, 'product_name', '') or '').casefold()
+    order_type = str(getattr(order, 'order_type', '') or '').casefold()
+    if 'craft' in order_type or '[craft]' in name or '[service]' in name or 'printing' in name:
+        return 'Craft & Service Sales'
+    return 'Food & Beverage Sales'
+
+
+def financial_period_from_request():
+    today = ph_today()
+    default_start = date(today.year, today.month, 1)
+    def parse_day(raw, fallback):
+        try:
+            return date.fromisoformat((raw or '').strip()) if (raw or '').strip() else fallback
+        except ValueError:
+            return fallback
+    start = parse_day(request.args.get('start'), default_start)
+    end = parse_day(request.args.get('end'), today)
+    if end < start:
+        start, end = end, start
+    return start, min(end, today)
+
+
+def financial_exclusion_map():
+    return {
+        (row.source_kind, row.source_key)
+        for row in FinancialSourceExclusion.query.filter_by(is_excluded=True).all()
+    }
+
+
+def financial_is_excluded(exclusions, source_kind, source_key):
+    return (source_kind, str(source_key)) in exclusions
+
+
+def financial_make_line(entry_date, entry_ref, description, source_kind, source_key, account,
+                        debit=0.0, credit=0.0, is_auto=True, is_estimated=False, note=''):
+    return {
+        'date': entry_date,
+        'entry_ref': entry_ref,
+        'description': description,
+        'source_kind': source_kind,
+        'source_key': str(source_key or ''),
+        'account': account,
+        'debit': max(0.0, parse_float(debit, 0.0)),
+        'credit': max(0.0, parse_float(credit, 0.0)),
+        'is_auto': bool(is_auto),
+        'is_estimated': bool(is_estimated),
+        'note': note or '',
+    }
+
+
+def financial_add_entry(target, entry_date, entry_ref, description, source_kind, source_key,
+                        lines, is_auto=True, is_estimated=False, note=''):
+    """Append a visibly balanced journal entry as individual debit/credit lines."""
+    debit_total = sum(max(0.0, parse_float(row[1], 0.0)) for row in lines)
+    credit_total = sum(max(0.0, parse_float(row[2], 0.0)) for row in lines)
+    if not lines or abs(debit_total - credit_total) > 0.01:
+        app.logger.error('Skipped unbalanced financial entry %s (debit=%s, credit=%s)', entry_ref, debit_total, credit_total)
+        return
+    for account, debit, credit in lines:
+        target.append(financial_make_line(
+            entry_date, entry_ref, description, source_kind, source_key, account,
+            debit=debit, credit=credit, is_auto=is_auto, is_estimated=is_estimated, note=note,
+        ))
+
+
+def financial_build_journal(period_start, period_end, fallback_cost_percent, include_scheduled=True,
+                            include_manual=True, exclusions=None, include_controls=True):
+    """Create a non-destructive, on-demand general journal from existing system records."""
+    exclusions = exclusions if exclusions is not None else financial_exclusion_map()
+    utc_start, utc_end = cashflow_utc_bounds(period_start, period_end + timedelta(days=1))
+    lines, controls, control_index = [], [], {}
+
+    def source_control(source_kind, source_key, entry_date, title, direction, amount, detail=''):
+        signature = (source_kind, str(source_key))
+        hidden = financial_is_excluded(exclusions, source_kind, source_key)
+        if signature in control_index:
+            control_index[signature]['amount'] += max(0.0, parse_float(amount, 0.0))
+            return hidden
+        row = {
+            'source_kind': source_kind, 'source_key': str(source_key), 'date': entry_date,
+            'title': title, 'direction': direction, 'amount': max(0.0, parse_float(amount, 0.0)),
+            'detail': detail, 'is_excluded': hidden,
+        }
+        control_index[signature] = row
+        if include_controls:
+            controls.append(row)
+        return hidden
+
+    completed_orders = Order.query.filter(
+        Order.status == 'COMPLETED', Order.created_at >= utc_start, Order.created_at < utc_end,
+    ).order_by(Order.created_at.asc(), Order.id.asc()).all()
+    for order in completed_orders:
+        transaction_day = utc_naive_to_ph(order.created_at).date()
+        total = max(0.0, parse_float(order.total_amount, 0.0))
+        hidden = source_control('ORDER', order.id, transaction_day, f'Order #{order.id} — {order.customer_name or "Customer"}', 'Income', total, order.order_type or 'POS sale')
+        if hidden or total <= 0:
+            continue
+        cash_account = 'Accounts Receivable' if order.is_unpaid else 'Cash & Digital Collections'
+        revenue_splits = {}
+        item_total = 0.0
+        estimated_cost = 0.0
+        recorded_cost = 0.0
+        for item in order.items:
+            item_revenue = max(0.0, parse_float(item.subtotal, 0.0))
+            item_total += item_revenue
+            sales_account = financial_sales_account(order, item)
+            revenue_splits[sales_account] = revenue_splits.get(sales_account, 0.0) + item_revenue
+            item_cost = max(0.0, parse_float(item.cost_price, 0.0)) * max(0, parse_int(item.quantity, 0))
+            if item_cost > 0:
+                recorded_cost += item_cost
+            else:
+                estimated_cost += item_revenue * (fallback_cost_percent / 100.0)
+        if total > item_total:
+            revenue_splits['Food & Beverage Sales'] = revenue_splits.get('Food & Beverage Sales', 0.0) + (total - item_total)
+        revenue_lines = [(cash_account, total, 0.0)] + [(account, 0.0, amount) for account, amount in revenue_splits.items() if amount > 0]
+        financial_add_entry(lines, transaction_day, f'ORDER-{order.id}-REVENUE', f'Completed sale #{order.id}', 'ORDER', order.id, revenue_lines)
+        cogs = recorded_cost + estimated_cost
+        if cogs > 0:
+            financial_add_entry(
+                lines, transaction_day, f'ORDER-{order.id}-COGS', f'Cost of sales for order #{order.id}', 'ORDER', order.id,
+                [('Cost of Goods Sold', cogs, 0.0), ('Inventory', 0.0, cogs)],
+                is_estimated=estimated_cost > 0,
+                note=(f'₱{estimated_cost:,.2f} uses the saved Cost % fallback.' if estimated_cost > 0 else ''),
+            )
+
+    vault_drops = VaultDrop.query.filter(
+        VaultDrop.created_at >= utc_start, VaultDrop.created_at < utc_end,
+    ).order_by(VaultDrop.created_at.asc(), VaultDrop.id.asc()).all()
+    for drop in vault_drops:
+        transaction_day = utc_naive_to_ph(drop.created_at).date()
+        amount = max(0.0, parse_float(drop.amount, 0.0))
+        hidden = source_control('VAULT_DROP', drop.id, transaction_day, f'Vault Drop #{drop.drop_number}', 'Income', amount, drop.notes or 'Direct cash sale')
+        if hidden or amount <= 0:
+            continue
+        financial_add_entry(lines, transaction_day, f'VAULT-{drop.id}-REVENUE', f'Vault Drop #{drop.drop_number}', 'VAULT_DROP', drop.id, [
+            ('Cash & Digital Collections', amount, 0.0), ('Food & Beverage Sales', 0.0, amount),
+        ])
+        cogs = amount * (fallback_cost_percent / 100.0)
+        if cogs:
+            financial_add_entry(
+                lines, transaction_day, f'VAULT-{drop.id}-COGS', f'Estimated cost for Vault Drop #{drop.drop_number}', 'VAULT_DROP', drop.id,
+                [('Cost of Goods Sold', cogs, 0.0), ('Inventory', 0.0, cogs)],
+                is_estimated=True, note='Vault drops do not have item-level product costs, so the saved Cost % fallback is used.',
+            )
+
+    expenses = Expense.query.filter(
+        Expense.created_at >= utc_start, Expense.created_at < utc_end,
+    ).order_by(Expense.created_at.asc(), Expense.id.asc()).all()
+    for expense in expenses:
+        transaction_day = utc_naive_to_ph(expense.created_at).date()
+        amount = max(0.0, parse_float(expense.amount, 0.0))
+        hidden = source_control('EXPENSE', expense.id, transaction_day, expense.title, 'Expense', amount, expense.category or 'General')
+        if hidden or amount <= 0:
+            continue
+        financial_add_entry(lines, transaction_day, f'EXPENSE-{expense.id}', expense.title, 'EXPENSE', expense.id, [
+            (financial_expense_account(expense.category, expense.title), amount, 0.0),
+            ('Cash & Digital Collections', 0.0, amount),
+        ], note=expense.category or '')
+
+    # Paid plan expenses are actual cash movements.  They remain separate from
+    # planned/unpaid occurrences so a marked-paid bill is never double counted.
+    paid_payments = CashFlowExpensePayment.query.filter(
+        CashFlowExpensePayment.status == 'PAID', CashFlowExpensePayment.paid_at.isnot(None),
+        CashFlowExpensePayment.paid_at >= utc_start, CashFlowExpensePayment.paid_at < utc_end,
+    ).order_by(CashFlowExpensePayment.paid_at.asc(), CashFlowExpensePayment.id.asc()).all()
+    paid_occurrences = set()
+    for payment in paid_payments:
+        plan = payment.plan
+        if not plan:
+            continue
+        transaction_day = utc_naive_to_ph(payment.paid_at).date()
+        amount = max(0.0, parse_float(payment.amount, 0.0))
+        plan_hidden = financial_is_excluded(exclusions, 'CASHFLOW_PLAN', plan.id)
+        payment_hidden = source_control('CASHFLOW_PAYMENT', payment.id, transaction_day, f'Paid plan — {plan.title}', 'Expense', amount, plan.category or 'Cash-flow payment')
+        if plan_hidden or payment_hidden or amount <= 0:
+            continue
+        paid_occurrences.add((plan.id, payment.occurrence_date))
+        financial_add_entry(lines, transaction_day, f'PLAN-PAYMENT-{payment.id}', f'Paid plan expense — {plan.title}', 'CASHFLOW_PAYMENT', payment.id, [
+            (financial_expense_account(plan.category, plan.title), amount, 0.0),
+            ('Cash & Digital Collections', 0.0, amount),
+        ], note=payment.reference or plan.category or '')
+
+    if include_scheduled:
+        plans = CashFlowPlan.query.filter_by(is_active=True).order_by(CashFlowPlan.start_date.asc(), CashFlowPlan.id.asc()).all()
+        payments = CashFlowExpensePayment.query.filter(
+            CashFlowExpensePayment.occurrence_date >= period_start,
+            CashFlowExpensePayment.occurrence_date <= period_end,
+        ).all()
+        payment_by_occurrence = {(row.plan_id, row.occurrence_date): row for row in payments}
+        for plan in plans:
+            occurrences = list(cashflow_occurrence_dates(plan, period_start, period_end + timedelta(days=1)))
+            if not occurrences:
+                continue
+            amount = max(0.0, parse_float(plan.amount, 0.0))
+            direction = 'Income plan' if plan.entry_type == 'INCOME' else 'Expense plan'
+            hidden = source_control('CASHFLOW_PLAN', plan.id, plan.start_date, plan.title, direction, amount * len(occurrences), plan.category or plan.frequency)
+            if hidden or amount <= 0:
+                continue
+            for occurrence in occurrences:
+                payment = payment_by_occurrence.get((plan.id, occurrence))
+                if plan.entry_type == 'EXPENSE':
+                    # Paid records are journaled using their actual paid date above.
+                    if payment and payment.status == 'PAID':
+                        continue
+                    financial_add_entry(lines, occurrence, f'PLAN-{plan.id}-{occurrence.isoformat()}', f'Payable plan expense — {plan.title}', 'CASHFLOW_PLAN', plan.id, [
+                        (financial_expense_account(plan.category, plan.title), amount, 0.0),
+                        ('Accounts Payable', 0.0, amount),
+                    ], note='Scheduled / unpaid cash-flow item; it is included as a payable until marked paid.')
+                elif plan.entry_type == 'INCOME':
+                    financial_add_entry(lines, occurrence, f'PLAN-INCOME-{plan.id}-{occurrence.isoformat()}', f'Scheduled income — {plan.title}', 'CASHFLOW_PLAN', plan.id, [
+                        ('Accounts Receivable', amount, 0.0), ('Other Income', 0.0, amount),
+                    ], note='Scheduled cash-flow income; confirm or exclude it if it should not appear in the report.')
+
+    if include_manual:
+        manual_rows = FinancialJournalEntry.query.filter(
+            FinancialJournalEntry.entry_date >= period_start,
+            FinancialJournalEntry.entry_date <= period_end,
+        ).order_by(FinancialJournalEntry.entry_date.asc(), FinancialJournalEntry.id.asc()).all()
+        for row in manual_rows:
+            lines.append(financial_make_line(
+                row.entry_date, row.entry_ref, row.description, 'MANUAL', row.source_key or row.id,
+                row.account, row.debit, row.credit, is_auto=False, note=row.notes or '',
+            ))
+
+    controls.sort(key=lambda row: (row['date'] or date.min, row['title'].casefold()), reverse=True)
+    lines.sort(key=lambda row: (row['date'], row['entry_ref'], row['credit'] > 0, row['account']))
+    return lines, controls
+
+
+def financial_account_balances(lines):
+    balances = {account: {'debit': 0.0, 'credit': 0.0} for account in FINANCIAL_ACCOUNT_OPTIONS}
+    for row in lines:
+        account = row['account'] if row['account'] in FINANCIAL_ACCOUNT_META else 'General & Miscellaneous'
+        bucket = balances.setdefault(account, {'debit': 0.0, 'credit': 0.0})
+        bucket['debit'] += row['debit']
+        bucket['credit'] += row['credit']
+    return balances
+
+
+def financial_compact_entries(lines):
+    entries = {}
+    for line in lines:
+        row = entries.setdefault(line['entry_ref'], {
+            'entry_ref': line['entry_ref'], 'date': line['date'], 'description': line['description'],
+            'source_kind': line['source_kind'], 'debit': 0.0, 'credit': 0.0,
+            'line_count': 0, 'is_auto': line['is_auto'], 'is_estimated': False, 'note': line['note'],
+        })
+        row['debit'] += line['debit']
+        row['credit'] += line['credit']
+        row['line_count'] += 1
+        row['is_estimated'] = row['is_estimated'] or line['is_estimated']
+    return sorted(entries.values(), key=lambda row: (row['date'], row['entry_ref']), reverse=True)
+
+
+def financial_income_statement(lines):
+    balances = financial_account_balances(lines)
+    revenue_rows, expense_rows = [], []
+    for account in FINANCIAL_ACCOUNT_OPTIONS:
+        account_type = financial_account_group(account)
+        bucket = balances.get(account, {'debit': 0.0, 'credit': 0.0})
+        if account_type == 'INCOME':
+            value = bucket['credit'] - bucket['debit']
+            if abs(value) > 0.004:
+                revenue_rows.append({'account': account, 'amount': value})
+        elif account_type == 'EXPENSE':
+            value = bucket['debit'] - bucket['credit']
+            if abs(value) > 0.004:
+                expense_rows.append({'account': account, 'amount': value})
+    sales = sum(row['amount'] for row in revenue_rows if row['account'] in ('Food & Beverage Sales', 'Craft & Service Sales'))
+    other_income = sum(row['amount'] for row in revenue_rows if row['account'] == 'Other Income')
+    cogs = sum(row['amount'] for row in expense_rows if row['account'] == 'Cost of Goods Sold')
+    operating_expenses = [row for row in expense_rows if row['account'] != 'Cost of Goods Sold']
+    operating_expense_total = sum(row['amount'] for row in operating_expenses)
+    gross_profit = sales - cogs
+    net_income = gross_profit + other_income - operating_expense_total
+    return {
+        'revenue_rows': revenue_rows, 'expense_rows': expense_rows,
+        'sales': sales, 'other_income': other_income, 'total_revenue': sales + other_income,
+        'cogs': cogs, 'gross_profit': gross_profit,
+        'operating_expenses': operating_expenses, 'operating_expense_total': operating_expense_total,
+        'net_income': net_income,
+        'net_margin_percent': (net_income / (sales + other_income) * 100.0) if (sales + other_income) else 0.0,
+    }
+
+
+def financial_cash_flows(lines):
+    entries = {}
+    for row in lines:
+        entry = entries.setdefault(row['entry_ref'], {
+            'date': row['date'], 'description': row['description'], 'source_kind': row['source_kind'], 'lines': [],
+        })
+        entry['lines'].append(row)
+    totals = {'OPERATING': 0.0, 'INVESTING': 0.0, 'FINANCING': 0.0}
+    detail = {'OPERATING': [], 'INVESTING': [], 'FINANCING': []}
+    for entry in entries.values():
+        cash_change = sum(row['debit'] - row['credit'] for row in entry['lines'] if row['account'] == 'Cash & Digital Collections')
+        if abs(cash_change) < 0.004:
+            continue
+        kind = entry['source_kind']
+        classification = 'OPERATING'
+        if kind == 'MANUAL':
+            other_accounts = [row['account'] for row in entry['lines'] if row['account'] != 'Cash & Digital Collections']
+            groups = {financial_account_group(account) for account in other_accounts}
+            if groups & {'LIABILITY', 'EQUITY'}:
+                classification = 'FINANCING'
+            elif any(account in ('Equipment & Furniture', 'Other Non-current Assets') for account in other_accounts):
+                classification = 'INVESTING'
+        totals[classification] += cash_change
+        detail[classification].append({'date': entry['date'], 'description': entry['description'], 'amount': cash_change, 'is_auto': kind != 'MANUAL'})
+    for rows in detail.values():
+        rows.sort(key=lambda row: (row['date'], row['description']))
+    return {
+        'operating': totals['OPERATING'], 'investing': totals['INVESTING'], 'financing': totals['FINANCING'],
+        'net_change': sum(totals.values()), 'detail': detail,
+    }
+
+
+def financial_inventory_value():
+    value = sum(max(0.0, parse_float(product.cost, 0.0)) * max(0, parse_int(product.stock, 0)) for product in Product.query.all())
+    value += sum(max(0.0, parse_float(item.cost, 0.0)) * max(0, parse_int(item.stock_quantity, 0)) for item in CraftItem.query.all())
+    return value
+
+
+def financial_balance_sheet(cumulative_lines):
+    balances = financial_account_balances(cumulative_lines)
+    account_value = lambda account, normal: max(0.0, (balances.get(account, {'debit': 0.0, 'credit': 0.0})[normal] - balances.get(account, {'debit': 0.0, 'credit': 0.0})['credit' if normal == 'debit' else 'debit']))
+    assets = [
+        {'account': 'Cash & Digital Collections', 'amount': account_value('Cash & Digital Collections', 'debit')},
+        {'account': 'Accounts Receivable', 'amount': account_value('Accounts Receivable', 'debit')},
+        {'account': 'Inventory (current product stock)', 'amount': financial_inventory_value()},
+        {'account': 'Prepaid & Other Current Assets', 'amount': account_value('Prepaid & Other Current Assets', 'debit')},
+        {'account': 'Equipment & Furniture', 'amount': account_value('Equipment & Furniture', 'debit')},
+        {'account': 'Other Non-current Assets', 'amount': account_value('Other Non-current Assets', 'debit')},
+    ]
+    liabilities = [
+        {'account': 'Accounts Payable', 'amount': account_value('Accounts Payable', 'credit')},
+        {'account': 'Loans Payable', 'amount': account_value('Loans Payable', 'credit')},
+        {'account': 'Other Liabilities', 'amount': account_value('Other Liabilities', 'credit')},
+    ]
+    historical_income = financial_income_statement(cumulative_lines)['net_income']
+    owner_capital = account_value('Owner Capital', 'credit')
+    owner_drawings = account_value('Owner Drawings', 'debit')
+    retained_manual = account_value('Retained Earnings', 'credit')
+    total_assets = sum(row['amount'] for row in assets)
+    total_liabilities = sum(row['amount'] for row in liabilities)
+    known_equity = owner_capital - owner_drawings + retained_manual + historical_income
+    opening_balance = total_assets - total_liabilities - known_equity
+    equity = [
+        {'account': 'Owner Capital (manual entries)', 'amount': owner_capital},
+        {'account': 'Less: Owner Drawings (manual entries)', 'amount': -owner_drawings},
+        {'account': 'Manual Retained Earnings', 'amount': retained_manual},
+        {'account': 'Accumulated system earnings', 'amount': historical_income},
+        {'account': 'Unreconciled opening balance / capital', 'amount': opening_balance},
+    ]
+    total_equity = sum(row['amount'] for row in equity)
+    return {
+        'assets': assets, 'liabilities': liabilities, 'equity': equity,
+        'total_assets': total_assets, 'total_liabilities': total_liabilities,
+        'total_equity': total_equity, 'difference': total_assets - total_liabilities - total_equity,
+        'inventory_value': financial_inventory_value(),
+    }
+
+
+@app.route('/admin/financial-statements')
+@app.route('/admin/financials')
+@require_admin
+def financial_statements_portal():
+    period_start, period_end = financial_period_from_request()
+    include_scheduled = request.args.get('scheduled', '1') != '0'
+    settings = financial_settings()
+    exclusions = financial_exclusion_map()
+    period_lines, source_controls = financial_build_journal(
+        period_start, period_end, settings['fallback_cost_percent'], include_scheduled=include_scheduled,
+        exclusions=exclusions,
+    )
+    history_start = date(2000, 1, 1)
+    cumulative_lines, _ = financial_build_journal(
+        history_start, period_end, settings['fallback_cost_percent'], include_scheduled=include_scheduled,
+        exclusions=exclusions, include_controls=False,
+    )
+    manual_entries = FinancialJournalEntry.query.filter(
+        FinancialJournalEntry.entry_date >= period_start, FinancialJournalEntry.entry_date <= period_end,
+    ).order_by(FinancialJournalEntry.entry_date.desc(), FinancialJournalEntry.id.desc()).all()
+    return render_template(
+        'financial_statements.html', period_start=period_start, period_end=period_end,
+        include_scheduled=include_scheduled, settings=settings, journal_lines=period_lines,
+        journal_entries=financial_compact_entries(period_lines),
+        source_controls=source_controls, income_statement=financial_income_statement(period_lines),
+        cash_flow=financial_cash_flows(period_lines), balance_sheet=financial_balance_sheet(cumulative_lines),
+        manual_entries=manual_entries, financial_accounts=FINANCIAL_ACCOUNT_OPTIONS,
+        generated_at=ph_now(),
+    )
+
+
+def financial_portal_redirect():
+    start = request.form.get('period_start', '').strip()
+    end = request.form.get('period_end', '').strip()
+    scheduled = '1' if request.form.get('include_scheduled', '1') != '0' else '0'
+    return redirect(url_for('financial_statements_portal', start=start, end=end, scheduled=scheduled))
+
+
+@app.route('/admin/financial-statements/settings', methods=['POST'])
+@require_admin
+def financial_save_settings():
+    target_margin = parse_float(request.form.get('target_profit_margin_percent'), -1)
+    fallback_cost = parse_float(request.form.get('fallback_cost_percent'), -1)
+    if not (0 <= target_margin <= 100 and 0 <= fallback_cost <= 100):
+        flash('Profit Margin % and Cost % must both be between 0 and 100.', 'error')
+        return financial_portal_redirect()
+    save_financial_setting('financial_target_profit_margin_percent', f'{target_margin:.2f}')
+    save_financial_setting('financial_fallback_cost_percent', f'{fallback_cost:.2f}')
+    db.session.commit()
+    flash('Financial report settings saved. Cost % is only used where a completed sale has no recorded cost.', 'success')
+    return financial_portal_redirect()
+
+
+@app.route('/admin/financial-statements/source-visibility', methods=['POST'])
+@require_admin
+def financial_source_visibility():
+    source_kind = request.form.get('source_kind', '').strip().upper()
+    source_key = request.form.get('source_key', '').strip()[:140]
+    action = request.form.get('action', '').strip().upper()
+    note = re.sub(r'\s+', ' ', request.form.get('note', '').strip())[:255]
+    if source_kind not in FINANCIAL_SOURCE_KINDS or not source_key or action not in {'INCLUDE', 'EXCLUDE'}:
+        flash('Invalid financial source visibility request.', 'error')
+        return financial_portal_redirect()
+    row = FinancialSourceExclusion.query.filter_by(source_kind=source_kind, source_key=source_key).first()
+    if not row:
+        row = FinancialSourceExclusion(source_kind=source_kind, source_key=source_key)
+        db.session.add(row)
+    row.is_excluded = action == 'EXCLUDE'
+    row.note = note or None
+    row.updated_by = session.get('admin_user') or 'admin'
+    db.session.commit()
+    flash('This source is now ' + ('excluded from' if row.is_excluded else 'included in') + ' Financial Statements. Original records were not changed.', 'success')
+    return financial_portal_redirect()
+
+
+@app.route('/admin/financial-statements/journal', methods=['POST'])
+@require_admin
+def financial_add_journal_entry():
+    try:
+        entry_date = date.fromisoformat(request.form.get('entry_date', '').strip())
+    except ValueError:
+        flash('Choose a valid journal-entry date.', 'error')
+        return financial_portal_redirect()
+    description = re.sub(r'\s+', ' ', request.form.get('description', '').strip())[:255]
+    debit_account = request.form.get('debit_account', '').strip()
+    credit_account = request.form.get('credit_account', '').strip()
+    amount = parse_float(request.form.get('amount'), 0.0)
+    notes = request.form.get('notes', '').strip()[:2000]
+    if not description or debit_account not in FINANCIAL_ACCOUNT_META or credit_account not in FINANCIAL_ACCOUNT_META:
+        flash('Choose a description plus valid debit and credit accounts.', 'error')
+        return financial_portal_redirect()
+    if debit_account == credit_account:
+        flash('Debit and credit accounts must be different.', 'error')
+        return financial_portal_redirect()
+    if not 0 < amount <= 100000000:
+        flash('Journal amount must be more than ₱0.00 and below ₱100,000,000.00.', 'error')
+        return financial_portal_redirect()
+    entry_ref = 'ADJ-' + secrets.token_urlsafe(7).replace('-', '').replace('_', '').upper()[:12]
+    creator = session.get('admin_user') or 'admin'
+    db.session.add_all([
+        FinancialJournalEntry(entry_date=entry_date, entry_ref=entry_ref, description=description, account=debit_account,
+                              debit=amount, credit=0.0, notes=notes or None, created_by=creator),
+        FinancialJournalEntry(entry_date=entry_date, entry_ref=entry_ref, description=description, account=credit_account,
+                              debit=0.0, credit=amount, notes=notes or None, created_by=creator),
+    ])
+    db.session.commit()
+    flash(f'Balanced adjusting entry {entry_ref} saved.', 'success')
+    return financial_portal_redirect()
+
+
+@app.route('/admin/financial-statements/journal/<entry_ref>/delete', methods=['POST'])
+@require_admin
+def financial_delete_journal_entry(entry_ref):
+    entry_ref = entry_ref.strip()[:48]
+    rows = FinancialJournalEntry.query.filter_by(entry_ref=entry_ref).all()
+    if not rows:
+        flash('The manual journal entry was not found.', 'error')
+    else:
+        for row in rows:
+            db.session.delete(row)
+        db.session.commit()
+        flash(f'Manual journal entry {entry_ref} removed. Automatic source records were not changed.', 'success')
+    return financial_portal_redirect()
+
 @app.route('/admin/cash-flow')
 @app.route('/admin/cashflow')
 @require_admin
@@ -8440,6 +9207,14 @@ def admin_dashboard():
     all_expenses = Expense.query.order_by(Expense.created_at.desc()).all()
     vault_drops = VaultDrop.query.order_by(VaultDrop.created_at.desc()).all()
     promotions = PromotionTracker.query.order_by(PromotionTracker.created_at.desc()).all()
+    bundle_deals = BundleDeal.query.order_by(BundleDeal.created_at.desc(), BundleDeal.id.desc()).all()
+    for bundle in bundle_deals:
+        try:
+            bundle.pricing = bundle_deal_pricing(bundle)
+            bundle.bundle_error = ''
+        except OrderValidationError as exc:
+            bundle.pricing = None
+            bundle.bundle_error = str(exc)
 
     try:
         unique_visitors = SiteVisitor.query.count()
@@ -8563,7 +9338,8 @@ def admin_dashboard():
                            all_orders=all_orders, 
                            all_expenses=all_expenses, 
                            vault_drops=vault_drops, 
-                           promotions=promotions, 
+        promotions=promotions,
+        bundle_deals=bundle_deals,
                            product_sales_stats=product_sales_stats, 
                            food_revenue_total=food_revenue_total, 
                            service_revenue_total=service_revenue_total, 
@@ -8785,6 +9561,13 @@ def admin_delete_product(product_id):
     prod = Product.query.get_or_404(product_id)
     prod_name = prod.name
 
+    # A bundle must never retain an orphan product that could later be ordered.
+    affected_bundle_ids = [row.bundle_id for row in BundleDealItem.query.filter_by(product_id=prod.id).all()]
+    if affected_bundle_ids:
+        BundleDealItem.query.filter_by(product_id=prod.id).delete(synchronize_session=False)
+        for bundle in BundleDeal.query.filter(BundleDeal.id.in_(affected_bundle_ids)).all():
+            if not bundle.items:
+                db.session.delete(bundle)
     OrderItem.query.filter_by(product_id=prod.id).update({'product_id': None})
     ProductLike.query.filter_by(product_id=prod.id).delete()
     ProductComment.query.filter_by(product_id=prod.id).delete()
@@ -8950,6 +9733,108 @@ def admin_add_product():
         return redirect(url_for('admin_dashboard') + '#add-dish')
     flash(f"Product '{name}' was added and is active. It is highlighted below.", 'success')
     return redirect(url_for('admin_dashboard', added=product.id) + f'#product-row-{product.id}')
+
+
+def bundle_admin_redirect():
+    return redirect(url_for('admin_dashboard') + '#bundle-deals')
+
+
+@app.route('/admin/bundles/create', methods=['POST'])
+@require_admin
+def admin_create_bundle_deal():
+    name = re.sub(r'\s+', ' ', request.form.get('name', '').strip())[:140]
+    description = re.sub(r'\s+', ' ', request.form.get('description', '').strip())[:255]
+    discount_type = request.form.get('discount_type', 'PERCENT').strip().upper()
+    discount_value = parse_float(request.form.get('discount_value'), -1.0)
+    product_ids = request.form.getlist('product_id')
+    quantities = request.form.getlist('quantity')
+    if not name or discount_type not in {'PERCENT', 'FIXED'} or discount_value < 0:
+        flash('Enter a bundle name and a valid discount type/value.', 'error')
+        return bundle_admin_redirect()
+    if discount_type == 'PERCENT' and discount_value > 100:
+        flash('Percentage bundle discounts cannot exceed 100%.', 'error')
+        return bundle_admin_redirect()
+    selected = {}
+    for raw_id, raw_qty in zip(product_ids, quantities):
+        product_id = parse_int(raw_id, 0)
+        quantity = parse_int(raw_qty, 0)
+        if product_id <= 0:
+            continue
+        if quantity < 1 or quantity > 50:
+            flash('Every bundle product quantity must be between 1 and 50.', 'error')
+            return bundle_admin_redirect()
+        selected[product_id] = selected.get(product_id, 0) + quantity
+    if not selected:
+        flash('Add at least one active product to the bundle.', 'error')
+        return bundle_admin_redirect()
+    products = Product.query.filter(Product.id.in_(selected)).all()
+    if len(products) != len(selected):
+        flash('One or more selected bundle products no longer exist.', 'error')
+        return bundle_admin_redirect()
+    for product in products:
+        if not product.is_active:
+            flash(f'{product.name} is inactive and cannot be added to a bundle.', 'error')
+            return bundle_admin_redirect()
+        if product_choice_groups(product.option_schema, product.size_schema):
+            flash(f'{product.name} has required choices or priced sizes. Use it outside a fixed bundle for now.', 'error')
+            return bundle_admin_redirect()
+    bundle = BundleDeal(
+        name=name, description=description or None, discount_type=discount_type, discount_value=discount_value,
+        is_active=True, created_by=session.get('admin_user') or 'admin',
+    )
+    db.session.add(bundle)
+    db.session.flush()
+    for product_id, quantity in selected.items():
+        db.session.add(BundleDealItem(bundle_id=bundle.id, product_id=product_id, quantity=quantity))
+    try:
+        pricing = bundle_deal_pricing(bundle)
+        if pricing['bundle_price'] < 0:
+            raise OrderValidationError('Bundle discount cannot make the price negative.')
+        db.session.commit()
+    except (OrderValidationError, Exception) as exc:
+        db.session.rollback()
+        app.logger.exception('Could not create bundle deal')
+        flash(str(exc) if isinstance(exc, OrderValidationError) else 'Bundle deal could not be saved. No partial bundle was created.', 'error')
+        return bundle_admin_redirect()
+    flash(f"Bundle '{bundle.name}' created at ₱{pricing['bundle_price']:,.2f} (save ₱{pricing['discount_amount']:,.2f}).", 'success')
+    return bundle_admin_redirect()
+
+
+@app.route('/admin/bundles/<int:bundle_id>/update', methods=['POST'])
+@require_admin
+def admin_update_bundle_deal(bundle_id):
+    bundle = BundleDeal.query.get_or_404(bundle_id)
+    name = re.sub(r'\s+', ' ', request.form.get('name', '').strip())[:140]
+    description = re.sub(r'\s+', ' ', request.form.get('description', '').strip())[:255]
+    discount_type = request.form.get('discount_type', 'PERCENT').strip().upper()
+    discount_value = parse_float(request.form.get('discount_value'), -1.0)
+    if not name or discount_type not in {'PERCENT', 'FIXED'} or discount_value < 0 or (discount_type == 'PERCENT' and discount_value > 100):
+        flash('Use a valid bundle name and discount value.', 'error')
+        return bundle_admin_redirect()
+    bundle.name, bundle.description = name, description or None
+    bundle.discount_type, bundle.discount_value = discount_type, discount_value
+    bundle.is_active = bool(request.form.get('is_active'))
+    try:
+        pricing = bundle_deal_pricing(bundle)
+        db.session.commit()
+    except (OrderValidationError, Exception) as exc:
+        db.session.rollback()
+        app.logger.exception('Could not update bundle deal %s', bundle_id)
+        flash(str(exc) if isinstance(exc, OrderValidationError) else 'Bundle deal could not be updated.', 'error')
+        return bundle_admin_redirect()
+    flash(f"Bundle '{bundle.name}' updated. Current bundle price: ₱{pricing['bundle_price']:,.2f}.", 'success')
+    return bundle_admin_redirect()
+
+
+@app.route('/admin/bundles/<int:bundle_id>/delete', methods=['POST'])
+@require_admin
+def admin_delete_bundle_deal(bundle_id):
+    bundle = BundleDeal.query.get_or_404(bundle_id)
+    name = bundle.name
+    db.session.delete(bundle)
+    db.session.commit()
+    flash(f"Bundle '{name}' was removed. Previous orders remain unchanged.", 'success')
+    return bundle_admin_redirect()
 
 @app.route('/admin/batch-update-products', methods=['POST'])
 @require_admin

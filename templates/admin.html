@@ -54,6 +54,7 @@
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
       <a href="/pos/cashier" class="btn btn-pink">🛒 POS Terminal</a>
+      <a href="{{ url_for('financial_statements_portal') }}" class="btn" style="background:#e0f2fe; color:#075985;">📒 Financial Statements</a>
       <a href="{{ url_for('cash_flow_portal') }}" class="btn" style="background:#dcfce7; color:#166534;">💵 Cash Flow Manager</a>
       <a href="{{ url_for('cashflow_payables') }}" class="btn" style="background:#fef3c7; color:#92400e;">🧾 Expense Payables</a>
       <a href="{{ url_for('marketing_admin') }}" class="btn" style="background:#dbeafe; color:#1d4ed8;">📣 AI Marketing</a>
@@ -806,6 +807,50 @@
     </form>
   </div>
 
+  <!-- 🎁 BUNDLE DEALS -->
+  <div class="card" id="bundle-deals" style="border:2px solid #14b8a6;">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px;">
+      <div>
+        <h3 style="color:#0f766e;font-size:1.05rem;">🎁 Product Bundle Deals & Discounts</h3>
+        <p style="font-size:.73rem;color:#64748b;margin-top:4px;max-width:760px;">Create a ready-made bundle from active products. Choose a percentage or fixed-peso discount; its selling price is calculated by the server and stock is deducted from every included product at checkout.</p>
+      </div>
+      <a href="{{ url_for('financial_statements_portal') }}" class="btn" style="background:#e0f2fe;color:#075985;padding:6px 9px;font-size:.74rem;">📒 View Financial Statements</a>
+    </div>
+
+    <form action="{{ url_for('admin_create_bundle_deal') }}" method="POST" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;padding:11px;">
+      <div class="form-row">
+        <div class="form-group" style="min-width:180px;"><label>Bundle Name *</label><input class="form-control" name="name" required placeholder="e.g. Study Break Combo"></div>
+        <div class="form-group" style="min-width:210px;"><label>Short Description</label><input class="form-control" name="description" maxlength="255" placeholder="Optional customer-facing line"></div>
+        <div class="form-group" style="max-width:130px;"><label>Discount Type</label><select class="form-control" name="discount_type"><option value="PERCENT">Percent (%)</option><option value="FIXED">Fixed peso (₱)</option></select></div>
+        <div class="form-group" style="max-width:120px;"><label>Discount *</label><input class="form-control" type="number" min="0" step=".01" name="discount_value" value="0" required></div>
+      </div>
+      <div style="margin-top:9px;"><strong style="font-size:.76rem;color:#115e59;">Products in this bundle</strong><span style="font-size:.68rem;color:#64748b;"> — products with required choices/priced sizes are intentionally unavailable in fixed bundles.</span></div>
+      <div id="bundleItemBuilder" style="display:grid;gap:6px;margin-top:6px;"></div>
+      <button type="button" class="btn" style="background:#ccfbf1;color:#115e59;padding:5px 8px;font-size:.73rem;margin-top:7px;border:1px solid #5eead4;" onclick="addBundleItemRow()">+ Add product</button>
+      <button type="submit" class="btn" style="background:#0f766e;color:white;padding:7px 11px;font-size:.75rem;margin-top:7px;">Create Bundle Deal</button>
+    </form>
+
+    <div style="max-height:360px;overflow:auto;margin-top:12px;">
+      <table>
+        <thead><tr><th>Bundle</th><th>Included Products</th><th>Regular</th><th>Discount</th><th>Bundle Price</th><th>Active</th><th>Update / Delete</th></tr></thead>
+        <tbody>
+          {% for bundle in bundle_deals %}
+          <tr>
+              <td style="min-width:150px;"><form id="bundleUpdate{{ bundle.id }}" action="{{ url_for('admin_update_bundle_deal', bundle_id=bundle.id) }}" method="POST"><input class="form-control" name="name" value="{{ bundle.name }}" required style="padding:4px;font-size:.75rem;"><input class="form-control" name="description" value="{{ bundle.description or '' }}" placeholder="Description" maxlength="255" style="padding:4px;font-size:.7rem;margin-top:4px;"></form></td>
+              <td style="font-size:.72rem;min-width:190px;">{% for item in bundle.items %}<div>{{ item.product.name if item.product else 'Deleted product' }} ×{{ item.quantity }}</div>{% endfor %}{% if bundle.bundle_error %}<div style="color:#b91c1c;font-weight:800;margin-top:4px;">{{ bundle.bundle_error }}</div>{% endif %}</td>
+              <td style="font-weight:800;">{% if bundle.pricing %}₱{{ "{:,.2f}".format(bundle.pricing.regular_price) }}{% else %}—{% endif %}</td>
+              <td><select form="bundleUpdate{{ bundle.id }}" class="form-control" name="discount_type" style="padding:3px;font-size:.7rem;width:100px;"><option value="PERCENT" {% if bundle.discount_type == 'PERCENT' %}selected{% endif %}>Percent</option><option value="FIXED" {% if bundle.discount_type == 'FIXED' %}selected{% endif %}>Fixed peso</option></select><input form="bundleUpdate{{ bundle.id }}" class="form-control" type="number" min="0" step=".01" name="discount_value" value="{{ bundle.discount_value }}" style="padding:3px;font-size:.72rem;width:90px;margin-top:4px;"></td>
+              <td style="font-weight:900;color:#0f766e;">{% if bundle.pricing %}₱{{ "{:,.2f}".format(bundle.pricing.bundle_price) }}{% else %}—{% endif %}</td>
+              <td style="text-align:center;"><input form="bundleUpdate{{ bundle.id }}" type="checkbox" name="is_active" {% if bundle.is_active %}checked{% endif %}></td>
+              <td style="display:flex;gap:4px;align-items:center;"><button form="bundleUpdate{{ bundle.id }}" class="btn" type="submit" style="background:#0f766e;color:white;padding:4px 6px;font-size:.68rem;">Save</button><form id="deleteBundle{{ bundle.id }}" action="{{ url_for('admin_delete_bundle_deal', bundle_id=bundle.id) }}" method="POST" onsubmit="return confirm('Delete bundle {{ bundle.name|e }}? Previous orders will remain unchanged.');"><button class="btn" type="submit" style="background:#ef4444;color:white;padding:4px 6px;font-size:.68rem;" title="Delete bundle">🗑️</button></form></td>
+          </tr>
+          {% endfor %}
+          {% if not bundle_deals %}<tr><td colspan="7" style="text-align:center;color:#64748b;padding:18px;">No bundle deals yet. Create your first combination above.</td></tr>{% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- 📦 BULK CATALOG EDITOR -->
   <div class="card" id="catalog-editor">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
@@ -1114,6 +1159,18 @@
       }
       return false;
     }
+
+    const bundleProductOptions = `{% for p in products if p.is_active and not product_choice_groups(p.option_schema, p.size_schema) %}<option value="{{ p.id }}">{{ p.name|e }} — ₱{{ "%.2f"|format(p.price or 0) }} (stock {{ p.stock or 0 }})</option>{% endfor %}`;
+    function addBundleItemRow() {
+      const builder = document.getElementById('bundleItemBuilder');
+      if (!builder) return;
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:6px;align-items:center;max-width:620px;';
+      row.innerHTML = `<select class="form-control" name="product_id" required style="margin:0;flex:1;"><option value="">Choose active product</option>${bundleProductOptions}</select><input class="form-control" type="number" min="1" max="50" name="quantity" value="1" required style="margin:0;width:75px;" aria-label="Bundle quantity"><button type="button" class="btn" style="background:#fee2e2;color:#991b1b;padding:5px 8px;font-size:.72rem;" aria-label="Remove bundle product">✕</button>`;
+      row.querySelector('button').onclick = () => row.remove();
+      builder.appendChild(row);
+    }
+    addBundleItemRow();
 
     initializeBulkCatalogDirtyTracking();
 
