@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{ prod.name }} — Macleen's Food House</title>
-  <meta name="description" content="{{ ('View ' ~ prod.name ~ ' from Macleen\'s Food House. Freshly listed from our current menu.')|e }}">
+  <meta name="description" content="{{ (prod.description or ('View ' ~ prod.name ~ ' from Macleen\'s Food House. Freshly listed from our current menu.'))|e }}">
   <meta property="og:type" content="product">
   <meta property="og:site_name" content="Macleen's Food House">
   <meta property="og:title" content="{{ prod.name|e }} — Macleen's Food House">
-  <meta property="og:description" content="{{ ('View ' ~ prod.name ~ ' from Macleen\'s Food House. Freshly listed from our current menu.')|e }}">
+  <meta property="og:description" content="{{ (prod.description or ('View ' ~ prod.name ~ ' from Macleen\'s Food House. Freshly listed from our current menu.'))|e }}">
   <link rel="canonical" href="{{ url_for('product_detail', product_id=prod.id, _external=True) }}">
   <meta property="og:url" content="{{ product_share_page_url }}">
   <meta property="og:image" content="{{ product_share_image }}">
@@ -19,7 +19,7 @@
   <meta property="og:image:alt" content="{{ ('Original product photo preview for ' ~ prod.name ~ ' from Macleen\'s Food House')|e }}">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="{{ prod.name|e }} — Macleen's Food House">
-  <meta name="twitter:description" content="{{ ('View ' ~ prod.name ~ ' from Macleen\'s Food House. Freshly listed from our current menu.')|e }}">
+  <meta name="twitter:description" content="{{ (prod.description or ('View ' ~ prod.name ~ ' from Macleen\'s Food House. Freshly listed from our current menu.'))|e }}">
   <meta name="twitter:image" content="{{ product_share_image }}">
   <meta name="twitter:image:alt" content="{{ ('Original product photo preview for ' ~ prod.name ~ ' from Macleen\'s Food House')|e }}">
   <link rel="image_src" href="{{ product_share_image }}">
@@ -55,6 +55,7 @@
 
       <span style="font-size:0.75rem; font-weight:bold; color:var(--hk-pink); text-transform:uppercase;">{{ prod.category_name }}</span>
       <h1 style="color:var(--hk-dark); font-size:1.4rem; margin:4px 0 8px;">{{ prod.name }}</h1>
+      {% if prod.description %}<p style="font-size:.9rem;line-height:1.5;color:#475569;margin:0 0 9px;">{{ prod.description }}</p>{% endif %}
       <div style="font-size:1.4rem; font-weight:900; color:var(--hk-pink); margin-bottom:12px;">{% if prod.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(prod)) }}</div>
       {% if prod.size_schema %}
       <div style="background:#fdf2f8; border:1px solid #f9a8d4; border-radius:8px; padding:9px; margin-bottom:8px; font-size:0.82rem;">

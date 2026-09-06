@@ -15,11 +15,12 @@
   <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:15px;padding:14px;margin:13px 0">
     <h2 style="margin-top:0">✅ Your protected download is ready</h2>
     <p>Your access code is <strong id="accessCode" style="letter-spacing:.08em">{{ order.delivery_access_code }}</strong> <button class="btn btn-light" type="button" id="copyAccessCode" style="padding:5px 8px;font-size:.76rem">Copy code</button></p>
-    <p class="muted">Enter this code below to download. Do not share the code or this private page. Downloads used: {{ order.download_count or 0 }} / {{ payment_settings.download_limit }}.</p>
-    <form method="post" data-no-live action="{{ url_for('digital_download_asset',token=order.tracking_token) }}"><label>Download access code</label><input name="access_code" required autocomplete="one-time-code" placeholder="MFH-XXXXXXXXXX"><button class="btn" type="submit">Download {{ order.asset_file.download_filename }}</button></form>
+    <p class="muted">Enter this code below to download. Do not share the code or this private page. Downloads used: {{ order.download_count or 0 }} / {{ payment_settings.download_limit }}. {% if current_asset_version > 1 %}You are eligible for the current updated file version {{ current_asset_version }} using this same code.{% endif %}</p>
+    <form method="post" data-no-live action="{{ url_for('digital_download_asset',token=order.tracking_token) }}"><label>Download access code</label><input name="access_code" required autocomplete="one-time-code" placeholder="MFH-XXXXXXXXXX"><button class="btn" type="submit">Download {{ download_asset.download_filename }}</button></form>
+    {% if current_asset_version > 1 and order.item.asset_release_notes %}<div style="margin-top:12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:12px;padding:11px"><strong>What's updated in version {{ current_asset_version }}</strong><p style="white-space:pre-wrap;margin:7px 0 0">{{ order.item.asset_release_notes }}</p></div>{% endif %}
     {% if order.item.delivery_instructions %}<div style="margin-top:12px;background:#fff;border:1px solid #dbe7e4;border-radius:12px;padding:11px"><strong>Product delivery instructions</strong><p style="white-space:pre-wrap;margin:7px 0 0">{{ order.item.delivery_instructions }}</p></div>{% endif %}
   </div>
-  {% elif order.payment_status == 'PAID' and order.asset_file_id %}
+  {% elif order.payment_status == 'PAID' and download_asset %}
   <div style="background:#fff7ed;border-radius:13px;padding:12px"><strong>Your payment is confirmed.</strong> The file is being prepared; refresh this private page when the order becomes Ready.</div>
   {% elif order.payment_status != 'PAID' %}
   <div style="background:#fff7ed;border-radius:13px;padding:12px"><strong>Download locked until payment is confirmed.</strong> Manual GCash/cash orders need cashier verification; PayPal orders need secure PayPal confirmation.</div>

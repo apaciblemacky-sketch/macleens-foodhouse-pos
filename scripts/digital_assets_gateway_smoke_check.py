@@ -164,6 +164,31 @@ def main() -> int:
             assert download.status_code == 200 and download.data == b'<h1>Tracker</h1>'
             assert download.headers.get('X-Content-Type-Options') == 'nosniff'
 
+            # Replacing a protected product file must not strand already-paid
+            # customers. The same private token and claim code download the
+            # new release; activation/device limits are intentionally untouched.
+            update = client.post(
+                '/admin/digital/item/save',
+                data={
+                    'item_id': str(item.id), 'name': item.name, 'category_name': item.category_name,
+                    'product_type': item.product_type, 'price': str(item.price), 'cost': str(item.cost or 0),
+                    'file_format': 'HTML', 'turnaround_days': '0', 'app_device_limit': '2',
+                    'is_active': '1', 'asset_release_notes': 'Added the updated dashboard and corrected formulas.',
+                    'asset_file': (io.BytesIO(b'<h1>Tracker v2</h1>'), 'budget-tracker-v2.html'),
+                },
+                content_type='multipart/form-data',
+            )
+            assert update.status_code == 302
+            m.db.session.expire_all()
+            item = m.db.session.get(m.DigitalItem, item.id)
+            order = m.db.session.get(m.DigitalOrder, order.id)
+            assert item.asset_version == 2 and order.download_count == 0
+            assert m.digital_order_download_asset(order).file_data == b'<h1>Tracker v2</h1>'
+            updated_page = client.get(f'/digital/order/{order.tracking_token}')
+            assert updated_page.status_code == 200 and b"What's updated in version 2" in updated_page.data
+            updated_download = client.post(f'/digital/order/{order.tracking_token}/download', data={'access_code': 'MFH-SMOKETEST'})
+            assert updated_download.status_code == 200 and updated_download.data == b'<h1>Tracker v2</h1>'
+
             bot = client.post('/api/digital-support-bot', json={'question': 'How do I use my access code?'})
             assert bot.status_code == 200
             bot_data = bot.get_json()
@@ -200,7 +225,7 @@ def main() -> int:
             )
             assert storefront_order_response.status_code == 302
             storefront_order = m.DigitalOrder.query.filter_by(email='sync@example.com').first()
-            assert storefront_order and storefront_order.main_order_id and storefront_order.asset_file_id == asset.id and storefront_order.activation_device_limit == 2
+            assert storefront_order and storefront_order.main_order_id and storefront_order.asset_file_id == item.asset_file_id and storefront_order.activation_device_limit == 2
             cashier_accept = client.post(f'/pos/verify/{storefront_order.main_order_id}', data={'action': 'ACCEPT'})
             assert cashier_accept.status_code == 302
             m.db.session.expire_all()
@@ -242,7 +267,7 @@ def main() -> int:
 
             admin_page = client.get('/admin/digital')
             assert admin_page.status_code == 200
-            assert b'protected digital asset' in admin_page.data.lower() and b'Draft with Gemini' in admin_page.data
+            assert b'protected digital asset' in admin_page.data.lower() and b'Draft with Gemini' in admin_page.data and b'upload update' in admin_page.data
 
     print('DIGITAL ASSETS, MANUAL GCASH, PAYPAL CHECKOUT, AI FAQ, AND APP ACTIVATION V12 SMOKE CHECK PASSED')
     return 0

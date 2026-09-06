@@ -40,7 +40,7 @@
 
   <header>
     <div style="display:flex; align-items:center; gap:8px;">
-      <img src="{{ store_logo }}" style="width:32px; height:32px; border-radius:50%;">
+      <img src="{{ store_logo }}" onerror="this.onerror=null;this.src='/static/logo.png';" style="width:32px; height:32px; border-radius:50%;">
       <strong style="color:var(--hk-pink);">🖥️ CASHIER TERMINAL</strong>
       <span id="liveStatusBadge" style="background:#16a34a; color:white; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold;">LIVE (1s)</span>
     </div>

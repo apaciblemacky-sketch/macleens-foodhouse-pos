@@ -220,7 +220,7 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.06-paypal-loyalty-card-delivery-v12
+echo Expected release after Render finishes: 2026.09.06-catalog-loyalty-digital-bir-v13
 echo Then test one product link, both role-locked Community dashboards,
 echo 25-person @mentions, cover photos, no-refresh comments, project workspaces,
 echo Financial Statements, one bundle checkout, one protected digital download,

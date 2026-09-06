@@ -35,13 +35,13 @@ REQUIRED_DB_COLUMNS = {
         "community_student_preapproved_by",
     },
     "product": {
-        "id", "name", "category_name", "price", "cost", "allow_custom_amount",
+        "id", "name", "category_name", "description", "price", "cost", "allow_custom_amount",
         "minimum_order_amount", "option_schema", "size_schema", "stock", "is_active", "available_start_time", "available_end_time", "prep_minutes",
     },
     "order": {
         "id", "order_type", "dining_option", "customer_id", "subtotal",
         "total_amount", "payment_method", "payment_verified", "status",
-        "is_unpaid", "points_redeemed", "points_discount", "base_points_earned", "public_token", "fulfillment_status", "created_at",
+        "is_unpaid", "points_redeemed", "points_discount", "base_points_earned", "public_token", "fulfillment_status", "receipt_number", "created_at",
     },
     "order_item": {
         "id", "order_id", "product_id", "unit_price", "cost_price",
@@ -52,7 +52,7 @@ REQUIRED_DB_COLUMNS = {
     "bundle_deal": {"id", "name", "description", "discount_type", "discount_value", "is_active", "created_by", "created_at"},
     "bundle_deal_item": {"id", "bundle_id", "product_id", "quantity"},
     "digital_asset_file": {"id", "original_filename", "download_filename", "content_type", "file_size", "sha256", "file_data", "uploaded_by", "created_at"},
-    "digital_item": {"id", "name", "product_type", "price", "asset_file_id", "delivery_instructions", "app_device_limit", "is_active", "created_at"},
+    "digital_item": {"id", "name", "product_type", "price", "asset_file_id", "asset_version", "asset_updated_at", "asset_release_notes", "delivery_instructions", "app_device_limit", "is_active", "created_at"},
     "digital_order": {"id", "item_id", "payment_status", "asset_file_id", "delivery_access_code", "download_count", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "activation_device_limit"},
     "digital_support_faq": {"id", "question", "answer", "is_active", "sort_order", "created_at", "updated_at"},
     "digital_app_activation_code": {"id", "order_id", "activation_code", "status", "device_fingerprint_hash", "device_name", "activation_token_hash", "activated_at", "last_validated_at", "created_at"},
@@ -143,7 +143,11 @@ REQUIRED_DB_COLUMNS = {
 # These are added by the safe startup migration in app.py.  A replacement ZIP
 # intentionally preserves the existing production SQLite/PostgreSQL data rather
 # than overwriting it with a newly-created database.
-MIGRATABLE_DB_COLUMNS = {"order": {"base_points_earned"}}
+MIGRATABLE_DB_COLUMNS = {
+    "product": {"description"},
+    "order": {"base_points_earned", "receipt_number"},
+    "digital_item": {"asset_version", "asset_updated_at", "asset_release_notes"},
+}
 
 
 def fail(message: str) -> None:
@@ -329,22 +333,20 @@ def main() -> int:
         py_compile.compile(str(loyalty_v12_smoke), doraise=True)
     except py_compile.PyCompileError as exc:
         fail(f"v12 loyalty/card/delivery smoke-check script does not compile: {exc.msg}")
-    for marker in ["loyalty_spend_per_point", "ensure_loyalty_and_delivery_upgrade_defaults", "@app.route('/admin/customer/<int:cust_id>/purchase-history')", "@app.route('/admin/customer/<int:cust_id>/reinstate-old-order'"]:
+    for marker in ["loyalty_spend_per_point", "daily_login_points", "customer_has_early_redemption_qualifying_purchase", "ensure_loyalty_and_delivery_upgrade_defaults", "@app.route('/admin/customer/<int:cust_id>/purchase-history')", "@app.route('/admin/customer/<int:cust_id>/reinstate-old-order'", "@app.route('/admin/bir-sales-record')", "receipt_number", "digital_order_download_asset", "asset_version"]:
         if marker not in source:
             fail(f"v12 loyalty/history server marker is missing: {marker}")
     ok("Digital Business catalog, manual cashier payment, optional PayPal, Gemini help, app activation, and v12 loyalty checks are present")
 
     student_markers = [
-        "class GroupOrder(db.Model):", "class GroupOrderLine(db.Model):",
         "@app.route('/api/favorite/<int:product_id>'", "@app.route('/portal/reorder/<int:order_id>'",
-        "@app.route('/order/track/<token>')", "@app.route('/portal/group-order/create'",
-        "@app.route('/group-order/<token>')", "@app.route('/portal/preferences'",
+        "@app.route('/order/track/<token>')", "BARKADA_ORDERING_ENABLED = False",
         "@app.route('/pos/order/<int:order_id>/fulfillment'", "prep_minutes",
     ]
     missing = [marker for marker in student_markers if marker not in source]
     if missing:
         fail("student experience markers missing: " + ", ".join(missing))
-    for name in ["order_tracking.html", "group_order.html"]:
+    for name in ["order_tracking.html"]:
         if not (TEMPLATES / name).exists():
             fail(f"student experience template is missing: {name}")
     store_text = (TEMPLATES / "store_catalog.html").read_text(encoding="utf-8")
@@ -401,10 +403,17 @@ def main() -> int:
             fail(f"product preview metadata marker is missing: {marker}")
     if "Pillow>=10.4.0" not in (ROOT / "requirements.txt").read_text(encoding="utf-8"):
         fail("Pillow dependency for product social previews is missing")
-    for marker in ["reward-ring", "Saved favorites", "Barkada ordering", "Campus & quick-pickup", "Order again"]:
+    for marker in ["reward-ring", "Saved favorites", "Order again", "daily_login_points"]:
         if marker not in dashboard_text:
             fail(f"modern loyalty portal marker is missing: {marker}")
-    ok("modern student storefront, favorites, reorder, group ordering, preferences, and tracking are present")
+    if "Barkada ordering" in dashboard_text or "Campus & quick-pickup" in dashboard_text:
+        fail("retired Barkada Ordering or campus quick-pickup UI is still visible in the customer dashboard")
+    for marker in ["Ulam for Today", "description_{{ p.id }}", "asset_release_notes", "bir_sales_record"]:
+        if marker not in (store_text + admin_text + source):
+            fail(f"catalog, digital update, or BIR sales record marker is missing: {marker}")
+    if "Student budget picks" in store_text or "Chef's Featured Specials" in store_text:
+        fail("retired Student budget picks or Featured Specials storefront section is still visible")
+    ok("modern storefront, loyalty safeguard, digital update downloads, BIR sales record, favorites, reorder, and tracking are present")
 
     community_markers = [
         "class CommunityProfile(db.Model):", "class CommunityPost(db.Model):",
@@ -627,18 +636,18 @@ def main() -> int:
     ok("public Food House storefront no longer exposes the Staff button")
 
     # Public storefront visibility: Active controls visibility. Optional availability
-    # times control ordering only, so Featured/Best Seller products do not disappear
-    # from the storefront outside their selling window.
+    # times control ordering only. Ulam for Today intentionally lists only the
+    # Ulam products that are sellable at the current time.
     route_match = re.search(r"def store_catalog\(\):([\s\S]*?)(?=\n@app\.route)", source)
     if not route_match:
         fail("store_catalog route could not be located")
     store_route = route_match.group(1)
     if "products = sorted(all_active_products" not in store_route:
         fail("public storefront still hides active products outside their availability window")
-    if "featured = [p for p in all_active_products if p.is_featured]" not in store_route:
-        fail("featured products are still filtered out by the availability-time window")
     if "top_sellers = [p for p in all_active_products if p.is_top_seller]" not in store_route:
         fail("best sellers are still filtered out by the availability-time window")
+    if "ulams_today = sorted(" not in store_route:
+        fail("Ulam for Today is missing from the storefront route")
     if "product_is_available_now=is_product_available_now" not in store_route:
         fail("storefront does not receive orderability status for active scheduled products")
     if "Not Available to Order Now" not in storefront or "Visible now • ordering follows its availability schedule" not in storefront:

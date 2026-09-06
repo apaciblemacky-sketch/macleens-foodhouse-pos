@@ -145,7 +145,7 @@
       <div class="open-pill"><span class="open-dot"></span>{% if status and status.store_open %}Open for orders{% else %}Menu visible • ordering closed{% endif %}</div>
       <h1>Campus cravings, solved.</h1>
       <p class="hero-copy">Affordable ulam, snacks, drinks, and student essentials—ready around your class schedule.</p>
-      <div class="hero-actions"><a class="hero-cta primary" href="#menu">Browse today's menu</a><a class="hero-cta secondary" href="#studentPicks">See budget picks</a>{% if messenger_menu_url %}<a class="hero-cta secondary" href="{{ messenger_menu_url }}" target="_blank" rel="noopener">Get menu in Messenger</a>{% endif %}{% if cust %}<form action="{{ url_for('group_order_create') }}" method="post" style="display:inline"><button class="hero-cta secondary" style="border:1px solid rgba(255,255,255,.3);cursor:pointer" type="submit">Start barkada order</button></form>{% endif %}</div>
+      <div class="hero-actions"><a class="hero-cta primary" href="#menu">Browse today's menu</a><a class="hero-cta secondary" href="#ulamToday">See Ulam for Today</a>{% if messenger_menu_url %}<a class="hero-cta secondary" href="{{ messenger_menu_url }}" target="_blank" rel="noopener">Get menu in Messenger</a>{% endif %}</div>
     </div>
   </div>
 
@@ -176,13 +176,13 @@
     </div>
     {% endif %}
 
-    {% if student_picks %}
-    <div id="studentPicks" class="section-title"><span>🎓 Student budget picks</span></div>
-    <div class="section-subtitle">Quick choices at ₱50 or less, selected from what is available right now.</div>
+    <div id="ulamToday" class="section-title"><span>🍲 Ulam for Today</span></div>
+    <div class="section-subtitle">Today's active ulam choices. The list changes with your menu and selling hours.</div>
+    {% if ulams_today %}
     <div class="carousel-track">
-      {% for p in student_picks %}<div class="carousel-card student-pick-card"><div>{% if p.image_url %}<img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="lazy" style="width:100%;height:95px;border-radius:12px;object-fit:cover;margin-bottom:7px" alt="{{ p.name }}">{% endif %}<span class="budget">Budget pick</span><div style="font-size:.88rem;font-weight:900;margin-top:5px">{{ p.name }}</div><div class="p-price" style="font-size:1rem">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div><div class="product-meta"><span>⏱ {{ p.prep_minutes or 10 }} min</span><span>⭐ +{{ (product_starting_price(p)//30)|int }} pts</span></div></div><button class="btn-add" onclick='addToCart({{ p.id }},{{ p.name|tojson }},{{ p.price }},{{ product_choice_groups(p.option_schema,p.size_schema)|tojson }},{{ p.allow_custom_amount|tojson }},{{ (p.minimum_order_amount or p.price)|tojson }})'>Add to basket</button></div>{% endfor %}
+      {% for p in ulams_today %}<div class="carousel-card student-pick-card"><div>{% if p.image_url %}<img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="lazy" style="width:100%;height:95px;border-radius:12px;object-fit:cover;margin-bottom:7px" alt="{{ p.name }}">{% endif %}<span class="budget">Available today</span><div style="font-size:.88rem;font-weight:900;margin-top:5px">{{ p.name }}</div>{% if p.description %}<div style="font-size:.68rem;color:#64748b;line-height:1.35;margin-top:3px">{{ p.description }}</div>{% endif %}<div class="p-price" style="font-size:1rem">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div><div class="product-meta"><span>⏱ {{ p.prep_minutes or 10 }} min</span><span>⭐ +{{ (product_starting_price(p)//loyalty_spend_per_point)|int }} pts</span></div></div><button class="btn-add" onclick='addToCart({{ p.id }},{{ p.name|tojson }},{{ p.price }},{{ product_choice_groups(p.option_schema,p.size_schema)|tojson }},{{ p.allow_custom_amount|tojson }},{{ (p.minimum_order_amount or p.price)|tojson }})'>Add to basket</button></div>{% endfor %}
     </div>
-    {% endif %}
+    {% else %}<div class="empty-search" style="display:block">No ulam is marked available right now. Check the full menu below or ask staff for today's selection.</div>{% endif %}
 
     <!-- 🎁 ACTIVE PROMOTIONAL DROPS CAROUSEL (Burger & Beefy Nachos) -->
     {% if active_promos %}
@@ -209,38 +209,6 @@
     </div>
     {% endif %}
     
-    <!-- TOP CAROUSEL: Featured Specials -->
-    {% if featured %}
-    <div class="section-title">
-      <span>✨ Chef's Featured Specials</span>
-      <div class="carousel-header-controls">
-        <button class="scroll-btn" onclick="slideCarousel('featuredTrack', -300)" title="Scroll Left">‹</button>
-        <button class="scroll-btn" onclick="slideCarousel('featuredTrack', 300)" title="Scroll Right">›</button>
-      </div>
-    </div>
-    <div class="carousel-track" id="featuredTrack">
-      {% for f in featured %}
-      <div class="carousel-card">
-        <div>
-          {% if f.image_url %}
-            <img src="{{ f.image_url }}" referrerpolicy="no-referrer" loading="lazy" alt="{{ f.name }}" style="width:100%; height:80px; border-radius:6px; object-fit:cover; margin-bottom:4px;">
-          {% endif %}
-          <div style="font-size:0.8rem; font-weight:800; line-height:1.2;">{{ f.name }}</div>
-          <div style="font-size:0.95rem; font-weight:900; color:var(--hk-pink);">{% if f.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(f)) }}</div>
-        </div>
-        <div style="display:flex;gap:5px;margin-top:6px;">
-          {% if product_is_available_now(f) %}
-          <button class="btn-add" style="padding:4px; font-size:0.75rem; margin-top:0; flex:1;" onclick='addToCart({{ f.id }}, {{ f.name|tojson }}, {{ f.price }}, {{ product_choice_groups(f.option_schema, f.size_schema)|tojson }}, {{ f.allow_custom_amount|tojson }}, {{ (f.minimum_order_amount or f.price)|tojson }})'>+ Add</button>
-          {% else %}
-          <button class="btn-add" type="button" disabled style="padding:4px;font-size:0.7rem;margin-top:0;flex:1;background:#94a3b8;cursor:not-allowed;">⏰ Scheduled</button>
-          {% endif %}
-          <button type="button" class="btn-review food-share-btn" style="cursor:pointer;min-width:36px;" data-share-title="{{ f.name|e }}" data-share-url="{{ url_for('product_detail', product_id=f.id, pv=product_share_version(f))|e }}" aria-label="Share {{ f.name|e }}">↗</button>
-        </div>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-
     <!-- TOP CAROUSEL: Best Sellers -->
     {% if top_sellers %}
     <div class="section-title">
@@ -286,7 +254,7 @@
     <div class="section-title">🍽️ <span id="catalogTitleText">All Dishes</span></div>
     <div class="product-grid" id="productGrid">
       {% for p in products %}
-      <div class="product-card" data-cat="{{ p.category_name }}" data-name="{{ p.name|lower }} {{ p.category_name|lower }}" data-price="{{ product_starting_price(p) }}" data-available="{{ '1' if product_is_available_now(p) else '0' }}" data-trending="{{ '1' if p.id in trending_ids else '0' }}">
+      <div class="product-card" data-cat="{{ p.category_name }}" data-name="{{ p.name|lower }} {{ p.category_name|lower }} {{ (p.description or '')|lower }}" data-price="{{ product_starting_price(p) }}" data-available="{{ '1' if product_is_available_now(p) else '0' }}" data-trending="{{ '1' if p.id in trending_ids else '0' }}">
         <div class="product-badges">{% if p.id in trending_ids %}<span class="product-badge trending">Popular now</span>{% endif %}{% if p.is_top_seller %}<span class="product-badge">Best seller</span>{% elif p.is_featured %}<span class="product-badge">Featured</span>{% endif %}</div>
         <div>
           {% if p.image_url %}
@@ -296,6 +264,7 @@
           {% endif %}
           <span style="font-size:0.68rem; font-weight:bold; color:#ec4899;">{{ p.category_name }}</span>
           <div class="p-title">{{ p.name }}</div>
+          {% if p.description %}<div style="font-size:.68rem;color:#64748b;line-height:1.35;margin:-1px 0 5px">{{ p.description }}</div>{% endif %}
           <div class="p-price">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div>
           <div class="product-meta"><span>⏱ {{ p.prep_minutes or 10 }} min</span><span>⭐ +{{ (product_starting_price(p)//30)|int }} pts</span>{% if p.stock <= 10 %}<span style="color:#b45309">{{ p.stock }} left</span>{% endif %}</div>
           {% if p.size_schema %}<div style="font-size:0.68rem; color:#be185d; font-weight:800; margin-bottom:3px;">Choose size • priced per size</div>{% endif %}
@@ -408,7 +377,7 @@
         <div style="margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold;">Specific Target Time *</label>
           <input type="text" id="targetTime" class="form-control" placeholder="e.g. 12:30 PM or ASAP (20 mins)" required>
-          <div class="quick-times"><button type="button" onclick="setTargetTime('ASAP (20 mins)')">ASAP</button><button type="button" onclick="setTargetTime('In 30 minutes')">In 30 min</button>{% if cust and cust.break_start %}<button type="button" onclick="setTargetTime({{ ('School break at ' ~ cust.break_start)|tojson }})">My break {{ cust.break_start }}</button>{% endif %}</div>
+          <div class="quick-times"><button type="button" onclick="setTargetTime('ASAP (20 mins)')">ASAP</button><button type="button" onclick="setTargetTime('In 30 minutes')">In 30 min</button></div>
         </div>
 
         <div style="margin-bottom:10px;">

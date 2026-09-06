@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Sales Record | Macleen's Food House</title>
+  <style>
+    :root{--ink:#172033;--muted:#64748b;--teal:#0f766e;--pink:#db2777;--line:#dbe7e4;--paper:#fff}
+    *{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#f8fafc,#f0fdfa);color:var(--ink);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:20px}
+    .wrap{max-width:1440px;margin:auto}.card{background:var(--paper);border:1px solid #e2e8f0;border-radius:18px;padding:18px;margin-bottom:14px;box-shadow:0 9px 28px #0f172a0b}.head{display:flex;justify-content:space-between;gap:14px;align-items:flex-start;flex-wrap:wrap}h1{font-size:1.25rem;margin:0}h2{font-size:.9rem;margin:0 0 7px}.muted{color:var(--muted);font-size:.78rem;line-height:1.5}.notice{background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:11px;color:#78350f;font-size:.77rem;line-height:1.45;margin-top:12px}.actions,.filters{display:flex;gap:8px;align-items:end;flex-wrap:wrap}.btn{display:inline-block;border:0;border-radius:10px;padding:9px 11px;background:var(--teal);color:white;text-decoration:none;font-weight:850;font-size:.75rem;cursor:pointer}.btn.alt{background:#fce7f3;color:#9d174d}.btn.gray{background:#e2e8f0;color:#334155}.filters label{font-size:.7rem;font-weight:800;color:#475569}.filters input{display:block;border:1px solid #cbd5e1;border-radius:8px;padding:7px;margin-top:3px;color:var(--ink)}.summary{display:grid;grid-template-columns:repeat(4,minmax(145px,1fr));gap:8px;margin-top:14px}.metric{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fbfefd}.metric small{display:block;color:var(--muted);font-weight:750;font-size:.67rem}.metric strong{font-size:1rem}.table{overflow:auto}table{width:100%;border-collapse:collapse;min-width:1040px;font-size:.76rem}th{background:#f8fafc;color:#334155;text-align:left;padding:9px;border-bottom:1px solid #cbd5e1;white-space:nowrap}td{padding:9px;border-bottom:1px solid #edf2f7;vertical-align:top}td.money,th.money{text-align:right}.receipt-form{display:flex;gap:5px;min-width:190px}.receipt-form input{min-width:0;width:132px;border:1px solid #cbd5e1;border-radius:7px;padding:6px;font-size:.72rem}.receipt-form .btn{padding:6px 8px}.tag{display:inline-block;border-radius:999px;background:#ecfdf5;color:#047857;padding:3px 6px;font-size:.64rem;font-weight:850}.blank{color:#94a3b8;font-style:italic}@media(max-width:650px){body{padding:12px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <section class="card">
+    <div class="head">
+      <div><h1>🧾 Internal Sales Record</h1><p class="muted">Completed, payment-verified system sales with an editable receipt-number register.</p></div>
+      <div class="actions"><a class="btn gray" href="{{ url_for('admin_dashboard') }}">← Main Admin</a><a class="btn alt" href="{{ url_for('financial_statements_portal', start=period_start.isoformat(), end=period_end.isoformat()) }}">Financial Statements</a></div>
+    </div>
+    <form class="filters" method="get" style="margin-top:12px"><label>From<input type="date" name="start" value="{{ period_start.isoformat() }}"></label><label>To<input type="date" name="end" value="{{ period_end.isoformat() }}"></label><button class="btn" type="submit">Apply dates</button><a class="btn gray" href="{{ url_for('bir_sales_record', start=period_start.isoformat(), end=period_end.isoformat(), format='csv') }}">Download CSV</a></form>
+    <div class="summary"><div class="metric"><small>Verified sales</small><strong>{{ orders|length }}</strong></div><div class="metric"><small>Merchandise subtotal</small><strong>₱{{ '%.2f'|format(total_subtotal) }}</strong></div><div class="metric"><small>Delivery / points discount</small><strong>₱{{ '%.2f'|format(total_delivery) }} / ₱{{ '%.2f'|format(total_discount) }}</strong></div><div class="metric"><small>Total customer amount</small><strong>₱{{ '%.2f'|format(total_received) }}</strong></div></div>
+    <div class="notice"><strong>Important:</strong> This is an internal operational sales record, not a declaration that the format is BIR-compliant. Confirm invoice/OR series, registered business name, tax treatment, required books, retention rules, and filing requirements with your accountant and the BIR before relying on it for compliance.</div>
+  </section>
+
+  <section class="card table">
+    <h2>Sales from {{ period_start.strftime('%b %d, %Y') }} to {{ period_end.strftime('%b %d, %Y') }}</h2>
+    <table><thead><tr><th>Receipt number</th><th>System sale</th><th>Date / time (PH)</th><th>Customer</th><th>Order / payment</th><th class="money">Merchandise</th><th class="money">Delivery</th><th class="money">Points discount</th><th class="money">Amount received</th></tr></thead><tbody>
+    {% for order in orders %}
+      <tr><td><form class="receipt-form" method="post" action="{{ url_for('bir_sales_record_save_receipt', order_id=order.id) }}"><input type="hidden" name="start" value="{{ period_start.isoformat() }}"><input type="hidden" name="end" value="{{ period_end.isoformat() }}"><input name="receipt_number" maxlength="80" value="{{ order.receipt_number or '' }}" placeholder="Enter receipt #" aria-label="Receipt number for sale {{ order.id }}"><button class="btn" type="submit">Save</button></form></td><td><strong>#{{ order.id }}</strong><br><span class="tag">Verified</span></td><td>{{ order.created_at|ph_datetime }}</td><td>{{ order.customer_name or 'Walk-in customer' }}<br><span class="muted">{{ order.contact_number or '—' }}</span></td><td>{{ (order.order_type or 'Sale').replace('_',' ') }}<br><span class="muted">{{ order.payment_method or '—' }}</span></td><td class="money">₱{{ '%.2f'|format(order.subtotal or 0) }}</td><td class="money">₱{{ '%.2f'|format(order.delivery_fee or 0) }}</td><td class="money">₱{{ '%.2f'|format(order.points_discount or 0) }}</td><td class="money"><strong>₱{{ '%.2f'|format(order.total_amount or 0) }}</strong></td></tr>
+    {% else %}
+      <tr><td colspan="9" class="blank">No completed, payment-verified system sales were found for this period.</td></tr>
+    {% endfor %}
+    </tbody></table>
+  </section>
+</main>
+</body>
+</html>

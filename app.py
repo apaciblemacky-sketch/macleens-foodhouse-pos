@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.06-paypal-loyalty-card-delivery-v12'
+APP_RELEASE = '2026.09.06-catalog-loyalty-digital-bir-v13'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -210,6 +210,8 @@ class Product(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     category_name = db.Column(db.String(80), nullable=False)
+    # This is customer-facing menu copy, not an internal recipe or cost note.
+    description = db.Column(db.Text, nullable=True)
     price = db.Column(db.Float, nullable=False)
     cost = db.Column(db.Float, default=0.0, nullable=True)
     allow_custom_amount = db.Column(db.Boolean, default=False)
@@ -300,6 +302,9 @@ class Order(db.Model):
     notes = db.Column(db.Text, nullable=False, default="None")
     public_token = db.Column(db.String(64), unique=True, nullable=True, default=lambda: secrets.token_urlsafe(24))
     fulfillment_status = db.Column(db.String(30), default='SUBMITTED')
+    # Entered by staff in the internal Sales Record.  It is intentionally
+    # optional because legacy orders did not have a receipt number.
+    receipt_number = db.Column(db.String(80), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
     customer = db.relationship('Customer', backref='orders', lazy=True)
     items = db.relationship('OrderItem', backref='order_rel', cascade="all, delete-orphan", lazy=True)
@@ -1114,6 +1119,11 @@ class DigitalItem(db.Model):
     image_url = db.Column(db.Text, nullable=True)
     sample_url = db.Column(db.Text, nullable=True)
     asset_file_id = db.Column(db.Integer, db.ForeignKey('digital_asset_file.id', ondelete='SET NULL'), nullable=True)
+    # Each replacement file is a new release. Paid customers continue using
+    # the same private order / access code while getting the current release.
+    asset_version = db.Column(db.Integer, nullable=False, default=1)
+    asset_updated_at = db.Column(db.DateTime, nullable=True)
+    asset_release_notes = db.Column(db.Text, nullable=True)
     file_format = db.Column(db.String(80), nullable=True)
     license_terms = db.Column(db.Text, nullable=True)
     # Customer-facing instructions such as installation steps or "this product
@@ -1619,6 +1629,7 @@ def run_schema_migrations():
             ('base_points_earned', 'FLOAT'),
             ('public_token', 'VARCHAR(64)'),
             ('fulfillment_status', "VARCHAR(30) DEFAULT 'SUBMITTED'"),
+            ('receipt_number', 'VARCHAR(80)'),
         ],
         'promotion_tracker': [
             ('promo_cost', 'FLOAT DEFAULT 0.0'),
@@ -1643,6 +1654,7 @@ def run_schema_migrations():
             ('insights_analyzed_at', 'TIMESTAMP'),
         ],
         'product': [
+            ('description', 'TEXT'),
             ('cost', 'FLOAT DEFAULT 0.0'),
             ('allow_custom_amount', 'BOOLEAN DEFAULT FALSE'),
             ('minimum_order_amount', 'FLOAT'),
@@ -1700,6 +1712,9 @@ def run_schema_migrations():
             ('asset_file_id', 'INTEGER'),
             ('delivery_instructions', 'TEXT'),
             ('app_device_limit', 'INTEGER DEFAULT 0'),
+            ('asset_version', 'INTEGER DEFAULT 1'),
+            ('asset_updated_at', 'TIMESTAMP'),
+            ('asset_release_notes', 'TEXT'),
         ],
         'digital_order': [
             ('asset_file_id', 'INTEGER'),
@@ -1757,6 +1772,7 @@ def run_schema_migrations():
             conn.execute(text("UPDATE digital_order SET activation_device_limit = 0 WHERE activation_device_limit IS NULL"))
         if 'digital_item' in tables:
             conn.execute(text("UPDATE digital_item SET app_device_limit = 0 WHERE app_device_limit IS NULL"))
+            conn.execute(text("UPDATE digital_item SET asset_version = 1 WHERE asset_version IS NULL OR asset_version < 1"))
 
 
 def loyalty_points_per_purchase():
@@ -1767,6 +1783,21 @@ def loyalty_points_per_purchase():
     except Exception:
         value = 40.0
     return max(1.0, min(100000.0, value))
+
+
+def daily_login_points():
+    """Return the admin-controlled daily check-in award.
+
+    Keep this deliberately small: it is a retention nudge, not a replacement
+    for purchase-earned points. The redemption safeguard below prevents a
+    sequence of logins from becoming an immediate no-purchase discount.
+    """
+    try:
+        raw = StoreSetting.query.filter_by(key='daily_login_points').first()
+        value = parse_float(raw.value if raw else 0.5, 0.5)
+    except Exception:
+        value = 0.5
+    return max(0.0, min(10.0, round(value, 2)))
 
 
 def loyalty_points_from_amount(amount):
@@ -1789,6 +1820,10 @@ def ensure_loyalty_and_delivery_upgrade_defaults():
     point_setting = StoreSetting.query.filter_by(key='loyalty_spend_per_point').first()
     if not point_setting:
         db.session.add(StoreSetting(key='loyalty_spend_per_point', value='40'))
+
+    login_setting = StoreSetting.query.filter_by(key='daily_login_points').first()
+    if not login_setting:
+        db.session.add(StoreSetting(key='daily_login_points', value='0.50'))
 
     history_marker = StoreSetting.query.filter_by(key='loyalty_base_points_snapshot_v12').first()
     if not history_marker:
@@ -1941,6 +1976,25 @@ def parse_int(value, default=0):
 
 MIN_REDEMPTION_POINTS = 20.0
 POINT_VALUE_PHP = 1.0
+EARLY_REDEMPTION_LIFETIME_SPEND = 600.0
+EARLY_REDEMPTION_QUALIFYING_PURCHASE = 100.0
+
+
+def customer_has_early_redemption_qualifying_purchase(cust):
+    """Require a real ₱100 verified sale before a low-lifetime member redeems.
+
+    The check is intentionally based on an actual completed transaction, not
+    on a daily-login point balance. Once a member's lifetime paid spend reaches
+    ₱600, this first-purchase gate no longer applies.
+    """
+    if not cust or parse_float(cust.accumulated_spend, 0.0) >= EARLY_REDEMPTION_LIFETIME_SPEND:
+        return True
+    return bool(Order.query.filter(
+        Order.customer_id == cust.id,
+        Order.status == 'COMPLETED',
+        Order.payment_verified.is_(True),
+        Order.total_amount >= EARLY_REDEMPTION_QUALIFYING_PURCHASE,
+    ).first())
 
 def calculate_points_redemption(cust, requested_points, merchandise_total):
     """Validate redemption using the system rule: minimum 20 points, 1 point = ₱1."""
@@ -1951,6 +2005,11 @@ def calculate_points_redemption(cust, requested_points, merchandise_total):
         return 0.0, 0.0
     if points < MIN_REDEMPTION_POINTS:
         raise OrderValidationError(f'Minimum redemption is {MIN_REDEMPTION_POINTS:g} points.')
+    if not customer_has_early_redemption_qualifying_purchase(cust):
+        raise OrderValidationError(
+            'Before claiming a 20-point discount, members below ₱600 lifetime purchases '
+            'must first complete one verified purchase worth at least ₱100.'
+        )
     if points > balance + 1e-9:
         raise OrderValidationError(f'Only {balance:,.2f} points are available.')
     max_points = round(total / POINT_VALUE_PHP, 2)
@@ -4148,7 +4207,7 @@ def inject_globals():
         digital_support_facebook_url = 'https://www.facebook.com/macleensdigital/'
         digital_support_faqs = []
     status = check_operating_status()
-    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link, digital_support_facebook_url=digital_support_facebook_url, digital_support_faqs=digital_support_faqs, loyalty_spend_per_point=loyalty_points_per_purchase())
+    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link, digital_support_facebook_url=digital_support_facebook_url, digital_support_faqs=digital_support_faqs, loyalty_spend_per_point=loyalty_points_per_purchase(), daily_login_points=daily_login_points())
 
 def _staff_auth_failure(target, message):
     """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
@@ -5056,7 +5115,6 @@ def store_catalog():
     # outside its optional selling-time window. The time window only disables ordering.
     all_active_products = Product.query.filter_by(is_active=True).all()
 
-    featured = [p for p in all_active_products if p.is_featured]
     top_sellers = [p for p in all_active_products if p.is_top_seller]
     products = sorted(all_active_products, key=lambda x: (-(x.total_likes or 0), x.id))
 
@@ -5072,10 +5130,13 @@ def store_catalog():
         OrderItem.product_id.isnot(None),
     ).group_by(OrderItem.product_id).order_by(db.func.sum(OrderItem.quantity).desc()).limit(8).all()
     trending_ids = {row[0] for row in trending_rows}
-    student_picks = sorted(
-        [p for p in all_active_products if product_starting_price(p) <= 50 and is_product_available_now(p)],
-        key=lambda p: (p.id not in trending_ids, not p.is_top_seller, product_starting_price(p), p.name.casefold()),
-    )[:10]
+    # Keep the first storefront section useful and literal: today's Ulam, not
+    # a generic budget/featured carousel that can repeat unrelated products.
+    ulams_today = sorted(
+        [p for p in all_active_products
+         if (p.category_name or '').strip().casefold() in {'ulam', 'ulams'} and is_product_available_now(p)],
+        key=lambda p: (p.id not in trending_ids, product_starting_price(p), p.name.casefold()),
+    )
 
     liked_ids = {pl.product_id for pl in ProductLike.query.filter_by(ip_address=get_client_ip()).all()}
     delivery_zones = DeliveryZone.query.filter_by(is_active=True).all()
@@ -5100,7 +5161,6 @@ def store_catalog():
 
     return render_template('store_catalog.html', 
                            categories=categories, 
-                           featured=featured, 
                            top_sellers=top_sellers, 
                            products=products, 
                            liked_ids=liked_ids, 
@@ -5113,7 +5173,7 @@ def store_catalog():
                            credit_available=credit_available,
                            favorite_ids=favorite_ids,
                            trending_ids=trending_ids,
-                           student_picks=student_picks,
+                           ulams_today=ulams_today,
                            bundle_deals=bundle_deals,
                            reorder_cart=reorder_cart,
                            messenger_menu_url=(messenger_menu_start_url() if marketing_settings()['daily_menu_messenger_reply'] else ''),
@@ -5453,28 +5513,30 @@ def customer_reorder(order_id):
 def customer_preferences():
     if 'customer_id' not in session:
         return redirect(url_for('customer_login'))
-    cust = Customer.query.get_or_404(session['customer_id'])
-    campus = re.sub(r'\s+', ' ', request.form.get('campus_name', '').strip())[:120] or None
-    break_start = request.form.get('break_start', '').strip() or None
-    break_end = request.form.get('break_end', '').strip() or None
-    parsed = []
-    for label, value in (('start', break_start), ('end', break_end)):
-        if value:
-            try:
-                parsed.append(datetime.strptime(value, '%H:%M').time())
-            except ValueError:
-                flash(f'Break {label} time is invalid.', 'error')
-                return redirect(url_for('customer_dashboard') + '#preferences')
-    if len(parsed) == 2 and parsed[1] <= parsed[0]:
-        flash('Break end time must be later than the start time.', 'error')
-        return redirect(url_for('customer_dashboard') + '#preferences')
-    cust.campus_name = campus
-    cust.break_start = break_start
-    cust.break_end = break_end
-    cust.favorite_alerts = bool(request.form.get('favorite_alerts'))
-    db.session.commit()
-    flash('Campus and pickup preferences saved.', 'success')
-    return redirect(url_for('customer_dashboard') + '#preferences')
+    # This endpoint is retained only so a bookmarked old form does not fail.
+    # The old campus and quick-pickup preferences are no longer collected or
+    # used anywhere in ordering.
+    flash('Campus and quick-pickup preferences have been retired and are no longer used during checkout.', 'info')
+    return redirect(url_for('customer_dashboard'))
+
+
+# Barkada Ordering was retired from the customer experience. Historical group
+# records are retained for audit purposes, but no old link can create, modify,
+# or submit another shared basket.
+BARKADA_ORDERING_ENABLED = False
+
+
+@app.before_request
+def block_retired_barkada_ordering():
+    if BARKADA_ORDERING_ENABLED:
+        return None
+    if request.path == '/portal/group-order/create' or request.path.startswith('/group-order/'):
+        message = 'Barkada Ordering has been removed. Please use the regular menu and checkout instead.'
+        if request.is_json or request.headers.get('X-Macleens-Live') == '1':
+            return jsonify({'success': False, 'message': message}), 410
+        flash(message, 'info')
+        return redirect(url_for('store_catalog'))
+    return None
 
 
 @app.route('/portal/group-order/create', methods=['POST'])
@@ -7234,9 +7296,29 @@ def digital_asset_from_upload(upload):
     )
 
 
+def digital_order_download_asset(order):
+    """Return the newest protected file a paid buyer of this item may use.
+
+    An order keeps its original asset snapshot for audit/history, but a later
+    product-file replacement deliberately becomes available on the exact same
+    private order page and access code. Device activation records are not
+    touched by this function.
+    """
+    if order and order.item and order.item.asset_file_id and order.item.asset_file:
+        return order.item.asset_file
+    return order.asset_file if order else None
+
+
+def digital_order_asset_version(order):
+    if order and order.item and order.item.asset_file_id:
+        return max(1, parse_int(order.item.asset_version, 1))
+    return 1
+
+
 def digital_order_can_download(order):
+    asset = digital_order_download_asset(order)
     return bool(
-        order and order.asset_file_id and order.asset_file and
+        order and asset and
         order.payment_status == 'PAID' and order.status in {'READY', 'DELIVERED'}
     )
 
@@ -7252,7 +7334,7 @@ def digital_mark_order_paid(order, payment_gateway=None):
     order.payment_status = 'PAID'
     if payment_gateway:
         order.payment_gateway = payment_gateway
-    if order.item and order.item.product_type == 'DOWNLOAD' and order.asset_file_id:
+    if order.item and order.item.product_type == 'DOWNLOAD' and digital_order_download_asset(order):
         order.status = 'READY'
     elif order.item and order.item.product_type == 'CUSTOM_SERVICE':
         order.status = 'IN_PROGRESS'
@@ -7773,10 +7855,12 @@ def digital_order_status(token):
     digital_check_gateway_payment(order)
     if order.payment_gateway in {'PAYMONGO', 'PAYPAL'}:
         db.session.commit()
+    download_asset = digital_order_download_asset(order)
     return render_template(
         'digital/order_status.html', order=order, can_download=digital_order_can_download(order),
         can_open_external_delivery=digital_order_can_open_external_delivery(order), payment_settings=digital_payment_settings(),
         activation_codes=digital_active_activation_codes(order) if digital_paid_order(order) else [],
+        download_asset=download_asset, current_asset_version=digital_order_asset_version(order),
     )
 
 
@@ -7873,7 +7957,10 @@ def digital_download_asset(token):
     if parse_int(order.download_count, 0) >= settings['download_limit']:
         flash(f'This protected file has reached its {settings["download_limit"]}-download limit. Please contact Macleen’s Digital on Facebook for help.', 'error')
         return redirect(url_for('digital_order_status', token=token))
-    asset = order.asset_file
+    asset = digital_order_download_asset(order)
+    if not asset:
+        flash('The current download file is not available. Please contact Macleen’s Digital on Facebook.', 'error')
+        return redirect(url_for('digital_order_status', token=token))
     order.download_count = parse_int(order.download_count, 0) + 1
     order.last_download_at = utc_now()
     db.session.commit()
@@ -8005,7 +8092,9 @@ def digital_admin():
     return render_template('digital/admin.html', items=DigitalItem.query.order_by(DigitalItem.is_active.desc(), DigitalItem.name).all(),
         categories=DigitalCategory.query.order_by(DigitalCategory.name).all(), orders=orders,
         payment_settings=digital_payment_settings(), support_faqs=DigitalSupportFAQ.query.order_by(DigitalSupportFAQ.sort_order.asc(), DigitalSupportFAQ.id.asc()).all(),
-        activation_codes_by_order=activation_codes_by_order)
+        activation_codes_by_order=activation_codes_by_order,
+        order_assets={order.id: digital_order_download_asset(order) for order in orders},
+        order_asset_versions={order.id: digital_order_asset_version(order) for order in orders})
 
 @app.route('/admin/digital/category/add', methods=['POST'])
 @require_admin
@@ -8036,19 +8125,40 @@ def digital_item_save():
     item.app_device_limit=max(0, min(3, parse_int(request.form.get('app_device_limit'), 0)))
     item.turnaround_days=max(0,parse_int(request.form.get('turnaround_days'),0)); item.is_active=request.form.get('is_active') == '1'
     item.is_featured=bool(request.form.get('is_featured'))
+    release_notes = request.form.get('asset_release_notes', '').strip()[:3000] or None
     upload = request.files.get('asset_file')
     try:
         if upload and (upload.filename or '').strip():
+            replacing_existing_asset = bool(item_id and item.asset_file_id)
             asset = digital_asset_from_upload(upload)
             db.session.add(asset); db.session.flush()
             item.asset_file_id = asset.id
+            item.asset_updated_at = utc_now()
+            item.asset_release_notes = release_notes
+            if replacing_existing_asset:
+                item.asset_version = max(1, parse_int(item.asset_version, 1)) + 1
+                # This grants existing paid buyers a fresh download allowance
+                # for the new version while preserving their claim codes and
+                # the exact same activation/device limit records.
+                for prior_order in DigitalOrder.query.filter_by(item_id=item.id, payment_status='PAID').all():
+                    prior_order.download_count = 0
+                    prior_order.last_download_at = None
+            else:
+                item.asset_version = max(1, parse_int(item.asset_version, 1))
             if not item.file_format:
                 item.file_format = os.path.splitext(asset.download_filename)[1].lstrip('.').upper() or 'Digital download'
         elif request.form.get('clear_asset'):
             item.asset_file_id = None
+        elif item_id:
+            # Allow a wording correction without pretending that it created a
+            # new file version or resetting any customer's download counter.
+            item.asset_release_notes = release_notes
         if not item_id: db.session.add(item)
         db.session.commit()
-        flash('Digital offer saved. Attached files are protected until payment is confirmed.', 'success')
+        if upload and (upload.filename or '').strip() and item_id and replacing_existing_asset:
+            flash(f'Digital offer updated to file version {item.asset_version}. Paid buyers keep their same claim code and device limit, with a refreshed download allowance.', 'success')
+        else:
+            flash('Digital offer saved. Attached files are protected until payment is confirmed.', 'success')
     except OrderValidationError as exc:
         db.session.rollback(); flash(str(exc), 'error')
     except Exception:
@@ -8095,7 +8205,7 @@ def digital_order_update(order_id):
 @require_admin
 def digital_reset_access_code(order_id):
     order = DigitalOrder.query.get_or_404(order_id)
-    if not order.asset_file_id:
+    if not digital_order_download_asset(order):
         flash('This order has no uploaded digital file to protect.', 'error')
         return redirect(url_for('digital_admin'))
     order.delivery_access_code = digital_access_code()
@@ -8698,6 +8808,87 @@ def financial_portal_redirect():
     end = request.form.get('period_end', '').strip()
     scheduled = '1' if request.form.get('include_scheduled', '1') != '0' else '0'
     return redirect(url_for('financial_statements_portal', start=start, end=end, scheduled=scheduled))
+
+
+# ==================== INTERNAL BIR SALES RECORD ====================
+# This is a staff-maintained record of actual completed system sales. It does
+# not claim to replace BIR registration, permits, VAT/non-VAT treatment, or a
+# licensed accountant's filing work.
+
+def bir_sales_record_orders(period_start, period_end):
+    utc_start, utc_end = ph_day_utc_bounds(period_start)
+    _, end_utc = ph_day_utc_bounds(period_end + timedelta(days=1))
+    return Order.query.filter(
+        Order.status == 'COMPLETED',
+        Order.payment_verified.is_(True),
+        Order.created_at >= utc_start,
+        Order.created_at < end_utc,
+    ).order_by(Order.created_at.asc(), Order.id.asc()).all()
+
+
+@app.route('/admin/bir-sales-record')
+@require_admin
+def bir_sales_record():
+    period_start, period_end = financial_period_from_request()
+    orders = bir_sales_record_orders(period_start, period_end)
+    total_subtotal = sum(parse_float(order.subtotal, 0.0) for order in orders)
+    total_delivery = sum(parse_float(order.delivery_fee, 0.0) for order in orders)
+    total_discount = sum(parse_float(order.points_discount, 0.0) for order in orders)
+    total_received = sum(parse_float(order.total_amount, 0.0) for order in orders)
+    if request.args.get('format', '').casefold() == 'csv':
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow([
+            'Receipt Number', 'System Order #', 'Date / Time (PH)', 'Customer',
+            'Order Type', 'Payment Method', 'Merchandise Subtotal',
+            'Delivery Fee', 'Points Discount', 'Amount Received',
+        ])
+        for order in orders:
+            writer.writerow([
+                order.receipt_number or '', order.id,
+                ph_datetime_filter(order.created_at), order.customer_name or '',
+                order.order_type or '', order.payment_method or '',
+                f'{parse_float(order.subtotal, 0.0):.2f}',
+                f'{parse_float(order.delivery_fee, 0.0):.2f}',
+                f'{parse_float(order.points_discount, 0.0):.2f}',
+                f'{parse_float(order.total_amount, 0.0):.2f}',
+            ])
+        response = Response(output.getvalue(), mimetype='text/csv; charset=utf-8')
+        response.headers['Content-Disposition'] = (
+            f'attachment; filename="macleens-sales-record-{period_start.isoformat()}-to-{period_end.isoformat()}.csv"'
+        )
+        return response
+    return render_template(
+        'bir_sales_record.html', orders=orders, period_start=period_start,
+        period_end=period_end, total_subtotal=total_subtotal,
+        total_delivery=total_delivery, total_discount=total_discount,
+        total_received=total_received,
+    )
+
+
+@app.route('/admin/bir-sales-record/<int:order_id>/receipt', methods=['POST'])
+@require_admin
+def bir_sales_record_save_receipt(order_id):
+    order = Order.query.get_or_404(order_id)
+    if order.status != 'COMPLETED' or not order.payment_verified:
+        flash('Only completed, payment-verified sales can be assigned a receipt number.', 'error')
+        return redirect(url_for('bir_sales_record'))
+    receipt_number = re.sub(r'\s+', '', request.form.get('receipt_number', '').strip()).upper()
+    if receipt_number and not re.fullmatch(r'[A-Z0-9][A-Z0-9._/-]{0,79}', receipt_number):
+        flash('Receipt numbers may use letters, numbers, dots, dashes, underscores, or slashes only.', 'error')
+        return redirect(url_for('bir_sales_record', start=request.form.get('start'), end=request.form.get('end')))
+    if receipt_number:
+        duplicate = Order.query.filter(
+            Order.receipt_number == receipt_number,
+            Order.id != order.id,
+        ).first()
+        if duplicate:
+            flash(f'Receipt number {receipt_number} is already saved on system order #{duplicate.id}.', 'error')
+            return redirect(url_for('bir_sales_record', start=request.form.get('start'), end=request.form.get('end')))
+    order.receipt_number = receipt_number or None
+    db.session.commit()
+    flash(f'Receipt number for system order #{order.id} was saved.', 'success')
+    return redirect(url_for('bir_sales_record', start=request.form.get('start'), end=request.form.get('end')))
 
 
 @app.route('/admin/financial-statements/settings', methods=['POST'])
@@ -10419,16 +10610,25 @@ def update_investor_interest_status(lead_id):
 @require_admin
 def admin_loyalty_settings():
     spend_per_point = parse_float(request.form.get('spend_per_point'), 0.0)
+    login_points = parse_float(request.form.get('daily_login_points'), -1.0)
     if spend_per_point < 1 or spend_per_point > 100000:
         flash('Spend per point must be between ₱1 and ₱100,000.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    if login_points < 0 or login_points > 10:
+        flash('Daily login points must be between 0 and 10.', 'error')
         return redirect(url_for('admin_dashboard'))
     setting = StoreSetting.query.filter_by(key='loyalty_spend_per_point').first()
     if setting:
         setting.value = f'{spend_per_point:.2f}'
     else:
         db.session.add(StoreSetting(key='loyalty_spend_per_point', value=f'{spend_per_point:.2f}'))
+    login_setting = StoreSetting.query.filter_by(key='daily_login_points').first()
+    if login_setting:
+        login_setting.value = f'{login_points:.2f}'
+    else:
+        db.session.add(StoreSetting(key='daily_login_points', value=f'{login_points:.2f}'))
     db.session.commit()
-    flash(f'New eligible purchases now earn 1 base point per ₱{spend_per_point:,.2f}. Existing completed orders keep their saved points.', 'success')
+    flash(f'New eligible purchases now earn 1 base point per ₱{spend_per_point:,.2f}; daily check-ins award {login_points:.2f} point(s). Existing completed orders keep their saved points.', 'success')
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin')
@@ -10960,6 +11160,7 @@ def admin_update_logo():
 def admin_add_product():
     name = request.form.get('name', '').strip()
     category_name = request.form.get('category_name', 'Meals').strip() or 'Meals'
+    description = re.sub(r'\s+', ' ', request.form.get('description', '').strip())[:500] or None
     price = parse_float(request.form.get('price'), 0.0)
     cost = parse_float(request.form.get('cost'), 0.0)
     allow_custom_amount = bool(request.form.get('allow_custom_amount'))
@@ -10998,6 +11199,7 @@ def admin_add_product():
     product = Product(
         name=name,
         category_name=category_name,
+        description=description,
         price=price,
         cost=cost,
         allow_custom_amount=allow_custom_amount,
@@ -11219,6 +11421,7 @@ def admin_batch_update_products():
             ) if minimum_raw else None
             option_schema_raw = request.form.get(f'option_schema_{pid}', '').strip()
             size_schema_raw = request.form.get(f'size_schema_{pid}', '').strip()
+            description = re.sub(r'\s+', ' ', request.form.get(f'description_{pid}', '').strip())[:500] or None
             image_url = request.form.get(f'image_url_{pid}', '').strip()
             available_start_time = request.form.get(f'available_start_time_{pid}', '').strip() or None
             available_end_time = request.form.get(f'available_end_time_{pid}', '').strip() or None
@@ -11255,6 +11458,7 @@ def admin_batch_update_products():
                 ),
                 option_schema != (prod.option_schema or None),
                 size_schema != (prod.size_schema or None),
+                description != (prod.description or None),
                 stock != (prod.stock or 0),
                 prep_minutes != (prod.prep_minutes or 10),
                 image_url != (prod.image_url or ''),
@@ -11273,6 +11477,7 @@ def admin_batch_update_products():
             prod.minimum_order_amount = minimum_order_amount
             prod.option_schema = option_schema
             prod.size_schema = size_schema
+            prod.description = description
             prod.stock = stock
             prod.prep_minutes = prep_minutes
             prod.image_url = image_url
@@ -13635,13 +13840,15 @@ def customer_login():
             if cust.last_daily_login != today:
                 yesterday = today - timedelta(days=1)
                 cust.login_streak = (cust.login_streak or 0) + 1 if cust.last_daily_login == yesterday else 1
-                cust.points_balance = (cust.points_balance or 0.0) + 0.5
+                login_award = daily_login_points()
+                cust.points_balance = (cust.points_balance or 0.0) + login_award
                 cust.last_daily_login = today
-                db.session.add(RewardLedger(
-                    customer_id=cust.id,
-                    points_change=0.5,
-                    reason=f'Daily Login Reward (Day {cust.login_streak})',
-                ))
+                if login_award:
+                    db.session.add(RewardLedger(
+                        customer_id=cust.id,
+                        points_change=login_award,
+                        reason=f'Daily Login Reward (Day {cust.login_streak})',
+                    ))
             cust.last_active_at = utc_now()
             track_portal_event('LOGIN', source=portal_source, customer_id=cust.id)
             db.session.commit()
@@ -13682,6 +13889,7 @@ def customer_register():
             return redirect(url_for('customer_login', src=source, next=next_section or None))
 
         today = ph_today()
+        welcome_award = daily_login_points()
         try:
             new_cust = Customer(
                 name=name,
@@ -13690,7 +13898,7 @@ def customer_register():
                 fb_messenger=messenger,
                 default_address=address,
                 default_landmark=landmark,
-                points_balance=0.5,
+                points_balance=welcome_award,
                 pin_hash=generate_password_hash(pin),
                 card_number=None,
                 card_status='ACTIVE',
@@ -13704,11 +13912,12 @@ def customer_register():
             db.session.flush()
             new_cust.card_number = generate_unique_card_number(new_cust.id)
 
-            db.session.add(RewardLedger(
-                customer_id=new_cust.id,
-                points_change=0.5,
-                reason='Welcome Login Bonus',
-            ))
+            if welcome_award:
+                db.session.add(RewardLedger(
+                    customer_id=new_cust.id,
+                    points_change=welcome_award,
+                    reason='Welcome Login Bonus',
+                ))
             # Referral rewards are intentionally held until the new member completes a paid purchase.
             # This prevents fake registrations and rewards both sides for an actual new customer.
             track_portal_event('REGISTER', source=source, customer_id=new_cust.id)
@@ -13719,9 +13928,9 @@ def customer_register():
             session['portal_source'] = portal_source
             session.permanent = True
             if ref:
-                flash('🎉 Welcome! +0.5 point added. Complete your first paid purchase to unlock the referral bonus for both of you!', 'success')
+                flash(f'🎉 Welcome! +{welcome_award:.2f} login point(s) added. Complete your first paid purchase to unlock the referral bonus for both of you!', 'success')
             else:
-                flash('🎉 Welcome! You earned 0.5 points!', 'success')
+                flash(f'🎉 Welcome! You earned {welcome_award:.2f} login point(s)!', 'success')
             if next_section == 'community':
                 return redirect(url_for('community_home'))
             target = url_for('customer_dashboard')
@@ -13773,9 +13982,6 @@ def customer_dashboard():
         CustomerWishlist.customer_id == cust.id,
         Product.is_active.is_(True),
     ).order_by(Product.name).all()
-    open_group_orders = GroupOrder.query.filter_by(
-        organizer_customer_id=cust.id, status='OPEN'
-    ).order_by(GroupOrder.created_at.desc()).limit(5).all()
     base = _marketing_public_base_url()
     card_identifier = cust.card_number or cust.contact
     qr_target = f"{base}/portal/login?card={card_identifier}"
@@ -13793,7 +13999,6 @@ def customer_dashboard():
         recent_rewards=recent_rewards,
         referral_rewards_count=referral_rewards_count,
         favorite_items=favorite_items,
-        open_group_orders=open_group_orders,
         loyalty_card_themes=LOYALTY_CARD_THEMES,
         qr_data=qr_data,
         qr_target=qr_target,

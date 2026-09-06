@@ -7,7 +7,7 @@
 <div class="loyalty-card-pair" data-loyalty-card-pair
      style="--logo-scale:{{ '%.2f'|format(lc_logo_scale) }};--photo-scale:{{ '%.2f'|format(lc_photo_scale) }};--qr-scale:{{ '%.2f'|format(lc_qr_scale) }};--text-scale:{{ '%.2f'|format(lc_text_scale) }};--info-scale:{{ '%.2f'|format(lc_info_scale) }};">
   <section class="loyalty-card lc-qr-side {{ lc_theme }}" data-card-theme aria-label="Loyalty card front">
-    <div class="lc-front-brand"><img src="{{ store_logo }}" class="lc-logo" alt="Macleen's Food House"><div><strong>MACLEEN'S</strong><span>LOYALTY REWARDS</span></div></div>
+    <div class="lc-front-brand"><img src="{{ store_logo }}" onerror="this.onerror=null;this.src='/static/logo.png';" class="lc-logo" alt="Macleen's Food House"><div><strong>MACLEEN'S</strong><span>LOYALTY REWARDS</span></div></div>
     <div class="lc-qr-main card-qr-area"><div class="lc-qr-shell">{% if card_qr_data %}<img src="{{ card_qr_data }}" class="lc-qr" alt="Scan to open rewards login">{% endif %}</div></div>
     <div class="lc-scan">SCAN TO OPEN YOUR REWARDS</div>
   </section>

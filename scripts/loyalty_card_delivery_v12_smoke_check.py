@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavioral checks for the v12 loyalty, delivery, card, and order-history upgrade."""
+"""Behavioral checks for loyalty, delivery, card, redemption, and BIR updates."""
 from __future__ import annotations
 
 import os
@@ -54,6 +54,7 @@ def main() -> int:
             m.db.session.commit()
             m.db.session.refresh(old_order)
             assert m.loyalty_points_per_purchase() == 40
+            assert m.daily_login_points() == 0.5
             assert old_order.base_points_earned == 3
             assert m.loyalty_points_from_amount(119) == 2
             rates = {zone.place_name: zone.rate for zone in m.DeliveryZone.query.all()}
@@ -66,6 +67,25 @@ def main() -> int:
             assert old_order.customer_id == target.id
             assert source.points_balance == 0 and source.accumulated_spend == 0
             assert target.points_balance == 3 and target.accumulated_spend == 90
+
+            # A low-lifetime member cannot turn login-only points into the
+            # 20-point discount before making one real ₱100 verified purchase.
+            target.points_balance = 25
+            try:
+                m.calculate_points_redemption(target, 20, 100)
+                raise AssertionError('Low-lifetime member redeemed before the qualifying purchase')
+            except m.OrderValidationError:
+                pass
+            qualifying = m.Order(
+                order_type='COUNTER_SALE', dining_option='TAKEOUT', customer_id=target.id,
+                customer_name=target.name, contact_number=target.contact, subtotal=100,
+                total_amount=100, payment_method='CASH', payment_verified=True,
+                status='COMPLETED', fulfillment_status='FULFILLED',
+            )
+            m.db.session.add(qualifying)
+            m.db.session.commit()
+            points, discount = m.calculate_points_redemption(target, 20, 100)
+            assert (points, discount) == (20.0, 20.0)
 
             m._DB_INITIALIZED = True
             client = m.app.test_client()
@@ -82,9 +102,22 @@ def main() -> int:
             assert b'Terms' not in cards.data and b'PIN private' not in cards.data
             assert m.loyalty_card_qr_data_url('https://example.test/portal/login').startswith('data:image/png;base64,')
             admin = client.get('/admin')
-            assert admin.status_code == 200 and b'spend per 1 point' in admin.data
+            assert admin.status_code == 200 and b'spend per 1 point' in admin.data and b'Daily login points' in admin.data
+            saved_rule = client.post('/admin/loyalty-settings', data={'spend_per_point': '40', 'daily_login_points': '0.75'})
+            assert saved_rule.status_code == 302 and m.daily_login_points() == 0.75
 
-    print('LOYALTY ₱40, DELIVERY 30/65, 2X2 CARD, AND PURCHASE HISTORY V12 SMOKE CHECK PASSED')
+            bir_page = client.get('/admin/bir-sales-record')
+            assert bir_page.status_code == 200 and b'Internal Sales Record' in bir_page.data
+            receipt = client.post(
+                f'/admin/bir-sales-record/{qualifying.id}/receipt',
+                data={'receipt_number': 'OR-0001', 'start': m.ph_today().replace(day=1).isoformat(), 'end': m.ph_today().isoformat()},
+            )
+            assert receipt.status_code == 302
+            assert m.db.session.get(m.Order, qualifying.id).receipt_number == 'OR-0001'
+            export = client.get('/admin/bir-sales-record?format=csv')
+            assert export.status_code == 200 and b'Receipt Number' in export.data
+
+    print('LOYALTY ₱40, DELIVERY 30/65, 2X2 CARD, REDEMPTION, AND BIR SALES RECORD SMOKE CHECK PASSED')
     return 0
 
 

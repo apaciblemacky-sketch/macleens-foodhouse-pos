@@ -103,7 +103,7 @@
       <div class="reward-ring" id="rewardRing" style="--progress:{{ (reward_progress_pct * 3.6)|round(1) }}deg"><strong><span id="ringPoints">{{ "{:.1f}".format(cust.points_balance or 0) }}</span><small>POINTS</small></strong></div>
       <div>
         <div class="points"><span id="pointsBalanceMain">{{ "{:,.1f}".format(cust.points_balance or 0.0) }}</span> pts</div>
-        <div class="muted">Earn 1 point per ₱{{ '%.0f'|format(loyalty_spend_per_point) }} eligible spend • +0.5 daily login</div>
+        <div class="muted">Earn 1 point per ₱{{ '%.0f'|format(loyalty_spend_per_point) }} eligible spend • +{{ '%.2f'|format(daily_login_points) }} daily login</div>
         <div style="font-size:.75rem;font-weight:900;color:var(--teal);margin-top:6px">🔥 {{ cust.login_streak or 1 }}-day check-in streak</div>
       </div>
       <div id="milestoneText" style="margin-left:auto;text-align:right; font-size:.75rem; font-weight:900; color:var(--dark);">
@@ -124,31 +124,13 @@
   <div class="card">
     <div class="section-title">⚡ Student missions</div>
     <div class="muted" style="margin-bottom:5px">Simple ways to get more value from your account.</div>
-    <div class="mission"><div class="mission-icon">🔥</div><div><strong>Keep your check-in streak</strong><div class="muted">Visit your portal daily for the +0.5 login reward.</div></div></div>
-    <div class="mission"><div class="mission-icon">👥</div><div><strong>Plan a barkada order</strong><div class="muted">Share one cart, let friends add their picks, then submit once.</div></div></div>
+    <div class="mission"><div class="mission-icon">🔥</div><div><strong>Keep your check-in streak</strong><div class="muted">Visit your portal daily for the +{{ '%.2f'|format(daily_login_points) }} login reward.</div></div></div>
     {% for campaign in bonus_campaigns %}<div class="mission"><div class="mission-icon">⭐</div><div><strong>{{ campaign.title }}</strong><div class="muted">{{ campaign.description or 'Complete an eligible purchase while this bonus is active.' }}</div></div></div>{% endfor %}
   </div>
 
   <div class="card" id="favorites">
     <div class="row"><div><div class="section-title">🔖 Saved favorites</div><div class="muted">Your fastest route back to regular orders.</div></div><a class="btn btn-soft" style="width:auto" href="/#menu">Find food</a></div>
     {% if favorite_items %}<div class="favorite-strip" style="margin-top:11px">{% for p in favorite_items %}<div class="favorite">{% if p.image_url %}<img loading="lazy" src="{{ p.image_url }}" referrerpolicy="no-referrer" alt="{{ p.name }}">{% endif %}<strong style="display:block;margin:6px 0">{{ p.name }}</strong><div style="color:var(--pink);font-weight:900">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div></div>{% endfor %}</div>{% else %}<div class="muted" style="padding:15px 0">Tap the bookmark on any menu item to keep it here.</div>{% endif %}
-  </div>
-
-  <div class="card" id="groupOrders">
-    <div class="section-title">👥 Barkada ordering</div>
-    <div class="muted">Create one shareable cart. Friends add their own picks; only you can remove items or send the final order.</div>
-    <form action="{{ url_for('group_order_create') }}" method="post" style="display:flex;gap:7px;margin-top:10px"><input name="title" maxlength="120" placeholder="e.g. Library lunch group" style="flex:1;min-width:0;padding:10px;border:1px solid #cbd5e1;border-radius:10px"><button class="btn btn-pink" style="width:auto" type="submit">Create cart</button></form>
-    {% for group in open_group_orders %}<div class="history-row row"><span><strong>{{ group.title }}</strong><small class="muted" style="display:block">{{ group.lines|length }} line(s)</small></span><a class="btn btn-soft" style="width:auto" href="{{ url_for('group_order_page',token=group.token) }}">Open & share</a></div>{% endfor %}
-  </div>
-
-  <div class="card" id="preferences">
-    <div class="section-title">🎓 Campus & quick-pickup preferences</div>
-    <div class="muted" style="margin-bottom:10px">Save your usual break so checkout can fill your pickup time in one tap.</div>
-    <form action="{{ url_for('customer_preferences') }}" method="post">
-      <div class="settings-grid"><input name="campus_name" maxlength="120" value="{{ cust.campus_name or '' }}" placeholder="School / campus"><input name="break_start" type="time" value="{{ cust.break_start or '' }}" aria-label="Break start"><input name="break_end" type="time" value="{{ cust.break_end or '' }}" aria-label="Break end"></div>
-      <label style="display:flex;gap:8px;align-items:center;margin:10px 0;font-size:.78rem;font-weight:800"><input type="checkbox" name="favorite_alerts" {% if cust.favorite_alerts %}checked{% endif %}> Remember that I want updates when favorite items return</label>
-      <button class="btn btn-pink" type="submit">Save pickup preferences</button>
-    </form>
   </div>
 
   <div class="card" id="suggest">

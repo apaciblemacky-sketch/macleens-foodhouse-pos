@@ -15,7 +15,7 @@
 <body class="{{ 'registration-closed' if registration_closed|default(false) else '' }}">
   <main class="shell">
     <div class="top">
-      <div class="brand"><img src="{{ store_logo }}" alt="Macleen’s logo"><div><strong>Macleen’s Community</strong><small>Local updates, useful connections, real rewards</small></div></div>
+      <div class="brand"><img src="{{ store_logo }}" onerror="this.onerror=null;this.src='/static/logo.png';" alt="Macleen’s logo"><div><strong>Macleen’s Community</strong><small>Local updates, useful connections, real rewards</small></div></div>
       <a class="back" href="/portal/dashboard">My rewards</a>
     </div>
     {% with messages = get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="privacy" style="{% if category == 'error' %}background:#fef2f2;border-color:#fecaca;color:#991b1b{% endif %}">{{ message }}</div>{% endfor %}{% endwith %}

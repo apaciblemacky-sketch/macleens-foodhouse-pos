@@ -10,7 +10,7 @@
   </style>
 </head>
 <body data-viewer-id="{{ viewer.id }}" data-member-id="{{ member.id }}" data-channel="{{ 'CAMPUS' if viewer.role == 'STUDENT' else 'TOWN' }}">
-  <header class="top"><div class="top-inner"><img src="{{ store_logo }}" alt="Macleen’s logo"><strong>Macleen’s Community</strong><a class="back" href="/community">← Back to wall</a></div></header>
+  <header class="top"><div class="top-inner"><img src="{{ store_logo }}" onerror="this.onerror=null;this.src='/static/logo.png';" alt="Macleen’s logo"><strong>Macleen’s Community</strong><a class="back" href="{{ url_for('customer_dashboard') }}#rewards">🎁 Rewards</a><a class="back" href="/community">← Back to wall</a></div></header>
   <main class="shell">
     <section class="card">
       <div class="cover">{% if member.cover_image_data and can_view_details %}<img src="{{ member.cover_image_data }}" alt="@{{ member.handle }} cover photo">{% endif %}</div>
