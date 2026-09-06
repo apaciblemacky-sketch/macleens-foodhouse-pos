@@ -82,13 +82,16 @@ def main() -> int:
                 captured_checkout = {}
                 def fake_checkout_post(*args, **kwargs):
                     captured_checkout.update(kwargs.get('json') or {})
+                    captured_checkout['url'] = args[0]
                     return FakeResponse({'data': {'id': 'cs_smoke', 'attributes': {'checkout_url': 'https://checkout.paymongo.test/session'}}})
                 m.requests.post = fake_checkout_post
                 with m.app.test_request_context('/'):
                     checkout_url = m.digital_create_paymongo_checkout(gateway_order)
                 assert checkout_url == 'https://checkout.paymongo.test/session' and gateway_order.payment_gateway == 'PAYMONGO'
+                assert captured_checkout['url'].endswith('/v2/checkout_sessions')
                 line_item = captured_checkout['data']['attributes']['line_items'][0]
                 assert line_item['amount'] == 4900 and line_item['quantity'] == 2
+                assert captured_checkout['data']['attributes']['reference_number'] == f'MFH-DIGITAL-{gateway_order.id}'
                 m.requests.get = lambda *args, **kwargs: FakeResponse({'data': {'attributes': {'payment_intent': {'attributes': {'status': 'succeeded'}}}}})
                 assert m.digital_check_paymongo_payment(gateway_order)
                 assert gateway_order.payment_status == 'PAID' and gateway_order.status == 'READY'
@@ -151,6 +154,34 @@ def main() -> int:
             with client.session_transaction() as browser:
                 browser['admin_user'] = 'admin'
                 browser['_staff_last_activity'] = datetime.now().isoformat()
+
+            # The Digital admin can explicitly select an automated PayMongo
+            # GCash flow and independently offer PayPal. Neither choice
+            # affects Food House payment methods.
+            os.environ['PAYMONGO_SECRET_KEY'] = 'sk_test_payment_settings'
+            os.environ['PAYPAL_CLIENT_ID'] = 'paypal-settings-client'
+            os.environ['PAYPAL_CLIENT_SECRET'] = 'paypal-settings-secret'
+            settings_saved = client.post('/admin/digital/payment-settings', data={
+                'gateway_mode': 'PAYMONGO', 'paypal_enabled': '1',
+                'bot_provider': 'TEMPLATE', 'support_url': m.DIGITAL_SUPPORT_FACEBOOK_DEFAULT,
+            })
+            assert settings_saved.status_code == 302
+            settings = m.digital_payment_settings()
+            assert settings['gateway_mode'] == 'PAYMONGO' and settings['paymongo_active']
+            assert settings['paypal_enabled'] and settings['paypal_available']
+            enabled_item_page = client.get(f'/digital/item/{item.id}')
+            assert enabled_item_page.status_code == 200
+            assert b'secure PayMongo checkout' in enabled_item_page.data and 'PayPal — international checkout'.encode() in enabled_item_page.data
+            settings_saved = client.post('/admin/digital/payment-settings', data={
+                'gateway_mode': 'MANUAL', 'bot_provider': 'TEMPLATE',
+                'support_url': m.DIGITAL_SUPPORT_FACEBOOK_DEFAULT,
+            })
+            assert settings_saved.status_code == 302
+            settings = m.digital_payment_settings()
+            assert settings['gateway_mode'] == 'MANUAL' and not settings['paypal_enabled']
+            os.environ.pop('PAYMONGO_SECRET_KEY', None)
+            os.environ.pop('PAYPAL_CLIENT_ID', None)
+            os.environ.pop('PAYPAL_CLIENT_SECRET', None)
 
             status_page = client.get(f'/digital/order/{order.tracking_token}')
             assert status_page.status_code == 200

@@ -303,6 +303,10 @@ def main() -> int:
         "sync_digital_order_after_main_verification",
         "digital_create_paymongo_checkout",
         "digital_check_paymongo_payment",
+        "digital_gcash_gateway_mode",
+        "digital_paypal_checkout_enabled",
+        "paymongo_active",
+        "paypal_available",
         "digital_create_paypal_checkout",
         "digital_capture_paypal_payment",
         "@app.route('/api/paypal/webhook'",
@@ -316,7 +320,7 @@ def main() -> int:
         if not (TEMPLATES / name).exists():
             fail(f"Digital Business template is missing: {name}")
     digital_template_text = "\n".join((TEMPLATES / name).read_text(encoding="utf-8") for name in ["digital/base.html", "digital/item.html", "digital/order_status.html", "digital/admin.html"])
-    for marker in ["protected digital asset", "Download access code", "digital-support-bot", "Suggested AI Help Bot questions", "GEMINI_API_KEY", "One-time app codes", "Message Macleen’s Digital on Facebook", "PayPal overseas checkout"]:
+    for marker in ["protected digital asset", "Download access code", "digital-support-bot", "Suggested AI Help Bot questions", "GEMINI_API_KEY", "One-time app codes", "Message Macleen’s Digital on Facebook", "PayMongo & PayPal status", "PayMongo GCash Checkout", "Offer PayPal Checkout"]:
         if marker not in digital_template_text:
             fail(f"Digital asset/payment/support UI marker is missing: {marker}")
     digital_smoke = ROOT / "scripts" / "digital_assets_gateway_smoke_check.py"
@@ -336,7 +340,7 @@ def main() -> int:
     for marker in ["loyalty_spend_per_point", "daily_login_points", "customer_has_early_redemption_qualifying_purchase", "ensure_loyalty_and_delivery_upgrade_defaults", "@app.route('/admin/customer/<int:cust_id>/purchase-history')", "@app.route('/admin/customer/<int:cust_id>/reinstate-old-order'", "@app.route('/admin/bir-sales-record')", "receipt_number", "digital_order_download_asset", "asset_version"]:
         if marker not in source:
             fail(f"v12 loyalty/history server marker is missing: {marker}")
-    ok("Digital Business catalog, manual cashier payment, optional PayPal, Gemini help, app activation, and v12 loyalty checks are present")
+    ok("Digital Business catalog, selectable PayMongo GCash, optional PayPal, Gemini help, app activation, and loyalty checks are present")
 
     student_markers = [
         "@app.route('/api/favorite/<int:product_id>'", "@app.route('/portal/reorder/<int:order_id>'",

@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.06-catalog-loyalty-digital-bir-v13'
+APP_RELEASE = '2026.09.06-paymongo-paypal-gateway-v14'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -7174,10 +7174,12 @@ def save_digital_setting(key, value):
 
 
 def digital_payment_settings():
-    # Digital orders intentionally stay in the cashier-verification flow. This
-    # avoids redirecting customers away from the store while payment proof is
-    # reviewed and delivery/access details are prepared.
-    mode = 'MANUAL'
+    # Manual cashier verification remains the safe default. The admin may
+    # explicitly turn on PayMongo for *Digital* GCash orders after adding the
+    # required Render secret and webhook. Food House orders never use this.
+    mode = digital_setting('digital_gcash_gateway_mode', 'MANUAL').strip().upper()
+    if mode not in {'MANUAL', 'PAYMONGO'}:
+        mode = 'MANUAL'
     support_url = digital_setting('digital_support_facebook_url', DIGITAL_SUPPORT_FACEBOOK_DEFAULT).strip()
     if not support_url.startswith(('https://www.facebook.com/', 'https://facebook.com/', 'https://m.facebook.com/')):
         support_url = DIGITAL_SUPPORT_FACEBOOK_DEFAULT
@@ -7188,11 +7190,16 @@ def digital_payment_settings():
         os.environ.get('PAYPAL_CLIENT_ID', '').strip() and
         os.environ.get('PAYPAL_CLIENT_SECRET', '').strip()
     )
+    paypal_enabled = digital_setting('digital_paypal_checkout_enabled', '1').strip() not in {'0', 'false', 'no', 'off'}
+    paymongo_ready = bool(os.environ.get('PAYMONGO_SECRET_KEY', '').strip())
     public_base = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
     return {
         'gateway_mode': mode,
-        'paymongo_ready': bool(os.environ.get('PAYMONGO_SECRET_KEY', '').strip()),
+        'paymongo_ready': paymongo_ready,
+        'paymongo_active': bool(mode == 'PAYMONGO' and paymongo_ready),
         'paypal_ready': paypal_ready,
+        'paypal_enabled': paypal_enabled,
+        'paypal_available': bool(paypal_ready and paypal_enabled),
         'paypal_mode': paypal_mode,
         'paypal_webhook_ready': bool(paypal_ready and os.environ.get('PAYPAL_WEBHOOK_ID', '').strip()),
         'support_url': support_url,
@@ -7379,6 +7386,7 @@ def digital_create_paymongo_checkout(order):
             'payment_method_types': ['gcash'],
             'success_url': success_url, 'cancel_url': cancel_url,
             'description': f"Macleen's Digital Order #{order.id}",
+            'reference_number': f'MFH-DIGITAL-{order.id}',
             'metadata': {'digital_order_id': str(order.id)},
             'billing': {'name': order.customer_name, 'email': order.email, 'phone': order.contact_number},
             'send_email_receipt': True,
@@ -7386,7 +7394,7 @@ def digital_create_paymongo_checkout(order):
     }
     try:
         response = requests.post(
-            'https://api.paymongo.com/v1/checkout_sessions', auth=(secret_key, ''),
+            'https://api.paymongo.com/v2/checkout_sessions', auth=(secret_key, ''),
             json=payload, timeout=(4, 25),
         )
         body = response.json() if response.content else {}
@@ -7418,7 +7426,7 @@ def digital_check_paymongo_payment(order):
         return False
     try:
         response = requests.get(
-            f'https://api.paymongo.com/v1/checkout_sessions/{order.gateway_checkout_id}',
+            f'https://api.paymongo.com/v2/checkout_sessions/{order.gateway_checkout_id}',
             auth=(secret_key, ''), timeout=(4, 20),
         )
         body = response.json() if response.content else {}
@@ -7816,7 +7824,7 @@ def digital_item_detail(item_id):
         flash('Name, contact number, a valid delivery email, and payment method are required.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     payment_settings = digital_payment_settings()
-    if method == 'PAYPAL' and not payment_settings['paypal_ready']:
+    if method == 'PAYPAL' and not payment_settings['paypal_available']:
         flash('PayPal checkout is not available yet. Please choose manual GCash/Cash or contact Macleen’s Digital.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     order = DigitalOrder(item_id=item.id, customer_name=name, contact_number=contact, email=email,
@@ -7837,7 +7845,7 @@ def digital_item_detail(item_id):
         except OrderValidationError as exc:
             db.session.rollback()
             flash(str(exc), 'error')
-    elif method == 'GCASH' and payment_settings['gateway_mode'] == 'PAYMONGO':
+    elif method == 'GCASH' and payment_settings['paymongo_active']:
         try:
             checkout_url = digital_create_paymongo_checkout(order)
             db.session.commit()
@@ -8169,7 +8177,11 @@ def digital_item_save():
 @app.route('/admin/digital/payment-settings', methods=['POST'])
 @require_admin
 def digital_payment_settings_save():
-    mode = 'MANUAL'
+    mode = request.form.get('gateway_mode', 'MANUAL').strip().upper()
+    if mode not in {'MANUAL', 'PAYMONGO'}:
+        flash('Choose a valid GCash payment mode.', 'error')
+        return redirect(url_for('digital_admin'))
+    paypal_enabled = request.form.get('paypal_enabled') == '1'
     provider = request.form.get('bot_provider', 'AUTO').strip().upper()
     support_url = request.form.get('support_url', '').strip() or DIGITAL_SUPPORT_FACEBOOK_DEFAULT
     if provider not in {'AUTO', 'GEMINI', 'OPENAI', 'TEMPLATE'}:
@@ -8179,10 +8191,14 @@ def digital_payment_settings_save():
         flash('Use the full Macleen’s Digital Facebook Page URL for support.', 'error')
         return redirect(url_for('digital_admin'))
     save_digital_setting('digital_gcash_gateway_mode', mode)
+    save_digital_setting('digital_paypal_checkout_enabled', '1' if paypal_enabled else '0')
     save_digital_setting('digital_support_bot_provider', provider)
     save_digital_setting('digital_support_facebook_url', support_url[:500])
     db.session.commit()
-    flash('Digital payment and support settings saved. Digital orders stay on Manual GCash + cashier verification.', 'success')
+    if mode == 'PAYMONGO' and not os.environ.get('PAYMONGO_SECRET_KEY', '').strip():
+        flash('Settings saved. PayMongo mode is selected, but GCash remains manual until PAYMONGO_SECRET_KEY is added in Render.', 'info')
+    else:
+        flash('Digital payment and support settings saved.', 'success')
     return redirect(url_for('digital_admin'))
 
 @app.route('/admin/digital/order/<int:order_id>/update', methods=['POST'])
