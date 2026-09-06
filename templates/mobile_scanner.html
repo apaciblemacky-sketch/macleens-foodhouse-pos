@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f766e">
+  <title>Mobile Loyalty Scanner | Macleen's</title>
+  <style>
+    :root { --ink:#11213a; --muted:#60708a; --teal:#0f766e; --teal-dark:#115e59; --pink:#e9348b; --line:#d8e4ed; --paper:#f5faf9; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; color:var(--ink); font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:linear-gradient(150deg,#e4fffa 0%,#f9f7ff 55%,#fff1f7 100%); }
+    main { width:min(100%,620px); margin:0 auto; padding:18px 14px 32px; }
+    .top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+    .brand { display:flex; align-items:center; gap:9px; font-weight:900; }
+    .brand-mark { display:grid; place-items:center; width:39px; height:39px; color:#fff; background:linear-gradient(135deg,var(--teal),#14b8a6); border-radius:13px; box-shadow:0 7px 20px #0f766e35; }
+    .secure { color:#0c665f; background:#d7faf3; border:1px solid #9be8d9; border-radius:999px; padding:5px 9px; font-size:.72rem; font-weight:800; white-space:nowrap; }
+    .card { background:#fff; border:1px solid #dce6ee; box-shadow:0 16px 40px #1637581d; border-radius:20px; padding:18px; }
+    h1 { font-size:1.35rem; margin:0 0 7px; letter-spacing:-.03em; }
+    h2 { font-size:1rem; margin:0 0 6px; }
+    p { margin:0; line-height:1.45; color:var(--muted); font-size:.88rem; }
+    .tip { margin:14px 0; padding:11px 12px; border-radius:13px; background:#effbf8; border:1px solid #bdeee3; color:#17675f; font-size:.78rem; line-height:1.4; }
+    .camera { position:relative; overflow:hidden; min-height:214px; margin:14px 0 11px; border:2px dashed #8ad7cb; border-radius:17px; background:#0b2230; display:grid; place-items:center; }
+    video { display:none; width:100%; min-height:214px; max-height:52vh; object-fit:cover; transform:scaleX(-1); }
+    .camera-copy { padding:26px 20px; color:#d8fffb; text-align:center; font-size:.88rem; line-height:1.45; }
+    .camera-copy strong { display:block; color:#fff; margin-bottom:5px; font-size:1rem; }
+    button, input { font:inherit; }
+    .primary, .secondary, .send { width:100%; border:0; border-radius:12px; padding:12px 14px; font-weight:900; cursor:pointer; transition:transform .15s ease, opacity .15s ease; }
+    .primary { color:#fff; background:linear-gradient(135deg,#0f766e,#10958a); box-shadow:0 8px 17px #0f766e32; }
+    .secondary { color:#126a63; background:#e9faf7; border:1px solid #9ce6d9; margin-top:8px; }
+    .send { color:#fff; background:linear-gradient(135deg,#e9348b,#c51f73); margin-top:12px; box-shadow:0 8px 17px #e9348b2d; }
+    button:disabled { cursor:not-allowed; opacity:.46; transform:none; box-shadow:none; }
+    button:active:not(:disabled) { transform:scale(.985); }
+    .divider { display:flex; align-items:center; gap:10px; margin:16px 0 12px; color:#8591a4; font-size:.73rem; font-weight:800; }
+    .divider::before,.divider::after { content:""; height:1px; flex:1; background:#d9e4ea; }
+    label { display:block; margin-bottom:6px; color:#40516b; font-size:.76rem; font-weight:800; }
+    .manual-row { display:flex; gap:8px; }
+    input { flex:1; width:100%; min-width:0; padding:11px 12px; color:var(--ink); border:1px solid #bccddb; border-radius:11px; outline:none; }
+    input:focus { border-color:#0f9b91; box-shadow:0 0 0 3px #14b8a62e; }
+    .find { border:0; border-radius:11px; padding:10px 13px; color:#fff; background:#23425d; font-size:.8rem; font-weight:900; cursor:pointer; }
+    .status { min-height:22px; margin:11px 2px 0; color:#58708a; font-size:.79rem; line-height:1.4; }
+    .result { display:none; margin-top:14px; padding:13px; border:1px solid #a9e8da; border-radius:15px; background:linear-gradient(135deg,#eefdf9,#f8fffd); }
+    .result.visible { display:block; }
+    .result-title { display:flex; align-items:center; justify-content:space-between; gap:10px; color:#0f766e; font-size:.75rem; font-weight:900; text-transform:uppercase; letter-spacing:.05em; }
+    .member { margin:5px 0 2px; color:#12233f; font-size:1.1rem; font-weight:950; }
+    .member-meta { color:#52726e; font-size:.8rem; }
+    .privacy { margin:15px 2px 0; color:#718096; font-size:.72rem; line-height:1.42; }
+    footer { margin-top:16px; color:#6d7e92; text-align:center; font-size:.68rem; line-height:1.4; }
+    @media (min-width:640px) { main { padding-top:30px; } .card { padding:22px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="top">
+      <div class="brand"><span class="brand-mark">▦</span><span>MacLeen's Scanner</span></div>
+      <span class="secure">Staff: {{ staff_username }}</span>
+    </div>
+
+    <section class="card" aria-live="polite">
+      <h1>Scan loyalty card</h1>
+      <p>Use this phone to load the scanned member into the Cashier POS on your laptop—without switching the laptop away from the sale.</p>
+
+      <div class="tip"><strong>Use the same cashier account on both devices.</strong><br>After you send a member, the open Cashier POS for <strong>{{ staff_username }}</strong> receives it within a few seconds. The member selection expires after {{ scan_ttl_seconds // 60 }} minutes for safety.</div>
+
+      <div class="camera" id="cameraBox">
+        <video id="scanVideo" playsinline muted></video>
+        <div class="camera-copy" id="cameraCopy"><strong>Ready to scan</strong>Point the phone at the customer’s 2×2 loyalty QR card.</div>
+      </div>
+      <button class="primary" type="button" id="cameraButton">Start camera scanner</button>
+      <button class="secondary" type="button" id="stopButton" hidden>Stop camera</button>
+
+      <div class="divider">OR ENTER CARD MANUALLY</div>
+      <label for="manualCard">Card number or the QR link</label>
+      <div class="manual-row">
+        <input id="manualCard" type="text" autocomplete="off" autocapitalize="characters" placeholder="MFH-0001">
+        <button class="find" type="button" id="findButton">Find</button>
+      </div>
+      <div class="status" id="statusText">No customer is selected yet.</div>
+
+      <div class="result" id="resultCard">
+        <div class="result-title"><span>✓ Member found</span><span id="cardLabel"></span></div>
+        <div class="member" id="memberName"></div>
+        <div class="member-meta" id="memberMeta"></div>
+        <button class="send" type="button" id="sendButton">Send member to laptop Cashier POS</button>
+      </div>
+      <p class="privacy">This scanner only passes a temporary member selection to staff POS. It never records a sale or changes points. Complete the sale on the laptop once, so stock, receipt records, and rewards stay correct.</p>
+    </section>
+    <footer>Camera scanning needs Chrome/Edge on HTTPS with camera permission. If the browser does not support QR detection, type the card number or paste the QR link.</footer>
+  </main>
+
+  <script>
+    let activeStream = null;
+    let scanFrame = null;
+    let detector = null;
+    let selectedRawValue = '';
+    const video = document.getElementById('scanVideo');
+    const cameraCopy = document.getElementById('cameraCopy');
+    const cameraButton = document.getElementById('cameraButton');
+    const stopButton = document.getElementById('stopButton');
+    const findButton = document.getElementById('findButton');
+    const sendButton = document.getElementById('sendButton');
+    const manualCard = document.getElementById('manualCard');
+    const statusText = document.getElementById('statusText');
+    const resultCard = document.getElementById('resultCard');
+
+    function setStatus(message, isError = false) {
+      statusText.textContent = message;
+      statusText.style.color = isError ? '#b42318' : '#58708a';
+    }
+
+    function stopCamera() {
+      if (scanFrame) cancelAnimationFrame(scanFrame);
+      scanFrame = null;
+      if (activeStream) activeStream.getTracks().forEach(track => track.stop());
+      activeStream = null;
+      video.pause();
+      video.srcObject = null;
+      video.style.display = 'none';
+      cameraCopy.hidden = false;
+      cameraButton.hidden = false;
+      stopButton.hidden = true;
+    }
+
+    function showMember(customer) {
+      document.getElementById('memberName').textContent = customer.name;
+      document.getElementById('cardLabel').textContent = customer.card_number || 'LOYALTY MEMBER';
+      document.getElementById('memberMeta').textContent = `${Number(customer.points_balance || 0).toFixed(2)} points available`;
+      resultCard.classList.add('visible');
+      sendButton.disabled = false;
+    }
+
+    async function readMember(rawValue) {
+      const value = String(rawValue || '').trim();
+      if (!value) { setStatus('Scan a QR or enter a card number first.', true); return; }
+      findButton.disabled = true;
+      sendButton.disabled = true;
+      setStatus('Checking loyalty card…');
+      try {
+        const response = await fetch('/api/mobile-scanner/lookup', {
+          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({scan_value:value})
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to read that loyalty card.');
+        selectedRawValue = value;
+        showMember(data.customer);
+        setStatus('Member confirmed. Send when the laptop Cashier POS is ready.');
+      } catch (error) {
+        selectedRawValue = '';
+        resultCard.classList.remove('visible');
+        setStatus(error.message || 'Could not read the loyalty card.', true);
+      } finally {
+        findButton.disabled = false;
+      }
+    }
+
+    async function beginCamera() {
+      if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
+        setStatus('Camera QR scanning is not supported in this browser. Use Chrome/Edge on Android, or type the card number.', true);
+        return;
+      }
+      try {
+        stopCamera();
+        detector = new BarcodeDetector({formats:['qr_code']});
+        activeStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+        video.srcObject = activeStream;
+        video.style.display = 'block';
+        cameraCopy.hidden = true;
+        cameraButton.hidden = true;
+        stopButton.hidden = false;
+        await video.play();
+        setStatus('Point the camera at the loyalty QR card.');
+        const detectNext = async () => {
+          if (!activeStream) return;
+          try {
+            const matches = await detector.detect(video);
+            if (matches.length && matches[0].rawValue) {
+              const value = matches[0].rawValue;
+              stopCamera();
+              manualCard.value = value;
+              readMember(value);
+              return;
+            }
+          } catch (_) {
+            // Keep scanning; an occasional frame read error is normal on mobile cameras.
+          }
+          scanFrame = requestAnimationFrame(detectNext);
+        };
+        detectNext();
+      } catch (_) {
+        stopCamera();
+        setStatus('Camera permission was unavailable. Type or paste the card number instead.', true);
+      }
+    }
+
+    async function sendToLaptop() {
+      if (!selectedRawValue) return;
+      sendButton.disabled = true;
+      setStatus('Sending member to the laptop…');
+      try {
+        const response = await fetch('/api/mobile-scanner/queue', {
+          method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({scan_value:selectedRawValue})
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Could not send the member to the laptop.');
+        setStatus('✓ Sent. The laptop Cashier POS should load this member within a few seconds.');
+        sendButton.textContent = 'Sent to laptop ✓';
+        window.setTimeout(() => {
+          selectedRawValue = '';
+          resultCard.classList.remove('visible');
+          sendButton.textContent = 'Send member to laptop Cashier POS';
+          sendButton.disabled = false;
+          manualCard.value = '';
+        }, 2200);
+      } catch (error) {
+        sendButton.disabled = false;
+        setStatus(error.message || 'Could not send the member to the laptop.', true);
+      }
+    }
+
+    cameraButton.addEventListener('click', beginCamera);
+    stopButton.addEventListener('click', stopCamera);
+    findButton.addEventListener('click', () => readMember(manualCard.value));
+    manualCard.addEventListener('keydown', event => { if (event.key === 'Enter') readMember(manualCard.value); });
+    sendButton.addEventListener('click', sendToLaptop);
+    window.addEventListener('pagehide', stopCamera);
+  </script>
+</body>
+</html>
