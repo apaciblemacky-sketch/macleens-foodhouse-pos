@@ -65,7 +65,7 @@ def main() -> int:
             gateway_order = m.DigitalOrder(
                 item_id=item.id, customer_name='Gateway Tester', contact_number='09987654321',
                 email='gateway@example.com', quantity=2, unit_price=49, unit_cost=0,
-                total_price=98, payment_method='GCASH', asset_file_id=asset.id,
+                total_price=98, payment_method='QRPH', asset_file_id=asset.id,
                 delivery_access_code='MFH-GATEWAY', status='PENDING_PAYMENT', payment_status='PENDING',
             )
             m.db.session.add(gateway_order)
@@ -92,6 +92,7 @@ def main() -> int:
                 line_item = captured_checkout['data']['attributes']['line_items'][0]
                 assert line_item['amount'] == 4900 and line_item['quantity'] == 2
                 assert captured_checkout['data']['attributes']['reference_number'] == f'MFH-DIGITAL-{gateway_order.id}'
+                assert captured_checkout['data']['attributes']['payment_method_types'] == ['qrph']
                 m.requests.get = lambda *args, **kwargs: FakeResponse({'data': {'attributes': {'payment_intent': {'attributes': {'status': 'succeeded'}}}}})
                 assert m.digital_check_paymongo_payment(gateway_order)
                 assert gateway_order.payment_status == 'PAID' and gateway_order.status == 'READY'
@@ -156,7 +157,7 @@ def main() -> int:
                 browser['_staff_last_activity'] = datetime.now().isoformat()
 
             # The Digital admin can explicitly select an automated PayMongo
-            # GCash flow and independently offer PayPal. Neither choice
+            # QR Ph flow and independently offer PayPal. Neither choice
             # affects Food House payment methods.
             os.environ['PAYMONGO_SECRET_KEY'] = 'sk_test_payment_settings'
             os.environ['PAYPAL_CLIENT_ID'] = 'paypal-settings-client'
@@ -171,7 +172,7 @@ def main() -> int:
             assert settings['paypal_enabled'] and settings['paypal_available']
             enabled_item_page = client.get(f'/digital/item/{item.id}')
             assert enabled_item_page.status_code == 200
-            assert b'secure PayMongo checkout' in enabled_item_page.data and 'PayPal — international checkout'.encode() in enabled_item_page.data
+            assert b'secure PayMongo checkout' in enabled_item_page.data and b'QR Ph' in enabled_item_page.data and 'PayPal — international checkout'.encode() in enabled_item_page.data
             settings_saved = client.post('/admin/digital/payment-settings', data={
                 'gateway_mode': 'MANUAL', 'bot_provider': 'TEMPLATE',
                 'support_url': m.DIGITAL_SUPPORT_FACEBOOK_DEFAULT,
@@ -300,7 +301,7 @@ def main() -> int:
             assert admin_page.status_code == 200
             assert b'protected digital asset' in admin_page.data.lower() and b'Draft with Gemini' in admin_page.data and b'upload update' in admin_page.data
 
-    print('DIGITAL ASSETS, MANUAL GCASH, PAYPAL CHECKOUT, AI FAQ, AND APP ACTIVATION V12 SMOKE CHECK PASSED')
+    print('DIGITAL ASSETS, MANUAL GCASH, QR PH, PAYPAL CHECKOUT, AI FAQ, AND APP ACTIVATION SMOKE CHECK PASSED')
     return 0
 
 

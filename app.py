@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.06-paymongo-paypal-gateway-v14'
+APP_RELEASE = '2026.09.06-qrph-paymongo-paypal-v15'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -7134,7 +7134,7 @@ DIGITAL_ASSET_BLOCKED_EXTENSIONS = {
     '.apk', '.app', '.bat', '.cmd', '.com', '.dll', '.dmg', '.exe', '.jar', '.msi',
     '.ps1', '.scr', '.sh', '.vbs', '.wsf',
 }
-DIGITAL_PAYMENT_METHODS = ('CASH', 'GCASH', 'PAYPAL')
+DIGITAL_PAYMENT_METHODS = ('CASH', 'GCASH', 'QRPH', 'PAYPAL')
 DIGITAL_SUPPORT_FACEBOOK_DEFAULT = 'https://www.facebook.com/macleensdigital/'
 DIGITAL_SUPPORT_DEFAULT_FAQS = (
     (
@@ -7174,8 +7174,8 @@ def save_digital_setting(key, value):
 
 
 def digital_payment_settings():
-    # Manual cashier verification remains the safe default. The admin may
-    # explicitly turn on PayMongo for *Digital* GCash orders after adding the
+    # Manual GCash verification remains the safe default. The admin may
+    # explicitly turn on PayMongo for *Digital* QR Ph orders after adding the
     # required Render secret and webhook. Food House orders never use this.
     mode = digital_setting('digital_gcash_gateway_mode', 'MANUAL').strip().upper()
     if mode not in {'MANUAL', 'PAYMONGO'}:
@@ -7373,7 +7373,7 @@ def digital_public_base_url():
 def digital_create_paymongo_checkout(order):
     secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
     if not secret_key:
-        raise OrderValidationError('Online GCash checkout is not configured yet. Use the displayed GCash payment instructions and wait for cashier verification.')
+        raise OrderValidationError('Online QR Ph checkout is not configured yet. Use the displayed GCash payment instructions and wait for cashier verification.')
     success_url = digital_public_base_url() + url_for('digital_payment_return', token=order.tracking_token)
     cancel_url = digital_public_base_url() + url_for('digital_order_status', token=order.tracking_token)
     payload = {
@@ -7383,7 +7383,9 @@ def digital_create_paymongo_checkout(order):
                 'name': (order.item.name if order.item else 'Macleen’s Digital Asset')[:120],
                 'quantity': max(1, parse_int(order.quantity, 1)),
             }],
-            'payment_method_types': ['gcash'],
+            # QR Ph lets the buyer choose a compatible QR Ph-capable bank or
+            # e-wallet app on PayMongo's hosted checkout.
+            'payment_method_types': ['qrph'],
             'success_url': success_url, 'cancel_url': cancel_url,
             'description': f"Macleen's Digital Order #{order.id}",
             'reference_number': f'MFH-DIGITAL-{order.id}',
@@ -7714,8 +7716,8 @@ def digital_support_fallback(question):
         return 'Your paid private order page shows the download access code and any staff-provided license key or activation notes. The download code is not automatically an app password unless the product instructions specifically say it is.'
     if any(term in text_value for term in ('download', 'code', 'file')):
         return 'After payment is confirmed, open your private order link. The page will show your access code and let you download the attached digital file. Save that private page and keep the code private.'
-    if any(term in text_value for term in ('gcash', 'pay', 'payment', 'refund')):
-        return 'GCash orders are released only after payment is verified. If your payment is still pending, keep your private tracking link and contact Macleen’s Digital with your order details.'
+    if any(term in text_value for term in ('gcash', 'qr ph', 'qrph', 'pay', 'payment', 'refund')):
+        return 'Manual GCash orders are released after cashier verification. QR Ph and PayPal Digital orders unlock only after the payment gateway confirms the exact payment. Keep your private tracking link and contact Macleen’s Digital if payment is pending.'
     if any(term in text_value for term in ('custom', 'website', 'resume', 'tracker', 'system')):
         return 'For custom systems, web résumés, trackers, and other made-for-you work, submit your requirements on the item page. The team will confirm the scope and delivery timeline.'
     return 'I can help explain Digital products, downloads, order status, GCash checkout, app access, and custom work. For account-specific, payment, or detailed project concerns, please message Macleen’s Digital on Facebook.'
@@ -7824,6 +7826,9 @@ def digital_item_detail(item_id):
         flash('Name, contact number, a valid delivery email, and payment method are required.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     payment_settings = digital_payment_settings()
+    if method == 'QRPH' and not payment_settings['paymongo_active']:
+        flash('QR Ph checkout is not available yet. Please choose manual GCash/Cash or contact Macleen’s Digital.', 'error')
+        return redirect(url_for('digital_item_detail', item_id=item.id))
     if method == 'PAYPAL' and not payment_settings['paypal_available']:
         flash('PayPal checkout is not available yet. Please choose manual GCash/Cash or contact Macleen’s Digital.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
@@ -7845,7 +7850,7 @@ def digital_item_detail(item_id):
         except OrderValidationError as exc:
             db.session.rollback()
             flash(str(exc), 'error')
-    elif method == 'GCASH' and payment_settings['paymongo_active']:
+    elif method == 'QRPH' and payment_settings['paymongo_active']:
         try:
             checkout_url = digital_create_paymongo_checkout(order)
             db.session.commit()
@@ -8196,7 +8201,7 @@ def digital_payment_settings_save():
     save_digital_setting('digital_support_facebook_url', support_url[:500])
     db.session.commit()
     if mode == 'PAYMONGO' and not os.environ.get('PAYMONGO_SECRET_KEY', '').strip():
-        flash('Settings saved. PayMongo mode is selected, but GCash remains manual until PAYMONGO_SECRET_KEY is added in Render.', 'info')
+        flash('Settings saved. PayMongo mode is selected, but QR Ph remains unavailable until PAYMONGO_SECRET_KEY is added in Render.', 'info')
     else:
         flash('Digital payment and support settings saved.', 'success')
     return redirect(url_for('digital_admin'))
