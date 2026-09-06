@@ -1,11 +1,20 @@
-# Digital Assets, Gemini Help Bot & App Activation — v11
+# Digital Assets, Manual GCash, PayPal, Gemini Help Bot & App Activation — v12
 
 ## Payment Flow: Manual GCash + Cashier Verification
 
-Digital Business is deliberately set to **Manual GCash + cashier verification**.
+Digital Business keeps **Manual GCash + cashier verification** for local payments.
 The customer creates an order, follows your normal GCash payment instructions,
 and waits for a cashier/admin to verify payment. There is no automatic payment
-page redirect in this release.
+page redirect for GCash in this release.
+
+Optional **PayPal** is separate and available only for Digital Business orders
+after `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET` are configured in Render.
+That buyer is redirected to PayPal, while the system verifies/captures the exact
+stored PHP amount before unlocking a protected file. Food House, Crafts, Cash,
+Cashier, and manual GCash orders never redirect to PayPal.
+
+For full Render variable and signed-webhook setup, read
+`PAYPAL_LOYALTY_CARD_DELIVERY_V12.md`.
 
 After verification, a ready download unlocks automatically. Customers should
 keep their private order page; it displays their download access code, delivery

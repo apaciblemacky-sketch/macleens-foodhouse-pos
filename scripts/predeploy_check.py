@@ -41,7 +41,7 @@ REQUIRED_DB_COLUMNS = {
     "order": {
         "id", "order_type", "dining_option", "customer_id", "subtotal",
         "total_amount", "payment_method", "payment_verified", "status",
-        "is_unpaid", "points_redeemed", "points_discount", "public_token", "fulfillment_status", "created_at",
+        "is_unpaid", "points_redeemed", "points_discount", "base_points_earned", "public_token", "fulfillment_status", "created_at",
     },
     "order_item": {
         "id", "order_id", "product_id", "unit_price", "cost_price",
@@ -139,6 +139,11 @@ REQUIRED_DB_COLUMNS = {
     "community_push_subscription": {"id", "customer_id", "endpoint", "p256dh", "auth", "is_active"},
     "community_moderation_action": {"id", "post_id", "profile_id", "admin_username", "action", "note", "created_at"},
 }
+
+# These are added by the safe startup migration in app.py.  A replacement ZIP
+# intentionally preserves the existing production SQLite/PostgreSQL data rather
+# than overwriting it with a newly-created database.
+MIGRATABLE_DB_COLUMNS = {"order": {"base_points_earned"}}
 
 
 def fail(message: str) -> None:
@@ -294,6 +299,9 @@ def main() -> int:
         "sync_digital_order_after_main_verification",
         "digital_create_paymongo_checkout",
         "digital_check_paymongo_payment",
+        "digital_create_paypal_checkout",
+        "digital_capture_paypal_payment",
+        "@app.route('/api/paypal/webhook'",
         "digital_asset_from_upload",
         "app_device_limit",
     ]
@@ -304,7 +312,7 @@ def main() -> int:
         if not (TEMPLATES / name).exists():
             fail(f"Digital Business template is missing: {name}")
     digital_template_text = "\n".join((TEMPLATES / name).read_text(encoding="utf-8") for name in ["digital/base.html", "digital/item.html", "digital/order_status.html", "digital/admin.html"])
-    for marker in ["protected digital asset", "Download access code", "digital-support-bot", "Suggested AI Help Bot questions", "GEMINI_API_KEY", "One-time app codes", "Message Macleen’s Digital on Facebook"]:
+    for marker in ["protected digital asset", "Download access code", "digital-support-bot", "Suggested AI Help Bot questions", "GEMINI_API_KEY", "One-time app codes", "Message Macleen’s Digital on Facebook", "PayPal overseas checkout"]:
         if marker not in digital_template_text:
             fail(f"Digital asset/payment/support UI marker is missing: {marker}")
     digital_smoke = ROOT / "scripts" / "digital_assets_gateway_smoke_check.py"
@@ -314,7 +322,17 @@ def main() -> int:
         py_compile.compile(str(digital_smoke), doraise=True)
     except py_compile.PyCompileError as exc:
         fail(f"Digital asset smoke-check script does not compile: {exc.msg}")
-    ok("Digital Business catalog, protected downloads, manual cashier payment, Gemini help, and app activation are present")
+    loyalty_v12_smoke = ROOT / "scripts" / "loyalty_card_delivery_v12_smoke_check.py"
+    if not loyalty_v12_smoke.exists():
+        fail("v12 loyalty/card/delivery smoke-check script is missing")
+    try:
+        py_compile.compile(str(loyalty_v12_smoke), doraise=True)
+    except py_compile.PyCompileError as exc:
+        fail(f"v12 loyalty/card/delivery smoke-check script does not compile: {exc.msg}")
+    for marker in ["loyalty_spend_per_point", "ensure_loyalty_and_delivery_upgrade_defaults", "@app.route('/admin/customer/<int:cust_id>/purchase-history')", "@app.route('/admin/customer/<int:cust_id>/reinstate-old-order'"]:
+        if marker not in source:
+            fail(f"v12 loyalty/history server marker is missing: {marker}")
+    ok("Digital Business catalog, manual cashier payment, optional PayPal, Gemini help, app activation, and v12 loyalty checks are present")
 
     student_markers = [
         "class GroupOrder(db.Model):", "class GroupOrderLine(db.Model):",
@@ -546,7 +564,12 @@ def main() -> int:
                 columns = {row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')}
                 missing = sorted(required - columns)
                 if missing:
-                    fail(f"bundled SQLite DB {table!r} is missing columns: {', '.join(missing)}")
+                    auto_migratable = sorted(set(missing) & MIGRATABLE_DB_COLUMNS.get(table, set()))
+                    blocking = sorted(set(missing) - set(auto_migratable))
+                    if blocking:
+                        fail(f"bundled SQLite DB {table!r} is missing columns: {', '.join(blocking)}")
+                    if auto_migratable:
+                        print(f"INFO: bundled SQLite DB {table!r} will receive startup migration columns: {', '.join(auto_migratable)}")
             ok("bundled SQLite schema contains all critical current columns")
         finally:
             conn.close()
@@ -784,6 +807,10 @@ def main() -> int:
         fail("static/loyalty-card.css is missing")
     loyalty_css = loyalty_css_path.read_text(encoding="utf-8")
     loyalty_bundle = loyalty_html + customer_dashboard_html + loyalty_partial_html + loyalty_css + source
+    if "2 × 2 inch" not in loyalty_bundle or "SCAN TO OPEN YOUR REWARDS" not in loyalty_partial_html:
+        fail("v12 2x2 loyalty-card renderer is missing")
+    if "lc-info-rules" in loyalty_partial_html or "PIN private" in loyalty_partial_html:
+        fail("v12 loyalty card still contains retired rules/PIN content")
     loyalty_markers = [
         "@app.route('/admin/loyalty-cards')",
         "@app.route('/admin/loyalty-cards/<int:cust_id>/save'",
@@ -795,7 +822,7 @@ def main() -> int:
     missing_loyalty = [marker for marker in loyalty_markers if marker not in source]
     if missing_loyalty:
         fail("loyalty-card printing portal is incomplete: " + ", ".join(missing_loyalty))
-    for marker in ["pink-classic", "cafe-cream", "midnight-gold", "mint-fresh", "purple-craft", "85.6 × 54 mm", "Print Front + Back"]:
+    for marker in ["pink-classic", "cafe-cream", "midnight-gold", "mint-fresh", "purple-craft", "2 × 2 inch", "Print Front + Back"]:
         if marker not in loyalty_bundle:
             fail(f"loyalty-card portal UI is missing: {marker}")
     for marker in ["card_logo_scale", "card_photo_scale", "card_qr_scale", "card_text_scale", "card_info_scale", "Element Sizes", "--logo-scale", "--photo-scale", "--qr-scale", "--text-scale", "--info-scale"]:
@@ -813,11 +840,9 @@ def main() -> int:
     for marker in ["@app.route('/portal/card-theme'", "loyalty_card_themes=LOYALTY_CARD_THEMES", "Choose My Loyalty Card Theme"]:
         if marker not in source + customer_dashboard_html:
             fail(f"customer loyalty-card theme chooser is missing: {marker}")
-    if "fb.com/macleens" not in loyalty_partial_html:
-        fail("printed loyalty card is missing fb.com/macleens")
     if "POINTS" in loyalty_partial_html.upper() or "Earn 1 point per" in loyalty_partial_html:
         fail("printed loyalty card still contains points/balance text instead of the approved points-free card design")
-    ok("loyalty-card printer uses one shared landscape renderer, five themes, per-element size controls, member QR, gallery photo upload, and fb.com/macleens")
+    ok("loyalty-card printer uses one shared 2x2 renderer, five themes, per-element size controls, member QR, and gallery photo upload")
 
     req = (ROOT / "requirements.txt").read_text(encoding="utf-8")
     if "qrcode" not in req.lower():

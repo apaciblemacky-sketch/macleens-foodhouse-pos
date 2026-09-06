@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>My Macleen's Rewards</title>
   <link rel="manifest" href="/manifest.json">
-  <link rel="stylesheet" href="{{ url_for('static', filename='loyalty-card.css') }}?v=2">
+  <link rel="stylesheet" href="{{ url_for('static', filename='loyalty-card.css') }}?v=3">
   <meta name="theme-color" content="#ff69b4">
   <style>
     :root { --pink:#ff69b4; --dark:#831843; --border:#fbcfe8; --bg:#fff0f5; --muted:#64748b; }
@@ -103,7 +103,7 @@
       <div class="reward-ring" id="rewardRing" style="--progress:{{ (reward_progress_pct * 3.6)|round(1) }}deg"><strong><span id="ringPoints">{{ "{:.1f}".format(cust.points_balance or 0) }}</span><small>POINTS</small></strong></div>
       <div>
         <div class="points"><span id="pointsBalanceMain">{{ "{:,.1f}".format(cust.points_balance or 0.0) }}</span> pts</div>
-        <div class="muted">Earn 1 point per ₱30 spend • +0.5 daily login</div>
+        <div class="muted">Earn 1 point per ₱{{ '%.0f'|format(loyalty_spend_per_point) }} eligible spend • +0.5 daily login</div>
         <div style="font-size:.75rem;font-weight:900;color:var(--teal);margin-top:6px">🔥 {{ cust.login_streak or 1 }}-day check-in streak</div>
       </div>
       <div id="milestoneText" style="margin-left:auto;text-align:right; font-size:.75rem; font-weight:900; color:var(--dark);">
@@ -162,7 +162,7 @@
 
   <div class="card" id="cardDesign">
     <div class="section-title">🎫 Choose My Loyalty Card Theme</div>
-    <div class="muted">Choose how your physical Macleen's Loyalty Rewards Card will look. The live preview below shows the actual front and back landscape card before staff prints it. Points are not shown on the printed card.</div>
+    <div class="muted">Choose how your physical Macleen's Loyalty Rewards Card will look. The live preview below shows the actual front and back 2 × 2 inch square card before staff prints it. Points are not shown on the printed card.</div>
     <form action="/portal/card-theme" method="POST" style="margin-top:10px;" id="cardThemeForm">
       <div class="card-theme-grid">
         {% for key, label in loyalty_card_themes.items() %}

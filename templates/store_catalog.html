@@ -857,9 +857,9 @@
       if (isDelivery) {
         const zSelect = document.getElementById('deliveryZone');
         if (zSelect && zSelect.selectedOptions && zSelect.selectedOptions[0]) {
-          deliveryFee = parseFloat(zSelect.selectedOptions[0].dataset.rate || 40.0);
+          deliveryFee = parseFloat(zSelect.selectedOptions[0].dataset.rate || 30.0);
         } else {
-          deliveryFee = 40.0;
+          deliveryFee = 30.0;
         }
         html += `<div style="display:flex; justify-content:space-between; padding:8px 0; color:#831843; font-weight:bold;">
           <span>Barangay Delivery Fee</span>

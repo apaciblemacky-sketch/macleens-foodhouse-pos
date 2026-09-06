@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.05-digital-ai-faq-delivery-v11'
+APP_RELEASE = '2026.09.06-paypal-loyalty-card-delivery-v12'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -289,6 +289,9 @@ class Order(db.Model):
     total_amount = db.Column(db.Float, nullable=False)
     points_redeemed = db.Column(db.Float, default=0.0)
     points_discount = db.Column(db.Float, default=0.0)
+    # Snapshot the base loyalty points issued for this order.  This keeps an
+    # older transaction correct if the earning rule changes later.
+    base_points_earned = db.Column(db.Float, nullable=True)
     payment_method = db.Column(db.String(20), nullable=False)
     payment_verified = db.Column(db.Boolean, default=False)
     status = db.Column(db.String(30), default="VERIFICATION")
@@ -1613,6 +1616,7 @@ def run_schema_migrations():
             ('dining_option', "VARCHAR(20) DEFAULT 'DINE-IN'"),
             ('points_redeemed', 'FLOAT DEFAULT 0.0'),
             ('points_discount', 'FLOAT DEFAULT 0.0'),
+            ('base_points_earned', 'FLOAT'),
             ('public_token', 'VARCHAR(64)'),
             ('fulfillment_status', "VARCHAR(30) DEFAULT 'SUBMITTED'"),
         ],
@@ -1754,6 +1758,62 @@ def run_schema_migrations():
         if 'digital_item' in tables:
             conn.execute(text("UPDATE digital_item SET app_device_limit = 0 WHERE app_device_limit IS NULL"))
 
+
+def loyalty_points_per_purchase():
+    """Return the current earning rule, never below one peso per point."""
+    try:
+        raw = StoreSetting.query.filter_by(key='loyalty_spend_per_point').first()
+        value = parse_float(raw.value if raw else 40.0, 40.0)
+    except Exception:
+        value = 40.0
+    return max(1.0, min(100000.0, value))
+
+
+def loyalty_points_from_amount(amount):
+    """Base points for a new paid transaction under the current rule."""
+    return max(0, int(max(0.0, parse_float(amount, 0.0)) // loyalty_points_per_purchase()))
+
+
+def stored_order_base_points(order):
+    """Use an order snapshot; only un-migrated legacy orders use the old ₱30 rule."""
+    if order is None:
+        return 0
+    saved = getattr(order, 'base_points_earned', None)
+    if saved is not None:
+        return max(0, int(parse_float(saved, 0.0)))
+    return max(0, int(max(0.0, parse_float(order.total_amount, 0.0)) // 30.0))
+
+
+def ensure_loyalty_and_delivery_upgrade_defaults():
+    """Run one safe transition: ₱40 applies going forward, prior earned points stay intact."""
+    point_setting = StoreSetting.query.filter_by(key='loyalty_spend_per_point').first()
+    if not point_setting:
+        db.session.add(StoreSetting(key='loyalty_spend_per_point', value='40'))
+
+    history_marker = StoreSetting.query.filter_by(key='loyalty_base_points_snapshot_v12').first()
+    if not history_marker:
+        # These purchases earned points when the rule was ₱30.  Backfill only
+        # their audit snapshot; never change customer balances during upgrade.
+        legacy_orders = Order.query.filter(
+            Order.customer_id.isnot(None),
+            Order.status == 'COMPLETED',
+            Order.payment_verified.is_(True),
+            Order.base_points_earned.is_(None),
+        ).all()
+        for order in legacy_orders:
+            order.base_points_earned = max(0, int(max(0.0, parse_float(order.total_amount, 0.0)) // 30.0))
+        db.session.add(StoreSetting(key='loyalty_base_points_snapshot_v12', value='1'))
+
+    delivery_marker = StoreSetting.query.filter_by(key='delivery_fee_rebase_v12').first()
+    if not delivery_marker:
+        for zone in DeliveryZone.query.all():
+            current_rate = parse_float(zone.rate, 0.0)
+            if math.isclose(current_rate, 40.0, abs_tol=0.001):
+                zone.rate = 30.0
+            elif math.isclose(current_rate, 80.0, abs_tol=0.001):
+                zone.rate = 65.0
+        db.session.add(StoreSetting(key='delivery_fee_rebase_v12', value='1'))
+
 def run_db_setup():
     global _DB_INITIALIZED
     if _DB_INITIALIZED:
@@ -1761,6 +1821,7 @@ def run_db_setup():
     try:
         db.create_all()
         run_schema_migrations()
+        ensure_loyalty_and_delivery_upgrade_defaults()
 
         # Create bootstrap accounts only when they do not already exist. Never reset an existing PIN on restart.
         default_roles = [
@@ -3377,6 +3438,69 @@ def qr_svg_data_url(target):
     encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
     return f'data:image/svg+xml;base64,{encoded}'
 
+
+def loyalty_card_qr_data_url(target, logo_value=None):
+    """Create a high-error-correction QR with a small, readable logo centre.
+
+    The logo badge occupies only a small part of an error-correction-H QR, so
+    the 2×2 card remains scannable.  We intentionally use only a local/data
+    logo to avoid making a remote request every time a card is opened.
+    """
+    generator = qrcode.QRCode(
+        version=None,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=9,
+        border=4,
+    )
+    generator.add_data(target)
+    generator.make(fit=True)
+    qr_image = generator.make_image(fill_color='#172033', back_color='white').convert('RGBA')
+
+    logo_image = None
+    raw_logo = (logo_value or '').strip()
+    try:
+        if raw_logo.startswith('data:image/') and ',' in raw_logo:
+            encoded = raw_logo.split(',', 1)[1]
+            logo_image = Image.open(io.BytesIO(base64.b64decode(encoded))).convert('RGBA')
+        elif raw_logo.startswith('/static/'):
+            safe_relative = os.path.normpath(raw_logo.removeprefix('/static/')).lstrip('/\\')
+            static_root = os.path.abspath(os.path.join(app.root_path, 'static'))
+            local_path = os.path.abspath(os.path.join(static_root, safe_relative))
+            if os.path.commonpath([static_root, local_path]) == static_root and os.path.isfile(local_path):
+                logo_image = Image.open(local_path).convert('RGBA')
+        if logo_image is None:
+            default_logo = os.path.join(app.root_path, 'static', 'logo.png')
+            if os.path.isfile(default_logo):
+                logo_image = Image.open(default_logo).convert('RGBA')
+    except Exception:
+        app.logger.warning('Could not prepare the centre logo for a loyalty QR card.')
+        logo_image = None
+
+    if logo_image is not None:
+        resample = getattr(Image, 'Resampling', Image).LANCZOS
+        side = qr_image.width
+        badge_size = max(40, int(side * 0.215))
+        logo_size = max(28, int(side * 0.152))
+        badge = Image.new('RGBA', (badge_size, badge_size), (255, 255, 255, 255))
+        try:
+            mask = Image.new('L', (badge_size, badge_size), 0)
+            ImageDraw.Draw(mask).rounded_rectangle((0, 0, badge_size - 1, badge_size - 1), radius=max(8, badge_size // 5), fill=255)
+            rounded_badge = Image.new('RGBA', (badge_size, badge_size), (255, 255, 255, 0))
+            rounded_badge.paste(badge, (0, 0), mask)
+            badge = rounded_badge
+        except Exception:
+            pass
+        logo_image.thumbnail((logo_size, logo_size), resample)
+        logo_left = (badge_size - logo_image.width) // 2
+        logo_top = (badge_size - logo_image.height) // 2
+        badge.alpha_composite(logo_image, (logo_left, logo_top))
+        qr_image.alpha_composite(badge, ((side - badge_size) // 2, (side - badge_size) // 2))
+
+    buffer = io.BytesIO()
+    qr_image.save(buffer, format='PNG', optimize=True)
+    encoded = base64.b64encode(buffer.getvalue()).decode('ascii')
+    return f'data:image/png;base64,{encoded}'
+
 def customer_available_credit(cust, include_pending=True):
     limit = max(0.0, parse_float(cust.credit_limit, 0.0))
     used = max(0.0, parse_float(cust.outstanding_ar, 0.0))
@@ -3834,7 +3958,7 @@ def award_active_bonus_campaigns(cust, order):
             continue
         fixed_bonus = max(0.0, float(campaign.bonus_points or 0.0))
         multiplier = max(1.0, float(campaign.points_multiplier or 1.0))
-        base_points = max(0, int((order.total_amount or 0.0) // 30))
+        base_points = stored_order_base_points(order)
         multiplier_bonus = max(0.0, (multiplier - 1.0) * base_points)
         bonus = fixed_bonus + multiplier_bonus
         if bonus <= 0:
@@ -3898,7 +4022,7 @@ def award_community_drop_reward(cust, order):
     """Consume one earned 1.5x drop only on an eligible completed, paid order."""
     if not cust or not order or order.status != 'COMPLETED' or not order.payment_verified:
         return 0.0
-    base_points = max(0, int(parse_float(order.total_amount, 0.0) // 30))
+    base_points = stored_order_base_points(order)
     if base_points <= 0:
         return 0.0
     drop = CommunityDrop.query.filter_by(
@@ -4024,7 +4148,7 @@ def inject_globals():
         digital_support_facebook_url = 'https://www.facebook.com/macleensdigital/'
         digital_support_faqs = []
     status = check_operating_status()
-    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link, digital_support_facebook_url=digital_support_facebook_url, digital_support_faqs=digital_support_faqs)
+    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link, digital_support_facebook_url=digital_support_facebook_url, digital_support_faqs=digital_support_faqs, loyalty_spend_per_point=loyalty_points_per_purchase())
 
 def _staff_auth_failure(target, message):
     """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
@@ -5718,7 +5842,7 @@ def cashier_direct_sale():
 
         if cust:
             cust.accumulated_spend = (cust.accumulated_spend or 0.0) + total
-            points_earned = int(total // 30)
+            points_earned = loyalty_points_from_amount(total)
             if points_earned > 0:
                 cust.points_balance = (cust.points_balance or 0.0) + points_earned
                 db.session.add(RewardLedger(
@@ -5738,6 +5862,7 @@ def cashier_direct_sale():
             total_amount=total,
             points_redeemed=points_redeemed,
             points_discount=points_discount,
+            base_points_earned=points_earned if cust else None,
             payment_method=pay_method,
             payment_verified=True,
             change_for=change_for if change_for > 0 else None,
@@ -5820,7 +5945,7 @@ def cashier_claim_promo():
             cust_name = cust.name
             contact = cust.contact
             cust.accumulated_spend = (cust.accumulated_spend or 0.0) + promo.promo_price
-            points_earned = int(promo.promo_price // 30)
+            points_earned = loyalty_points_from_amount(promo.promo_price)
             if points_earned > 0:
                 cust.points_balance = (cust.points_balance or 0.0) + points_earned
                 db.session.add(RewardLedger(
@@ -5838,6 +5963,7 @@ def cashier_claim_promo():
         subtotal=promo.promo_price,
         delivery_fee=0.0,
         total_amount=promo.promo_price,
+        base_points_earned=points_earned if cust_id else None,
         payment_method=pay_method,
         payment_verified=True,
         status='COMPLETED',
@@ -5960,6 +6086,7 @@ def cashier_misc_sale():
     cust_id = None
     customer_name = 'Walk-in Customer'
     contact = 'N/A'
+    earned = 0
 
     if reg_cust_id:
         cust = Customer.query.get(reg_cust_id)
@@ -5972,7 +6099,7 @@ def cashier_misc_sale():
             customer_name = cust.name
             contact = cust.contact
             cust.accumulated_spend = (cust.accumulated_spend or 0.0) + amount
-            earned = int(amount // 30)
+            earned = loyalty_points_from_amount(amount)
             if earned > 0:
                 cust.points_balance = (cust.points_balance or 0.0) + earned
                 db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Service Purchase: {service_name}"))
@@ -5988,6 +6115,7 @@ def cashier_misc_sale():
         subtotal=amount,
         delivery_fee=0.0,
         total_amount=amount,
+        base_points_earned=earned if cust_id else None,
         payment_method=pay_method,
         payment_verified=True,
         status='COMPLETED',
@@ -6151,7 +6279,8 @@ def cashier_settle_collection(order_id):
             cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
             
             if is_same_day:
-                earned = int(order.total_amount // 30)
+                earned = loyalty_points_from_amount(order.total_amount)
+                order.base_points_earned = earned
                 if earned > 0:
                     cust.points_balance = (cust.points_balance or 0.0) + earned
                     db.session.add(RewardLedger(customer_id=cust.id, points_change=earned, reason=f"Same-Day Settled Credit #{order.id}"))
@@ -6377,8 +6506,8 @@ def redeem_points_on_recent_order():
         points, discount = calculate_points_redemption(cust, data.get('redeem_points'), old_total)
         new_total = round(max(0.0, old_total - discount), 2)
         if order.status == 'COMPLETED' and order.payment_verified and not order.is_unpaid:
-            old_earned = int(old_total // 30)
-            new_earned = int(new_total // 30)
+            old_earned = stored_order_base_points(order)
+            new_earned = loyalty_points_from_amount(new_total)
             earned_adjustment = new_earned - old_earned
             if parse_float(cust.points_balance, 0.0) + earned_adjustment < points - 1e-9:
                 raise OrderValidationError('Not enough available points after recalculating this purchase.')
@@ -6390,6 +6519,7 @@ def redeem_points_on_recent_order():
                     reason=f'Base points recalculated after discount / Order #{order.id}',
                 ))
             cust.accumulated_spend = max(0.0, parse_float(cust.accumulated_spend, 0.0) - discount)
+            order.base_points_earned = new_earned
 
         order.points_redeemed = points
         order.points_discount = discount
@@ -6461,7 +6591,8 @@ def verify_order(order_id):
                 cust = db.session.get(Customer, order.customer_id)
                 if cust and not customer_access_issue(cust):
                     cust.accumulated_spend = (cust.accumulated_spend or 0.0) + order.total_amount
-                    earned = int(order.total_amount // 30)
+                    earned = loyalty_points_from_amount(order.total_amount)
+                    order.base_points_earned = earned
                     if earned > 0:
                         cust.points_balance = (cust.points_balance or 0.0) + earned
                         db.session.add(RewardLedger(
@@ -6941,6 +7072,7 @@ DIGITAL_ASSET_BLOCKED_EXTENSIONS = {
     '.apk', '.app', '.bat', '.cmd', '.com', '.dll', '.dmg', '.exe', '.jar', '.msi',
     '.ps1', '.scr', '.sh', '.vbs', '.wsf',
 }
+DIGITAL_PAYMENT_METHODS = ('CASH', 'GCASH', 'PAYPAL')
 DIGITAL_SUPPORT_FACEBOOK_DEFAULT = 'https://www.facebook.com/macleensdigital/'
 DIGITAL_SUPPORT_DEFAULT_FAQS = (
     (
@@ -6987,16 +7119,28 @@ def digital_payment_settings():
     support_url = digital_setting('digital_support_facebook_url', DIGITAL_SUPPORT_FACEBOOK_DEFAULT).strip()
     if not support_url.startswith(('https://www.facebook.com/', 'https://facebook.com/', 'https://m.facebook.com/')):
         support_url = DIGITAL_SUPPORT_FACEBOOK_DEFAULT
+    paypal_mode = (os.environ.get('PAYPAL_MODE') or 'live').strip().lower()
+    if paypal_mode not in {'live', 'sandbox'}:
+        paypal_mode = 'live'
+    paypal_ready = bool(
+        os.environ.get('PAYPAL_CLIENT_ID', '').strip() and
+        os.environ.get('PAYPAL_CLIENT_SECRET', '').strip()
+    )
+    public_base = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
     return {
         'gateway_mode': mode,
         'paymongo_ready': bool(os.environ.get('PAYMONGO_SECRET_KEY', '').strip()),
+        'paypal_ready': paypal_ready,
+        'paypal_mode': paypal_mode,
+        'paypal_webhook_ready': bool(paypal_ready and os.environ.get('PAYPAL_WEBHOOK_ID', '').strip()),
         'support_url': support_url,
         'download_limit': max(1, min(20, parse_int(os.environ.get('DIGITAL_ASSET_DOWNLOAD_LIMIT', '5'), 5))),
         'asset_max_mb': DIGITAL_ASSET_MAX_MB,
         'bot_provider': digital_setting('digital_support_bot_provider', 'AUTO').strip().upper(),
         'gemini_ready': gemini_configured(),
         'gemini_model': (os.environ.get('GEMINI_DIGITAL_SUPPORT_MODEL') or os.environ.get('GEMINI_MARKETING_MODEL') or 'gemini-3.5-flash-lite').strip(),
-        'paymongo_webhook_url': (os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/') + '/api/paymongo/webhook') if os.environ.get('PUBLIC_BASE_URL', '').strip() else '',
+        'paymongo_webhook_url': (public_base + '/api/paymongo/webhook') if public_base else '',
+        'paypal_webhook_url': (public_base + '/api/paypal/webhook') if public_base else '',
     }
 
 
@@ -7118,11 +7262,11 @@ def digital_mark_order_paid(order, payment_gateway=None):
         digital_set_activation_device_limit(order, order.activation_device_limit)
 
 
-def digital_confirm_gateway_payment(order):
+def digital_confirm_gateway_payment(order, gateway=None):
     """Mark both the Digital order and its linked cashier order as paid once."""
     if not order or order.payment_status == 'PAID':
         return False
-    digital_mark_order_paid(order, payment_gateway='PAYMONGO')
+    digital_mark_order_paid(order, payment_gateway=(gateway or order.payment_gateway or 'PAYMONGO'))
     main_order = order.main_order
     if main_order and main_order.status == 'VERIFICATION':
         main_order.payment_verified = True
@@ -7237,6 +7381,243 @@ def digital_paymongo_webhook_checkout_ids(payload):
     return list(dict.fromkeys(found))[:8]
 
 
+def digital_paypal_api_base():
+    return 'https://api-m.sandbox.paypal.com' if digital_payment_settings()['paypal_mode'] == 'sandbox' else 'https://api-m.paypal.com'
+
+
+def digital_paypal_access_token():
+    """Create a short-lived PayPal server token; credentials never leave Render."""
+    client_id = os.environ.get('PAYPAL_CLIENT_ID', '').strip()
+    client_secret = os.environ.get('PAYPAL_CLIENT_SECRET', '').strip()
+    if not client_id or not client_secret:
+        raise OrderValidationError('PayPal checkout is not configured yet. Please choose GCash/Cash or contact Macleen’s Digital.')
+    try:
+        response = requests.post(
+            digital_paypal_api_base() + '/v1/oauth2/token',
+            auth=(client_id, client_secret),
+            data={'grant_type': 'client_credentials'},
+            headers={'Accept': 'application/json', 'Accept-Language': 'en_US'},
+            timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError) as exc:
+        raise OrderValidationError('Could not connect to PayPal right now. Please try again shortly or choose another payment method.') from exc
+    token = body.get('access_token') if isinstance(body, dict) else ''
+    if not response.ok or not isinstance(token, str) or len(token) < 20:
+        app.logger.warning('PayPal token request failed with status %s.', getattr(response, 'status_code', 'unknown'))
+        raise OrderValidationError('PayPal checkout could not be started. Please try again or contact Macleen’s Digital.')
+    return token
+
+
+def digital_paypal_headers(access_token, request_id=None):
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Prefer': 'return=representation',
+    }
+    if request_id:
+        headers['PayPal-Request-Id'] = request_id
+    return headers
+
+
+def digital_paypal_order_matches_local(order, payload):
+    """Confirm the merchant-fetched PayPal record belongs to this exact local order."""
+    if not order or not isinstance(payload, dict):
+        return False
+    units = payload.get('purchase_units') or []
+    expected_value = f'{max(0.0, parse_float(order.total_price, 0.0)):.2f}'
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        custom_id = str(unit.get('custom_id') or '')
+        reference_id = str(unit.get('reference_id') or '')
+        amount = unit.get('amount') or {}
+        currency = str(amount.get('currency_code') or '').upper()
+        value = str(amount.get('value') or '')
+        order_match = custom_id == str(order.id) or reference_id == f'MFH-DIGITAL-{order.id}'
+        if order_match and currency == 'PHP' and value == expected_value:
+            return True
+    return False
+
+
+def digital_paypal_order_completed(payload):
+    if not isinstance(payload, dict):
+        return False
+    if str(payload.get('status') or '').upper() == 'COMPLETED':
+        return True
+    for unit in payload.get('purchase_units') or []:
+        captures = ((unit or {}).get('payments') or {}).get('captures') or []
+        if any(str((capture or {}).get('status') or '').upper() == 'COMPLETED' for capture in captures):
+            return True
+    return False
+
+
+def digital_create_paypal_checkout(order):
+    """Create one PayPal order for a Digital asset and return its approve URL."""
+    access_token = digital_paypal_access_token()
+    success_url = digital_public_base_url() + url_for('digital_paypal_return', token=order.tracking_token)
+    cancel_url = digital_public_base_url() + url_for('digital_order_status', token=order.tracking_token, paypal_cancelled='1')
+    payload = {
+        'intent': 'CAPTURE',
+        'purchase_units': [{
+            'reference_id': f'MFH-DIGITAL-{order.id}',
+            'custom_id': str(order.id),
+            'description': f"Macleen's Digital · {(order.item.name if order.item else 'Digital Asset')[:105]}",
+            'amount': {'currency_code': 'PHP', 'value': f'{max(0.0, parse_float(order.total_price, 0.0)):.2f}'},
+        }],
+        'application_context': {
+            'brand_name': "Macleen's Digital",
+            'landing_page': 'LOGIN',
+            'user_action': 'PAY_NOW',
+            'return_url': success_url,
+            'cancel_url': cancel_url,
+        },
+    }
+    try:
+        response = requests.post(
+            digital_paypal_api_base() + '/v2/checkout/orders',
+            headers=digital_paypal_headers(access_token, f'mfh-digital-{order.id}-{secrets.token_hex(8)}'),
+            json=payload,
+            timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError) as exc:
+        raise OrderValidationError('Could not start the PayPal checkout. Please try again or contact Macleen’s Digital.') from exc
+    links = body.get('links') if isinstance(body, dict) else []
+    approve_url = next((str(link.get('href') or '') for link in links if str(link.get('rel') or '').lower() in {'approve', 'payer-action'}), '')
+    parsed = urlparse(approve_url)
+    paypal_host = (parsed.hostname or '').lower()
+    if not response.ok or not isinstance(body, dict) or not body.get('id') or parsed.scheme != 'https' or not paypal_host.endswith('paypal.com'):
+        app.logger.warning('PayPal checkout creation failed for Digital order %s with status %s.', order.id, getattr(response, 'status_code', 'unknown'))
+        raise OrderValidationError('PayPal did not return a secure checkout page. No payment was taken; please try again later.')
+    order.payment_gateway = 'PAYPAL'
+    order.gateway_checkout_id = str(body['id'])[:120]
+    order.gateway_checkout_url = approve_url[:2000]
+    order.gateway_checked_at = utc_now()
+    order.gateway_response = json.dumps({'checkout_created': True, 'gateway': 'PAYPAL', 'status': body.get('status')}, separators=(',', ':'))
+    return approve_url
+
+
+def digital_fetch_paypal_order(order):
+    if not order or not order.gateway_checkout_id:
+        return None
+    access_token = digital_paypal_access_token()
+    try:
+        response = requests.get(
+            digital_paypal_api_base() + f'/v2/checkout/orders/{order.gateway_checkout_id}',
+            headers=digital_paypal_headers(access_token), timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError):
+        app.logger.warning('Could not retrieve PayPal order for Digital order %s.', order.id)
+        return None
+    order.gateway_checked_at = utc_now()
+    if not response.ok or not isinstance(body, dict):
+        order.gateway_response = json.dumps({'checkout_verified': False, 'gateway': 'PAYPAL', 'http_status': response.status_code}, separators=(',', ':'))
+        return None
+    return body
+
+
+def digital_capture_paypal_payment(order, supplied_checkout_id=None):
+    """Capture only the stored PayPal order after its return; never trust URL data alone."""
+    if not order or order.payment_status == 'PAID' or order.payment_gateway != 'PAYPAL':
+        return False
+    supplied = (supplied_checkout_id or '').strip()
+    if supplied and not hmac.compare_digest(supplied, order.gateway_checkout_id or ''):
+        app.logger.warning('PayPal return checkout id did not match Digital order %s.', order.id)
+        return False
+    body = digital_fetch_paypal_order(order)
+    if not body or not digital_paypal_order_matches_local(order, body):
+        return False
+    if digital_paypal_order_completed(body):
+        order.gateway_response = json.dumps({'checkout_verified': True, 'gateway': 'PAYPAL', 'status': body.get('status')}, separators=(',', ':'))
+        return digital_confirm_gateway_payment(order, gateway='PAYPAL')
+    if str(body.get('status') or '').upper() != 'APPROVED':
+        order.gateway_response = json.dumps({'checkout_verified': True, 'gateway': 'PAYPAL', 'status': body.get('status')}, separators=(',', ':'))
+        return False
+    try:
+        access_token = digital_paypal_access_token()
+        response = requests.post(
+            digital_paypal_api_base() + f'/v2/checkout/orders/{order.gateway_checkout_id}/capture',
+            headers=digital_paypal_headers(access_token, f'mfh-digital-capture-{order.id}-{secrets.token_hex(8)}'),
+            json={}, timeout=(4, 25),
+        )
+        captured = response.json() if response.content else {}
+    except (requests.RequestException, ValueError):
+        app.logger.warning('Could not capture PayPal payment for Digital order %s.', order.id)
+        return False
+    order.gateway_checked_at = utc_now()
+    if response.ok and digital_paypal_order_matches_local(order, captured) and digital_paypal_order_completed(captured):
+        order.gateway_response = json.dumps({'checkout_verified': True, 'gateway': 'PAYPAL', 'status': captured.get('status')}, separators=(',', ':'))
+        return digital_confirm_gateway_payment(order, gateway='PAYPAL')
+    # A delayed duplicate capture can still be safe if PayPal now reports the
+    # original order as completed. Re-fetch it instead of trusting the error.
+    verified = digital_fetch_paypal_order(order)
+    if verified and digital_paypal_order_matches_local(order, verified) and digital_paypal_order_completed(verified):
+        order.gateway_response = json.dumps({'checkout_verified': True, 'gateway': 'PAYPAL', 'status': verified.get('status')}, separators=(',', ':'))
+        return digital_confirm_gateway_payment(order, gateway='PAYPAL')
+    order.gateway_response = json.dumps({'checkout_verified': False, 'gateway': 'PAYPAL', 'http_status': getattr(response, 'status_code', 0)}, separators=(',', ':'))
+    return False
+
+
+def digital_check_paypal_payment(order):
+    if not order or order.payment_gateway != 'PAYPAL' or order.payment_status == 'PAID':
+        return False
+    return digital_capture_paypal_payment(order)
+
+
+def digital_check_gateway_payment(order):
+    if not order:
+        return False
+    if order.payment_gateway == 'PAYPAL':
+        return digital_check_paypal_payment(order)
+    if order.payment_gateway == 'PAYMONGO':
+        return digital_check_paymongo_payment(order)
+    return False
+
+
+def digital_verify_paypal_webhook(payload):
+    """Verify the webhook signature with PayPal before touching any order."""
+    webhook_id = os.environ.get('PAYPAL_WEBHOOK_ID', '').strip()
+    if not webhook_id or not isinstance(payload, dict):
+        return False
+    required = {
+        'auth_algo': request.headers.get('PAYPAL-AUTH-ALGO', ''),
+        'cert_url': request.headers.get('PAYPAL-CERT-URL', ''),
+        'transmission_id': request.headers.get('PAYPAL-TRANSMISSION-ID', ''),
+        'transmission_sig': request.headers.get('PAYPAL-TRANSMISSION-SIG', ''),
+        'transmission_time': request.headers.get('PAYPAL-TRANSMISSION-TIME', ''),
+        'webhook_id': webhook_id,
+        'webhook_event': payload,
+    }
+    if not all(required[key] for key in ('auth_algo', 'cert_url', 'transmission_id', 'transmission_sig', 'transmission_time')):
+        return False
+    try:
+        access_token = digital_paypal_access_token()
+        response = requests.post(
+            digital_paypal_api_base() + '/v1/notifications/verify-webhook-signature',
+            headers=digital_paypal_headers(access_token), json=required, timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError):
+        app.logger.warning('Could not verify a PayPal webhook signature.')
+        return False
+    return bool(response.ok and isinstance(body, dict) and str(body.get('verification_status') or '').upper() == 'SUCCESS')
+
+
+def digital_paypal_webhook_order_id(payload):
+    resource = payload.get('resource') if isinstance(payload, dict) else None
+    if not isinstance(resource, dict):
+        return ''
+    related = ((resource.get('supplementary_data') or {}).get('related_ids') or {}).get('order_id')
+    if related:
+        return str(related)[:120]
+    if str(payload.get('event_type') or '').startswith('CHECKOUT.ORDER.'):
+        return str(resource.get('id') or '')[:120]
+    return ''
+
+
 def digital_support_fallback(question):
     text_value = (question or '').casefold()
     if any(term in text_value for term in ('password', 'app password', 'license', 'activation')):
@@ -7349,10 +7730,13 @@ def digital_item_detail(item_id):
     qty = max(1, min(100, parse_int(request.form.get('quantity'), 1)))
     method = request.form.get('payment_method', 'GCASH').upper()
     ref = request.form.get('gcash_ref', '').strip()[:30] or None
-    if not name or not contact or '@' not in email or method not in CRAFT_PAYMENT_METHODS:
+    if not name or not contact or '@' not in email or method not in DIGITAL_PAYMENT_METHODS:
         flash('Name, contact number, a valid delivery email, and payment method are required.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     payment_settings = digital_payment_settings()
+    if method == 'PAYPAL' and not payment_settings['paypal_ready']:
+        flash('PayPal checkout is not available yet. Please choose manual GCash/Cash or contact Macleen’s Digital.', 'error')
+        return redirect(url_for('digital_item_detail', item_id=item.id))
     order = DigitalOrder(item_id=item.id, customer_name=name, contact_number=contact, email=email,
         quantity=qty, unit_price=item.price, unit_cost=item.cost or 0, total_price=item.price * qty,
         payment_method=method, gcash_ref=ref, asset_file_id=item.asset_file_id,
@@ -7360,7 +7744,18 @@ def digital_item_detail(item_id):
         requirements=request.form.get('requirements','').strip()[:3000] or None)
     db.session.add(order); db.session.flush(); create_main_digital_order(order)
     item.orders_count = parse_int(item.orders_count, 0) + qty; db.session.commit()
-    if method == 'GCASH' and payment_settings['gateway_mode'] == 'PAYMONGO':
+    if method == 'PAYPAL':
+        # The local record is committed before redirecting. If PayPal is
+        # temporarily unavailable, the customer still receives a private
+        # tracking page instead of losing a submitted order.
+        try:
+            checkout_url = digital_create_paypal_checkout(order)
+            db.session.commit()
+            return redirect(checkout_url)
+        except OrderValidationError as exc:
+            db.session.rollback()
+            flash(str(exc), 'error')
+    elif method == 'GCASH' and payment_settings['gateway_mode'] == 'PAYMONGO':
         try:
             checkout_url = digital_create_paymongo_checkout(order)
             db.session.commit()
@@ -7375,8 +7770,8 @@ def digital_item_detail(item_id):
 @app.route('/digital/order/<token>')
 def digital_order_status(token):
     order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
-    digital_check_paymongo_payment(order)
-    if order.payment_gateway == 'PAYMONGO':
+    digital_check_gateway_payment(order)
+    if order.payment_gateway in {'PAYMONGO', 'PAYPAL'}:
         db.session.commit()
     return render_template(
         'digital/order_status.html', order=order, can_download=digital_order_can_download(order),
@@ -7388,21 +7783,35 @@ def digital_order_status(token):
 @app.route('/digital/order/<token>/payment-return')
 def digital_payment_return(token):
     order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
-    if digital_check_paymongo_payment(order):
+    if digital_check_gateway_payment(order):
         db.session.commit()
-        flash('GCash payment confirmed. Your download is ready when an uploaded asset is attached to this product.', 'success')
+        flash('Payment confirmed. Your download is ready when an uploaded asset is attached to this product.', 'success')
     else:
         db.session.commit()
         flash('Payment is still awaiting confirmation. You can check again shortly or message Macleen’s Digital on Facebook.', 'info')
     return redirect(url_for('digital_order_status', token=order.tracking_token))
 
 
+@app.route('/digital/order/<token>/paypal-return')
+def digital_paypal_return(token):
+    """PayPal sends a browser here after approval; capture is still server-side."""
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    paypal_order_id = request.args.get('token', '').strip()
+    if digital_capture_paypal_payment(order, paypal_order_id):
+        db.session.commit()
+        flash('PayPal payment confirmed. Your protected download is ready.', 'success')
+    else:
+        db.session.commit()
+        flash('PayPal is still confirming this payment. Your file stays locked until confirmation is complete.', 'info')
+    return redirect(url_for('digital_order_status', token=order.tracking_token))
+
+
 @app.route('/digital/order/<token>/check-payment', methods=['POST'])
 def digital_check_payment(token):
     order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
-    if digital_check_paymongo_payment(order):
+    if digital_check_gateway_payment(order):
         db.session.commit()
-        flash('GCash payment confirmed. Your protected download is ready.', 'success')
+        flash('Payment confirmed. Your protected download is ready.', 'success')
     else:
         db.session.commit()
         flash('Payment is not confirmed yet. Please wait a moment, then try again or contact Macleen’s Digital on Facebook.', 'info')
@@ -7425,6 +7834,25 @@ def paymongo_webhook():
         order = DigitalOrder.query.filter_by(payment_gateway='PAYMONGO', gateway_checkout_id=checkout_id).first()
         if order and digital_check_paymongo_payment(order):
             processed += 1
+    if processed:
+        db.session.commit()
+    return jsonify({'received': True, 'processed': processed}), 200
+
+
+@app.route('/api/paypal/webhook', methods=['POST'])
+def paypal_webhook():
+    """Verify PayPal's signature, then re-fetch/capture the exact local order."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not digital_verify_paypal_webhook(payload):
+        # Return a neutral response. This avoids leaking whether any order ID
+        # is valid to a forged webhook request.
+        return jsonify({'received': True, 'processed': 0}), 200
+    event_type = str(payload.get('event_type') or '').upper()
+    if event_type not in {'CHECKOUT.ORDER.APPROVED', 'PAYMENT.CAPTURE.COMPLETED'}:
+        return jsonify({'received': True, 'processed': 0}), 200
+    checkout_id = digital_paypal_webhook_order_id(payload)
+    order = DigitalOrder.query.filter_by(payment_gateway='PAYPAL', gateway_checkout_id=checkout_id).first()
+    processed = int(bool(order and digital_check_paypal_payment(order)))
     if processed:
         db.session.commit()
     return jsonify({'received': True, 'processed': processed}), 200
@@ -9987,6 +10415,22 @@ def update_investor_interest_status(lead_id):
 
 # ==================== MASTER ADMIN, CONTROLS & SETTINGS ====================
 
+@app.route('/admin/loyalty-settings', methods=['POST'])
+@require_admin
+def admin_loyalty_settings():
+    spend_per_point = parse_float(request.form.get('spend_per_point'), 0.0)
+    if spend_per_point < 1 or spend_per_point > 100000:
+        flash('Spend per point must be between ₱1 and ₱100,000.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    setting = StoreSetting.query.filter_by(key='loyalty_spend_per_point').first()
+    if setting:
+        setting.value = f'{spend_per_point:.2f}'
+    else:
+        db.session.add(StoreSetting(key='loyalty_spend_per_point', value=f'{spend_per_point:.2f}'))
+    db.session.commit()
+    flash(f'New eligible purchases now earn 1 base point per ₱{spend_per_point:,.2f}. Existing completed orders keep their saved points.', 'success')
+    return redirect(url_for('admin_dashboard'))
+
 @app.route('/admin')
 @require_admin
 def admin_dashboard():
@@ -10256,7 +10700,8 @@ def admin_allocate_vault_drop(drop_id):
 
     if cust:
         cust.accumulated_spend = (cust.accumulated_spend or 0.0) + allocated_amount
-        earned = int(allocated_amount // 30)
+        earned = loyalty_points_from_amount(allocated_amount)
+        order.base_points_earned = earned
         if earned > 0:
             cust.points_balance = (cust.points_balance or 0.0) + earned
             db.session.add(RewardLedger(
@@ -10270,29 +10715,22 @@ def admin_allocate_vault_drop(drop_id):
     flash(f"Allocated ₱{allocated_amount:,.2f} from Drop #{drop.drop_number} into a dedicated Order #{order.id}!", "success")
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/admin/reassign-order/<int:order_id>', methods=['POST'])
-@require_admin
-def admin_reassign_order(order_id):
-    order = Order.query.get_or_404(order_id)
-    new_cust_id = request.form.get('customer_id')
-
-    if not new_cust_id:
-        flash("Please select a target customer.", "error")
-        return redirect(url_for('admin_dashboard'))
-
-    new_cust = Customer.query.get_or_404(int(new_cust_id))
+def reassign_order_to_customer(order, new_cust):
+    """Move one saved POS record safely, including its already-awarded loyalty value."""
+    if not order or not new_cust:
+        raise OrderValidationError('An order and target customer are required.')
     issue = customer_access_issue(new_cust)
     if issue:
-        flash(issue, 'error')
-        return redirect(url_for('admin_dashboard'))
+        raise OrderValidationError(issue)
     old_cust = Customer.query.get(order.customer_id) if order.customer_id else None
+    if old_cust and old_cust.id == new_cust.id:
+        raise OrderValidationError('This order is already assigned to that customer.')
     redeemed = round(parse_float(order.points_redeemed, 0.0), 2)
     if redeemed > 0 and parse_float(new_cust.points_balance, 0.0) < redeemed - 1e-9:
-        flash(f"'{new_cust.name}' needs at least {redeemed:,.2f} points to receive this discounted order.", 'error')
-        return redirect(url_for('admin_dashboard'))
+        raise OrderValidationError(f"'{new_cust.name}' needs at least {redeemed:,.2f} points to receive this discounted order.")
 
     if old_cust and order.status == 'COMPLETED' and order.payment_verified:
-        earned = int(order.total_amount // 30)
+        earned = stored_order_base_points(order)
         old_cust.points_balance = max(0.0, (old_cust.points_balance or 0.0) - earned)
         old_cust.accumulated_spend = max(0.0, (old_cust.accumulated_spend or 0.0) - order.total_amount)
         reverse_member_marketing_rewards_for_order(order)
@@ -10317,7 +10755,7 @@ def admin_reassign_order(order_id):
         ))
 
     if order.status == 'COMPLETED' and order.payment_verified:
-        earned_new = int(order.total_amount // 30)
+        earned_new = stored_order_base_points(order)
         new_cust.accumulated_spend = (new_cust.accumulated_spend or 0.0) + order.total_amount
         if earned_new > 0:
             new_cust.points_balance = (new_cust.points_balance or 0.0) + earned_new
@@ -10328,9 +10766,58 @@ def admin_reassign_order(order_id):
             ))
         apply_member_marketing_rewards(new_cust, order)
 
-    db.session.commit()
-    flash(f"Transaction #{order.id} reassigned to '{new_cust.name}'.", "success")
+
+@app.route('/admin/reassign-order/<int:order_id>', methods=['POST'])
+@require_admin
+def admin_reassign_order(order_id):
+    order = Order.query.get_or_404(order_id)
+    new_cust_id = request.form.get('customer_id')
+    if not new_cust_id:
+        flash("Please select a target customer.", "error")
+        return redirect(url_for('admin_dashboard'))
+    try:
+        reassign_order_to_customer(order, Customer.query.get_or_404(int(new_cust_id)))
+        db.session.commit()
+        flash(f"Transaction #{order.id} reassigned to '{order.customer_name}'.", "success")
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
     return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin/customer/<int:cust_id>/purchase-history')
+@require_admin
+def admin_customer_purchase_history(cust_id):
+    customer = Customer.query.get_or_404(cust_id)
+    orders = Order.query.filter_by(customer_id=customer.id).order_by(Order.created_at.desc(), Order.id.desc()).all()
+    completed_orders = [order for order in orders if order.status == 'COMPLETED' and order.payment_verified]
+    return render_template(
+        'admin_customer_purchase_history.html', customer=customer, orders=orders,
+        completed_orders=completed_orders,
+        completed_total=sum(parse_float(order.total_amount, 0.0) for order in completed_orders),
+    )
+
+
+@app.route('/admin/customer/<int:cust_id>/reinstate-old-order', methods=['POST'])
+@require_admin
+def admin_reinstate_old_order(cust_id):
+    customer = Customer.query.get_or_404(cust_id)
+    order_id = parse_int(request.form.get('order_id'), 0)
+    order = Order.query.get(order_id) if order_id else None
+    if not order:
+        flash('Choose a valid existing order to reinstate.', 'error')
+        return redirect(url_for('admin_customer_purchase_history', cust_id=customer.id))
+    if order.status != 'COMPLETED' or not order.payment_verified:
+        flash('Only completed, payment-verified historical orders can be reinstated.', 'error')
+        return redirect(url_for('admin_customer_purchase_history', cust_id=customer.id))
+    try:
+        reassign_order_to_customer(order, customer)
+        db.session.commit()
+        flash(f'Historical order #{order.id} was reinstated for {customer.name}. Its saved loyalty value was transferred safely.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    return redirect(url_for('admin_customer_purchase_history', cust_id=customer.id))
 
 @app.route('/admin/update-expense/<int:expense_id>', methods=['POST'])
 @require_admin
@@ -10394,7 +10881,7 @@ def admin_revert_order(order_id):
     if order.customer_id and order.status == 'COMPLETED' and order.payment_verified:
         cust = Customer.query.get(order.customer_id)
         if cust:
-            earned = int(order.total_amount // 30)
+            earned = stored_order_base_points(order)
             cust.points_balance = max(0.0, (cust.points_balance or 0.0) - earned)
             cust.accumulated_spend = max(0.0, (cust.accumulated_spend or 0.0) - order.total_amount)
             if earned > 0:
@@ -10862,7 +11349,7 @@ def admin_manage_delivery_zones():
     if action == 'ADD':
         place = request.form.get('place_name')
         brgy = request.form.get('barangay')
-        rate = float(request.form.get('rate') or 40.0)
+        rate = float(request.form.get('rate') or 30.0)
         dist = request.form.get('distance')
         note = request.form.get('note')
         db.session.add(DeliveryZone(place_name=place, barangay=brgy, rate=rate, distance=dist, note=note))
@@ -11056,7 +11543,7 @@ def admin_loyalty_cards():
         base = _marketing_public_base_url()
         card_identifier = selected.card_number or selected.contact
         qr_target = f"{base}/portal/login?card={card_identifier}"
-        qr_data = qr_svg_data_url(qr_target)
+        qr_data = loyalty_card_qr_data_url(qr_target, '/static/logo.png')
     return render_template(
         'loyalty_card_portal.html',
         customers=customers, selected=selected, theme=theme, themes=LOYALTY_CARD_THEMES,
@@ -11234,7 +11721,7 @@ def community_home():
 
     campus_leaders, barangay_leaders = [], []
     incoming_gifts, outgoing_gifts, drops, gift_products = [], [], [], []
-    lifetime_punches = max(0, int(parse_float(cust.accumulated_spend, 0.0) // 30))
+    lifetime_punches = max(0, int(parse_float(cust.accumulated_spend, 0.0) // loyalty_points_per_purchase()))
     friend_profile_ids = community_friend_profile_ids(profile.id)
     friends = CommunityProfile.query.filter(CommunityProfile.id.in_(friend_profile_ids)).order_by(CommunityProfile.handle.asc()).all() if friend_profile_ids else []
     incoming_connection_rows = CommunityConnection.query.filter(
@@ -13292,7 +13779,7 @@ def customer_dashboard():
     base = _marketing_public_base_url()
     card_identifier = cust.card_number or cust.contact
     qr_target = f"{base}/portal/login?card={card_identifier}"
-    qr_data = qr_svg_data_url(qr_target)
+    qr_data = loyalty_card_qr_data_url(qr_target, '/static/logo.png')
 
     return render_template(
         'customer_dashboard.html',

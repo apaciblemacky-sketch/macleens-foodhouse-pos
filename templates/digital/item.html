@@ -18,20 +18,21 @@
       <label>Contact</label><input name="contact_number" required inputmode="tel" autocomplete="tel">
       <label>Delivery email</label><input type="email" name="email" required autocomplete="email">
       <label>Quantity</label><input type="number" name="quantity" min="1" max="100" value="1">
-      <label>Payment</label><select name="payment_method" id="digitalPaymentMethod"><option value="GCASH">GCash</option><option value="CASH">Cash / cashier verification</option></select>
+      <label>Payment</label><select name="payment_method" id="digitalPaymentMethod"><option value="GCASH">GCash — cashier verification</option><option value="CASH">Cash — cashier verification</option>{% if payment_settings.paypal_ready %}<option value="PAYPAL">PayPal — international checkout</option>{% endif %}</select>
       {% if payment_settings.gateway_mode == 'PAYMONGO' and payment_settings.paymongo_ready %}
       <div id="gcashGatewayNotice" class="muted" style="background:#ecfdf5;border-radius:10px;padding:10px;margin:3px 0 10px"><strong>Secure GCash checkout is available.</strong> After you submit this order, you will be redirected to the GCash payment page. Your download unlocks only after server-side confirmation.</div>
       {% else %}
       <div id="gcashGatewayNotice" class="muted" style="background:#fff7ed;border-radius:10px;padding:10px;margin:3px 0 10px"><strong>GCash verification:</strong> Submit your order, then provide the reference below or message Macleen’s Digital. Cashier confirmation unlocks the file.</div>
       {% endif %}
       <div id="gcashReferenceWrap"><label>GCash reference (if already paid)</label><input name="gcash_ref" maxlength="30" placeholder="Reference number"></div>
+      {% if payment_settings.paypal_ready %}<div id="paypalNotice" class="muted" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px;margin:3px 0 10px"><strong>Secure PayPal checkout.</strong> After you submit, you will be taken to PayPal to approve the exact PHP amount. The system releases the protected file only after PayPal confirms payment. GCash remains manual cashier verification.</div>{% endif %}
       <label>Customization / requirements</label><textarea name="requirements" rows="5" maxlength="3000" placeholder="Tell us what you need, if this is a custom order."></textarea>
-      <button class="btn" type="submit">{% if payment_settings.gateway_mode == 'PAYMONGO' and payment_settings.paymongo_ready %}Continue to secure GCash checkout{% else %}Submit for cashier verification{% endif %}</button>
+      <button class="btn" id="digitalSubmit" type="submit">{% if payment_settings.gateway_mode == 'PAYMONGO' and payment_settings.paymongo_ready %}Continue to secure GCash checkout{% else %}Submit for cashier verification{% endif %}</button>
     </form>
     <p class="muted" style="margin-bottom:0">Never send your GCash PIN, OTP, or account password. For detailed help, use the Facebook support button below.</p>
   </section>
 </div>
 <script>
-  (()=>{const payment=document.getElementById('digitalPaymentMethod'),reference=document.getElementById('gcashReferenceWrap'),notice=document.getElementById('gcashGatewayNotice');function update(){const gcash=payment.value==='GCASH';reference.style.display=gcash?'block':'none';if(notice)notice.style.display=gcash?'block':'none';}payment.addEventListener('change',update);update();})();
+  (()=>{const payment=document.getElementById('digitalPaymentMethod'),reference=document.getElementById('gcashReferenceWrap'),notice=document.getElementById('gcashGatewayNotice'),paypal=document.getElementById('paypalNotice'),submit=document.getElementById('digitalSubmit');function update(){const gcash=payment.value==='GCASH',payPal=payment.value==='PAYPAL';reference.style.display=gcash?'block':'none';if(notice)notice.style.display=gcash?'block':'none';if(paypal)paypal.style.display='block';if(!payPal&&paypal)paypal.style.display='none';if(submit)submit.textContent=payPal?'Continue to PayPal':(gcash?'Submit for cashier verification':'Submit for cashier verification');}payment.addEventListener('change',update);update();})();
 </script>
 {% endblock %}

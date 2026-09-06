@@ -70,6 +70,11 @@
     {% for category, message in messages %}<div class="flash-message {{ category }}" role="status">{{ message }}</div>{% endfor %}
   {% endwith %}
 
+  <div class="card" style="border-color:#fde68a;background:#fffbeb;display:flex;gap:14px;align-items:end;justify-content:space-between;flex-wrap:wrap;">
+    <div><h3 style="color:#92400e;margin-bottom:4px">⭐ Loyalty point earning</h3><p style="font-size:.78rem;color:#92400e">New eligible completed purchases earn one base point per configured spend. Completed historical orders keep the points they already earned.</p></div>
+    <form action="{{ url_for('admin_loyalty_settings') }}" method="POST" style="display:flex;gap:7px;align-items:end;flex-wrap:wrap"><label style="font-size:.75rem;font-weight:800">₱ spend per 1 point<input class="form-control" type="number" name="spend_per_point" min="1" max="100000" step=".01" value="{{ '%.2f'|format(loyalty_spend_per_point) }}" style="width:130px;margin-top:3px" required></label><button class="btn" style="background:#b45309;color:#fff" type="submit">Save rule</button></form>
+  </div>
+
   <!-- 📊 COMPREHENSIVE FINANCIAL PERFORMANCE TABLE -->
   <div class="card" style="border: 2px solid var(--hk-pink);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -708,6 +713,7 @@
               </div>
             </td>
             <td style="display: flex; gap: 4px; flex-wrap: wrap;">
+              <a href="{{ url_for('admin_customer_purchase_history', cust_id=c.id) }}" class="btn" style="background:#dbeafe;color:#1d4ed8;padding:3px 6px;font-size:.7rem;">🧾 History</a>
               <form action="/admin/renew-customer-card/{{ c.id }}" method="POST" onsubmit="return confirm('Renew {{ c.name }} for one year?');">
                 <button type="submit" class="btn" style="background:#16a34a; color:white; padding:3px 6px; font-size:0.7rem;">♻ Renew 1Y</button>
               </form>

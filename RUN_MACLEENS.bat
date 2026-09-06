@@ -59,10 +59,18 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Running Digital Assets, manual payment, Gemini Help Bot, and app activation checks...
+echo Running Digital Assets, manual GCash, PayPal, Gemini Help Bot, and app activation checks...
 "%PYTHON_CMD%" scripts\digital_assets_gateway_smoke_check.py
 if errorlevel 1 (
   echo Digital Assets, payment delivery, Help Bot, or app activation checks failed. The system was not started.
+  pause
+  exit /b 1
+)
+
+echo Running loyalty earning, delivery pricing, 2x2 card, and purchase history checks...
+"%PYTHON_CMD%" scripts\loyalty_card_delivery_v12_smoke_check.py
+if errorlevel 1 (
+  echo Loyalty, delivery, card, or purchase-history checks failed. The system was not started.
   pause
   exit /b 1
 )

@@ -1,6 +1,6 @@
 MACLEEN'S FOOD HOUSE - COMPLETE FLAT REPLACEMENT
 
-Release: 2026.09.05-digital-ai-faq-delivery-v11
+Release: 2026.09.06-paypal-loyalty-card-delivery-v12
 
 The ZIP opens directly to app.py, requirements.txt, templates, static,
 RUN_MACLEENS.bat, and DEPLOY_TO_RENDER.bat. It contains the whole current system,
@@ -11,7 +11,8 @@ REPLACE AND TEST
 2. Keep its hidden .git folder and any private .env file.
 3. Copy every item from this ZIP into that folder and choose Replace All.
 4. Double-click RUN_MACLEENS.bat and complete the local checks.
-5. Review FINANCIAL_STATEMENTS_AND_BUNDLES_UPDATE.md and DIGITAL_ASSETS_GCASH_HELPBOT_UPDATE.md.
+5. Review FINANCIAL_STATEMENTS_AND_BUNDLES_UPDATE.md, DIGITAL_ASSETS_GCASH_HELPBOT_UPDATE.md,
+   and PAYPAL_LOYALTY_CARD_DELIVERY_V12.md.
 6. Double-click DEPLOY_TO_RENDER.bat and type DEPLOY when prompted.
 7. Wait for Render to show Live, then open /healthz and confirm the release.
 
@@ -52,7 +53,7 @@ FINANCIAL STATEMENTS & BUNDLE DEALS V9
   priced sizes yet; sell those individually until a chosen-option bundle flow is
   added. This avoids silently using the wrong flavor, size, or preparation.
 
-DIGITAL ASSETS, GEMINI HELP BOT & APP ACTIVATION V11
+DIGITAL ASSETS, PAYPAL, GEMINI HELP BOT & APP ACTIVATION V12
 - Lets Admin upload protected PDF, document, spreadsheet, image, ZIP, HTML,
   and other non-executable digital assets up to 20 MB by default.
 - Releases a ready download only after payment is confirmed. Each order has a
@@ -61,6 +62,12 @@ DIGITAL ASSETS, GEMINI HELP BOT & APP ACTIVATION V11
 - Keeps HTML files as forced downloads instead of running them in the system.
 - Keeps Manual GCash + cashier verification as the customer payment flow. There
   is no automatic PayMongo redirect; a verified payment unlocks ready downloads.
+- Adds optional PayPal checkout for Digital Business orders only. When Render
+  has PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET, overseas customers can select
+  PayPal, approve the exact PHP order on PayPal, and return to a server-verified
+  protected download. Food House, Crafts, Cashier, Cash, and manual GCash stay
+  unchanged. Use PAYPAL_MODE=live for production; add PAYPAL_WEBHOOK_ID for
+  recommended signed webhook confirmation.
 - Adds clickable, admin-editable Help Bot questions and a Gemini drafting tool.
   Add GEMINI_API_KEY only in Render, restart, then select Gemini/Auto in Digital
   Admin. The bot keeps the direct Facebook support handoff to
@@ -70,6 +77,19 @@ DIGITAL ASSETS, GEMINI HELP BOT & APP ACTIVATION V11
   limit; order-level adjustments cannot silently remove an activated device.
   An integrated app can activate/validate a device through the supplied API;
   an offline copied HTML/ZIP/APK cannot be device-limited by the portal alone.
+
+LOYALTY, DELIVERY, AND PURCHASE HISTORY V12
+- New eligible paid purchases earn one base point per ₱40. Admin can adjust the
+  future rule in Master Admin. Past completed orders keep their saved prior
+  points, so this update does not silently take points away.
+- Converts every existing delivery-zone rate of ₱40 to ₱30 and every ₱80 rate
+  to ₱65 once. Other delivery rates stay unchanged.
+- Replaces the ATM/CR80 loyalty card with two-sided 2 × 2 inch square cards:
+  a logo-centered QR front and a profile photo, member name, customer number,
+  and validity back. Card terms and conditions are removed.
+- Adds a staff-only Customer Purchase History page and a safe “Reinstate old
+  order” tool for existing completed, payment-verified orders. It moves the
+  record and its saved loyalty value; deleted orders cannot be recreated.
 
 COMMUNITY PROJECTS & PROFILES V7
 - Keeps role-separated feeds, viewable/lockable profiles, People suggestions,

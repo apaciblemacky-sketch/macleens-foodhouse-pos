@@ -14,11 +14,14 @@ sys.path.insert(0, str(ROOT))
 
 
 def main() -> int:
-    with tempfile.TemporaryDirectory(prefix='mfh-digital-assets-v11-') as folder:
+    with tempfile.TemporaryDirectory(prefix='mfh-digital-assets-v12-') as folder:
         db_path = (Path(folder) / 'digital-assets.db').resolve().as_posix()
         os.environ['DATABASE_URL'] = f'sqlite:///{db_path}'
         os.environ['SECRET_KEY'] = 'digital-assets-smoke-check'
         os.environ.pop('PAYMONGO_SECRET_KEY', None)
+        os.environ.pop('PAYPAL_CLIENT_ID', None)
+        os.environ.pop('PAYPAL_CLIENT_SECRET', None)
+        os.environ.pop('PAYPAL_MODE', None)
 
         import app as m
 
@@ -93,6 +96,53 @@ def main() -> int:
             finally:
                 m.requests.post, m.requests.get = original_post, original_get
                 os.environ.pop('PAYMONGO_SECRET_KEY', None)
+
+            # PayPal is an optional Digital-only checkout. The customer is
+            # redirected to paypal.com, then the server captures the stored
+            # exact order amount before the protected file is released.
+            paypal_order = m.DigitalOrder(
+                item_id=item.id, customer_name='PayPal Tester', contact_number='09981112222',
+                email='paypal@example.com', quantity=1, unit_price=49, unit_cost=0,
+                total_price=49, payment_method='PAYPAL', asset_file_id=asset.id,
+                delivery_access_code='MFH-PAYPAL', status='PENDING_PAYMENT', payment_status='PENDING',
+            )
+            m.db.session.add(paypal_order)
+            m.db.session.flush()
+            m.create_main_digital_order(paypal_order)
+            os.environ['PAYPAL_CLIENT_ID'] = 'paypal-smoke-client'
+            os.environ['PAYPAL_CLIENT_SECRET'] = 'paypal-smoke-secret'
+            os.environ['PAYPAL_MODE'] = 'sandbox'
+            def paypal_payload(status, include_link=False):
+                body = {
+                    'id': 'PAYPAL-SMOKE-ORDER', 'status': status,
+                    'purchase_units': [{'reference_id': f'MFH-DIGITAL-{paypal_order.id}', 'custom_id': str(paypal_order.id), 'amount': {'currency_code': 'PHP', 'value': '49.00'}}],
+                }
+                if include_link:
+                    body['links'] = [{'rel': 'approve', 'href': 'https://www.sandbox.paypal.com/checkoutnow?token=PAYPAL-SMOKE-ORDER'}]
+                return body
+            try:
+                def fake_paypal_post(url, **kwargs):
+                    if url.endswith('/v1/oauth2/token'):
+                        return FakeResponse({'access_token': 'paypal-access-token-long-enough'})
+                    if url.endswith('/v2/checkout/orders'):
+                        return FakeResponse(paypal_payload('CREATED', include_link=True))
+                    if url.endswith('/capture'):
+                        return FakeResponse(paypal_payload('COMPLETED'))
+                    raise AssertionError(f'Unexpected PayPal POST: {url}')
+                m.requests.post = fake_paypal_post
+                m.requests.get = lambda url, **kwargs: FakeResponse(paypal_payload('APPROVED'))
+                with m.app.test_request_context('/'):
+                    paypal_url = m.digital_create_paypal_checkout(paypal_order)
+                assert paypal_url.startswith('https://www.sandbox.paypal.com/')
+                assert paypal_order.payment_gateway == 'PAYPAL' and paypal_order.gateway_checkout_id == 'PAYPAL-SMOKE-ORDER'
+                assert m.digital_capture_paypal_payment(paypal_order, 'PAYPAL-SMOKE-ORDER')
+                assert paypal_order.payment_status == 'PAID' and paypal_order.status == 'READY'
+                assert paypal_order.main_order.status == 'COMPLETED' and paypal_order.main_order.payment_verified
+            finally:
+                m.requests.post, m.requests.get = original_post, original_get
+                os.environ.pop('PAYPAL_CLIENT_ID', None)
+                os.environ.pop('PAYPAL_CLIENT_SECRET', None)
+                os.environ.pop('PAYPAL_MODE', None)
 
             m.save_digital_setting('digital_support_bot_provider', 'TEMPLATE')
             m.db.session.commit()
@@ -194,7 +244,7 @@ def main() -> int:
             assert admin_page.status_code == 200
             assert b'protected digital asset' in admin_page.data.lower() and b'Draft with Gemini' in admin_page.data
 
-    print('DIGITAL ASSETS, MANUAL PAYMENT DELIVERY, AI FAQ, AND APP ACTIVATION V11 SMOKE CHECK PASSED')
+    print('DIGITAL ASSETS, MANUAL GCASH, PAYPAL CHECKOUT, AI FAQ, AND APP ACTIVATION V12 SMOKE CHECK PASSED')
     return 0
 
 

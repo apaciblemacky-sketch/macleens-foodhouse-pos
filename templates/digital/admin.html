@@ -1,11 +1,11 @@
 {% extends 'digital/base.html' %}
 {% block title %}Digital Business Admin | Macleen's{% endblock %}
 {% block content %}
-<section class="card"><span class="badge">Admin only</span><h1>💻 Macleen’s Digital Business</h1><p class="muted">Upload protected digital assets, manage GCash checkout, and release paid downloads without exposing files in public links.</p><a class="btn btn-light" href="{{ url_for('admin_dashboard') }}">Master Admin</a> <a class="btn" href="{{ url_for('digital_store') }}">Open public catalog</a></section>
+<section class="card"><span class="badge">Admin only</span><h1>💻 Macleen’s Digital Business</h1><p class="muted">Upload protected digital assets, keep local GCash/Cash cashier-verified, and optionally accept secure PayPal for overseas Digital customers without exposing files in public links.</p><a class="btn btn-light" href="{{ url_for('admin_dashboard') }}">Master Admin</a> <a class="btn" href="{{ url_for('digital_store') }}">Open public catalog</a></section>
 
 <section class="grid">
   <form class="card" method="post" action="{{ url_for('digital_payment_settings_save') }}">
-    <h2>GCash & Help Bot settings</h2>
+    <h2>Local payments & Help Bot</h2>
     <label>GCash payment mode</label><select name="gateway_mode"><option value="MANUAL" selected>Manual GCash + cashier verification</option></select>
     <p class="muted">Customers place their order, pay through your usual GCash instructions, then wait for cashier verification. There is no automatic payment-page redirect.</p>
     <label>Help bot provider</label><select name="bot_provider"><option value="AUTO" {% if payment_settings.bot_provider=='AUTO' %}selected{% endif %}>Auto (configured AI, then smart help)</option><option value="GEMINI" {% if payment_settings.bot_provider=='GEMINI' %}selected{% endif %}>Gemini only</option><option value="OPENAI" {% if payment_settings.bot_provider=='OPENAI' %}selected{% endif %}>OpenAI only</option><option value="TEMPLATE" {% if payment_settings.bot_provider=='TEMPLATE' %}selected{% endif %}>Smart help only (no AI API)</option></select>
@@ -13,6 +13,17 @@
     <label>Facebook support page</label><input name="support_url" value="{{ payment_settings.support_url }}" required>
     <button class="btn" type="submit">Save Digital settings</button>
   </form>
+  <section class="card" style="margin:0;background:#eff6ff;border:1px solid #bfdbfe">
+    <h2>🌍 PayPal overseas checkout</h2>
+    {% if payment_settings.paypal_ready %}
+      <p><strong>✅ PayPal is available</strong> for Digital Business orders only ({{ payment_settings.paypal_mode }} mode).</p>
+      <p class="muted">The buyer is redirected to PayPal. This system verifies/captures the exact PHP order before releasing a protected download. Local food, Crafts, and manual GCash are unchanged.</p>
+      {% if payment_settings.paypal_webhook_ready %}<p class="muted">✅ Webhook verification is configured.</p>{% else %}<p class="muted">Recommended: add <strong>PAYPAL_WEBHOOK_ID</strong> in Render and create a PayPal webhook for <code>{{ payment_settings.paypal_webhook_url or 'set PUBLIC_BASE_URL first' }}</code>. The return page still verifies payment server-side.</p>{% endif %}
+    {% else %}
+      <p><strong>Not configured yet.</strong> Add <code>PAYPAL_CLIENT_ID</code> and <code>PAYPAL_CLIENT_SECRET</code> in Render environment variables, then redeploy. Use <code>PAYPAL_MODE=live</code> for production (or <code>sandbox</code> only for testing).</p>
+      <p class="muted">Keep those secrets in Render only—never paste them in this form or share them with customers.</p>
+    {% endif %}
+  </section>
   <form class="card" method="post" action="{{ url_for('digital_category_add') }}"><h2>Add category</h2><label>Category name</label><input name="name" required maxlength="80" placeholder="Example: Student Templates"><button class="btn" type="submit">Add category</button></form>
 </section>
 

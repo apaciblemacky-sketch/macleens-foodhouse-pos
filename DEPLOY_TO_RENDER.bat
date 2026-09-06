@@ -130,11 +130,20 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Running Digital Assets, manual payment, Gemini Help Bot, and app activation checks...
+echo Running Digital Assets, manual GCash, PayPal, Gemini Help Bot, and app activation checks...
 %DEPLOY_CHECK_CMD% scripts\digital_assets_gateway_smoke_check.py
 if errorlevel 1 (
   echo.
   echo DEPLOYMENT STOPPED: Digital Assets, payment delivery, Help Bot, or app activation checks failed.
+  pause
+  exit /b 1
+)
+
+echo Running loyalty earning, delivery pricing, 2x2 card, and purchase history checks...
+%DEPLOY_CHECK_CMD% scripts\loyalty_card_delivery_v12_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Loyalty, delivery, card, or purchase-history checks failed.
   pause
   exit /b 1
 )
@@ -211,11 +220,11 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.05-digital-ai-faq-delivery-v11
+echo Expected release after Render finishes: 2026.09.06-paypal-loyalty-card-delivery-v12
 echo Then test one product link, both role-locked Community dashboards,
 echo 25-person @mentions, cover photos, no-refresh comments, project workspaces,
 echo Financial Statements, one bundle checkout, one protected digital download,
-echo the Digital Help Bot, and (after credentials are added) one GCash checkout.
+echo the Digital Help Bot, manual GCash verification, and (after credentials are added) one PayPal Digital checkout.
 echo.
 start "" "https://dashboard.render.com/"
 start "" "https://macleens-foodhouse-pos.onrender.com/healthz"
