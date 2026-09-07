@@ -238,7 +238,7 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.07-hidden-treat-v18
+echo Expected release after Render finishes: 2026.09.07-unpaid-livechat-v19
 echo Then test one product link, both role-locked Community dashboards,
 echo 25-person @mentions, cover photos, no-refresh comments, project workspaces,
 echo Financial Statements, one bundle checkout, one protected digital download,

@@ -1014,15 +1014,26 @@
       });
       const data = await res.json();
       if (data.success) {
-        showToast(data.payment_redirect_url ? `Order #${data.order_id} created! Opening GCash QR Ph…` : `Order #${data.order_id} sent! Opening live tracker…`);
+        showToast(data.payment_redirect_url ? `Order #${data.order_id} created! Opening GCash QR Ph…` : `Order #${data.order_id} sent! Cashier chat is open — please standby.`);
         cart = {};
         saveCart();
         renderCart();
         closeDrawer();
         setTimeout(() => {
           if (data.payment_redirect_url) { window.location.href = data.payment_redirect_url; return; }
-          if (window.MacleensLiveUI) window.MacleensLiveUI.visit(data.tracking_url || '/portal/dashboard#orders');
-          else window.location.href = data.tracking_url || "/portal/dashboard#orders";
+          // Keep the customer on the storefront with the order's chat ready.
+          // A cashier reply will reopen this panel if it was closed.
+          if (data.order_chat_token) {
+            storefrontActiveOrderToken = String(data.order_chat_token);
+            storefrontChatSeenRemote = new Set();
+            storefrontChatLoaded = false;
+            try {
+              localStorage.setItem('macleens:active-order-chat', storefrontActiveOrderToken);
+              sessionStorage.setItem('macleens:open-order-chat', '1');
+            } catch (_) {}
+          }
+          toggleStoreChat(true);
+          loadStoreChat();
         }, 500);
       } else {
         showToast(data.message || 'The order could not be sent.');
@@ -1048,6 +1059,20 @@
     let storefrontChatSeenRemote = new Set();
     let storefrontChatLoaded = false;
     let storefrontAudioContext = null;
+    let storefrontActiveOrderToken = '';
+    try { storefrontActiveOrderToken = localStorage.getItem('macleens:active-order-chat') || ''; } catch (_) {}
+
+    function storefrontChatRequestUrl() {
+      return storefrontActiveOrderToken
+        ? '/api/customer-chat/messages?order_token=' + encodeURIComponent(storefrontActiveOrderToken)
+        : '/api/customer-chat/messages';
+    }
+    function clearStorefrontOrderChatToken() {
+      storefrontActiveOrderToken = '';
+      storefrontChatSeenRemote = new Set();
+      storefrontChatLoaded = false;
+      try { localStorage.removeItem('macleens:active-order-chat'); } catch (_) {}
+    }
 
     function chatEscape(value) {
       return String(value || '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
@@ -1107,7 +1132,12 @@
     async function loadStoreChat() {
       if (!storefrontChatEnabled) return;
       try {
-        const res = await fetch('/api/customer-chat/messages', {cache:'no-store'});
+        const res = await fetch(storefrontChatRequestUrl(), {cache:'no-store'});
+        if (res.status === 404 && storefrontActiveOrderToken) {
+          // Order chats are intentionally removed after fulfilment/cancellation.
+          clearStorefrontOrderChatToken();
+          return loadStoreChat();
+        }
         if (!res.ok) return;
         const data = await res.json();
         if (!data.success) return;
@@ -1125,7 +1155,11 @@
         });
         storefrontChatLoaded = true;
         log.scrollTop = log.scrollHeight;
-        if (newRemote) playStoreChatSound();
+        if (newRemote) {
+          toggleStoreChat(true);
+          playStoreChatSound();
+          showToast('New message from the cashier.');
+        }
       } catch (_) {}
     }
     async function sendStoreChat() {
@@ -1135,7 +1169,7 @@
       if (!message) return;
       input.value = '';
       try {
-        const res = await fetch('/api/customer-chat/messages', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message})});
+        const res = await fetch(storefrontChatRequestUrl(), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message})});
         const data = await res.json();
         if (!res.ok || !data.success) return showToast(data.message || 'Could not send your message.');
         await loadStoreChat();

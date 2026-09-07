@@ -152,6 +152,10 @@
           </form>
           <button type="button" onclick='openOrderAdjustModal({{ o.id }}, {{ o.notes|tojson }}, {{ o.total_amount }}, {{ o.payment_method|tojson }}, {{ o.change_for if o.change_for else "null" }})' class="btn-act" style="background:#d97706; color:white;" title="Add item/service fee">＋₱ ADJUST</button>
           <button type="button" onclick="printQueueSlip({{ o.id }}, '{{ o.order_type }}', {{ o.total_amount }})" class="btn-act" style="background:#0284c7; color:white;" title="Print Slip">🖨️</button>
+          <form action="/pos/verify/{{ o.id }}" method="POST" onsubmit="return confirm('Move Order #{{ o.id }} to Unpaid Orders? It will stay on payment hold until the cashier settles it.');">
+            <input type="hidden" name="action" value="REPORT_UNPAID">
+            <button type="submit" class="btn-act" style="background:#ea580c; color:white;" title="Report as unpaid">⚠ UNPAID</button>
+          </form>
           <form action="/pos/verify/{{ o.id }}" method="POST">
             <input type="hidden" name="action" value="REJECT">
             <button type="submit" class="btn-act" style="background:#ef4444; color:white;">✕</button>
@@ -932,6 +936,9 @@
         cashierChatAudio.resume?.();
       } catch (_) {}
     }
+    // Browsers require a staff gesture before sounds may play. Enable audio on
+    // the first counter tap so new customer replies can notify the cashier.
+    document.addEventListener('pointerdown', enableCashierChatSound, {once:true});
     function cashierChatEscape(value) {
       return String(value || '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
     }

@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.07-hidden-treat-v18'
+APP_RELEASE = '2026.09.07-unpaid-livechat-v19'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -5904,13 +5904,14 @@ def api_storefront_checkout():
             customer_id=cust.id,
             order_id=order.id,
             sender_type='SYSTEM',
-            body=f"Thank you for your order, {cust.name.split()[0] if cust.name else 'there'}! Order #{order.id} was sent to our cashier. You can reply here while we prepare it.",
+            body=f"Thank you for your order, {cust.name.split()[0] if cust.name else 'there'}! Please standby while our cashier reviews Order #{order.id}. This chat is open now, and we will reply here as soon as possible.",
             is_read=False,
         ))
         reserve_cart_stock(lines)
         db.session.commit()
         return jsonify({'success': True, 'order_id': order.id, 'total': total,
                         'tracking_url': url_for('order_tracking', token=order.public_token),
+                        'order_chat_token': order.public_token,
                         'payment_redirect_url': checkout_url,
                         'payment_pending': bool(checkout_url),
                         'points_redeemed': points_redeemed, 'points_discount': points_discount,
@@ -7480,6 +7481,35 @@ def verify_order(order_id):
             flash(f'Order #{order.id} accepted as A/R Credit and added to Member Credit AR.', 'success')
         else:
             flash(f'Order #{order.id} accepted and completed. Details ready to print!', 'success')
+    elif action == 'REPORT_UNPAID':
+        # Staff can place a submitted order into the same durable collection
+        # queue used by A/R and manual unpaid sales.  This replaces the old
+        # silent state where a report stayed in Verification and never showed
+        # in the Cashier "Unpaid Orders" panel.
+        if order.is_unpaid:
+            flash(f'Order #{order.id} is already in Unpaid Orders.', 'info')
+            return redirect(url_for('cashier_terminal'))
+        order.is_unpaid = True
+        order.payment_verified = False
+        order.status = 'UNPAID_COLLECTION'
+        order.fulfillment_status = 'PAYMENT_HOLD'
+        previous_note = (order.collection_notes or '').strip()
+        report_note = f'Reported unpaid by {active_cashier_username() or "cashier"} on {ph_now().strftime("%b %d, %Y %I:%M %p")}. Awaiting settlement.'
+        order.collection_notes = f'{previous_note} • {report_note}'[:255] if previous_note else report_note[:255]
+        if order.customer_id:
+            cust = db.session.get(Customer, order.customer_id)
+            if cust:
+                cust.outstanding_ar = round(parse_float(cust.outstanding_ar, 0.0) + parse_float(order.total_amount, 0.0), 2)
+        if order.customer_id:
+            db.session.add(CustomerChatMessage(
+                customer_id=order.customer_id,
+                order_id=order.id,
+                sender_type='SYSTEM',
+                body=f'Order #{order.id} is temporarily on payment hold. Please settle the payment with the cashier, then message us here if you need help.',
+                is_read=False,
+            ))
+        db.session.commit()
+        flash(f'Order #{order.id} moved to Unpaid Orders and marked as payment hold.', 'info')
     elif action == 'REJECT':
         if order.customer_id and parse_float(order.points_redeemed, 0.0) > 0:
             cust = db.session.get(Customer, order.customer_id)
@@ -15091,6 +15121,14 @@ def customer_dashboard():
     card_identifier = cust.card_number or cust.contact
     qr_target = f"{base}/portal/login?card={card_identifier}"
     qr_data = loyalty_card_qr_data_url(qr_target, '/static/logo.png')
+    # Keep the newest unfulfilled order thread available when the customer
+    # returns to their dashboard after ordering in the storefront.
+    active_order_chat_token = next(
+        (order.public_token for order in my_orders
+         if order.public_token and order.status not in {'CANCELLED'}
+         and (order.fulfillment_status or '').upper() != 'FULFILLED'),
+        '',
+    )
 
     return render_template(
         'customer_dashboard.html',
@@ -15110,6 +15148,7 @@ def customer_dashboard():
         loyalty_card_themes=LOYALTY_CARD_THEMES,
         qr_data=qr_data,
         qr_target=qr_target,
+        active_order_chat_token=active_order_chat_token,
         today=ph_today(),
     )
 

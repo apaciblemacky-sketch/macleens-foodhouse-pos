@@ -435,9 +435,11 @@ def main() -> int:
         "storefront_create_paymongo_checkout", "storefront_check_paymongo_payment",
         "CustomerChatMessage", "is_cod_eligible", "requires_detailed_address",
         "/api/customer-chat/messages", "cashier_customer_chats_api",
-        "payment_redirect_url", "GCash QR Ph", "Live Customer Chats",
+        "payment_redirect_url", "order_chat_token", "REPORT_UNPAID",
+        "Please standby while our cashier reviews", "macleens:active-order-chat",
+        "togglePortalCashierChat", "GCash QR Ph", "Live Customer Chats",
     ]:
-        if marker not in (source + store_text + (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")):
+        if marker not in (source + store_text + dashboard_text + (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")):
             fail(f"storefront QR Ph, COD, delivery, or live-chat marker is missing: {marker}")
     ok("modern storefront, loyalty safeguard, digital update downloads, BIR sales record, favorites, reorder, and tracking are present")
 
