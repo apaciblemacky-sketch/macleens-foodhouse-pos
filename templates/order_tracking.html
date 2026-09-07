@@ -10,7 +10,7 @@
     *{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#fff1f7,#ecfdf9 55%,#f8fafc);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--navy);min-height:100vh;padding:18px}
     .wrap{max-width:680px;margin:auto}.top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}.brand{font-weight:950;color:#9d174d}.back{color:var(--teal);font-weight:800;text-decoration:none}
     .card{background:rgba(255,255,255,.95);border:1px solid #e2e8f0;border-radius:24px;padding:22px;box-shadow:0 18px 45px rgba(15,23,42,.09);margin-bottom:14px}.eyebrow{font-size:.72rem;font-weight:900;letter-spacing:.1em;text-transform:uppercase;color:var(--teal)}h1{margin:5px 0 6px;font-size:clamp(1.6rem,7vw,2.4rem)}.muted{color:var(--muted);font-size:.86rem}.status{display:inline-flex;margin-top:12px;padding:8px 12px;border-radius:999px;background:#ccfbf1;color:#115e59;font-weight:900}.status.cancelled{background:#fee2e2;color:#991b1b}
-    .timeline{margin-top:18px}.step{display:grid;grid-template-columns:38px 1fr;gap:11px;min-height:78px;position:relative}.dot{width:30px;height:30px;border:3px solid #cbd5e1;background:white;border-radius:50%;display:grid;place-items:center;font-size:.72rem;font-weight:900;z-index:1}.step:not(:last-child):after{content:"";position:absolute;left:14px;top:30px;width:3px;height:48px;background:#e2e8f0}.step.done .dot,.step.current .dot{border-color:var(--teal);background:var(--teal);color:white}.step.done:not(:last-child):after{background:var(--teal)}.step.current h3{color:var(--teal)}h3{margin:3px 0;font-size:1rem}.summary{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:15px 0}.metric{background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:12px}.metric small{display:block;color:var(--muted);font-weight:800;margin-bottom:4px}.items{margin-top:12px}.item{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px dashed var(--line);font-size:.86rem}.notice{padding:12px;border-radius:14px;background:#fff7ed;color:#9a3412;font-size:.8rem;font-weight:750}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn{flex:1;min-width:150px;padding:12px;border-radius:13px;text-align:center;text-decoration:none;font-weight:900}.primary{background:linear-gradient(135deg,var(--pink),#db2777);color:white}.secondary{background:#e6fffa;color:var(--teal)}
+    .timeline{margin-top:18px}.step{display:grid;grid-template-columns:38px 1fr;gap:11px;min-height:78px;position:relative}.dot{width:30px;height:30px;border:3px solid #cbd5e1;background:white;border-radius:50%;display:grid;place-items:center;font-size:.72rem;font-weight:900;z-index:1}.step:not(:last-child):after{content:"";position:absolute;left:14px;top:30px;width:3px;height:48px;background:#e2e8f0}.step.done .dot,.step.current .dot{border-color:var(--teal);background:var(--teal);color:white}.step.done:not(:last-child):after{background:var(--teal)}.step.current h3{color:var(--teal)}h3{margin:3px 0;font-size:1rem}.summary{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:15px 0}.metric{background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:12px}.metric small{display:block;color:var(--muted);font-weight:800;margin-bottom:4px}.items{margin-top:12px}.item{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px dashed var(--line);font-size:.86rem}.notice{padding:12px;border-radius:14px;background:#fff7ed;color:#9a3412;font-size:.8rem;font-weight:750}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn{flex:1;min-width:150px;padding:12px;border-radius:13px;text-align:center;text-decoration:none;font-weight:900}.primary{background:linear-gradient(135deg,var(--pink),#db2777);color:white}.secondary{background:#e6fffa;color:var(--teal)}.chat-log{height:220px;overflow:auto;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:9px}.chat-msg{max-width:86%;margin:6px 0;padding:8px 10px;border-radius:12px;font-size:.8rem;line-height:1.38;white-space:pre-wrap}.chat-msg.customer{margin-left:auto;background:#dbeafe;color:#1e3a8a}.chat-msg.cashier,.chat-msg.system{background:#fff;border:1px solid #e2e8f0}.chat-send{display:flex;gap:7px;margin-top:8px}.chat-send input{flex:1;border:1px solid #cbd5e1;border-radius:10px;padding:10px}.chat-send button{border:0;border-radius:10px;background:var(--pink);color:#fff;padding:10px 13px;font-weight:900;cursor:pointer}
   </style>
 </head>
 <body><main class="wrap">
@@ -20,6 +20,7 @@
     <h1>Order #{{ order.id }}</h1>
     <div class="muted">Placed {{ order.created_at|ph_datetime }} • {{ order.order_type }}{% if order.target_time %} • Target: {{ order.target_time }}{% endif %}</div>
     <div class="status {% if current_stage == 'CANCELLED' %}cancelled{% endif %}">{{ current_stage.replace('_',' ').title() }}</div>
+    {% if payment_message %}<div class="notice" style="margin-top:14px;background:#ecfdf5;color:#166534;">{{ payment_message }}</div>{% endif %}
     {% if current_stage == 'CANCELLED' %}
       <div class="notice" style="margin-top:16px;">This order was cancelled. Any reserved food stock and redeemed points are restored by the system.</div>
     {% else %}
@@ -34,6 +35,18 @@
     {% endif %}
   </section>
   <section class="card">
+    <div class="eyebrow">Live cashier chat</div>
+    {% if can_customer_chat and current_stage not in ['CANCELLED', 'FULFILLED'] %}
+      <p class="muted" style="margin:5px 0 12px">Ask about this order and receive a live reply. Sound plays after the first tap on this page.</p>
+      <div id="orderChatLog" class="chat-log"><div class="chat-msg system">Loading your temporary order chat…</div></div>
+      <div class="chat-send"><input id="orderChatInput" maxlength="500" placeholder="Message cashier" onkeydown="if(event.key==='Enter'){event.preventDefault();sendOrderChat()}"><button type="button" onclick="sendOrderChat()">Send</button></div>
+    {% elif can_customer_chat %}
+      <div class="notice">This temporary order chat is automatically cleared after cancellation or completed handover to protect privacy and save storage.</div>
+    {% else %}
+      <div class="notice">Log in to the customer account that placed this order to use live cashier chat.</div>
+    {% endif %}
+  </section>
+  <section class="card">
     <div class="eyebrow">Order summary</div>
     <div class="summary">
       <div class="metric"><small>Total</small><strong>₱{{ "{:,.2f}".format(order.total_amount) }}</strong></div>
@@ -45,4 +58,24 @@
     <div class="notice" style="margin-top:14px;">Keep this private tracking link. It does not expose your phone number or delivery address.</div>
   </section>
   <div class="actions"><a class="btn primary" href="/">Order more</a>{% if session.get('customer_id') %}<a class="btn secondary" href="/portal/dashboard#orders">My orders</a>{% endif %}</div>
-</main></body></html>
+</main>
+{% if can_customer_chat and current_stage not in ['CANCELLED', 'FULFILLED'] %}
+<script>
+  const orderChatToken = {{ order.public_token|tojson }};
+  let orderChatSeenRemote = new Set(), orderChatLoaded = false, orderChatAudio = null;
+  function enableOrderChatSound(){try{orderChatAudio=orderChatAudio||new(window.AudioContext||window.webkitAudioContext)();orderChatAudio.resume?.()}catch(_){}}
+  function beepOrderChat(){if(!orderChatAudio)return;try{const o=orderChatAudio.createOscillator(),g=orderChatAudio.createGain();o.frequency.setValueAtTime(740,orderChatAudio.currentTime);g.gain.setValueAtTime(.12,orderChatAudio.currentTime);g.gain.exponentialRampToValueAtTime(.01,orderChatAudio.currentTime+.22);o.connect(g);g.connect(orderChatAudio.destination);o.start();o.stop(orderChatAudio.currentTime+.23)}catch(_){}}
+  document.addEventListener('pointerdown', enableOrderChatSound, {once:true});
+  async function loadOrderChat(){
+    try{
+      const response=await fetch('/api/customer-chat/messages?order_token='+encodeURIComponent(orderChatToken),{cache:'no-store'});if(!response.ok)return;
+      const data=await response.json();if(!data.success)return;const log=document.getElementById('orderChatLog');let newer=false;log.innerHTML='';
+      (data.messages||[]).forEach(message=>{const remote=message.sender_type!=='CUSTOMER';if(!orderChatLoaded&&remote)orderChatSeenRemote.add(String(message.id));if(orderChatLoaded&&remote&&!orderChatSeenRemote.has(String(message.id)))newer=true;if(remote)orderChatSeenRemote.add(String(message.id));const bubble=document.createElement('div');bubble.className='chat-msg '+String(message.sender_type||'').toLowerCase();bubble.textContent=message.body||'';log.appendChild(bubble)});
+      orderChatLoaded=true;log.scrollTop=log.scrollHeight;if(newer)beepOrderChat();
+    }catch(_){}
+  }
+  async function sendOrderChat(){const input=document.getElementById('orderChatInput'),message=input.value.trim();if(!message)return;input.value='';try{const response=await fetch('/api/customer-chat/messages?order_token='+encodeURIComponent(orderChatToken),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message})});const data=await response.json();if(!response.ok||!data.success){alert(data.message||'Could not send your message.');return}loadOrderChat()}catch(_){alert('Could not send your message.')}}
+  loadOrderChat();window.setInterval(loadOrderChat,2500);
+</script>
+{% endif %}
+</body></html>

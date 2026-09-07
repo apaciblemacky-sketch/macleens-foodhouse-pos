@@ -76,6 +76,12 @@
     <form action="{{ url_for('admin_loyalty_settings') }}" method="POST" style="display:flex;gap:7px;align-items:end;flex-wrap:wrap"><label style="font-size:.75rem;font-weight:800">₱ spend per 1 point<input class="form-control" type="number" name="spend_per_point" min="1" max="100000" step=".01" value="{{ '%.2f'|format(loyalty_spend_per_point) }}" style="width:130px;margin-top:3px" required></label><label style="font-size:.75rem;font-weight:800">Daily login points<input class="form-control" type="number" name="daily_login_points" min="0" max="10" step=".01" value="{{ '%.2f'|format(daily_login_points) }}" style="width:120px;margin-top:3px" required></label><button class="btn" style="background:#b45309;color:#fff" type="submit">Save rules</button></form>
   </div>
 
+  <div class="card" style="border-color:#93c5fd;background:#eff6ff;display:flex;gap:14px;align-items:end;justify-content:space-between;flex-wrap:wrap;">
+    <div><h3 style="color:#075985;margin-bottom:4px">📱 Storefront GCash QR Ph</h3><p style="font-size:.78rem;color:#075985">Manual GCash stays available as a fallback. PayMongo mode opens a secure QR Ph payment page and verifies it from the server before a cashier can accept it.</p></div>
+    <form action="{{ url_for('admin_storefront_payment_settings') }}" method="POST" style="display:flex;gap:7px;align-items:end;flex-wrap:wrap"><label style="font-size:.75rem;font-weight:800">GCash checkout<input type="hidden" name="form_source" value="admin"><select class="form-control" name="storefront_gcash_gateway_mode" style="width:180px;margin-top:3px"><option value="MANUAL" {% if storefront_payment_settings.gateway_mode != 'PAYMONGO' %}selected{% endif %}>Manual GCash reference</option><option value="PAYMONGO" {% if storefront_payment_settings.gateway_mode == 'PAYMONGO' %}selected{% endif %}>PayMongo QR Ph</option></select></label><button class="btn" style="background:#0284c7;color:#fff" type="submit">Save GCash setting</button></form>
+    <div style="font-size:.72rem;font-weight:850;color:{{ '#166534' if storefront_payment_settings.paymongo_ready else '#92400e' }}">{{ '✓ PAYMONGO_SECRET_KEY detected' if storefront_payment_settings.paymongo_ready else '⚠ Add PAYMONGO_SECRET_KEY in Render first' }}</div>
+  </div>
+
   <!-- 📊 COMPREHENSIVE FINANCIAL PERFORMANCE TABLE -->
   <div class="card" style="border: 2px solid var(--hk-pink);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
@@ -664,8 +670,10 @@
             <th>Address & Landmark</th>
             <th style="text-align: center;">⭐ Reward Points</th>
             <th>Credit Active?</th>
+            <th>COD Active?</th>
             <th>Credit Limit</th>
             <th>Toggle Credit</th>
+            <th>Toggle COD</th>
             <th>Account Actions</th>
           </tr>
         </thead>
@@ -697,6 +705,9 @@
                 <span style="color:#94a3b8;">✕ No</span>
               {% endif %}
             </td>
+            <td>
+              {% if c.is_cod_eligible %}<span style="color:#16a34a;font-weight:bold;">✓ Yes</span>{% else %}<span style="color:#94a3b8;">✕ No</span>{% endif %}
+            </td>
             <td style="font-weight: bold;">
               ₱{{ "{:,.2f}".format(c.credit_limit or 0.0) }}
             </td>
@@ -712,6 +723,9 @@
                   <button type="submit" class="btn btn-dark" style="padding:3px 6px; font-size:0.7rem;">{{ 'Disable' if c.is_credit_eligible else 'Enable' }}</button>
                 </form>
               </div>
+            </td>
+            <td>
+              <form action="{{ url_for('admin_toggle_cod', cust_id=c.id) }}" method="POST"><button type="submit" class="btn" style="padding:3px 6px;font-size:.7rem;background:{{ '#f97316' if c.is_cod_eligible else '#0f766e' }};color:#fff;">{{ 'Disable' if c.is_cod_eligible else 'Enable' }}</button></form>
             </td>
             <td style="display: flex; gap: 4px; flex-wrap: wrap;">
               <a href="{{ url_for('admin_customer_purchase_history', cust_id=c.id) }}" class="btn" style="background:#dbeafe;color:#1d4ed8;padding:3px 6px;font-size:.7rem;">🧾 History</a>
@@ -736,6 +750,19 @@
           {% endfor %}
         </tbody>
       </table>
+    </div>
+  </div>
+
+  <div class="card" style="border-color:#a7f3d0;">
+    <h3 style="color:#065f46;margin-bottom:6px;font-size:1rem;">🛵 Delivery Zone Detail Rules</h3>
+    <p style="font-size:.75rem;color:#475569;margin-bottom:10px;">Turn off detailed address only for designated zone-only handoff areas. Other Barangay zones require both Purok/street and landmark at checkout.</p>
+    <div style="display:flex;flex-wrap:wrap;gap:8px;">
+      {% for z in delivery_zones %}
+      <div style="border:1px solid #d1fae5;border-radius:8px;padding:8px;min-width:220px;flex:1;">
+        <strong style="font-size:.8rem;">{{ z.place_name }} • {{ z.barangay }}</strong><div style="font-size:.7rem;color:#64748b;margin:3px 0 6px;">{{ 'Requires Purok + landmark' if z.requires_detailed_address else 'Zone-only (details hidden)' }}</div>
+        <form action="{{ url_for('admin_manage_delivery_zones') }}" method="POST"><input type="hidden" name="action" value="TOGGLE_DETAILS"><input type="hidden" name="zone_id" value="{{ z.id }}"><button type="submit" class="btn" style="padding:4px 7px;font-size:.69rem;background:{{ '#0f766e' if z.requires_detailed_address else '#f59e0b' }};color:#fff;">{{ 'Use zone-only handoff' if z.requires_detailed_address else 'Require address details' }}</button></form>
+      </div>
+      {% else %}<div style="font-size:.78rem;color:#64748b;">No delivery zones have been added yet.</div>{% endfor %}
     </div>
   </div>
 

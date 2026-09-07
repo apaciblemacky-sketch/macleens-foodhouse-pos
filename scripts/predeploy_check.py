@@ -32,7 +32,7 @@ REQUIRED_DB_COLUMNS = {
         "card_photo_scale", "card_qr_scale", "card_text_scale", "card_info_scale",
         "campus_name", "break_start", "break_end", "favorite_alerts",
         "community_student_preapproved", "community_student_preapproved_at",
-        "community_student_preapproved_by",
+        "community_student_preapproved_by", "is_cod_eligible",
     },
     "product": {
         "id", "name", "category_name", "description", "price", "cost", "allow_custom_amount",
@@ -41,8 +41,9 @@ REQUIRED_DB_COLUMNS = {
     "order": {
         "id", "order_type", "dining_option", "customer_id", "subtotal",
         "total_amount", "payment_method", "payment_verified", "status",
-        "is_unpaid", "points_redeemed", "points_discount", "base_points_earned", "public_token", "fulfillment_status", "receipt_number", "created_at",
+        "is_unpaid", "points_redeemed", "points_discount", "base_points_earned", "public_token", "fulfillment_status", "receipt_number", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "created_at",
     },
+    "delivery_zone": {"id", "place_name", "barangay", "rate", "is_active", "requires_detailed_address"},
     "order_item": {
         "id", "order_id", "product_id", "unit_price", "cost_price",
         "quantity", "subtotal", "selected_options",
@@ -144,8 +145,10 @@ REQUIRED_DB_COLUMNS = {
 # intentionally preserves the existing production SQLite/PostgreSQL data rather
 # than overwriting it with a newly-created database.
 MIGRATABLE_DB_COLUMNS = {
+    "customer": {"is_cod_eligible"},
     "product": {"description"},
-    "order": {"base_points_earned", "receipt_number"},
+    "order": {"base_points_earned", "receipt_number", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response"},
+    "delivery_zone": {"requires_detailed_address"},
     "digital_item": {"asset_version", "asset_updated_at", "asset_release_notes"},
 }
 
@@ -428,6 +431,14 @@ def main() -> int:
             fail(f"catalog, digital update, or BIR sales record marker is missing: {marker}")
     if "Student budget picks" in store_text or "Chef's Featured Specials" in store_text:
         fail("retired Student budget picks or Featured Specials storefront section is still visible")
+    for marker in [
+        "storefront_create_paymongo_checkout", "storefront_check_paymongo_payment",
+        "CustomerChatMessage", "is_cod_eligible", "requires_detailed_address",
+        "/api/customer-chat/messages", "cashier_customer_chats_api",
+        "payment_redirect_url", "GCash QR Ph", "Live Customer Chats",
+    ]:
+        if marker not in (source + store_text + (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")):
+            fail(f"storefront QR Ph, COD, delivery, or live-chat marker is missing: {marker}")
     ok("modern storefront, loyalty safeguard, digital update downloads, BIR sales record, favorites, reorder, and tracking are present")
 
     community_markers = [
