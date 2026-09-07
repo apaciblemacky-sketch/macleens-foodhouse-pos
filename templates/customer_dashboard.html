@@ -121,6 +121,28 @@
     {% endif %}
   </div>
 
+  {% if loyalty_hidden_hunts or hidden_prize_claims %}
+  <div class="card" id="hiddenTreats" style="border-color:#d8b4fe;background:linear-gradient(145deg,#fff,#faf5ff);">
+    <div class="section-title" style="color:#6b21a8;">🎁 Hidden Treats</div>
+    {% for hunt in loyalty_hidden_hunts %}
+      <div data-hidden-hunt-card="{{ hunt.id }}" style="display:flex;align-items:center;gap:10px;border:1px dashed #c084fc;border-radius:13px;padding:10px;margin-top:8px;background:#fff;">
+        <button type="button" onclick="claimDashboardHiddenTreat({{ hunt.id }},this)" style="border:0;background:#fef3c7;border-radius:12px;width:48px;height:48px;cursor:pointer;font-size:1.35rem;">🎁</button>
+        <div><strong style="font-size:.82rem;">Something small is hidden here</strong><div class="muted">Tap the gift box once to see whether you found today’s treat.</div></div>
+      </div>
+    {% endfor %}
+    {% for claim in hidden_prize_claims %}
+      {% if claim.hunt %}
+      <div style="border-top:1px dashed #e9d5ff;padding:9px 0;font-size:.74rem;">
+        <strong>{{ claim.hunt.title }}</strong>
+        {% if claim.hunt.prize_type == 'POINTS' %}<div class="muted">✓ +{{ claim.hunt.points_amount|round(2) }} points added to your balance.</div>
+        {% elif claim.hunt.prize_type == 'VOUCHER' %}<div class="muted">{{ claim.hunt.voucher_discount_percent|round(2) }}% voucher{% if claim.hunt.voucher_min_order %} • min ₱{{ "%.2f"|format(claim.hunt.voucher_min_order) }} food order{% endif %}</div><code style="display:inline-block;margin-top:4px;background:#2e1065;color:#fff;border-radius:6px;padding:3px 6px;font-size:.69rem;">{{ claim.claim_code }}</code>{% if claim.status == 'REDEEMED' %}<span class="muted"> • used</span>{% endif %}
+        {% else %}<div class="muted">Free {{ claim.hunt.prize_product.name if claim.hunt.prize_product else 'product' }} • show this code to Cashier</div><code style="display:inline-block;margin-top:4px;background:#2e1065;color:#fff;border-radius:6px;padding:3px 6px;font-size:.69rem;">{{ claim.claim_code }}</code>{% if claim.status == 'REDEEMED' %}<span class="muted"> • redeemed</span>{% endif %}{% endif %}
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <div class="card">
     <div class="section-title">⚡ Student missions</div>
     <div class="muted" style="margin-bottom:5px">Simple ways to get more value from your account.</div>
@@ -275,6 +297,9 @@
     const total=document.getElementById(`orderTotal-${orderId}`);if(total)total.textContent=`₱${data.total.toFixed(2)}`;
     const button=document.getElementById(`applyPoints-${orderId}`);if(button){const note=document.createElement('div');note.style.cssText='color:#059669;font-weight:900;margin-top:3px;font-size:.72rem';note.textContent=`✓ ${data.points_redeemed.toFixed(2)} points used (₱${data.discount.toFixed(2)} discount)`;button.replaceWith(note);}
     const balance=Number(data.points_balance||0),display=balance.toFixed(1);document.getElementById('pointsBalanceMain').textContent=display;document.getElementById('ringPoints').textContent=display;document.getElementById('rewardRing').style.setProperty('--progress',`${Math.min(100,balance/20*100)*3.6}deg`);document.getElementById('milestoneText').textContent=balance>=20?'20-point milestone reached!':`${(20-balance).toFixed(1)} pts to 20-point milestone`;
+  }
+  async function claimDashboardHiddenTreat(huntId,button){
+    try{const res=await fetch(`/api/hidden-prizes/${Number(huntId)}/claim`,{method:'POST'}),data=await res.json();if(!res.ok||!data.success)return alert(data.message||'Could not claim this Hidden Treat.');const row=button?.closest('[data-hidden-hunt-card]');if(row)row.remove();if(data.prize_type==='POINTS'){const balance=Number((document.getElementById('pointsBalanceMain')?.textContent||'0').replace(/,/g,''))+Number(data.points_amount||0),display=balance.toFixed(1);document.getElementById('pointsBalanceMain').textContent=display;document.getElementById('ringPoints').textContent=display;document.getElementById('rewardRing').style.setProperty('--progress',`${Math.min(100,balance/20*100)*3.6}deg`);document.getElementById('milestoneText').textContent=balance>=20?'20-point milestone reached!':`${(20-balance).toFixed(1)} pts to 20-point milestone`);}alert(data.message||'Hidden Treat claimed!');}catch(_){alert('Could not claim this Hidden Treat. Please check your connection.');}
   }
   syncCustomerCardPreview();
 </script>

@@ -83,6 +83,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running Hidden Treat and flexible-price cashier checks...
+"%PYTHON_CMD%" scripts\hidden_treat_smoke_check.py
+if errorlevel 1 (
+  echo Hidden Treat or flexible-price cashier checks failed. The system was not started.
+  pause
+  exit /b 1
+)
+
 echo Starting Macleen's Food House at http://127.0.0.1:5000
 start "" http://127.0.0.1:5000
 "%PYTHON_CMD%" app.py

@@ -157,6 +157,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running Hidden Treat and flexible-price cashier checks...
+%DEPLOY_CHECK_CMD% scripts\hidden_treat_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Hidden Treat or flexible-price cashier checks failed.
+  pause
+  exit /b 1
+)
+
 echo.
 echo GitHub remote:
 echo %DEPLOY_REMOTE%
@@ -229,7 +238,7 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.06-qrph-paymongo-paypal-v15
+echo Expected release after Render finishes: 2026.09.07-hidden-treat-v18
 echo Then test one product link, both role-locked Community dashboards,
 echo 25-person @mentions, cover photos, no-refresh comments, project workspaces,
 echo Financial Statements, one bundle checkout, one protected digital download,
