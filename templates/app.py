@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.07-storefront-qrph-chat-v17'
+APP_RELEASE = '2026.09.07-hidden-treat-v18'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -298,6 +298,9 @@ class Order(db.Model):
     total_amount = db.Column(db.Float, nullable=False)
     points_redeemed = db.Column(db.Float, default=0.0)
     points_discount = db.Column(db.Float, default=0.0)
+    # A Hidden Treat voucher is a separate promotion from loyalty points so
+    # reports can show exactly why an order was discounted.
+    hidden_prize_discount = db.Column(db.Float, default=0.0, nullable=False)
     # Snapshot the base loyalty points issued for this order.  This keeps an
     # older transaction correct if the earning rule changes later.
     base_points_earned = db.Column(db.Float, nullable=True)
@@ -332,6 +335,53 @@ class OrderItem(db.Model):
     quantity = db.Column(db.Integer, nullable=False)
     subtotal = db.Column(db.Float, nullable=False)
     selected_options = db.Column(db.Text, nullable=True)
+
+
+class HiddenPrizeHunt(db.Model):
+    """An administrator-created, account-bound hidden reward campaign.
+
+    A hunt can be placed on one product card, in the loyalty portal, or in
+    Community.  It never relies on browser state for a reward decision.
+    """
+    __tablename__ = 'hidden_prize_hunt'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(140), nullable=False)
+    location = db.Column(db.String(30), nullable=False)  # STOREFRONT_PRODUCT, LOYALTY_PORTAL, COMMUNITY
+    location_product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='SET NULL'), nullable=True, index=True)
+    prize_type = db.Column(db.String(20), nullable=False)  # POINTS, VOUCHER, PRODUCT
+    points_amount = db.Column(db.Float, nullable=False, default=0.0)
+    voucher_discount_percent = db.Column(db.Float, nullable=False, default=0.0)
+    voucher_min_order = db.Column(db.Float, nullable=False, default=0.0)
+    prize_product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='SET NULL'), nullable=True, index=True)
+    max_winners = db.Column(db.Integer, nullable=False, default=0)  # 0 means unlimited
+    starts_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    ends_at = db.Column(db.DateTime, nullable=False)
+    reward_expires_at = db.Column(db.DateTime, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    location_product = db.relationship('Product', foreign_keys=[location_product_id], lazy=True)
+    prize_product = db.relationship('Product', foreign_keys=[prize_product_id], lazy=True)
+
+
+class HiddenPrizeClaim(db.Model):
+    """One claim per loyalty member per hunt, with optional voucher code."""
+    __tablename__ = 'hidden_prize_claim'
+    __table_args__ = (UniqueConstraint('hunt_id', 'customer_id', name='uq_hidden_prize_hunt_customer'),)
+    id = db.Column(db.Integer, primary_key=True)
+    hunt_id = db.Column(db.Integer, db.ForeignKey('hidden_prize_hunt.id', ondelete='CASCADE'), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False, index=True)
+    claim_code = db.Column(db.String(32), unique=True, nullable=True, index=True)
+    status = db.Column(db.String(20), nullable=False, default='AVAILABLE')  # AWARDED, AVAILABLE, REDEEMED, EXPIRED
+    stock_reserved = db.Column(db.Boolean, nullable=False, default=False)
+    expires_at = db.Column(db.DateTime, nullable=True, index=True)
+    redeemed_order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='SET NULL'), nullable=True)
+    claimed_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    redeemed_at = db.Column(db.DateTime, nullable=True)
+    hunt = db.relationship('HiddenPrizeHunt', lazy=True)
+    customer = db.relationship('Customer', lazy=True)
+    redeemed_order = db.relationship('Order', lazy=True)
 
 
 class CustomerChatMessage(db.Model):
@@ -1676,6 +1726,7 @@ def run_schema_migrations():
             ('dining_option', "VARCHAR(20) DEFAULT 'DINE-IN'"),
             ('points_redeemed', 'FLOAT DEFAULT 0.0'),
             ('points_discount', 'FLOAT DEFAULT 0.0'),
+            ('hidden_prize_discount', 'FLOAT DEFAULT 0.0'),
             ('base_points_earned', 'FLOAT'),
             ('public_token', 'VARCHAR(64)'),
             ('fulfillment_status', "VARCHAR(30) DEFAULT 'SUBMITTED'"),
@@ -2084,6 +2135,139 @@ def record_points_redemption(cust, points, order_id=None, reason='Purchase disco
     cust.points_balance = round(max(0.0, parse_float(cust.points_balance, 0.0) - points), 2)
     suffix = f' / Order #{order_id}' if order_id else ''
     db.session.add(RewardLedger(customer_id=cust.id, points_change=-points, reason=f'{reason}{suffix}'))
+
+
+# ==================== HIDDEN TREAT HUNTS ====================
+
+HIDDEN_PRIZE_LOCATIONS = ('STOREFRONT_PRODUCT', 'LOYALTY_PORTAL', 'COMMUNITY')
+HIDDEN_PRIZE_TYPES = ('POINTS', 'VOUCHER', 'PRODUCT')
+
+
+def hidden_prize_admin_datetime(value, fallback=None):
+    """Read an Admin datetime-local value as Philippine time, stored as UTC-naive."""
+    raw = str(value or '').strip()
+    if not raw:
+        return fallback
+    try:
+        local = datetime.strptime(raw[:16], '%Y-%m-%dT%H:%M').replace(tzinfo=MANILA_TZ)
+    except ValueError:
+        raise OrderValidationError('Use a valid Philippine start/end date and time for the Hidden Treat Hunt.')
+    return local.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def hidden_prize_hunt_is_live(hunt, at=None):
+    now = at or utc_now()
+    return bool(
+        hunt and hunt.is_active and hunt.starts_at and hunt.ends_at
+        and hunt.starts_at <= now < hunt.ends_at
+    )
+
+
+def expire_hidden_prize_claims(now=None, persist=False):
+    """Expire unused rewards and return a product only when it was reserved."""
+    now = now or utc_now()
+    claims = HiddenPrizeClaim.query.filter(
+        HiddenPrizeClaim.status == 'AVAILABLE',
+        HiddenPrizeClaim.expires_at.isnot(None),
+        HiddenPrizeClaim.expires_at <= now,
+    ).all()
+    for claim in claims:
+        if claim.stock_reserved and claim.hunt and claim.hunt.prize_type == 'PRODUCT' and claim.hunt.prize_product:
+            claim.hunt.prize_product.stock = max(0, parse_int(claim.hunt.prize_product.stock, 0)) + 1
+            claim.stock_reserved = False
+        claim.status = 'EXPIRED'
+    # Read-only pages use this so an expired free-product reservation is
+    # genuinely returned to stock even when no later form submission happens.
+    # Checkout/claim endpoints keep the default to preserve their one atomic
+    # transaction together with any new order or reward.
+    if claims and persist:
+        db.session.commit()
+    return len(claims)
+
+
+def hidden_prize_claim_count(hunt_id):
+    return HiddenPrizeClaim.query.filter_by(hunt_id=hunt_id).count()
+
+
+def active_hidden_prize_hunts(location, customer=None, product_id=None):
+    """Return live, still-findable hunts for a placement and optional customer."""
+    now = utc_now()
+    expire_hidden_prize_claims(now, persist=True)
+    query = HiddenPrizeHunt.query.filter(
+        HiddenPrizeHunt.location == location,
+        HiddenPrizeHunt.is_active.is_(True),
+        HiddenPrizeHunt.starts_at <= now,
+        HiddenPrizeHunt.ends_at > now,
+    )
+    if product_id is not None:
+        query = query.filter(HiddenPrizeHunt.location_product_id == product_id)
+    hunts = query.order_by(HiddenPrizeHunt.id.asc()).all()
+    eligible = []
+    for hunt in hunts:
+        if hunt.max_winners and hidden_prize_claim_count(hunt.id) >= hunt.max_winners:
+            continue
+        if customer and HiddenPrizeClaim.query.filter_by(hunt_id=hunt.id, customer_id=customer.id).first():
+            continue
+        eligible.append(hunt)
+    return eligible
+
+
+def hidden_prize_claim_code():
+    for _ in range(12):
+        code = 'HUNT-' + secrets.token_hex(4).upper()
+        if not HiddenPrizeClaim.query.filter_by(claim_code=code).first():
+            return code
+    raise OrderValidationError('Could not generate a unique Hidden Treat claim code. Please try again.')
+
+
+def hidden_prize_claim_message(claim):
+    hunt = claim.hunt
+    if hunt.prize_type == 'POINTS':
+        return f'You found the Hidden Treat! +{hunt.points_amount:g} loyalty points were added to your account.'
+    if hunt.prize_type == 'VOUCHER':
+        minimum = f' on a ₱{hunt.voucher_min_order:,.2f}+ food order' if hunt.voucher_min_order > 0 else ''
+        return f'You found a {hunt.voucher_discount_percent:g}% Hidden Treat voucher{minimum}! Use code {claim.claim_code} at checkout before it expires.'
+    product_name = hunt.prize_product.name if hunt.prize_product else 'free product'
+    return f'You found a free {product_name}! Show code {claim.claim_code} to the cashier before it expires.'
+
+
+def customer_hidden_prize_claims(customer, include_redeemed=False):
+    expire_hidden_prize_claims(persist=True)
+    statuses = ('AWARDED', 'AVAILABLE') if not include_redeemed else ('AWARDED', 'AVAILABLE', 'REDEEMED')
+    return HiddenPrizeClaim.query.filter(
+        HiddenPrizeClaim.customer_id == customer.id,
+        HiddenPrizeClaim.status.in_(statuses),
+    ).order_by(HiddenPrizeClaim.claimed_at.desc()).all()
+
+
+def customer_hidden_prize_vouchers(customer):
+    return [claim for claim in customer_hidden_prize_claims(customer) if claim.hunt and claim.hunt.prize_type == 'VOUCHER' and claim.status == 'AVAILABLE']
+
+
+def validate_hidden_prize_voucher(customer, raw_code, merchandise_subtotal):
+    """Validate a voucher server-side; browser totals and claim text are never trusted."""
+    code = str(raw_code or '').strip().upper()
+    if not code:
+        return None, 0.0
+    expire_hidden_prize_claims()
+    claim = HiddenPrizeClaim.query.filter_by(
+        customer_id=customer.id, claim_code=code, status='AVAILABLE',
+    ).first()
+    if not claim or not claim.hunt or claim.hunt.prize_type != 'VOUCHER':
+        raise OrderValidationError('That Hidden Treat voucher is unavailable, expired, or does not belong to this account.')
+    hunt = claim.hunt
+    if not hidden_prize_hunt_is_live(hunt) and hunt.reward_expires_at and hunt.reward_expires_at <= utc_now():
+        raise OrderValidationError('That Hidden Treat voucher has expired.')
+    if claim.expires_at and claim.expires_at <= utc_now():
+        raise OrderValidationError('That Hidden Treat voucher has expired.')
+    if merchandise_subtotal + 1e-9 < max(0.0, hunt.voucher_min_order or 0.0):
+        raise OrderValidationError(
+            f'This Hidden Treat voucher needs at least ₱{hunt.voucher_min_order:,.2f} in food items.'
+        )
+    percent = max(0.0, min(100.0, parse_float(hunt.voucher_discount_percent, 0.0)))
+    if percent <= 0:
+        raise OrderValidationError('This Hidden Treat voucher has no valid discount configured.')
+    return claim, round(merchandise_subtotal * percent / 100.0, 2)
 
 CASH_FLOW_FREQUENCIES = ('DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY')
 CASH_FLOW_ENTRY_TYPES = ('EXPENSE', 'INCOME')
@@ -5346,6 +5530,13 @@ def store_catalog():
                 row.product_id for row in CustomerWishlist.query.filter_by(customer_id=cust.id).all()
             }
 
+    # A hunt is visible only at its selected product location and disappears
+    # after this loyalty account successfully claims it.
+    storefront_hunt_by_product = {}
+    for hunt in active_hidden_prize_hunts('STOREFRONT_PRODUCT', customer=cust):
+        if hunt.location_product_id and hunt.location_product_id not in storefront_hunt_by_product:
+            storefront_hunt_by_product[hunt.location_product_id] = hunt
+
     reorder_cart = session.pop('reorder_cart', None)
 
     return render_template('store_catalog.html', 
@@ -5364,6 +5555,7 @@ def store_catalog():
                            trending_ids=trending_ids,
                            ulams_today=ulams_today,
                            bundle_deals=bundle_deals,
+                           storefront_hunt_by_product=storefront_hunt_by_product,
                            reorder_cart=reorder_cart,
                            storefront_payment_settings=storefront_payment_settings(),
                            messenger_menu_url=(messenger_menu_start_url() if marketing_settings()['daily_menu_messenger_reply'] else ''),
@@ -5471,6 +5663,82 @@ def api_toggle_favorite(product_id):
     db.session.commit()
     return jsonify({'success': True, 'favorited': favorited})
 
+
+@app.route('/api/hidden-prizes/<int:hunt_id>/claim', methods=['POST'])
+def api_claim_hidden_prize(hunt_id):
+    """Claim a found gift against the signed-in loyalty account, never the browser."""
+    customer_id = session.get('customer_id')
+    if not customer_id:
+        return jsonify({'success': False, 'message': 'Log in or register before claiming a Hidden Treat.'}), 401
+    cust = db.session.get(Customer, customer_id)
+    issue = customer_access_issue(cust)
+    if issue:
+        return jsonify({'success': False, 'message': issue}), 403
+
+    try:
+        expire_hidden_prize_claims()
+        stmt = db.select(HiddenPrizeHunt).where(HiddenPrizeHunt.id == hunt_id)
+        if db.engine.dialect.name != 'sqlite':
+            stmt = stmt.with_for_update()
+        hunt = db.session.execute(stmt).scalar_one_or_none()
+        if not hidden_prize_hunt_is_live(hunt):
+            raise OrderValidationError('That Hidden Treat is no longer active.')
+        existing = HiddenPrizeClaim.query.filter_by(hunt_id=hunt.id, customer_id=cust.id).first()
+        if existing:
+            return jsonify({'success': True, 'already_claimed': True, 'message': hidden_prize_claim_message(existing), 'claim_code': existing.claim_code})
+        if hunt.max_winners and hidden_prize_claim_count(hunt.id) >= hunt.max_winners:
+            raise OrderValidationError('All Hidden Treat prizes have already been found. Watch for the next hunt!')
+
+        expires_at = hunt.reward_expires_at or (hunt.ends_at + timedelta(days=7))
+        claim = HiddenPrizeClaim(
+            hunt_id=hunt.id,
+            customer_id=cust.id,
+            status='AWARDED' if hunt.prize_type == 'POINTS' else 'AVAILABLE',
+            claim_code=None if hunt.prize_type == 'POINTS' else hidden_prize_claim_code(),
+            expires_at=expires_at,
+        )
+        if hunt.prize_type == 'POINTS':
+            points = round(parse_float(hunt.points_amount, 0.0), 2)
+            if points <= 0:
+                raise OrderValidationError('This Hidden Treat has no valid loyalty-points prize configured.')
+            cust.points_balance = round(parse_float(cust.points_balance, 0.0) + points, 2)
+            db.session.add(RewardLedger(
+                customer_id=cust.id,
+                points_change=points,
+                reason=f'Hidden Treat: {hunt.title}'[:150],
+            ))
+        elif hunt.prize_type == 'PRODUCT':
+            product = hunt.prize_product
+            if not product or not product.is_active or parse_int(product.stock, 0) < 1:
+                raise OrderValidationError('This free-product prize is no longer available. Please contact staff.')
+            # Reserve exactly one unit now so a valid successful claim remains
+            # redeemable even if ordinary product sales continue.
+            product.stock = parse_int(product.stock, 0) - 1
+            claim.stock_reserved = True
+        elif hunt.prize_type != 'VOUCHER':
+            raise OrderValidationError('This Hidden Treat prize type is invalid.')
+
+        db.session.add(claim)
+        db.session.add(PortalEvent(source='HIDDEN_TREAT', event_type='HIDDEN_PRIZE_CLAIM', customer_id=cust.id))
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': hidden_prize_claim_message(claim),
+            'claim_code': claim.claim_code,
+            'prize_type': hunt.prize_type,
+            'points_amount': hunt.points_amount,
+            'voucher_discount_percent': hunt.voucher_discount_percent,
+            'voucher_min_order': hunt.voucher_min_order,
+            'prize_product_name': hunt.prize_product.name if hunt.prize_product else None,
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Hidden Treat claim failed hunt_id=%s customer_id=%s', hunt_id, customer_id)
+        return jsonify({'success': False, 'message': 'The Hidden Treat could not be claimed. Nothing was awarded.'}), 500
+
 @app.route('/api/add-comment/<int:product_id>', methods=['POST'])
 def api_add_comment(product_id):
     ip = get_client_ip()
@@ -5511,6 +5779,7 @@ def api_storefront_checkout():
     landmark = str(data.get('landmark', '')).strip()
     delivery_address = str(data.get('delivery_address', '')).strip()
     gcash_ref = str(data.get('gcash_ref', '')).strip()
+    hidden_prize_code = str(data.get('hidden_prize_code', '')).strip().upper()
 
     if order_type not in {'PICKUP', 'DELIVERY'}:
         return jsonify({'success': False, 'message': 'Invalid order type.'}), 400
@@ -5560,8 +5829,13 @@ def api_storefront_checkout():
             allow_storefront_custom_amount=True,
         )
         subtotal = cart_subtotal(lines)
+        hidden_prize_claim, hidden_prize_discount = validate_hidden_prize_voucher(
+            cust, hidden_prize_code, subtotal
+        )
         points_redeemed, points_discount = calculate_points_redemption(cust, data.get('redeem_points'), subtotal)
-        total = max(0.0, subtotal + delivery_fee - points_discount)
+        if hidden_prize_claim and points_redeemed > 0:
+            raise OrderValidationError('Use either loyalty points or one Hidden Treat voucher on this order, not both.')
+        total = max(0.0, subtotal + delivery_fee - points_discount - hidden_prize_discount)
 
         if pay_method == 'CREDIT':
             available_credit = customer_available_credit(cust, include_pending=True)
@@ -5595,6 +5869,7 @@ def api_storefront_checkout():
             total_amount=total,
             points_redeemed=points_redeemed,
             points_discount=points_discount,
+            hidden_prize_discount=hidden_prize_discount,
             payment_method=pay_method,
             payment_verified=False,
             status='VERIFICATION',
@@ -5602,6 +5877,11 @@ def api_storefront_checkout():
         )
         db.session.add(order)
         db.session.flush()
+
+        if hidden_prize_claim:
+            hidden_prize_claim.status = 'REDEEMED'
+            hidden_prize_claim.redeemed_order_id = order.id
+            hidden_prize_claim.redeemed_at = utc_now()
 
         checkout_url = None
         if pay_method == 'GCASH' and payment_settings['paymongo_active']:
@@ -5633,7 +5913,8 @@ def api_storefront_checkout():
                         'tracking_url': url_for('order_tracking', token=order.public_token),
                         'payment_redirect_url': checkout_url,
                         'payment_pending': bool(checkout_url),
-                        'points_redeemed': points_redeemed, 'points_discount': points_discount})
+                        'points_redeemed': points_redeemed, 'points_discount': points_discount,
+                        'hidden_prize_discount': hidden_prize_discount})
     except OrderValidationError as exc:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(exc)}), 400
@@ -6155,6 +6436,11 @@ def cashier_terminal():
     active_bonus_campaigns = get_active_bonus_campaigns()
     community_gift_vouchers = CommunityGift.query.filter_by(gift_type='PRODUCT', status='AVAILABLE').order_by(CommunityGift.created_at.asc()).all()
     community_mystery_drops = CommunityDrop.query.filter_by(reward_type='STAFF_FREEBIE', status='ACTIVE').order_by(CommunityDrop.created_at.asc()).all()
+    expire_hidden_prize_claims(persist=True)
+    hidden_prize_product_claims = HiddenPrizeClaim.query.join(HiddenPrizeHunt).filter(
+        HiddenPrizeClaim.status == 'AVAILABLE',
+        HiddenPrizeHunt.prize_type == 'PRODUCT',
+    ).order_by(HiddenPrizeClaim.claimed_at.asc()).all()
 
     return render_template(
         'cashier_pos.html',
@@ -6174,6 +6460,7 @@ def cashier_terminal():
         active_bonus_campaigns=active_bonus_campaigns,
         community_gift_vouchers=community_gift_vouchers,
         community_mystery_drops=community_mystery_drops,
+        hidden_prize_product_claims=hidden_prize_product_claims,
     )
 
 
@@ -6310,6 +6597,7 @@ def cashier_direct_sale():
     cust_name = str(data.get('customer_name', 'Counter Walk-in')).strip() or 'Counter Walk-in'
     notes = str(data.get('notes', 'Cashier Counter POS Sale')).strip() or 'Cashier Counter POS Sale'
     change_for = parse_float(data.get('change_for'), 0.0)
+    hidden_prize_code = str(data.get('hidden_prize_code', '')).strip().upper()
 
     if dining_opt not in {'DINE-IN', 'TAKEOUT'}:
         return jsonify({'success': False, 'message': 'Invalid dining option.'}), 400
@@ -6324,6 +6612,8 @@ def cashier_direct_sale():
         points_earned = 0
         points_redeemed = 0.0
         points_discount = 0.0
+        hidden_prize_claim = None
+        hidden_prize_discount = 0.0
         contact = 'N/A'
         if cust_type == 'REGISTERED':
             cust = db.session.get(Customer, parse_int(reg_id, 0))
@@ -6334,11 +6624,16 @@ def cashier_direct_sale():
                 raise OrderValidationError(issue)
             cust_name = cust.name
             contact = cust.contact
+            hidden_prize_claim, hidden_prize_discount = validate_hidden_prize_voucher(cust, hidden_prize_code, subtotal)
             points_redeemed, points_discount = calculate_points_redemption(cust, data.get('redeem_points'), subtotal)
+            if hidden_prize_claim and points_redeemed > 0:
+                raise OrderValidationError('Use either loyalty points or one Hidden Treat voucher on this sale, not both.')
         elif parse_float(data.get('redeem_points'), 0.0) > 0:
             raise OrderValidationError('Select a registered member before redeeming points.')
+        elif hidden_prize_code:
+            raise OrderValidationError('Select the registered member who owns this Hidden Treat voucher.')
 
-        total = max(0.0, subtotal - points_discount)
+        total = max(0.0, subtotal - points_discount - hidden_prize_discount)
         if pay_method == 'CASH' and change_for and change_for < total:
             raise OrderValidationError('Cash bill cannot be less than the discounted sale total.')
 
@@ -6364,6 +6659,7 @@ def cashier_direct_sale():
             total_amount=total,
             points_redeemed=points_redeemed,
             points_discount=points_discount,
+            hidden_prize_discount=hidden_prize_discount,
             base_points_earned=points_earned if cust else None,
             payment_method=pay_method,
             payment_verified=True,
@@ -6374,6 +6670,10 @@ def cashier_direct_sale():
         )
         db.session.add(order)
         db.session.flush()
+        if hidden_prize_claim:
+            hidden_prize_claim.status = 'REDEEMED'
+            hidden_prize_claim.redeemed_order_id = order.id
+            hidden_prize_claim.redeemed_at = utc_now()
         if cust:
             record_points_redemption(cust, points_redeemed, order.id, 'Counter POS points discount')
 
@@ -6400,6 +6700,7 @@ def cashier_direct_sale():
             'points_earned': points_earned,
             'points_redeemed': points_redeemed,
             'points_discount': points_discount,
+            'hidden_prize_discount': hidden_prize_discount,
             'bonus_points': marketing['bonus_points'],
             'referral_points': marketing['referral_member_points'],
             'member_balance': (cust.points_balance or 0.0) if cust else None,
@@ -6411,6 +6712,68 @@ def cashier_direct_sale():
         db.session.rollback()
         app.logger.exception('Cashier direct sale failed')
         return jsonify({'success': False, 'message': 'Sale failed due to a server error. Nothing was recorded.'}), 500
+
+
+@app.route('/pos/redeem-hidden-prize/<int:claim_id>', methods=['POST'])
+@require_cashier
+def cashier_redeem_hidden_prize(claim_id):
+    """Hand over an already-reserved Hidden Treat product and keep an audit slip."""
+    try:
+        expire_hidden_prize_claims()
+        claim = HiddenPrizeClaim.query.get_or_404(claim_id)
+        hunt = claim.hunt
+        if claim.status != 'AVAILABLE' or not hunt or hunt.prize_type != 'PRODUCT':
+            raise OrderValidationError('That Hidden Treat product claim is no longer available.')
+        product = hunt.prize_product
+        if not product:
+            raise OrderValidationError('The reward product no longer exists. Do not hand over a substitute until Admin resolves it.')
+        if not claim.stock_reserved:
+            if parse_int(product.stock, 0) < 1:
+                raise OrderValidationError('The reward product is out of stock.')
+            product.stock = parse_int(product.stock, 0) - 1
+            claim.stock_reserved = True
+
+        customer = claim.customer
+        order = Order(
+            order_type='HIDDEN_PRIZE',
+            dining_option='TAKEOUT',
+            customer_id=customer.id,
+            customer_name=customer.name,
+            contact_number=customer.contact,
+            subtotal=0.0,
+            delivery_fee=0.0,
+            total_amount=0.0,
+            payment_method='HIDDEN_PRIZE',
+            payment_verified=True,
+            status='COMPLETED',
+            fulfillment_status='FULFILLED',
+            notes=f'Hidden Treat product redeemed: {hunt.title} • {claim.claim_code}',
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add(OrderItem(
+            order_id=order.id,
+            product_id=product.id,
+            product_name=f'[Hidden Treat] {product.name}',
+            unit_price=0.0,
+            cost_price=max(0.0, parse_float(product.cost, 0.0)),
+            quantity=1,
+            subtotal=0.0,
+            selected_options=None,
+        ))
+        claim.status = 'REDEEMED'
+        claim.redeemed_order_id = order.id
+        claim.redeemed_at = utc_now()
+        db.session.commit()
+        flash(f'Hidden Treat redeemed for {customer.name}: {product.name}.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Cashier Hidden Treat redemption failed claim_id=%s', claim_id)
+        flash('The Hidden Treat could not be redeemed. Nothing was recorded.', 'error')
+    return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/claim-promo', methods=['POST'])
 @require_cashier
@@ -11248,6 +11611,11 @@ def admin_dashboard():
     vault_drops = VaultDrop.query.order_by(VaultDrop.created_at.desc()).all()
     promotions = PromotionTracker.query.order_by(PromotionTracker.created_at.desc()).all()
     bundle_deals = BundleDeal.query.order_by(BundleDeal.created_at.desc(), BundleDeal.id.desc()).all()
+    expire_hidden_prize_claims(persist=True)
+    hidden_prize_hunts = HiddenPrizeHunt.query.order_by(HiddenPrizeHunt.created_at.desc(), HiddenPrizeHunt.id.desc()).all()
+    hidden_prize_claim_counts = {
+        hunt.id: hidden_prize_claim_count(hunt.id) for hunt in hidden_prize_hunts
+    }
     for bundle in bundle_deals:
         try:
             bundle.pricing = bundle_deal_pricing(bundle)
@@ -11380,6 +11748,8 @@ def admin_dashboard():
                            vault_drops=vault_drops, 
         promotions=promotions,
         bundle_deals=bundle_deals,
+        hidden_prize_hunts=hidden_prize_hunts,
+        hidden_prize_claim_counts=hidden_prize_claim_counts,
                            product_sales_stats=product_sales_stats, 
                            food_revenue_total=food_revenue_total, 
                            service_revenue_total=service_revenue_total, 
@@ -11921,6 +12291,109 @@ def admin_delete_bundle_deal(bundle_id):
     db.session.commit()
     flash(f"Bundle '{name}' was removed. Previous orders remain unchanged.", 'success')
     return bundle_admin_redirect()
+
+
+def hidden_prize_admin_redirect():
+    return redirect(url_for('admin_dashboard') + '#hidden-treat-hunts')
+
+
+def hidden_prize_form_values(form):
+    title = re.sub(r'\s+', ' ', (form.get('title') or '').strip())[:140]
+    location = str(form.get('location') or '').strip().upper()
+    prize_type = str(form.get('prize_type') or '').strip().upper()
+    if not title or location not in HIDDEN_PRIZE_LOCATIONS or prize_type not in HIDDEN_PRIZE_TYPES:
+        raise OrderValidationError('Choose a hunt title, a valid location, and a valid prize type.')
+
+    starts_at = hidden_prize_admin_datetime(form.get('starts_at'), utc_now())
+    ends_at = hidden_prize_admin_datetime(form.get('ends_at'))
+    reward_expires_at = hidden_prize_admin_datetime(form.get('reward_expires_at'))
+    if not ends_at or ends_at <= starts_at:
+        raise OrderValidationError('The hunt end time must be after the start time.')
+    if reward_expires_at and reward_expires_at <= starts_at:
+        raise OrderValidationError('Reward expiry must be after the hunt starts.')
+
+    location_product_id = parse_int(form.get('location_product_id'), 0) or None
+    if location == 'STOREFRONT_PRODUCT':
+        location_product = db.session.get(Product, location_product_id)
+        if not location_product or not location_product.is_active:
+            raise OrderValidationError('Choose an active product where the storefront gift box will be hidden.')
+    else:
+        location_product_id = None
+
+    points_amount = round(parse_float(form.get('points_amount'), 0.0), 2)
+    voucher_discount_percent = round(parse_float(form.get('voucher_discount_percent'), 0.0), 2)
+    voucher_min_order = round(parse_float(form.get('voucher_min_order'), 0.0), 2)
+    prize_product_id = parse_int(form.get('prize_product_id'), 0) or None
+    max_winners = parse_int(form.get('max_winners'), 0)
+    if max_winners < 0 or max_winners > 100000:
+        raise OrderValidationError('Winner limit must be from 0 to 100,000. Use 0 only for an unlimited points/voucher hunt.')
+
+    if prize_type == 'POINTS':
+        if points_amount <= 0 or points_amount > 1000:
+            raise OrderValidationError('Hidden Treat loyalty points must be greater than 0 and no more than 1,000.')
+        voucher_discount_percent = voucher_min_order = 0.0
+        prize_product_id = None
+    elif prize_type == 'VOUCHER':
+        if voucher_discount_percent <= 0 or voucher_discount_percent > 100 or voucher_min_order < 0:
+            raise OrderValidationError('Voucher discount must be from 0.01% to 100%, and its minimum order cannot be negative.')
+        points_amount = 0.0
+        prize_product_id = None
+    else:
+        prize_product = db.session.get(Product, prize_product_id)
+        if not prize_product or not prize_product.is_active:
+            raise OrderValidationError('Choose an active product to give as the free-product prize.')
+        if max_winners < 1:
+            raise OrderValidationError('A free-product hunt needs a finite winner limit so stock can be protected.')
+        if max_winners > parse_int(prize_product.stock, 0):
+            raise OrderValidationError(f'Winner limit cannot exceed the current stock of {prize_product.name}.')
+        points_amount = voucher_discount_percent = voucher_min_order = 0.0
+
+    return {
+        'title': title,
+        'location': location,
+        'location_product_id': location_product_id,
+        'prize_type': prize_type,
+        'points_amount': points_amount,
+        'voucher_discount_percent': voucher_discount_percent,
+        'voucher_min_order': voucher_min_order,
+        'prize_product_id': prize_product_id,
+        'max_winners': max_winners,
+        'starts_at': starts_at,
+        'ends_at': ends_at,
+        'reward_expires_at': reward_expires_at,
+    }
+
+
+@app.route('/admin/hidden-prizes/create', methods=['POST'])
+@require_admin
+def admin_create_hidden_prize_hunt():
+    try:
+        values = hidden_prize_form_values(request.form)
+        db.session.add(HiddenPrizeHunt(
+            **values,
+            is_active=bool(request.form.get('is_active')),
+            created_by=session.get('admin_user') or 'admin',
+        ))
+        db.session.commit()
+        flash('Hidden Treat Hunt created. Only eligible signed-in customers can claim a prize once.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not create Hidden Treat Hunt')
+        flash('Hidden Treat Hunt could not be created. No hunt was saved.', 'error')
+    return hidden_prize_admin_redirect()
+
+
+@app.route('/admin/hidden-prizes/<int:hunt_id>/toggle', methods=['POST'])
+@require_admin
+def admin_toggle_hidden_prize_hunt(hunt_id):
+    hunt = HiddenPrizeHunt.query.get_or_404(hunt_id)
+    hunt.is_active = not bool(hunt.is_active)
+    db.session.commit()
+    flash(f"Hidden Treat Hunt '{hunt.title}' is now {'active' if hunt.is_active else 'paused'}. Existing prizes remain valid until their reward expiry.", 'success')
+    return hidden_prize_admin_redirect()
 
 @app.route('/admin/batch-update-products', methods=['POST'])
 @require_admin
@@ -12602,6 +13075,7 @@ def community_home():
             CommunityProfile.is_community_admin.is_(True),
         ))
     mentionable_profiles = mentionable_query.order_by(CommunityProfile.handle.asc()).limit(300).all()
+    community_hidden_hunts = active_hidden_prize_hunts('COMMUNITY', customer=cust)
     return render_template(
         'community.html',
         cust=cust,
@@ -12662,6 +13136,7 @@ def community_home():
         community_trusted_post_threshold=COMMUNITY_TRUSTED_POST_THRESHOLD,
         community_max_post_mentions=COMMUNITY_MAX_POST_MENTIONS,
         mentionable_profiles=mentionable_profiles,
+        community_hidden_hunts=community_hidden_hunts,
     )
 
 @app.route('/community/member/<string:handle>')
@@ -14602,6 +15077,9 @@ def customer_dashboard():
     points_to_reward = max(0.0, reward_target - balance)
     reward_progress_pct = min(100.0, (balance / reward_target * 100.0) if reward_target else 100.0)
     recent_rewards = RewardLedger.query.filter_by(customer_id=cust.id).order_by(RewardLedger.created_at.desc()).limit(8).all()
+    hidden_prize_claims = customer_hidden_prize_claims(cust)
+    hidden_prize_vouchers = [claim for claim in hidden_prize_claims if claim.hunt and claim.hunt.prize_type == 'VOUCHER' and claim.status == 'AVAILABLE']
+    loyalty_hidden_hunts = active_hidden_prize_hunts('LOYALTY_PORTAL', customer=cust)
     referral_rewards_count = ReferralReward.query.filter_by(referrer_customer_id=cust.id).count()
     favorite_items = Product.query.join(
         CustomerWishlist, CustomerWishlist.product_id == Product.id
@@ -14624,6 +15102,9 @@ def customer_dashboard():
         points_to_reward=points_to_reward,
         reward_progress_pct=reward_progress_pct,
         recent_rewards=recent_rewards,
+        hidden_prize_claims=hidden_prize_claims,
+        hidden_prize_vouchers=hidden_prize_vouchers,
+        loyalty_hidden_hunts=loyalty_hidden_hunts,
         referral_rewards_count=referral_rewards_count,
         favorite_items=favorite_items,
         loyalty_card_themes=LOYALTY_CARD_THEMES,

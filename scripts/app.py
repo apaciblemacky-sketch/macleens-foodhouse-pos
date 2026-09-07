@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.06-mobile-qr-scanner-v16'
+APP_RELEASE = '2026.09.07-hidden-treat-v18'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -163,6 +163,10 @@ class Customer(db.Model):
     default_landmark = db.Column(db.String(150), nullable=True)
     points_balance = db.Column(db.Float, default=0.0)
     is_credit_eligible = db.Column(db.Boolean, default=False)
+    # Cash on delivery is a staff-approved privilege.  Pickup cash remains
+    # available to every active member, but delivery cash is opt-in to reduce
+    # abandoned / uncollectible delivery orders.
+    is_cod_eligible = db.Column(db.Boolean, default=False, nullable=False)
     credit_limit = db.Column(db.Float, default=0.0)
     outstanding_ar = db.Column(db.Float, default=0.0)
     accumulated_spend = db.Column(db.Float, default=0.0)
@@ -199,6 +203,9 @@ class DeliveryZone(db.Model):
     distance = db.Column(db.String(50), nullable=True)
     note = db.Column(db.String(150), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
+    # When false, a zone is intentionally a zone-only handoff area and the
+    # storefront hides the Purok/Landmark fields for it.
+    requires_detailed_address = db.Column(db.Boolean, default=True, nullable=False)
 
 class Category(db.Model):
     __tablename__ = 'category'
@@ -291,11 +298,19 @@ class Order(db.Model):
     total_amount = db.Column(db.Float, nullable=False)
     points_redeemed = db.Column(db.Float, default=0.0)
     points_discount = db.Column(db.Float, default=0.0)
+    # A Hidden Treat voucher is a separate promotion from loyalty points so
+    # reports can show exactly why an order was discounted.
+    hidden_prize_discount = db.Column(db.Float, default=0.0, nullable=False)
     # Snapshot the base loyalty points issued for this order.  This keeps an
     # older transaction correct if the earning rule changes later.
     base_points_earned = db.Column(db.Float, nullable=True)
     payment_method = db.Column(db.String(20), nullable=False)
     payment_verified = db.Column(db.Boolean, default=False)
+    payment_gateway = db.Column(db.String(30), nullable=True)
+    gateway_checkout_id = db.Column(db.String(120), nullable=True)
+    gateway_checkout_url = db.Column(db.Text, nullable=True)
+    gateway_checked_at = db.Column(db.DateTime, nullable=True)
+    gateway_response = db.Column(db.Text, nullable=True)
     status = db.Column(db.String(30), default="VERIFICATION")
     is_unpaid = db.Column(db.Boolean, default=False)
     collection_notes = db.Column(db.String(255), nullable=True)
@@ -320,6 +335,74 @@ class OrderItem(db.Model):
     quantity = db.Column(db.Integer, nullable=False)
     subtotal = db.Column(db.Float, nullable=False)
     selected_options = db.Column(db.Text, nullable=True)
+
+
+class HiddenPrizeHunt(db.Model):
+    """An administrator-created, account-bound hidden reward campaign.
+
+    A hunt can be placed on one product card, in the loyalty portal, or in
+    Community.  It never relies on browser state for a reward decision.
+    """
+    __tablename__ = 'hidden_prize_hunt'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(140), nullable=False)
+    location = db.Column(db.String(30), nullable=False)  # STOREFRONT_PRODUCT, LOYALTY_PORTAL, COMMUNITY
+    location_product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='SET NULL'), nullable=True, index=True)
+    prize_type = db.Column(db.String(20), nullable=False)  # POINTS, VOUCHER, PRODUCT
+    points_amount = db.Column(db.Float, nullable=False, default=0.0)
+    voucher_discount_percent = db.Column(db.Float, nullable=False, default=0.0)
+    voucher_min_order = db.Column(db.Float, nullable=False, default=0.0)
+    prize_product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='SET NULL'), nullable=True, index=True)
+    max_winners = db.Column(db.Integer, nullable=False, default=0)  # 0 means unlimited
+    starts_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    ends_at = db.Column(db.DateTime, nullable=False)
+    reward_expires_at = db.Column(db.DateTime, nullable=True)
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+    location_product = db.relationship('Product', foreign_keys=[location_product_id], lazy=True)
+    prize_product = db.relationship('Product', foreign_keys=[prize_product_id], lazy=True)
+
+
+class HiddenPrizeClaim(db.Model):
+    """One claim per loyalty member per hunt, with optional voucher code."""
+    __tablename__ = 'hidden_prize_claim'
+    __table_args__ = (UniqueConstraint('hunt_id', 'customer_id', name='uq_hidden_prize_hunt_customer'),)
+    id = db.Column(db.Integer, primary_key=True)
+    hunt_id = db.Column(db.Integer, db.ForeignKey('hidden_prize_hunt.id', ondelete='CASCADE'), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False, index=True)
+    claim_code = db.Column(db.String(32), unique=True, nullable=True, index=True)
+    status = db.Column(db.String(20), nullable=False, default='AVAILABLE')  # AWARDED, AVAILABLE, REDEEMED, EXPIRED
+    stock_reserved = db.Column(db.Boolean, nullable=False, default=False)
+    expires_at = db.Column(db.DateTime, nullable=True, index=True)
+    redeemed_order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='SET NULL'), nullable=True)
+    claimed_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    redeemed_at = db.Column(db.DateTime, nullable=True)
+    hunt = db.relationship('HiddenPrizeHunt', lazy=True)
+    customer = db.relationship('Customer', lazy=True)
+    redeemed_order = db.relationship('Order', lazy=True)
+
+
+class CustomerChatMessage(db.Model):
+    """Small, short-lived customer-to-cashier conversation records.
+
+    Order messages are purged as soon as fulfillment closes.  Support messages
+    expire after one day, so the feature does not grow into a permanent chat
+    archive or hold unnecessary personal data.
+    """
+    __tablename__ = 'customer_chat_message'
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='CASCADE'), nullable=False, index=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('order.id', ondelete='CASCADE'), nullable=True, index=True)
+    sender_type = db.Column(db.String(16), nullable=False)  # CUSTOMER, CASHIER, SYSTEM
+    sender_staff = db.Column(db.String(50), nullable=True)
+    body = db.Column(db.String(500), nullable=False)
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False, index=True)
+    customer = db.relationship('Customer', lazy=True)
+    order = db.relationship('Order', lazy=True)
 
 class Expense(db.Model):
     __tablename__ = 'expense'
@@ -1634,6 +1717,7 @@ def run_schema_migrations():
             ('break_start', 'VARCHAR(5)'),
             ('break_end', 'VARCHAR(5)'),
             ('favorite_alerts', 'BOOLEAN DEFAULT FALSE'),
+            ('is_cod_eligible', 'BOOLEAN DEFAULT FALSE'),
             ('community_student_preapproved', 'BOOLEAN DEFAULT FALSE'),
             ('community_student_preapproved_at', 'TIMESTAMP'),
             ('community_student_preapproved_by', 'VARCHAR(50)'),
@@ -1642,10 +1726,19 @@ def run_schema_migrations():
             ('dining_option', "VARCHAR(20) DEFAULT 'DINE-IN'"),
             ('points_redeemed', 'FLOAT DEFAULT 0.0'),
             ('points_discount', 'FLOAT DEFAULT 0.0'),
+            ('hidden_prize_discount', 'FLOAT DEFAULT 0.0'),
             ('base_points_earned', 'FLOAT'),
             ('public_token', 'VARCHAR(64)'),
             ('fulfillment_status', "VARCHAR(30) DEFAULT 'SUBMITTED'"),
             ('receipt_number', 'VARCHAR(80)'),
+            ('payment_gateway', 'VARCHAR(30)'),
+            ('gateway_checkout_id', 'VARCHAR(120)'),
+            ('gateway_checkout_url', 'TEXT'),
+            ('gateway_checked_at', 'TIMESTAMP'),
+            ('gateway_response', 'TEXT'),
+        ],
+        'delivery_zone': [
+            ('requires_detailed_address', 'BOOLEAN DEFAULT TRUE'),
         ],
         'promotion_tracker': [
             ('promo_cost', 'FLOAT DEFAULT 0.0'),
@@ -1765,6 +1858,7 @@ def run_schema_migrations():
             conn.execute(text("UPDATE customer SET card_text_scale = 1.0 WHERE card_text_scale IS NULL"))
             conn.execute(text("UPDATE customer SET card_info_scale = 1.0 WHERE card_info_scale IS NULL"))
             conn.execute(text("UPDATE customer SET favorite_alerts = FALSE WHERE favorite_alerts IS NULL"))
+            conn.execute(text("UPDATE customer SET is_cod_eligible = FALSE WHERE is_cod_eligible IS NULL"))
             conn.execute(text("UPDATE customer SET community_student_preapproved = FALSE WHERE community_student_preapproved IS NULL"))
         if 'community_profile' in tables:
             conn.execute(text("UPDATE community_profile SET is_community_admin = FALSE WHERE is_community_admin IS NULL"))
@@ -1780,6 +1874,8 @@ def run_schema_migrations():
             conn.execute(text("UPDATE product SET prep_minutes = 10 WHERE prep_minutes IS NULL OR prep_minutes < 1"))
         if 'order' in tables:
             conn.execute(text("UPDATE \"order\" SET fulfillment_status = CASE WHEN status = 'COMPLETED' THEN 'FULFILLED' WHEN status = 'CANCELLED' THEN 'CANCELLED' ELSE 'SUBMITTED' END WHERE fulfillment_status IS NULL OR fulfillment_status = ''"))
+        if 'delivery_zone' in tables:
+            conn.execute(text("UPDATE delivery_zone SET requires_detailed_address = TRUE WHERE requires_detailed_address IS NULL"))
         if 'investor_interest' in tables:
             conn.execute(text("UPDATE investor_interest SET offer_code = 'GENERAL' WHERE offer_code IS NULL OR offer_code = ''"))
             conn.execute(text("UPDATE investor_interest SET is_counter_offer = FALSE WHERE is_counter_offer IS NULL"))
@@ -2039,6 +2135,139 @@ def record_points_redemption(cust, points, order_id=None, reason='Purchase disco
     cust.points_balance = round(max(0.0, parse_float(cust.points_balance, 0.0) - points), 2)
     suffix = f' / Order #{order_id}' if order_id else ''
     db.session.add(RewardLedger(customer_id=cust.id, points_change=-points, reason=f'{reason}{suffix}'))
+
+
+# ==================== HIDDEN TREAT HUNTS ====================
+
+HIDDEN_PRIZE_LOCATIONS = ('STOREFRONT_PRODUCT', 'LOYALTY_PORTAL', 'COMMUNITY')
+HIDDEN_PRIZE_TYPES = ('POINTS', 'VOUCHER', 'PRODUCT')
+
+
+def hidden_prize_admin_datetime(value, fallback=None):
+    """Read an Admin datetime-local value as Philippine time, stored as UTC-naive."""
+    raw = str(value or '').strip()
+    if not raw:
+        return fallback
+    try:
+        local = datetime.strptime(raw[:16], '%Y-%m-%dT%H:%M').replace(tzinfo=MANILA_TZ)
+    except ValueError:
+        raise OrderValidationError('Use a valid Philippine start/end date and time for the Hidden Treat Hunt.')
+    return local.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def hidden_prize_hunt_is_live(hunt, at=None):
+    now = at or utc_now()
+    return bool(
+        hunt and hunt.is_active and hunt.starts_at and hunt.ends_at
+        and hunt.starts_at <= now < hunt.ends_at
+    )
+
+
+def expire_hidden_prize_claims(now=None, persist=False):
+    """Expire unused rewards and return a product only when it was reserved."""
+    now = now or utc_now()
+    claims = HiddenPrizeClaim.query.filter(
+        HiddenPrizeClaim.status == 'AVAILABLE',
+        HiddenPrizeClaim.expires_at.isnot(None),
+        HiddenPrizeClaim.expires_at <= now,
+    ).all()
+    for claim in claims:
+        if claim.stock_reserved and claim.hunt and claim.hunt.prize_type == 'PRODUCT' and claim.hunt.prize_product:
+            claim.hunt.prize_product.stock = max(0, parse_int(claim.hunt.prize_product.stock, 0)) + 1
+            claim.stock_reserved = False
+        claim.status = 'EXPIRED'
+    # Read-only pages use this so an expired free-product reservation is
+    # genuinely returned to stock even when no later form submission happens.
+    # Checkout/claim endpoints keep the default to preserve their one atomic
+    # transaction together with any new order or reward.
+    if claims and persist:
+        db.session.commit()
+    return len(claims)
+
+
+def hidden_prize_claim_count(hunt_id):
+    return HiddenPrizeClaim.query.filter_by(hunt_id=hunt_id).count()
+
+
+def active_hidden_prize_hunts(location, customer=None, product_id=None):
+    """Return live, still-findable hunts for a placement and optional customer."""
+    now = utc_now()
+    expire_hidden_prize_claims(now, persist=True)
+    query = HiddenPrizeHunt.query.filter(
+        HiddenPrizeHunt.location == location,
+        HiddenPrizeHunt.is_active.is_(True),
+        HiddenPrizeHunt.starts_at <= now,
+        HiddenPrizeHunt.ends_at > now,
+    )
+    if product_id is not None:
+        query = query.filter(HiddenPrizeHunt.location_product_id == product_id)
+    hunts = query.order_by(HiddenPrizeHunt.id.asc()).all()
+    eligible = []
+    for hunt in hunts:
+        if hunt.max_winners and hidden_prize_claim_count(hunt.id) >= hunt.max_winners:
+            continue
+        if customer and HiddenPrizeClaim.query.filter_by(hunt_id=hunt.id, customer_id=customer.id).first():
+            continue
+        eligible.append(hunt)
+    return eligible
+
+
+def hidden_prize_claim_code():
+    for _ in range(12):
+        code = 'HUNT-' + secrets.token_hex(4).upper()
+        if not HiddenPrizeClaim.query.filter_by(claim_code=code).first():
+            return code
+    raise OrderValidationError('Could not generate a unique Hidden Treat claim code. Please try again.')
+
+
+def hidden_prize_claim_message(claim):
+    hunt = claim.hunt
+    if hunt.prize_type == 'POINTS':
+        return f'You found the Hidden Treat! +{hunt.points_amount:g} loyalty points were added to your account.'
+    if hunt.prize_type == 'VOUCHER':
+        minimum = f' on a ₱{hunt.voucher_min_order:,.2f}+ food order' if hunt.voucher_min_order > 0 else ''
+        return f'You found a {hunt.voucher_discount_percent:g}% Hidden Treat voucher{minimum}! Use code {claim.claim_code} at checkout before it expires.'
+    product_name = hunt.prize_product.name if hunt.prize_product else 'free product'
+    return f'You found a free {product_name}! Show code {claim.claim_code} to the cashier before it expires.'
+
+
+def customer_hidden_prize_claims(customer, include_redeemed=False):
+    expire_hidden_prize_claims(persist=True)
+    statuses = ('AWARDED', 'AVAILABLE') if not include_redeemed else ('AWARDED', 'AVAILABLE', 'REDEEMED')
+    return HiddenPrizeClaim.query.filter(
+        HiddenPrizeClaim.customer_id == customer.id,
+        HiddenPrizeClaim.status.in_(statuses),
+    ).order_by(HiddenPrizeClaim.claimed_at.desc()).all()
+
+
+def customer_hidden_prize_vouchers(customer):
+    return [claim for claim in customer_hidden_prize_claims(customer) if claim.hunt and claim.hunt.prize_type == 'VOUCHER' and claim.status == 'AVAILABLE']
+
+
+def validate_hidden_prize_voucher(customer, raw_code, merchandise_subtotal):
+    """Validate a voucher server-side; browser totals and claim text are never trusted."""
+    code = str(raw_code or '').strip().upper()
+    if not code:
+        return None, 0.0
+    expire_hidden_prize_claims()
+    claim = HiddenPrizeClaim.query.filter_by(
+        customer_id=customer.id, claim_code=code, status='AVAILABLE',
+    ).first()
+    if not claim or not claim.hunt or claim.hunt.prize_type != 'VOUCHER':
+        raise OrderValidationError('That Hidden Treat voucher is unavailable, expired, or does not belong to this account.')
+    hunt = claim.hunt
+    if not hidden_prize_hunt_is_live(hunt) and hunt.reward_expires_at and hunt.reward_expires_at <= utc_now():
+        raise OrderValidationError('That Hidden Treat voucher has expired.')
+    if claim.expires_at and claim.expires_at <= utc_now():
+        raise OrderValidationError('That Hidden Treat voucher has expired.')
+    if merchandise_subtotal + 1e-9 < max(0.0, hunt.voucher_min_order or 0.0):
+        raise OrderValidationError(
+            f'This Hidden Treat voucher needs at least ₱{hunt.voucher_min_order:,.2f} in food items.'
+        )
+    percent = max(0.0, min(100.0, parse_float(hunt.voucher_discount_percent, 0.0)))
+    if percent <= 0:
+        raise OrderValidationError('This Hidden Treat voucher has no valid discount configured.')
+    return claim, round(merchandise_subtotal * percent / 100.0, 2)
 
 CASH_FLOW_FREQUENCIES = ('DAILY', 'WEEKLY', 'BIWEEKLY', 'MONTHLY')
 CASH_FLOW_ENTRY_TYPES = ('EXPENSE', 'INCOME')
@@ -2689,6 +2918,87 @@ def customer_access_issue(cust):
             return 'Your rewards card has expired. Please ask staff to renew it.'
         return f'Your rewards account is currently {status.lower()}.'
     return None
+
+
+CUSTOMER_CHAT_MESSAGE_MAX = 500
+CUSTOMER_CHAT_SUPPORT_TTL = timedelta(hours=24)
+
+
+def clean_expired_customer_chats():
+    """Remove short support chats; completed order chats are cleared separately."""
+    return CustomerChatMessage.query.filter(
+        CustomerChatMessage.expires_at.isnot(None),
+        CustomerChatMessage.expires_at <= utc_now(),
+    ).delete(synchronize_session=False)
+
+
+def clear_order_customer_chat(order_id):
+    """Delete the short-lived discussion after an order is cancelled or fulfilled."""
+    CustomerChatMessage.query.filter_by(order_id=order_id).delete(synchronize_session=False)
+
+
+def customer_chat_message_payload(message):
+    return {
+        'id': message.id,
+        'sender_type': message.sender_type,
+        'sender_label': 'Cashier' if message.sender_type == 'CASHIER' else ('Macleen’s Food House' if message.sender_type == 'SYSTEM' else 'You'),
+        'body': message.body,
+        'created_at': message.created_at.isoformat() if message.created_at else None,
+    }
+
+
+def customer_chat_order_for_token(customer, token):
+    if not token:
+        return None
+    return Order.query.filter_by(public_token=token, customer_id=customer.id).first()
+
+
+def cashier_chat_thread_from_key(thread_key):
+    """Return a staff-safe (customer, order) tuple from an opaque UI key."""
+    raw = str(thread_key or '').strip()
+    if raw.startswith('order-'):
+        order = db.session.get(Order, parse_int(raw[6:], 0))
+        if not order or not order.customer_id:
+            return None, None
+        return db.session.get(Customer, order.customer_id), order
+    if raw.startswith('support-'):
+        customer = db.session.get(Customer, parse_int(raw[8:], 0))
+        return customer, None
+    return None, None
+
+
+def cashier_chat_threads(limit=80):
+    """Small list of active temporary conversations, newest message first."""
+    purged = clean_expired_customer_chats()
+    messages = CustomerChatMessage.query.filter(
+        or_(CustomerChatMessage.expires_at.is_(None), CustomerChatMessage.expires_at > utc_now())
+    ).order_by(CustomerChatMessage.created_at.desc()).limit(max(20, min(300, limit * 5))).all()
+    rows = []
+    seen = set()
+    for message in messages:
+        key = f'order-{message.order_id}' if message.order_id else f'support-{message.customer_id}'
+        if key in seen:
+            continue
+        customer = message.customer or db.session.get(Customer, message.customer_id)
+        order = message.order or (db.session.get(Order, message.order_id) if message.order_id else None)
+        if not customer:
+            continue
+        unread = CustomerChatMessage.query.filter_by(
+            customer_id=customer.id, order_id=message.order_id, sender_type='CUSTOMER', is_read=False
+        ).count()
+        rows.append({
+            'thread_key': key,
+            'customer_name': customer.name,
+            'order_id': order.id if order else None,
+            'order_type': order.order_type if order else 'Storefront help',
+            'last_body': message.body,
+            'last_at': message.created_at.isoformat() if message.created_at else None,
+            'unread_count': unread,
+        })
+        seen.add(key)
+        if len(rows) >= limit:
+            break
+    return rows
 
 def get_customer_by_identifier(identifier):
     value = (identifier or '').strip()
@@ -5220,6 +5530,13 @@ def store_catalog():
                 row.product_id for row in CustomerWishlist.query.filter_by(customer_id=cust.id).all()
             }
 
+    # A hunt is visible only at its selected product location and disappears
+    # after this loyalty account successfully claims it.
+    storefront_hunt_by_product = {}
+    for hunt in active_hidden_prize_hunts('STOREFRONT_PRODUCT', customer=cust):
+        if hunt.location_product_id and hunt.location_product_id not in storefront_hunt_by_product:
+            storefront_hunt_by_product[hunt.location_product_id] = hunt
+
     reorder_cart = session.pop('reorder_cart', None)
 
     return render_template('store_catalog.html', 
@@ -5238,7 +5555,9 @@ def store_catalog():
                            trending_ids=trending_ids,
                            ulams_today=ulams_today,
                            bundle_deals=bundle_deals,
+                           storefront_hunt_by_product=storefront_hunt_by_product,
                            reorder_cart=reorder_cart,
+                           storefront_payment_settings=storefront_payment_settings(),
                            messenger_menu_url=(messenger_menu_start_url() if marketing_settings()['daily_menu_messenger_reply'] else ''),
                            product_is_available_now=is_product_available_now)
 
@@ -5344,6 +5663,82 @@ def api_toggle_favorite(product_id):
     db.session.commit()
     return jsonify({'success': True, 'favorited': favorited})
 
+
+@app.route('/api/hidden-prizes/<int:hunt_id>/claim', methods=['POST'])
+def api_claim_hidden_prize(hunt_id):
+    """Claim a found gift against the signed-in loyalty account, never the browser."""
+    customer_id = session.get('customer_id')
+    if not customer_id:
+        return jsonify({'success': False, 'message': 'Log in or register before claiming a Hidden Treat.'}), 401
+    cust = db.session.get(Customer, customer_id)
+    issue = customer_access_issue(cust)
+    if issue:
+        return jsonify({'success': False, 'message': issue}), 403
+
+    try:
+        expire_hidden_prize_claims()
+        stmt = db.select(HiddenPrizeHunt).where(HiddenPrizeHunt.id == hunt_id)
+        if db.engine.dialect.name != 'sqlite':
+            stmt = stmt.with_for_update()
+        hunt = db.session.execute(stmt).scalar_one_or_none()
+        if not hidden_prize_hunt_is_live(hunt):
+            raise OrderValidationError('That Hidden Treat is no longer active.')
+        existing = HiddenPrizeClaim.query.filter_by(hunt_id=hunt.id, customer_id=cust.id).first()
+        if existing:
+            return jsonify({'success': True, 'already_claimed': True, 'message': hidden_prize_claim_message(existing), 'claim_code': existing.claim_code})
+        if hunt.max_winners and hidden_prize_claim_count(hunt.id) >= hunt.max_winners:
+            raise OrderValidationError('All Hidden Treat prizes have already been found. Watch for the next hunt!')
+
+        expires_at = hunt.reward_expires_at or (hunt.ends_at + timedelta(days=7))
+        claim = HiddenPrizeClaim(
+            hunt_id=hunt.id,
+            customer_id=cust.id,
+            status='AWARDED' if hunt.prize_type == 'POINTS' else 'AVAILABLE',
+            claim_code=None if hunt.prize_type == 'POINTS' else hidden_prize_claim_code(),
+            expires_at=expires_at,
+        )
+        if hunt.prize_type == 'POINTS':
+            points = round(parse_float(hunt.points_amount, 0.0), 2)
+            if points <= 0:
+                raise OrderValidationError('This Hidden Treat has no valid loyalty-points prize configured.')
+            cust.points_balance = round(parse_float(cust.points_balance, 0.0) + points, 2)
+            db.session.add(RewardLedger(
+                customer_id=cust.id,
+                points_change=points,
+                reason=f'Hidden Treat: {hunt.title}'[:150],
+            ))
+        elif hunt.prize_type == 'PRODUCT':
+            product = hunt.prize_product
+            if not product or not product.is_active or parse_int(product.stock, 0) < 1:
+                raise OrderValidationError('This free-product prize is no longer available. Please contact staff.')
+            # Reserve exactly one unit now so a valid successful claim remains
+            # redeemable even if ordinary product sales continue.
+            product.stock = parse_int(product.stock, 0) - 1
+            claim.stock_reserved = True
+        elif hunt.prize_type != 'VOUCHER':
+            raise OrderValidationError('This Hidden Treat prize type is invalid.')
+
+        db.session.add(claim)
+        db.session.add(PortalEvent(source='HIDDEN_TREAT', event_type='HIDDEN_PRIZE_CLAIM', customer_id=cust.id))
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'message': hidden_prize_claim_message(claim),
+            'claim_code': claim.claim_code,
+            'prize_type': hunt.prize_type,
+            'points_amount': hunt.points_amount,
+            'voucher_discount_percent': hunt.voucher_discount_percent,
+            'voucher_min_order': hunt.voucher_min_order,
+            'prize_product_name': hunt.prize_product.name if hunt.prize_product else None,
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Hidden Treat claim failed hunt_id=%s customer_id=%s', hunt_id, customer_id)
+        return jsonify({'success': False, 'message': 'The Hidden Treat could not be claimed. Nothing was awarded.'}), 500
+
 @app.route('/api/add-comment/<int:product_id>', methods=['POST'])
 def api_add_comment(product_id):
     ip = get_client_ip()
@@ -5384,7 +5779,7 @@ def api_storefront_checkout():
     landmark = str(data.get('landmark', '')).strip()
     delivery_address = str(data.get('delivery_address', '')).strip()
     gcash_ref = str(data.get('gcash_ref', '')).strip()
-    fb = str(data.get('fb_messenger', '')).strip()
+    hidden_prize_code = str(data.get('hidden_prize_code', '')).strip().upper()
 
     if order_type not in {'PICKUP', 'DELIVERY'}:
         return jsonify({'success': False, 'message': 'Invalid order type.'}), 400
@@ -5404,23 +5799,27 @@ def api_storefront_checkout():
     final_landmark = landmark
     if order_type == 'DELIVERY':
         dining_opt = 'DELIVERY'
-        if not zone_id and (not landmark or not delivery_address):
-            return jsonify({'success': False, 'message': 'Please choose a Barangay Delivery Zone or provide address info.'}), 400
-        if zone_id:
-            zone = db.session.get(DeliveryZone, parse_int(zone_id, 0))
-            if not zone or not zone.is_active:
-                return jsonify({'success': False, 'message': 'The selected delivery zone is unavailable.'}), 400
-            delivery_fee = max(0.0, parse_float(zone.rate, 0.0))
+        zone = db.session.get(DeliveryZone, parse_int(zone_id, 0)) if zone_id else None
+        if not zone or not zone.is_active:
+            return jsonify({'success': False, 'message': 'Please choose an available Barangay Delivery Zone.'}), 400
+        delivery_fee = max(0.0, parse_float(zone.rate, 0.0))
+        if zone.requires_detailed_address:
+            if not delivery_address or not landmark:
+                return jsonify({'success': False, 'message': 'Purok / street address and landmark are required for this Barangay delivery zone.'}), 400
+            final_address = f"Barangay: {zone.barangay} ({zone.place_name}) • {delivery_address}"
+            final_landmark = landmark
+        else:
             final_address = f"Barangay: {zone.barangay} ({zone.place_name})"
-            final_landmark = landmark or zone.note or 'Designated Delivery Spot'
+            final_landmark = zone.note or 'Designated Delivery Zone'
     else:
         dining_opt = 'TAKEOUT' if dining_opt not in {'DINE-IN', 'TAKEOUT'} else dining_opt
 
     if pay_method == 'CREDIT' and not cust.is_credit_eligible:
         return jsonify({'success': False, 'message': 'Your account is not authorized for A/R Credit.'}), 403
-    if pay_method in {'GCASH', 'CREDIT'} and not fb:
-        return jsonify({'success': False, 'message': 'Facebook messenger link is required for evaluation.'}), 400
-    if pay_method == 'GCASH' and (len(gcash_ref) != 6 or not gcash_ref.isdigit()):
+    if order_type == 'DELIVERY' and pay_method == 'CASH' and not cust.is_cod_eligible:
+        return jsonify({'success': False, 'message': 'Cash on Delivery is not enabled for this account. Please choose GCash QR Ph or ask staff to enable COD.'}), 403
+    payment_settings = storefront_payment_settings()
+    if pay_method == 'GCASH' and not payment_settings['paymongo_active'] and (len(gcash_ref) != 6 or not gcash_ref.isdigit()):
         return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400
 
     try:
@@ -5430,8 +5829,13 @@ def api_storefront_checkout():
             allow_storefront_custom_amount=True,
         )
         subtotal = cart_subtotal(lines)
+        hidden_prize_claim, hidden_prize_discount = validate_hidden_prize_voucher(
+            cust, hidden_prize_code, subtotal
+        )
         points_redeemed, points_discount = calculate_points_redemption(cust, data.get('redeem_points'), subtotal)
-        total = max(0.0, subtotal + delivery_fee - points_discount)
+        if hidden_prize_claim and points_redeemed > 0:
+            raise OrderValidationError('Use either loyalty points or one Hidden Treat voucher on this order, not both.')
+        total = max(0.0, subtotal + delivery_fee - points_discount - hidden_prize_discount)
 
         if pay_method == 'CREDIT':
             available_credit = customer_available_credit(cust, include_pending=True)
@@ -5442,7 +5846,9 @@ def api_storefront_checkout():
                 }), 400
 
         change_for = parse_float(data.get('change_for'), 0.0) if pay_method == 'CASH' else 0.0
-        if pay_method == 'CASH' and change_for and change_for < total:
+        if pay_method == 'CASH' and change_for <= 0:
+            return jsonify({'success': False, 'message': 'Please enter the cash bill / amount to prepare.'}), 400
+        if pay_method == 'CASH' and change_for + 1e-9 < total:
             return jsonify({'success': False, 'message': 'Cash bill cannot be less than the order total.'}), 400
 
         order = Order(
@@ -5451,18 +5857,19 @@ def api_storefront_checkout():
             customer_id=cust.id,
             customer_name=cust.name,
             contact_number=cust.contact,
-            fb_messenger=fb or cust.fb_messenger,
+            fb_messenger=cust.fb_messenger,
             delivery_address=final_address if order_type == 'DELIVERY' else None,
             landmark=final_landmark if order_type == 'DELIVERY' else None,
             pickup_time=target_time if order_type == 'PICKUP' else None,
             target_time=target_time,
             change_for=change_for if pay_method == 'CASH' and change_for > 0 else None,
-            gcash_ref=gcash_ref if pay_method == 'GCASH' else None,
+            gcash_ref=gcash_ref if pay_method == 'GCASH' and not payment_settings['paymongo_active'] else None,
             subtotal=subtotal,
             delivery_fee=delivery_fee,
             total_amount=total,
             points_redeemed=points_redeemed,
             points_discount=points_discount,
+            hidden_prize_discount=hidden_prize_discount,
             payment_method=pay_method,
             payment_verified=False,
             status='VERIFICATION',
@@ -5470,6 +5877,15 @@ def api_storefront_checkout():
         )
         db.session.add(order)
         db.session.flush()
+
+        if hidden_prize_claim:
+            hidden_prize_claim.status = 'REDEEMED'
+            hidden_prize_claim.redeemed_order_id = order.id
+            hidden_prize_claim.redeemed_at = utc_now()
+
+        checkout_url = None
+        if pay_method == 'GCASH' and payment_settings['paymongo_active']:
+            checkout_url = storefront_create_paymongo_checkout(order)
         record_points_redemption(cust, points_redeemed, order.id, 'Storefront points discount')
 
         for line in lines:
@@ -5484,11 +5900,21 @@ def api_storefront_checkout():
                 subtotal=line['subtotal'],
                 selected_options=line.get('selected_options_json'),
             ))
+        db.session.add(CustomerChatMessage(
+            customer_id=cust.id,
+            order_id=order.id,
+            sender_type='SYSTEM',
+            body=f"Thank you for your order, {cust.name.split()[0] if cust.name else 'there'}! Order #{order.id} was sent to our cashier. You can reply here while we prepare it.",
+            is_read=False,
+        ))
         reserve_cart_stock(lines)
         db.session.commit()
         return jsonify({'success': True, 'order_id': order.id, 'total': total,
                         'tracking_url': url_for('order_tracking', token=order.public_token),
-                        'points_redeemed': points_redeemed, 'points_discount': points_discount})
+                        'payment_redirect_url': checkout_url,
+                        'payment_pending': bool(checkout_url),
+                        'points_redeemed': points_redeemed, 'points_discount': points_discount,
+                        'hidden_prize_discount': hidden_prize_discount})
     except OrderValidationError as exc:
         db.session.rollback()
         return jsonify({'success': False, 'message': str(exc)}), 400
@@ -5502,6 +5928,13 @@ def api_storefront_checkout():
 def order_tracking(token):
     """Privacy-safe public order tracker reached through an unguessable link."""
     order = Order.query.filter_by(public_token=token).first_or_404()
+    payment_message = ''
+    if request.args.get('payment') == 'return' and order.payment_gateway == 'PAYMONGO':
+        if storefront_check_paymongo_payment(order):
+            payment_message = 'GCash QR Ph payment confirmed. Your order is now waiting for cashier acceptance.'
+        else:
+            payment_message = 'GCash QR Ph payment is still being confirmed. Please wait a moment before trying again.'
+        db.session.commit()
     stage = (order.fulfillment_status or 'SUBMITTED').upper()
     if order.status == 'CANCELLED':
         stage = 'CANCELLED'
@@ -5513,7 +5946,109 @@ def order_tracking(token):
     ]
     stage_index = next((i for i, row in enumerate(stages) if row[0] == stage), -1)
     return render_template('order_tracking.html', order=order, stages=stages,
-                           current_stage=stage, stage_index=stage_index)
+                           current_stage=stage, stage_index=stage_index,
+                           can_customer_chat=(session.get('customer_id') == order.customer_id),
+                           payment_message=payment_message)
+
+
+@app.route('/api/customer-chat/messages', methods=['GET', 'POST'])
+def customer_chat_messages_api():
+    """Temporary account-bound live chat for the storefront and tracker."""
+    customer_id = session.get('customer_id')
+    if not customer_id:
+        return jsonify({'success': False, 'message': 'Log in to use live cashier chat.'}), 401
+    customer = db.session.get(Customer, customer_id)
+    issue = customer_access_issue(customer)
+    if issue:
+        return jsonify({'success': False, 'message': issue}), 403
+    purged = clean_expired_customer_chats()
+    order_token = str(request.values.get('order_token', '')).strip()
+    order = customer_chat_order_for_token(customer, order_token)
+    if order_token and not order:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': 'This order chat is not available to this account.'}), 404
+    query = CustomerChatMessage.query.filter_by(customer_id=customer.id, order_id=(order.id if order else None))
+    if request.method == 'POST':
+        payload = request.get_json(silent=True) or {}
+        body = str(payload.get('message', '')).strip()
+        if not body:
+            db.session.rollback()
+            return jsonify({'success': False, 'message': 'Write a message first.'}), 400
+        if len(body) > CUSTOMER_CHAT_MESSAGE_MAX:
+            db.session.rollback()
+            return jsonify({'success': False, 'message': f'Messages must be {CUSTOMER_CHAT_MESSAGE_MAX} characters or fewer.'}), 400
+        db.session.add(CustomerChatMessage(
+            customer_id=customer.id, order_id=(order.id if order else None),
+            sender_type='CUSTOMER', body=body,
+            expires_at=None if order else utc_now() + CUSTOMER_CHAT_SUPPORT_TTL,
+        ))
+        db.session.commit()
+        return jsonify({'success': True})
+    messages = query.order_by(CustomerChatMessage.created_at.asc()).limit(100).all()
+    changed = False
+    for message in messages:
+        if message.sender_type in {'CASHIER', 'SYSTEM'} and not message.is_read:
+            message.is_read = True
+            changed = True
+    if changed:
+        db.session.commit()
+    elif purged or db.session.dirty or db.session.deleted:
+        db.session.commit()
+    return jsonify({
+        'success': True,
+        'order_id': order.id if order else None,
+        'messages': [customer_chat_message_payload(message) for message in messages],
+    })
+
+
+@app.route('/api/cashier/customer-chats', methods=['GET'])
+@require_cashier
+def cashier_customer_chats_api():
+    rows = cashier_chat_threads()
+    unread_total = sum(row['unread_count'] for row in rows)
+    db.session.commit()
+    return jsonify({'success': True, 'threads': rows, 'unread_total': unread_total})
+
+
+@app.route('/api/cashier/customer-chats/<string:thread_key>', methods=['GET', 'POST'])
+@require_cashier
+def cashier_customer_chat_thread_api(thread_key):
+    customer, order = cashier_chat_thread_from_key(thread_key)
+    if not customer:
+        return jsonify({'success': False, 'message': 'Chat thread was not found.'}), 404
+    purged = clean_expired_customer_chats()
+    order_id = order.id if order else None
+    query = CustomerChatMessage.query.filter_by(customer_id=customer.id, order_id=order_id)
+    if request.method == 'POST':
+        payload = request.get_json(silent=True) or {}
+        body = str(payload.get('message', '')).strip()
+        if not body:
+            db.session.rollback()
+            return jsonify({'success': False, 'message': 'Write a message first.'}), 400
+        if len(body) > CUSTOMER_CHAT_MESSAGE_MAX:
+            db.session.rollback()
+            return jsonify({'success': False, 'message': f'Messages must be {CUSTOMER_CHAT_MESSAGE_MAX} characters or fewer.'}), 400
+        db.session.add(CustomerChatMessage(
+            customer_id=customer.id, order_id=order_id, sender_type='CASHIER',
+            sender_staff=active_cashier_username()[:50] or 'cashier', body=body,
+            expires_at=None if order else utc_now() + CUSTOMER_CHAT_SUPPORT_TTL,
+        ))
+        db.session.commit()
+        return jsonify({'success': True})
+    messages = query.order_by(CustomerChatMessage.created_at.asc()).limit(100).all()
+    changed = False
+    for message in messages:
+        if message.sender_type == 'CUSTOMER' and not message.is_read:
+            message.is_read = True
+            changed = True
+    if changed or purged or db.session.dirty or db.session.deleted:
+        db.session.commit()
+    return jsonify({
+        'success': True,
+        'customer_name': customer.name,
+        'order_id': order_id,
+        'messages': [customer_chat_message_payload(message) for message in messages],
+    })
 
 
 @app.route('/portal/reorder/<int:order_id>', methods=['POST'])
@@ -5901,6 +6436,11 @@ def cashier_terminal():
     active_bonus_campaigns = get_active_bonus_campaigns()
     community_gift_vouchers = CommunityGift.query.filter_by(gift_type='PRODUCT', status='AVAILABLE').order_by(CommunityGift.created_at.asc()).all()
     community_mystery_drops = CommunityDrop.query.filter_by(reward_type='STAFF_FREEBIE', status='ACTIVE').order_by(CommunityDrop.created_at.asc()).all()
+    expire_hidden_prize_claims(persist=True)
+    hidden_prize_product_claims = HiddenPrizeClaim.query.join(HiddenPrizeHunt).filter(
+        HiddenPrizeClaim.status == 'AVAILABLE',
+        HiddenPrizeHunt.prize_type == 'PRODUCT',
+    ).order_by(HiddenPrizeClaim.claimed_at.asc()).all()
 
     return render_template(
         'cashier_pos.html',
@@ -5920,6 +6460,7 @@ def cashier_terminal():
         active_bonus_campaigns=active_bonus_campaigns,
         community_gift_vouchers=community_gift_vouchers,
         community_mystery_drops=community_mystery_drops,
+        hidden_prize_product_claims=hidden_prize_product_claims,
     )
 
 
@@ -6056,6 +6597,7 @@ def cashier_direct_sale():
     cust_name = str(data.get('customer_name', 'Counter Walk-in')).strip() or 'Counter Walk-in'
     notes = str(data.get('notes', 'Cashier Counter POS Sale')).strip() or 'Cashier Counter POS Sale'
     change_for = parse_float(data.get('change_for'), 0.0)
+    hidden_prize_code = str(data.get('hidden_prize_code', '')).strip().upper()
 
     if dining_opt not in {'DINE-IN', 'TAKEOUT'}:
         return jsonify({'success': False, 'message': 'Invalid dining option.'}), 400
@@ -6070,6 +6612,8 @@ def cashier_direct_sale():
         points_earned = 0
         points_redeemed = 0.0
         points_discount = 0.0
+        hidden_prize_claim = None
+        hidden_prize_discount = 0.0
         contact = 'N/A'
         if cust_type == 'REGISTERED':
             cust = db.session.get(Customer, parse_int(reg_id, 0))
@@ -6080,11 +6624,16 @@ def cashier_direct_sale():
                 raise OrderValidationError(issue)
             cust_name = cust.name
             contact = cust.contact
+            hidden_prize_claim, hidden_prize_discount = validate_hidden_prize_voucher(cust, hidden_prize_code, subtotal)
             points_redeemed, points_discount = calculate_points_redemption(cust, data.get('redeem_points'), subtotal)
+            if hidden_prize_claim and points_redeemed > 0:
+                raise OrderValidationError('Use either loyalty points or one Hidden Treat voucher on this sale, not both.')
         elif parse_float(data.get('redeem_points'), 0.0) > 0:
             raise OrderValidationError('Select a registered member before redeeming points.')
+        elif hidden_prize_code:
+            raise OrderValidationError('Select the registered member who owns this Hidden Treat voucher.')
 
-        total = max(0.0, subtotal - points_discount)
+        total = max(0.0, subtotal - points_discount - hidden_prize_discount)
         if pay_method == 'CASH' and change_for and change_for < total:
             raise OrderValidationError('Cash bill cannot be less than the discounted sale total.')
 
@@ -6110,6 +6659,7 @@ def cashier_direct_sale():
             total_amount=total,
             points_redeemed=points_redeemed,
             points_discount=points_discount,
+            hidden_prize_discount=hidden_prize_discount,
             base_points_earned=points_earned if cust else None,
             payment_method=pay_method,
             payment_verified=True,
@@ -6120,6 +6670,10 @@ def cashier_direct_sale():
         )
         db.session.add(order)
         db.session.flush()
+        if hidden_prize_claim:
+            hidden_prize_claim.status = 'REDEEMED'
+            hidden_prize_claim.redeemed_order_id = order.id
+            hidden_prize_claim.redeemed_at = utc_now()
         if cust:
             record_points_redemption(cust, points_redeemed, order.id, 'Counter POS points discount')
 
@@ -6146,6 +6700,7 @@ def cashier_direct_sale():
             'points_earned': points_earned,
             'points_redeemed': points_redeemed,
             'points_discount': points_discount,
+            'hidden_prize_discount': hidden_prize_discount,
             'bonus_points': marketing['bonus_points'],
             'referral_points': marketing['referral_member_points'],
             'member_balance': (cust.points_balance or 0.0) if cust else None,
@@ -6157,6 +6712,68 @@ def cashier_direct_sale():
         db.session.rollback()
         app.logger.exception('Cashier direct sale failed')
         return jsonify({'success': False, 'message': 'Sale failed due to a server error. Nothing was recorded.'}), 500
+
+
+@app.route('/pos/redeem-hidden-prize/<int:claim_id>', methods=['POST'])
+@require_cashier
+def cashier_redeem_hidden_prize(claim_id):
+    """Hand over an already-reserved Hidden Treat product and keep an audit slip."""
+    try:
+        expire_hidden_prize_claims()
+        claim = HiddenPrizeClaim.query.get_or_404(claim_id)
+        hunt = claim.hunt
+        if claim.status != 'AVAILABLE' or not hunt or hunt.prize_type != 'PRODUCT':
+            raise OrderValidationError('That Hidden Treat product claim is no longer available.')
+        product = hunt.prize_product
+        if not product:
+            raise OrderValidationError('The reward product no longer exists. Do not hand over a substitute until Admin resolves it.')
+        if not claim.stock_reserved:
+            if parse_int(product.stock, 0) < 1:
+                raise OrderValidationError('The reward product is out of stock.')
+            product.stock = parse_int(product.stock, 0) - 1
+            claim.stock_reserved = True
+
+        customer = claim.customer
+        order = Order(
+            order_type='HIDDEN_PRIZE',
+            dining_option='TAKEOUT',
+            customer_id=customer.id,
+            customer_name=customer.name,
+            contact_number=customer.contact,
+            subtotal=0.0,
+            delivery_fee=0.0,
+            total_amount=0.0,
+            payment_method='HIDDEN_PRIZE',
+            payment_verified=True,
+            status='COMPLETED',
+            fulfillment_status='FULFILLED',
+            notes=f'Hidden Treat product redeemed: {hunt.title} • {claim.claim_code}',
+        )
+        db.session.add(order)
+        db.session.flush()
+        db.session.add(OrderItem(
+            order_id=order.id,
+            product_id=product.id,
+            product_name=f'[Hidden Treat] {product.name}',
+            unit_price=0.0,
+            cost_price=max(0.0, parse_float(product.cost, 0.0)),
+            quantity=1,
+            subtotal=0.0,
+            selected_options=None,
+        ))
+        claim.status = 'REDEEMED'
+        claim.redeemed_order_id = order.id
+        claim.redeemed_at = utc_now()
+        db.session.commit()
+        flash(f'Hidden Treat redeemed for {customer.name}: {product.name}.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Cashier Hidden Treat redemption failed claim_id=%s', claim_id)
+        flash('The Hidden Treat could not be redeemed. Nothing was recorded.', 'error')
+    return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/claim-promo', methods=['POST'])
 @require_cashier
@@ -6812,6 +7429,12 @@ def verify_order(order_id):
             )
             return redirect(url_for('cashier_terminal'))
 
+        if order.payment_method == 'GCASH' and order.payment_gateway == 'PAYMONGO' and not order.payment_verified:
+            if not storefront_check_paymongo_payment(order):
+                db.session.commit()  # retain the last secure gateway-check result for staff
+                flash(f'Order #{order.id} is still waiting for GCash QR Ph confirmation. Do not accept it as paid yet.', 'error')
+                return redirect(url_for('cashier_terminal'))
+
         if order.payment_method == 'CREDIT':
             if not order.customer_id:
                 flash('Credit order has no registered customer and cannot be accepted.', 'error')
@@ -6875,6 +7498,7 @@ def verify_order(order_id):
                     prod.stock = parse_int(prod.stock, 0) + item.quantity
         order.status = 'CANCELLED'
         order.fulfillment_status = 'CANCELLED'
+        clear_order_customer_chat(order.id)
         sync_craft_order_after_main_verification(order, accepted=False)
         sync_digital_order_after_main_verification(order, accepted=False)
         db.session.commit()
@@ -6900,6 +7524,8 @@ def update_order_fulfillment(order_id):
         flash('Fulfillment cannot be moved backward. This protects the customer tracker.', 'error')
         return redirect(url_for('cashier_terminal'))
     order.fulfillment_status = new_status
+    if new_status == 'FULFILLED':
+        clear_order_customer_chat(order.id)
     db.session.commit()
     flash(f'Order #{order.id} is now {new_status.title()}.', 'success')
     return redirect(url_for('cashier_terminal'))
@@ -7397,6 +8023,126 @@ def digital_payment_settings():
         'paymongo_webhook_url': (public_base + '/api/paymongo/webhook') if public_base else '',
         'paypal_webhook_url': (public_base + '/api/paypal/webhook') if public_base else '',
     }
+
+
+def storefront_payment_settings():
+    """Return storefront QR Ph availability without ever exposing secret keys.
+
+    This is deliberately separate from the Digital portal setting.  Turning on
+    a QR Ph checkout for downloaded files must not silently change how food
+    and delivery orders are collected.
+    """
+    mode = digital_setting('storefront_gcash_gateway_mode', 'MANUAL').strip().upper()
+    if mode not in {'MANUAL', 'PAYMONGO'}:
+        mode = 'MANUAL'
+    paymongo_ready = bool(os.environ.get('PAYMONGO_SECRET_KEY', '').strip())
+    return {
+        'gateway_mode': mode,
+        'paymongo_ready': paymongo_ready,
+        'paymongo_active': bool(mode == 'PAYMONGO' and paymongo_ready),
+    }
+
+
+def storefront_public_base_url():
+    configured = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
+    return configured or request.url_root.rstrip('/')
+
+
+def storefront_create_paymongo_checkout(order):
+    """Create one QR Ph-hosted checkout for a food-house order.
+
+    The browser only receives PayMongo's HTTPS checkout URL.  Payment is
+    confirmed later by server-to-server lookup, never from a return URL alone.
+    """
+    secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
+    if not secret_key:
+        raise OrderValidationError('GCash QR Ph is not configured yet. Please choose cash or ask the cashier for help.')
+    success_url = storefront_public_base_url() + url_for('order_tracking', token=order.public_token) + '?payment=return'
+    cancel_url = storefront_public_base_url() + url_for('order_tracking', token=order.public_token) + '?payment=cancelled'
+    item_name = f"Macleen's Food House Order #{order.id}"
+    payload = {
+        'data': {'attributes': {
+            'line_items': [{
+                'currency': 'PHP', 'amount': max(1, int(round(parse_float(order.total_amount, 0.0) * 100))),
+                'name': item_name[:120], 'quantity': 1,
+            }],
+            'payment_method_types': ['qrph'],
+            'success_url': success_url,
+            'cancel_url': cancel_url,
+            'description': item_name,
+            'reference_number': f'MFH-ORDER-{order.id}',
+            'metadata': {'order_id': str(order.id), 'order_type': order.order_type},
+            'billing': {
+                'name': (order.customer_name or 'Macleen customer')[:120],
+                'phone': (order.contact_number or '')[:40],
+            },
+            'send_email_receipt': bool(order.customer and (order.customer.email or '').strip()),
+        }}
+    }
+    if order.customer and (order.customer.email or '').strip():
+        payload['data']['attributes']['billing']['email'] = order.customer.email.strip()[:180]
+    try:
+        response = requests.post(
+            'https://api.paymongo.com/v2/checkout_sessions', auth=(secret_key, ''),
+            json=payload, timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError) as exc:
+        raise OrderValidationError('Could not start the GCash QR Ph checkout. Please try again or choose cash.') from exc
+    if not response.ok:
+        message = ((body.get('errors') or [{}])[0].get('detail') if isinstance(body, dict) else '') or 'The payment gateway declined the checkout request.'
+        raise OrderValidationError(str(message)[:240])
+    data = body.get('data') if isinstance(body, dict) else None
+    attributes = data.get('attributes') if isinstance(data, dict) else None
+    checkout_url = (attributes.get('checkout_url') if isinstance(attributes, dict) else '') or ''
+    parsed = urlparse(checkout_url)
+    if not isinstance(data, dict) or not data.get('id') or parsed.scheme != 'https' or not parsed.netloc:
+        raise OrderValidationError('The payment gateway returned an invalid checkout link. No payment was taken.')
+    order.payment_gateway = 'PAYMONGO'
+    order.gateway_checkout_id = str(data['id'])[:120]
+    order.gateway_checkout_url = checkout_url[:2000]
+    order.gateway_checked_at = utc_now()
+    order.gateway_response = json.dumps({'checkout_created': True}, separators=(',', ':'))
+    return checkout_url
+
+
+def storefront_check_paymongo_payment(order):
+    """Verify a storefront QR Ph payment with PayMongo before cashiers accept it."""
+    if not order or order.payment_verified or order.payment_gateway != 'PAYMONGO' or not order.gateway_checkout_id:
+        return bool(order and order.payment_verified)
+    secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
+    if not secret_key:
+        return False
+    try:
+        response = requests.get(
+            f'https://api.paymongo.com/v2/checkout_sessions/{order.gateway_checkout_id}',
+            auth=(secret_key, ''), timeout=(4, 20),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError):
+        app.logger.warning('Could not verify PayMongo checkout for storefront order %s', order.id)
+        return False
+    order.gateway_checked_at = utc_now()
+    if not response.ok or not isinstance(body, dict):
+        order.gateway_response = json.dumps({'checkout_verified': False, 'http_status': response.status_code}, separators=(',', ':'))
+        return False
+    statuses = []
+    def collect_statuses(value):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key == 'status' and isinstance(nested, str):
+                    statuses.append(nested.strip().lower())
+                collect_statuses(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect_statuses(nested)
+    collect_statuses(body.get('data') or {})
+    paid = bool({'paid', 'succeeded', 'successful'} & set(statuses))
+    order.gateway_response = json.dumps({'checkout_verified': True, 'statuses': sorted(set(statuses))[:8]}, separators=(',', ':'))
+    if paid:
+        order.payment_verified = True
+        order.is_unpaid = False
+    return paid
 
 
 def digital_access_code():
@@ -8103,7 +8849,7 @@ def digital_check_payment(token):
 
 @app.route('/api/paymongo/webhook', methods=['POST'])
 def paymongo_webhook():
-    """Fulfill paid Digital checkout sessions without trusting the webhook body itself.
+    """Confirm paid Digital and storefront checkout sessions without trusting the webhook body itself.
 
     Each candidate Checkout Session ID is matched to a local order and retrieved
     again from PayMongo using the merchant's secret key. This means a spoofed or
@@ -8114,8 +8860,11 @@ def paymongo_webhook():
         return jsonify({'received': True, 'processed': 0}), 200
     processed = 0
     for checkout_id in digital_paymongo_webhook_checkout_ids(payload):
-        order = DigitalOrder.query.filter_by(payment_gateway='PAYMONGO', gateway_checkout_id=checkout_id).first()
-        if order and digital_check_paymongo_payment(order):
+        digital_order = DigitalOrder.query.filter_by(payment_gateway='PAYMONGO', gateway_checkout_id=checkout_id).first()
+        storefront_order = Order.query.filter_by(payment_gateway='PAYMONGO', gateway_checkout_id=checkout_id).first()
+        if digital_order and digital_check_paymongo_payment(digital_order):
+            processed += 1
+        if storefront_order and storefront_check_paymongo_payment(storefront_order):
             processed += 1
     if processed:
         db.session.commit()
@@ -10862,6 +11611,11 @@ def admin_dashboard():
     vault_drops = VaultDrop.query.order_by(VaultDrop.created_at.desc()).all()
     promotions = PromotionTracker.query.order_by(PromotionTracker.created_at.desc()).all()
     bundle_deals = BundleDeal.query.order_by(BundleDeal.created_at.desc(), BundleDeal.id.desc()).all()
+    expire_hidden_prize_claims(persist=True)
+    hidden_prize_hunts = HiddenPrizeHunt.query.order_by(HiddenPrizeHunt.created_at.desc(), HiddenPrizeHunt.id.desc()).all()
+    hidden_prize_claim_counts = {
+        hunt.id: hidden_prize_claim_count(hunt.id) for hunt in hidden_prize_hunts
+    }
     for bundle in bundle_deals:
         try:
             bundle.pricing = bundle_deal_pricing(bundle)
@@ -10994,6 +11748,8 @@ def admin_dashboard():
                            vault_drops=vault_drops, 
         promotions=promotions,
         bundle_deals=bundle_deals,
+        hidden_prize_hunts=hidden_prize_hunts,
+        hidden_prize_claim_counts=hidden_prize_claim_counts,
                            product_sales_stats=product_sales_stats, 
                            food_revenue_total=food_revenue_total, 
                            service_revenue_total=service_revenue_total, 
@@ -11005,6 +11761,7 @@ def admin_dashboard():
                            fin_monthly=fin_monthly, 
                            fin_all=fin_all, 
                            total_ar=total_ar, 
+                           storefront_payment_settings=storefront_payment_settings(),
                            current_sort=sort_by,
                            bonus_campaigns=bonus_campaigns,
                            marketing_metrics=marketing_metrics,
@@ -11535,6 +12292,109 @@ def admin_delete_bundle_deal(bundle_id):
     flash(f"Bundle '{name}' was removed. Previous orders remain unchanged.", 'success')
     return bundle_admin_redirect()
 
+
+def hidden_prize_admin_redirect():
+    return redirect(url_for('admin_dashboard') + '#hidden-treat-hunts')
+
+
+def hidden_prize_form_values(form):
+    title = re.sub(r'\s+', ' ', (form.get('title') or '').strip())[:140]
+    location = str(form.get('location') or '').strip().upper()
+    prize_type = str(form.get('prize_type') or '').strip().upper()
+    if not title or location not in HIDDEN_PRIZE_LOCATIONS or prize_type not in HIDDEN_PRIZE_TYPES:
+        raise OrderValidationError('Choose a hunt title, a valid location, and a valid prize type.')
+
+    starts_at = hidden_prize_admin_datetime(form.get('starts_at'), utc_now())
+    ends_at = hidden_prize_admin_datetime(form.get('ends_at'))
+    reward_expires_at = hidden_prize_admin_datetime(form.get('reward_expires_at'))
+    if not ends_at or ends_at <= starts_at:
+        raise OrderValidationError('The hunt end time must be after the start time.')
+    if reward_expires_at and reward_expires_at <= starts_at:
+        raise OrderValidationError('Reward expiry must be after the hunt starts.')
+
+    location_product_id = parse_int(form.get('location_product_id'), 0) or None
+    if location == 'STOREFRONT_PRODUCT':
+        location_product = db.session.get(Product, location_product_id)
+        if not location_product or not location_product.is_active:
+            raise OrderValidationError('Choose an active product where the storefront gift box will be hidden.')
+    else:
+        location_product_id = None
+
+    points_amount = round(parse_float(form.get('points_amount'), 0.0), 2)
+    voucher_discount_percent = round(parse_float(form.get('voucher_discount_percent'), 0.0), 2)
+    voucher_min_order = round(parse_float(form.get('voucher_min_order'), 0.0), 2)
+    prize_product_id = parse_int(form.get('prize_product_id'), 0) or None
+    max_winners = parse_int(form.get('max_winners'), 0)
+    if max_winners < 0 or max_winners > 100000:
+        raise OrderValidationError('Winner limit must be from 0 to 100,000. Use 0 only for an unlimited points/voucher hunt.')
+
+    if prize_type == 'POINTS':
+        if points_amount <= 0 or points_amount > 1000:
+            raise OrderValidationError('Hidden Treat loyalty points must be greater than 0 and no more than 1,000.')
+        voucher_discount_percent = voucher_min_order = 0.0
+        prize_product_id = None
+    elif prize_type == 'VOUCHER':
+        if voucher_discount_percent <= 0 or voucher_discount_percent > 100 or voucher_min_order < 0:
+            raise OrderValidationError('Voucher discount must be from 0.01% to 100%, and its minimum order cannot be negative.')
+        points_amount = 0.0
+        prize_product_id = None
+    else:
+        prize_product = db.session.get(Product, prize_product_id)
+        if not prize_product or not prize_product.is_active:
+            raise OrderValidationError('Choose an active product to give as the free-product prize.')
+        if max_winners < 1:
+            raise OrderValidationError('A free-product hunt needs a finite winner limit so stock can be protected.')
+        if max_winners > parse_int(prize_product.stock, 0):
+            raise OrderValidationError(f'Winner limit cannot exceed the current stock of {prize_product.name}.')
+        points_amount = voucher_discount_percent = voucher_min_order = 0.0
+
+    return {
+        'title': title,
+        'location': location,
+        'location_product_id': location_product_id,
+        'prize_type': prize_type,
+        'points_amount': points_amount,
+        'voucher_discount_percent': voucher_discount_percent,
+        'voucher_min_order': voucher_min_order,
+        'prize_product_id': prize_product_id,
+        'max_winners': max_winners,
+        'starts_at': starts_at,
+        'ends_at': ends_at,
+        'reward_expires_at': reward_expires_at,
+    }
+
+
+@app.route('/admin/hidden-prizes/create', methods=['POST'])
+@require_admin
+def admin_create_hidden_prize_hunt():
+    try:
+        values = hidden_prize_form_values(request.form)
+        db.session.add(HiddenPrizeHunt(
+            **values,
+            is_active=bool(request.form.get('is_active')),
+            created_by=session.get('admin_user') or 'admin',
+        ))
+        db.session.commit()
+        flash('Hidden Treat Hunt created. Only eligible signed-in customers can claim a prize once.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not create Hidden Treat Hunt')
+        flash('Hidden Treat Hunt could not be created. No hunt was saved.', 'error')
+    return hidden_prize_admin_redirect()
+
+
+@app.route('/admin/hidden-prizes/<int:hunt_id>/toggle', methods=['POST'])
+@require_admin
+def admin_toggle_hidden_prize_hunt(hunt_id):
+    hunt = HiddenPrizeHunt.query.get_or_404(hunt_id)
+    hunt.is_active = not bool(hunt.is_active)
+    db.session.commit()
+    flash(f"Hidden Treat Hunt '{hunt.title}' is now {'active' if hunt.is_active else 'paused'}. Existing prizes remain valid until their reward expiry.", 'success')
+    return hidden_prize_admin_redirect()
+
 @app.route('/admin/batch-update-products', methods=['POST'])
 @require_admin
 def admin_batch_update_products():
@@ -11754,6 +12614,34 @@ def admin_toggle_credit(cust_id):
     flash(f'Credit for {cust.name} is {state}; limit ₱{(cust.credit_limit or 0.0):,.2f}.', 'success')
     return redirect(url_for('admin_dashboard'))
 
+
+@app.route('/admin/toggle-cod/<int:cust_id>', methods=['POST'])
+@require_admin
+def admin_toggle_cod(cust_id):
+    """Staff explicitly enable/disable Cash on Delivery per customer."""
+    cust = Customer.query.get_or_404(cust_id)
+    cust.is_cod_eligible = not bool(cust.is_cod_eligible)
+    db.session.commit()
+    state = 'enabled' if cust.is_cod_eligible else 'disabled'
+    flash(f'Cash on Delivery for {cust.name} is {state}.', 'success')
+    return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin/storefront-payment-settings', methods=['POST'])
+@require_admin
+def admin_storefront_payment_settings():
+    mode = str(request.form.get('storefront_gcash_gateway_mode', 'MANUAL')).upper()
+    if mode not in {'MANUAL', 'PAYMONGO'}:
+        flash('Invalid storefront GCash gateway setting.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    if mode == 'PAYMONGO' and not os.environ.get('PAYMONGO_SECRET_KEY', '').strip():
+        flash('PayMongo QR Ph cannot be enabled until PAYMONGO_SECRET_KEY is added in Render Environment settings.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    save_digital_setting('storefront_gcash_gateway_mode', mode)
+    db.session.commit()
+    flash('Storefront GCash payment setting saved. PayMongo mode sends customers to QR Ph checkout and verifies payment server-side.', 'success')
+    return redirect(url_for('admin_dashboard'))
+
 @app.route('/admin/delivery-zones', methods=['POST'])
 @require_admin
 def admin_manage_delivery_zones():
@@ -11764,7 +12652,12 @@ def admin_manage_delivery_zones():
         rate = float(request.form.get('rate') or 30.0)
         dist = request.form.get('distance')
         note = request.form.get('note')
-        db.session.add(DeliveryZone(place_name=place, barangay=brgy, rate=rate, distance=dist, note=note))
+        requires_details = request.form.get('requires_detailed_address') == '1'
+        db.session.add(DeliveryZone(place_name=place, barangay=brgy, rate=rate, distance=dist, note=note, requires_detailed_address=requires_details))
+    elif action == 'TOGGLE_DETAILS':
+        zone = DeliveryZone.query.get(request.form.get('zone_id'))
+        if zone:
+            zone.requires_detailed_address = not bool(zone.requires_detailed_address)
     elif action == 'DELETE':
         zid = request.form.get('zone_id')
         zone = DeliveryZone.query.get(zid)
@@ -12182,6 +13075,7 @@ def community_home():
             CommunityProfile.is_community_admin.is_(True),
         ))
     mentionable_profiles = mentionable_query.order_by(CommunityProfile.handle.asc()).limit(300).all()
+    community_hidden_hunts = active_hidden_prize_hunts('COMMUNITY', customer=cust)
     return render_template(
         'community.html',
         cust=cust,
@@ -12242,6 +13136,7 @@ def community_home():
         community_trusted_post_threshold=COMMUNITY_TRUSTED_POST_THRESHOLD,
         community_max_post_mentions=COMMUNITY_MAX_POST_MENTIONS,
         mentionable_profiles=mentionable_profiles,
+        community_hidden_hunts=community_hidden_hunts,
     )
 
 @app.route('/community/member/<string:handle>')
@@ -14182,6 +15077,9 @@ def customer_dashboard():
     points_to_reward = max(0.0, reward_target - balance)
     reward_progress_pct = min(100.0, (balance / reward_target * 100.0) if reward_target else 100.0)
     recent_rewards = RewardLedger.query.filter_by(customer_id=cust.id).order_by(RewardLedger.created_at.desc()).limit(8).all()
+    hidden_prize_claims = customer_hidden_prize_claims(cust)
+    hidden_prize_vouchers = [claim for claim in hidden_prize_claims if claim.hunt and claim.hunt.prize_type == 'VOUCHER' and claim.status == 'AVAILABLE']
+    loyalty_hidden_hunts = active_hidden_prize_hunts('LOYALTY_PORTAL', customer=cust)
     referral_rewards_count = ReferralReward.query.filter_by(referrer_customer_id=cust.id).count()
     favorite_items = Product.query.join(
         CustomerWishlist, CustomerWishlist.product_id == Product.id
@@ -14204,6 +15102,9 @@ def customer_dashboard():
         points_to_reward=points_to_reward,
         reward_progress_pct=reward_progress_pct,
         recent_rewards=recent_rewards,
+        hidden_prize_claims=hidden_prize_claims,
+        hidden_prize_vouchers=hidden_prize_vouchers,
+        loyalty_hidden_hunts=loyalty_hidden_hunts,
         referral_rewards_count=referral_rewards_count,
         favorite_items=favorite_items,
         loyalty_card_themes=LOYALTY_CARD_THEMES,

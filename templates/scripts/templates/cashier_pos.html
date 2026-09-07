@@ -86,6 +86,18 @@
         {% endfor %}
       </div>
       {% endif %}
+      {% if hidden_prize_product_claims %}
+      <div style="background:#111827;border:1.5px solid #ec4899;border-radius:9px;padding:8px;margin-bottom:10px;">
+        <h3 style="font-size:.78rem;color:#f9a8d4;margin-bottom:6px;">🎁 Hidden Treat free-product claims ({{ hidden_prize_product_claims|length }})</h3>
+        <div style="font-size:.65rem;color:#cbd5e1;margin-bottom:6px;">Verify the member and hand over the listed prize. The prize stock was reserved when it was found.</div>
+        {% for claim in hidden_prize_product_claims %}
+        <div style="padding:6px 0;border-top:1px dashed #475569;font-size:.69rem;">
+          <strong>{{ claim.claim_code }} • {{ claim.hunt.prize_product.name if claim.hunt.prize_product else 'Free product' }}</strong><br><span style="color:#cbd5e1">For {{ claim.customer.name }} • found {{ claim.claimed_at.strftime('%b %d, %I:%M %p') if claim.claimed_at else 'today' }}</span>
+          <form action="{{ url_for('cashier_redeem_hidden_prize', claim_id=claim.id) }}" method="POST" onsubmit="return confirm('Hand over this Hidden Treat prize to {{ claim.customer.name|e }}? It cannot be redeemed twice.');" style="margin-top:4px"><button type="submit" class="btn-act" style="background:#db2777;color:white;width:100%">Redeem free product</button></form>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
       {% for o in pending_orders %}
       <div class="ticket-card" id="ticket-{{ o.id }}">
         <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;">
@@ -230,6 +242,12 @@
         <div id="posRedeemWrap" style="display:none; margin:4px 0;">
           <label style="font-size:0.68rem; color:#f9a8d4; font-weight:bold;">Use Points as Discount (minimum 20 • 1 point = ₱1)</label>
           <input type="number" id="posRedeemPoints" min="0" step="0.01" value="0" class="form-input" style="margin-bottom:0; padding:3px;" oninput="renderPosCart()">
+        </div>
+
+        <div id="posHiddenPrizeWrap" style="display:none; margin:4px 0;">
+          <label style="font-size:0.68rem; color:#f9a8d4; font-weight:bold;">Hidden Treat voucher code <span style="color:#94a3b8;">(optional • cannot combine with points)</span></label>
+          <input type="text" id="posHiddenPrizeCode" maxlength="40" autocomplete="off" placeholder="Example: TREAT-AB12CD34" class="form-input" style="margin-bottom:0; padding:3px; text-transform:uppercase;" oninput="this.value=this.value.toUpperCase(); renderPosCart()">
+          <div style="font-size:.62rem;color:#94a3b8;margin-top:2px;">The discount is securely checked when the sale is recorded.</div>
         </div>
 
         <input type="text" id="posCustomName" placeholder="Customer Name / Remarks" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;">
@@ -1186,7 +1204,11 @@
       const type = document.getElementById('posCustType').value;
       document.getElementById('posRegCustWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
       document.getElementById('posRedeemWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
-      if (type !== 'REGISTERED') document.getElementById('posRedeemPoints').value = 0;
+      document.getElementById('posHiddenPrizeWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      if (type !== 'REGISTERED') {
+        document.getElementById('posRedeemPoints').value = 0;
+        document.getElementById('posHiddenPrizeCode').value = '';
+      }
       updateMemberQuickInfo();
       renderPosCart();
     }
@@ -1334,6 +1356,15 @@
 
     let pendingCustomAmountProduct = null;
     let customAmountEditOnly = false;
+    let customAmountLineSequence = 0;
+
+    function newSpecificAmountCartKey(productId, options) {
+      // A flexible-price item represents the cashier's entered selling amount.
+      // Give every new entry its own line so ₱20 and ₱25 of the same product
+      // never overwrite or combine before the order is submitted.
+      customAmountLineSequence += 1;
+      return `${cartKeyFor(productId, options)}::specific=${Date.now()}-${customAmountLineSequence}`;
+    }
 
     async function addPosCartItem(id, name, price, allowCustomAmount=false, minimumAmount=null, optionGroups=[]) {
       id = String(id);
@@ -1346,13 +1377,12 @@
       const cartKey = cartKeyFor(id, options);
 
       if (allowCustomAmount) {
-        pendingCustomAmountProduct = { id, cartKey, name, regularPrice, minAmount, options };
+        pendingCustomAmountProduct = { id, cartKey: null, name, regularPrice, minAmount, options };
         customAmountEditOnly = false;
         document.getElementById('customAmountProductName').innerText = name + (optionSummary(options) ? ` — ${optionSummary(options)}` : '');
         document.getElementById('customAmountRegularPrice').innerText = `₱${regularPrice.toFixed(2)}`;
         document.getElementById('customAmountMinimum').innerText = `₱${minAmount.toFixed(2)}`;
-        const existing = posCart[cartKey];
-        document.getElementById('customAmountInput').value = (existing ? existing.price : regularPrice).toFixed(2);
+        document.getElementById('customAmountInput').value = regularPrice.toFixed(2);
         document.getElementById('customAmountInput').min = minAmount.toFixed(2);
         document.getElementById('customAmountError').innerText = '';
         document.querySelector('#customAmountModal button[onclick="confirmCustomAmount()"]').innerText = 'ADD WITH THIS AMOUNT';
@@ -1388,15 +1418,15 @@
         return;
       }
 
-      if (posCart[p.cartKey]) {
-        posCart[p.cartKey].price = amount;
-        posCart[p.cartKey].regularPrice = p.regularPrice;
-        posCart[p.cartKey].customAmount = true;
-        posCart[p.cartKey].minAmount = p.minAmount;
-        posCart[p.cartKey].options = p.options || {};
-        if (!customAmountEditOnly) posCart[p.cartKey].qty += 1;
+      const lineKey = customAmountEditOnly ? p.cartKey : newSpecificAmountCartKey(p.id, p.options || {});
+      if (posCart[lineKey]) {
+        posCart[lineKey].price = amount;
+        posCart[lineKey].regularPrice = p.regularPrice;
+        posCart[lineKey].customAmount = true;
+        posCart[lineKey].minAmount = p.minAmount;
+        posCart[lineKey].options = p.options || {};
       } else {
-        posCart[p.cartKey] = { productId: parseInt(p.id), name: p.name, price: amount, regularPrice: p.regularPrice, qty: 1, customAmount: true, minAmount: p.minAmount, options: p.options || {} };
+        posCart[lineKey] = { productId: parseInt(p.id), name: p.name, price: amount, regularPrice: p.regularPrice, qty: 1, customAmount: true, minAmount: p.minAmount, options: p.options || {} };
       }
 
       closeModal('customAmountModal');
@@ -1548,9 +1578,14 @@
       const customName = document.getElementById('posCustomName').value.trim();
       const payMethod = document.getElementById('posPayMethod').value;
       const bill = parseFloat(document.getElementById('posCashBill').value) || 0;
+      const hiddenPrizeCode = document.getElementById('posHiddenPrizeCode').value.trim();
+      const redeemPoints = parseFloat(document.getElementById('posRedeemPoints').value) || 0;
 
       if (custType === 'REGISTERED' && !regCustId) {
         return alert("Please choose a registered member to credit points.");
+      }
+      if (hiddenPrizeCode && redeemPoints > 0) {
+        return alert("Use either loyalty points or one Hidden Treat voucher, not both in the same sale.");
       }
 
       const payload = {
@@ -1566,7 +1601,8 @@
         customer_name: customName || (custType === 'REGISTERED' ? 'Registered Member' : 'Counter Walk-in'),
         payment_method: payMethod,
         change_for: bill,
-        redeem_points: parseFloat(document.getElementById('posRedeemPoints').value) || 0,
+        redeem_points: redeemPoints,
+        hidden_prize_code: hiddenPrizeCode || null,
         notes: `Cashier POS (${diningOpt})`
       };
 
@@ -1585,9 +1621,11 @@
           if (bonusPts > 0) rewardLine += `\nCampaign Bonus: +${bonusPts.toFixed(1)} pts`;
           if (referralPts > 0) rewardLine += `\nFirst-Purchase Referral Bonus: +${referralPts.toFixed(1)} pts`;
           if (data.member_balance !== null && data.member_balance !== undefined) rewardLine += `\nNew Balance: ${Number(data.member_balance).toFixed(1)} pts`;
+          if (Number(data.hidden_prize_discount || 0) > 0) rewardLine += `\nHidden Treat Discount: -₱${Number(data.hidden_prize_discount).toFixed(2)}`;
           alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\nPoints Used: ${Number(data.points_redeemed || 0).toFixed(2)}\n${rewardLine}`);
           clearPosCart();
           document.getElementById('posCashBill').value = '';
+          document.getElementById('posHiddenPrizeCode').value = '';
           if (window.MacleensLiveUI) window.MacleensLiveUI.refresh(); else window.location.reload();
         } else {
           alert(data.message || "Failed to record sale.");

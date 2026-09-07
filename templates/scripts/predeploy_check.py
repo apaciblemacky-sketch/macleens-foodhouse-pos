@@ -41,7 +41,7 @@ REQUIRED_DB_COLUMNS = {
     "order": {
         "id", "order_type", "dining_option", "customer_id", "subtotal",
         "total_amount", "payment_method", "payment_verified", "status",
-        "is_unpaid", "points_redeemed", "points_discount", "base_points_earned", "public_token", "fulfillment_status", "receipt_number", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "created_at",
+        "is_unpaid", "points_redeemed", "points_discount", "hidden_prize_discount", "base_points_earned", "public_token", "fulfillment_status", "receipt_number", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "created_at",
     },
     "delivery_zone": {"id", "place_name", "barangay", "rate", "is_active", "requires_detailed_address"},
     "order_item": {
@@ -147,7 +147,7 @@ REQUIRED_DB_COLUMNS = {
 MIGRATABLE_DB_COLUMNS = {
     "customer": {"is_cod_eligible"},
     "product": {"description"},
-    "order": {"base_points_earned", "receipt_number", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response"},
+    "order": {"base_points_earned", "hidden_prize_discount", "receipt_number", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response"},
     "delivery_zone": {"requires_detailed_address"},
     "digital_item": {"asset_version", "asset_updated_at", "asset_release_notes"},
 }
@@ -699,7 +699,33 @@ def main() -> int:
     cashier_template = (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")
     if "Specific Product Amount" not in cashier_template or "minimumAmount" not in cashier_template:
         fail("cashier specific-amount UI is missing")
+    if "newSpecificAmountCartKey" not in cashier_template or "hidden_prize_code" not in source:
+        fail("cashier cannot keep separate flexible-price lines or securely redeem Hidden Treat vouchers")
     ok("cashier specific amounts are product-controlled and minimum-enforced")
+
+    hidden_treat_markers = [
+        "class HiddenPrizeHunt(db.Model):", "class HiddenPrizeClaim(db.Model):",
+        "@app.route('/api/hidden-prizes/<int:hunt_id>/claim'", "@app.route('/pos/redeem-hidden-prize/<int:claim_id>'",
+        "validate_hidden_prize_voucher", "hidden_prize_discount", "active_hidden_prize_hunts",
+        "@app.route('/admin/hidden-prizes/create'", "@app.route('/admin/hidden-prizes/<int:hunt_id>/toggle'",
+    ]
+    missing_hidden_treat = [marker for marker in hidden_treat_markers if marker not in source]
+    if missing_hidden_treat:
+        fail("Hidden Treat engine markers are missing: " + ", ".join(missing_hidden_treat))
+    for marker in ["Hidden Treat Hunts", "Create Hidden Treat Hunt"]:
+        if marker not in admin_template:
+            fail(f"Hidden Treat admin control is missing: {marker}")
+    for template_name, marker in [("store_catalog.html", "hidden-treat-icon"), ("customer_dashboard.html", "Hidden Treats"), ("community.html", "community-hidden-treat")]:
+        if marker not in (TEMPLATES / template_name).read_text(encoding="utf-8"):
+            fail(f"Hidden Treat placement is missing from {template_name}")
+    hidden_treat_smoke = ROOT / "scripts" / "hidden_treat_smoke_check.py"
+    if not hidden_treat_smoke.exists():
+        fail("Hidden Treat smoke-check script is missing")
+    try:
+        py_compile.compile(str(hidden_treat_smoke), doraise=True)
+    except py_compile.PyCompileError as exc:
+        fail(f"Hidden Treat smoke-check script does not compile: {exc.msg}")
+    ok("Hidden Treat reward locations, voucher rules, cashier redemption, and separate flexible-price lines are present")
 
     storefront_amount_markers = [
         "allow_storefront_custom_amount=True",

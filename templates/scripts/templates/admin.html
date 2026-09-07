@@ -889,6 +889,57 @@
     </div>
   </div>
 
+  <!-- 🎁 HIDDEN TREAT HUNTS -->
+  <div class="card" id="hidden-treat-hunts" style="border:2px solid #a855f7;">
+    <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-bottom:12px;">
+      <div>
+        <h3 style="color:#6b21a8;font-size:1.05rem;">🎁 Hidden Treat Hunts</h3>
+        <p style="font-size:.73rem;color:#64748b;margin-top:4px;max-width:820px;">Hide one gift box inside a selected menu product, the loyalty portal, or Community. Each registered account can win a hunt only once. Voucher rewards work in the storefront or Cashier POS; free-product rewards are reserved from stock and handed over by Cashier.</p>
+      </div>
+      <div style="background:#faf5ff;color:#6b21a8;border:1px solid #d8b4fe;border-radius:999px;padding:5px 8px;font-size:.67rem;font-weight:900;">Suggested: one small hunt per week</div>
+    </div>
+
+    <form action="{{ url_for('admin_create_hidden_prize_hunt') }}" method="POST" style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:11px;">
+      <div class="form-row">
+        <div class="form-group" style="min-width:180px;"><label>Hunt Name *</label><input class="form-control" name="title" required maxlength="140" placeholder="e.g. Find Palabok’s Gift"></div>
+        <div class="form-group" style="min-width:175px;"><label>Where to Hide It *</label><select class="form-control" name="location" id="hiddenHuntLocation" onchange="syncHiddenTreatForm()"><option value="STOREFRONT_PRODUCT">Inside a storefront product</option><option value="LOYALTY_PORTAL">Inside loyalty portal</option><option value="COMMUNITY">Inside Community</option></select></div>
+        <div class="form-group" id="hiddenHuntLocationProductWrap" style="min-width:180px;"><label>Storefront Product *</label><select class="form-control" name="location_product_id"><option value="">Choose active product</option>{% for product in products if product.is_active %}<option value="{{ product.id }}">{{ product.name }} • ₱{{ "%.2f"|format(product.price or 0) }}</option>{% endfor %}</select></div>
+        <div class="form-group" style="min-width:145px;"><label>Prize Type *</label><select class="form-control" name="prize_type" id="hiddenHuntPrizeType" onchange="syncHiddenTreatForm()"><option value="POINTS">Loyalty points</option><option value="VOUCHER">Discount voucher</option><option value="PRODUCT">Free product</option></select></div>
+      </div>
+      <div class="form-row" style="margin-top:7px;">
+        <div class="form-group" id="hiddenHuntPointsWrap" style="min-width:130px;"><label>Points Prize</label><input class="form-control" name="points_amount" type="number" min="0.01" max="1000" step="0.01" value="5"></div>
+        <div class="form-group" id="hiddenHuntVoucherWrap" style="display:none;min-width:130px;"><label>Voucher Discount %</label><input class="form-control" name="voucher_discount_percent" type="number" min="0.01" max="100" step="0.01" value="10"></div>
+        <div class="form-group" id="hiddenHuntVoucherMinWrap" style="display:none;min-width:150px;"><label>Voucher Min. Food Order</label><input class="form-control" name="voucher_min_order" type="number" min="0" step="0.01" value="100"></div>
+        <div class="form-group" id="hiddenHuntProductPrizeWrap" style="display:none;min-width:180px;"><label>Free Product Prize</label><select class="form-control" name="prize_product_id"><option value="">Choose active product</option>{% for product in products if product.is_active %}<option value="{{ product.id }}">{{ product.name }} • stock {{ product.stock or 0 }}</option>{% endfor %}</select></div>
+        <div class="form-group" style="min-width:130px;"><label>Maximum Winners</label><input class="form-control" name="max_winners" type="number" min="0" max="100000" value="20"><small style="color:#64748b;font-size:.62rem;">0 = unlimited points/vouchers</small></div>
+      </div>
+      <div class="form-row" style="margin-top:7px;">
+        <div class="form-group" style="min-width:175px;"><label>Start (PH time)</label><input class="form-control" name="starts_at" type="datetime-local"><small style="color:#64748b;font-size:.62rem;">Leave blank to start now</small></div>
+        <div class="form-group" style="min-width:175px;"><label>Stop New Claims (PH time) *</label><input class="form-control" name="ends_at" type="datetime-local" required></div>
+        <div class="form-group" style="min-width:175px;"><label>Reward Expiry (PH time)</label><input class="form-control" name="reward_expires_at" type="datetime-local"><small style="color:#64748b;font-size:.62rem;">Blank = 7 days after hunt ends</small></div>
+        <div class="form-group" style="min-width:120px;display:flex;align-items:flex-end;padding-bottom:5px;"><label style="font-size:.75rem;"><input type="checkbox" name="is_active" checked> Make active now</label></div>
+      </div>
+      <button type="submit" class="btn" style="background:#7e22ce;color:white;padding:8px 12px;font-size:.75rem;margin-top:8px;">Create Hidden Treat Hunt</button>
+    </form>
+
+    <div style="max-height:330px;overflow:auto;margin-top:12px;">
+      <table>
+        <thead><tr><th>Hunt / Location</th><th>Prize</th><th>Schedule</th><th>Found</th><th>Status</th></tr></thead>
+        <tbody>
+          {% for hunt in hidden_prize_hunts %}
+          <tr>
+            <td><strong>{{ hunt.title }}</strong><br><span style="font-size:.66rem;color:#64748b;">{% if hunt.location == 'STOREFRONT_PRODUCT' %}Storefront: {{ hunt.location_product.name if hunt.location_product else 'Product removed' }}{% elif hunt.location == 'LOYALTY_PORTAL' %}Loyalty portal{% else %}Community{% endif %}</span></td>
+            <td>{% if hunt.prize_type == 'POINTS' %}+{{ hunt.points_amount|round(2) }} points{% elif hunt.prize_type == 'VOUCHER' %}{{ hunt.voucher_discount_percent|round(2) }}% voucher{% if hunt.voucher_min_order %}<br><span style="font-size:.65rem;color:#64748b;">min ₱{{ "%.2f"|format(hunt.voucher_min_order) }}</span>{% endif %}{% else %}Free {{ hunt.prize_product.name if hunt.prize_product else 'product removed' }}{% endif %}</td>
+            <td style="font-size:.67rem;">{{ hunt.starts_at|ph_datetime }}<br>to {{ hunt.ends_at|ph_datetime }}</td>
+            <td><strong>{{ hidden_prize_claim_counts.get(hunt.id, 0) }}</strong>{% if hunt.max_winners %} / {{ hunt.max_winners }}{% else %} / ∞{% endif %}</td>
+            <td><form action="{{ url_for('admin_toggle_hidden_prize_hunt', hunt_id=hunt.id) }}" method="POST"><span style="font-size:.67rem;font-weight:900;color:{{ '#15803d' if hunt.is_active else '#b45309' }};">{{ 'ACTIVE' if hunt.is_active else 'PAUSED' }}</span><button class="btn" type="submit" style="display:block;margin-top:5px;background:{{ '#f59e0b' if hunt.is_active else '#16a34a' }};color:white;padding:4px 7px;font-size:.65rem;">{{ 'Pause' if hunt.is_active else 'Resume' }}</button></form></td>
+          </tr>
+          {% else %}<tr><td colspan="5" style="text-align:center;color:#64748b;padding:17px;">No Hidden Treat Hunt yet. Create a small weekly reward to start.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- 📦 BULK CATALOG EDITOR -->
   <div class="card" id="catalog-editor">
     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:10px;">
@@ -1201,6 +1252,17 @@
     }
 
     const bundleProductOptions = `{% for p in products if p.is_active and not product_choice_groups(p.option_schema, p.size_schema) %}<option value="{{ p.id }}">{{ p.name|e }} — ₱{{ "%.2f"|format(p.price or 0) }} (stock {{ p.stock or 0 }})</option>{% endfor %}`;
+    function syncHiddenTreatForm() {
+      const location = document.getElementById('hiddenHuntLocation')?.value;
+      const prize = document.getElementById('hiddenHuntPrizeType')?.value;
+      const show = (id, visible) => { const el = document.getElementById(id); if (el) el.style.display = visible ? '' : 'none'; };
+      show('hiddenHuntLocationProductWrap', location === 'STOREFRONT_PRODUCT');
+      show('hiddenHuntPointsWrap', prize === 'POINTS');
+      show('hiddenHuntVoucherWrap', prize === 'VOUCHER');
+      show('hiddenHuntVoucherMinWrap', prize === 'VOUCHER');
+      show('hiddenHuntProductPrizeWrap', prize === 'PRODUCT');
+    }
+    syncHiddenTreatForm();
     function addBundleItemRow() {
       const builder = document.getElementById('bundleItemBuilder');
       if (!builder) return;

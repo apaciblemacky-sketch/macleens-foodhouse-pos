@@ -57,6 +57,7 @@
       <button onclick="openModal('memberQrModal')" style="background:#db2777; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🎁 New Member QR</button>
       <button onclick="openMemberScanModal()" style="background:#0f766e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">▦ Scan Member</button>
       <a href="{{ url_for('cashier_mobile_scanner') }}" target="_blank" rel="noopener" style="background:#0369a1; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem; font-weight:bold;">📱 Phone Scanner</a>
+      <button onclick="openCustomerChatModal()" style="background:#0f766e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💬 Live Chats <span id="cashierChatUnreadBadge" style="display:none;background:#fef3c7;color:#92400e;border-radius:9px;padding:1px 4px;margin-left:2px;"></span></button>
       <a href="{{ url_for('cashier_investor_proposals') }}" style="background:#6d28d9; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem; font-weight:bold;">📈 Investor Proposals</a>
       <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
       <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Logout</a>
@@ -81,6 +82,18 @@
         <div style="padding:6px 0;border-top:1px dashed #475569;font-size:.69rem;">
           <strong>30-day Drop • {{ drop.product.name if drop.product else 'Awaiting product' }}</strong><br><span style="color:#cbd5e1">For {{ drop.customer.name }}</span>
           <form action="{{ url_for('cashier_redeem_community_drop', drop_id=drop.id) }}" method="POST" onsubmit="return confirm('Freebie handed to {{ drop.customer.name|e }}?');" style="margin-top:4px"><button type="submit" class="btn-act" style="background:#7c3aed;color:white;width:100%">Redeem freebie</button></form>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if hidden_prize_product_claims %}
+      <div style="background:#111827;border:1.5px solid #ec4899;border-radius:9px;padding:8px;margin-bottom:10px;">
+        <h3 style="font-size:.78rem;color:#f9a8d4;margin-bottom:6px;">🎁 Hidden Treat free-product claims ({{ hidden_prize_product_claims|length }})</h3>
+        <div style="font-size:.65rem;color:#cbd5e1;margin-bottom:6px;">Verify the member and hand over the listed prize. The prize stock was reserved when it was found.</div>
+        {% for claim in hidden_prize_product_claims %}
+        <div style="padding:6px 0;border-top:1px dashed #475569;font-size:.69rem;">
+          <strong>{{ claim.claim_code }} • {{ claim.hunt.prize_product.name if claim.hunt.prize_product else 'Free product' }}</strong><br><span style="color:#cbd5e1">For {{ claim.customer.name }} • found {{ claim.claimed_at.strftime('%b %d, %I:%M %p') if claim.claimed_at else 'today' }}</span>
+          <form action="{{ url_for('cashier_redeem_hidden_prize', claim_id=claim.id) }}" method="POST" onsubmit="return confirm('Hand over this Hidden Treat prize to {{ claim.customer.name|e }}? It cannot be redeemed twice.');" style="margin-top:4px"><button type="submit" class="btn-act" style="background:#db2777;color:white;width:100%">Redeem free product</button></form>
         </div>
         {% endfor %}
       </div>
@@ -229,6 +242,12 @@
         <div id="posRedeemWrap" style="display:none; margin:4px 0;">
           <label style="font-size:0.68rem; color:#f9a8d4; font-weight:bold;">Use Points as Discount (minimum 20 • 1 point = ₱1)</label>
           <input type="number" id="posRedeemPoints" min="0" step="0.01" value="0" class="form-input" style="margin-bottom:0; padding:3px;" oninput="renderPosCart()">
+        </div>
+
+        <div id="posHiddenPrizeWrap" style="display:none; margin:4px 0;">
+          <label style="font-size:0.68rem; color:#f9a8d4; font-weight:bold;">Hidden Treat voucher code <span style="color:#94a3b8;">(optional • cannot combine with points)</span></label>
+          <input type="text" id="posHiddenPrizeCode" maxlength="40" autocomplete="off" placeholder="Example: TREAT-AB12CD34" class="form-input" style="margin-bottom:0; padding:3px; text-transform:uppercase;" oninput="this.value=this.value.toUpperCase(); renderPosCart()">
+          <div style="font-size:.62rem;color:#94a3b8;margin-top:2px;">The discount is securely checked when the sale is recorded.</div>
         </div>
 
         <input type="text" id="posCustomName" placeholder="Customer Name / Remarks" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;">
@@ -843,6 +862,24 @@
     </div>
   </div>
 
+  <!-- LIVE CUSTOMER CHAT MODAL -->
+  <div id="customerChatModal" class="modal-backdrop">
+    <div class="modal-box" style="max-width:860px;width:96%;height:min(640px,88vh);padding:0;display:flex;flex-direction:column;overflow:hidden;border-color:#2dd4bf;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 15px;border-bottom:1px solid #475569;background:#0f766e;">
+        <div><h3 style="font-size:1rem;color:#fff;">💬 Live Customer Chats</h3><div style="font-size:.68rem;color:#ccfbf1;margin-top:2px;">Order chats clear automatically after handover; support chats expire after 24 hours.</div></div>
+        <div style="display:flex;gap:8px;align-items:center"><button type="button" onclick="enableCashierChatSound()" style="border:1px solid #99f6e4;background:#134e4a;color:#ccfbf1;border-radius:6px;padding:5px 7px;font-size:.68rem;font-weight:900;cursor:pointer;">🔔 Enable sound</button><button type="button" onclick="closeModal('customerChatModal')" style="background:none;border:none;color:#fff;font-size:1.2rem;cursor:pointer;">✕</button></div>
+      </div>
+      <div style="display:grid;grid-template-columns:minmax(210px,33%) 1fr;min-height:0;flex:1;">
+        <div id="cashierChatThreads" style="border-right:1px solid #475569;overflow:auto;background:#162033;padding:7px;"><div style="font-size:.75rem;color:#94a3b8;padding:8px;">Loading conversations…</div></div>
+        <div style="display:flex;flex-direction:column;min-width:0;background:#0f172a;">
+          <div id="cashierChatTitle" style="padding:10px 12px;color:#e2e8f0;font-size:.8rem;font-weight:900;border-bottom:1px solid #334155;">Choose a conversation</div>
+          <div id="cashierChatMessages" style="flex:1;overflow:auto;padding:11px;"><div style="font-size:.75rem;color:#94a3b8;">Customer messages will appear here without refreshing the POS.</div></div>
+          <div style="display:flex;gap:7px;padding:10px;border-top:1px solid #334155;"><input id="cashierChatInput" class="form-input" maxlength="500" placeholder="Reply to customer" style="margin:0;flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();sendCashierChat()}"><button type="button" onclick="sendCashierChat()" style="border:0;border-radius:6px;background:#ec4899;color:#fff;font-weight:900;padding:7px 12px;cursor:pointer;">Send</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- 8. SETTINGS MODAL -->
   <div id="settingsModal" class="modal-backdrop">
     <div class="modal-box">
@@ -882,6 +919,99 @@
 
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; if (id === 'memberScanModal') stopMemberCameraScanner(); }
+
+    let cashierChatCurrentKey = null;
+    let cashierChatUnreadTotal = 0;
+    let cashierChatAudio = null;
+    let cashierChatSeenRemote = new Set();
+    let cashierChatThreadLoaded = false;
+
+    function enableCashierChatSound() {
+      try {
+        cashierChatAudio = cashierChatAudio || new (window.AudioContext || window.webkitAudioContext)();
+        cashierChatAudio.resume?.();
+      } catch (_) {}
+    }
+    function cashierChatEscape(value) {
+      return String(value || '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+    }
+    function setCashierChatBadge(total) {
+      const badge = document.getElementById('cashierChatUnreadBadge');
+      if (!badge) return;
+      badge.style.display = total > 0 ? 'inline-block' : 'none';
+      badge.textContent = total > 99 ? '99+' : String(total || '');
+    }
+    function openCustomerChatModal() {
+      openModal('customerChatModal');
+      enableCashierChatSound();
+      loadCashierChatThreads();
+    }
+    function renderCashierChatThreads(threads) {
+      const box = document.getElementById('cashierChatThreads');
+      box.innerHTML = '';
+      if (!threads.length) { box.innerHTML = '<div style="font-size:.75rem;color:#94a3b8;padding:8px;">No active chats. New orders automatically receive a thank-you message.</div>'; return; }
+      threads.forEach(thread => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.style.cssText = `display:block;width:100%;text-align:left;border:1px solid ${thread.thread_key === cashierChatCurrentKey ? '#2dd4bf' : '#334155'};background:${thread.thread_key === cashierChatCurrentKey ? '#134e4a' : '#1e293b'};color:#f8fafc;border-radius:7px;padding:8px;margin-bottom:6px;cursor:pointer`;
+        button.onclick = () => { cashierChatCurrentKey = thread.thread_key; cashierChatSeenRemote = new Set(); cashierChatThreadLoaded = false; renderCashierChatThreads(threads); loadCashierChatThread(); };
+        const title = document.createElement('div'); title.style.cssText = 'font-weight:900;font-size:.75rem;display:flex;justify-content:space-between;gap:6px';
+        title.textContent = thread.customer_name + (thread.order_id ? ` • #${thread.order_id}` : ' • Help');
+        if (thread.unread_count) { const count=document.createElement('span'); count.textContent=thread.unread_count; count.style.cssText='background:#fbbf24;color:#422006;border-radius:10px;padding:1px 5px;font-size:.65rem'; title.appendChild(count); }
+        const detail = document.createElement('div'); detail.textContent = thread.last_body || ''; detail.style.cssText = 'margin-top:3px;font-size:.66rem;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+        button.appendChild(title); button.appendChild(detail); box.appendChild(button);
+      });
+    }
+    async function loadCashierChatThreads() {
+      try {
+        const response = await fetch('/api/cashier/customer-chats', {cache:'no-store'});
+        if (!response.ok) return;
+        const data = await response.json();
+        if (!data.success) return;
+        const unread = Number(data.unread_total || 0);
+        if (unread > cashierChatUnreadTotal) playCashierBeep();
+        cashierChatUnreadTotal = unread;
+        setCashierChatBadge(unread);
+        const threads = Array.isArray(data.threads) ? data.threads : [];
+        if (!cashierChatCurrentKey && threads[0]) { cashierChatCurrentKey = threads[0].thread_key; cashierChatSeenRemote = new Set(); cashierChatThreadLoaded = false; }
+        if (cashierChatCurrentKey && !threads.some(row => row.thread_key === cashierChatCurrentKey)) { cashierChatCurrentKey = threads[0]?.thread_key || null; cashierChatSeenRemote = new Set(); cashierChatThreadLoaded = false; }
+        renderCashierChatThreads(threads);
+        if (cashierChatCurrentKey && document.getElementById('customerChatModal').style.display === 'flex') loadCashierChatThread();
+      } catch (_) {}
+    }
+    async function loadCashierChatThread() {
+      if (!cashierChatCurrentKey) return;
+      try {
+        const response = await fetch('/api/cashier/customer-chats/' + encodeURIComponent(cashierChatCurrentKey), {cache:'no-store'});
+        if (!response.ok) return;
+        const data = await response.json(); if (!data.success) return;
+        document.getElementById('cashierChatTitle').textContent = `${data.customer_name || 'Customer'}${data.order_id ? ' • Order #' + data.order_id : ' • Storefront help'}`;
+        const box = document.getElementById('cashierChatMessages'); let newRemote = false; box.innerHTML = '';
+        (data.messages || []).forEach(message => {
+          const remote = message.sender_type === 'CUSTOMER';
+          if (!cashierChatThreadLoaded && remote) cashierChatSeenRemote.add(String(message.id));
+          if (cashierChatThreadLoaded && remote && !cashierChatSeenRemote.has(String(message.id))) newRemote = true;
+          if (remote) cashierChatSeenRemote.add(String(message.id));
+          const row = document.createElement('div');
+          row.style.cssText = `max-width:84%;margin:6px ${remote ? 'auto 6px 0' : '0 0 6px auto'};padding:8px 10px;border-radius:10px;font-size:.76rem;line-height:1.35;white-space:pre-wrap;background:${remote ? '#dbeafe' : '#1e293b'};color:${remote ? '#172554' : '#f8fafc'};border:1px solid ${remote ? '#93c5fd' : '#334155'}`;
+          row.textContent = `${message.sender_label || message.sender_type}: ${message.body || ''}`;
+          box.appendChild(row);
+        });
+        cashierChatThreadLoaded = true; box.scrollTop = box.scrollHeight; if (newRemote) playCashierBeep();
+      } catch (_) {}
+    }
+    async function sendCashierChat() {
+      if (!cashierChatCurrentKey) return;
+      const input = document.getElementById('cashierChatInput'); const message = input.value.trim(); if (!message) return;
+      input.value = '';
+      try {
+        const response = await fetch('/api/cashier/customer-chats/' + encodeURIComponent(cashierChatCurrentKey), {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message})});
+        const data = await response.json(); if (!response.ok || !data.success) return alert(data.message || 'Could not send the reply.');
+        loadCashierChatThread(); loadCashierChatThreads();
+      } catch (_) { alert('Could not send the reply.'); }
+    }
+    window.setInterval(loadCashierChatThreads, 2200);
+    window.setTimeout(loadCashierChatThreads, 800);
 
     let memberScanStream = null;
     let memberScanFrame = null;
@@ -1074,7 +1204,11 @@
       const type = document.getElementById('posCustType').value;
       document.getElementById('posRegCustWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
       document.getElementById('posRedeemWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
-      if (type !== 'REGISTERED') document.getElementById('posRedeemPoints').value = 0;
+      document.getElementById('posHiddenPrizeWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      if (type !== 'REGISTERED') {
+        document.getElementById('posRedeemPoints').value = 0;
+        document.getElementById('posHiddenPrizeCode').value = '';
+      }
       updateMemberQuickInfo();
       renderPosCart();
     }
@@ -1222,6 +1356,15 @@
 
     let pendingCustomAmountProduct = null;
     let customAmountEditOnly = false;
+    let customAmountLineSequence = 0;
+
+    function newSpecificAmountCartKey(productId, options) {
+      // A flexible-price item represents the cashier's entered selling amount.
+      // Give every new entry its own line so ₱20 and ₱25 of the same product
+      // never overwrite or combine before the order is submitted.
+      customAmountLineSequence += 1;
+      return `${cartKeyFor(productId, options)}::specific=${Date.now()}-${customAmountLineSequence}`;
+    }
 
     async function addPosCartItem(id, name, price, allowCustomAmount=false, minimumAmount=null, optionGroups=[]) {
       id = String(id);
@@ -1234,13 +1377,12 @@
       const cartKey = cartKeyFor(id, options);
 
       if (allowCustomAmount) {
-        pendingCustomAmountProduct = { id, cartKey, name, regularPrice, minAmount, options };
+        pendingCustomAmountProduct = { id, cartKey: null, name, regularPrice, minAmount, options };
         customAmountEditOnly = false;
         document.getElementById('customAmountProductName').innerText = name + (optionSummary(options) ? ` — ${optionSummary(options)}` : '');
         document.getElementById('customAmountRegularPrice').innerText = `₱${regularPrice.toFixed(2)}`;
         document.getElementById('customAmountMinimum').innerText = `₱${minAmount.toFixed(2)}`;
-        const existing = posCart[cartKey];
-        document.getElementById('customAmountInput').value = (existing ? existing.price : regularPrice).toFixed(2);
+        document.getElementById('customAmountInput').value = regularPrice.toFixed(2);
         document.getElementById('customAmountInput').min = minAmount.toFixed(2);
         document.getElementById('customAmountError').innerText = '';
         document.querySelector('#customAmountModal button[onclick="confirmCustomAmount()"]').innerText = 'ADD WITH THIS AMOUNT';
@@ -1276,15 +1418,15 @@
         return;
       }
 
-      if (posCart[p.cartKey]) {
-        posCart[p.cartKey].price = amount;
-        posCart[p.cartKey].regularPrice = p.regularPrice;
-        posCart[p.cartKey].customAmount = true;
-        posCart[p.cartKey].minAmount = p.minAmount;
-        posCart[p.cartKey].options = p.options || {};
-        if (!customAmountEditOnly) posCart[p.cartKey].qty += 1;
+      const lineKey = customAmountEditOnly ? p.cartKey : newSpecificAmountCartKey(p.id, p.options || {});
+      if (posCart[lineKey]) {
+        posCart[lineKey].price = amount;
+        posCart[lineKey].regularPrice = p.regularPrice;
+        posCart[lineKey].customAmount = true;
+        posCart[lineKey].minAmount = p.minAmount;
+        posCart[lineKey].options = p.options || {};
       } else {
-        posCart[p.cartKey] = { productId: parseInt(p.id), name: p.name, price: amount, regularPrice: p.regularPrice, qty: 1, customAmount: true, minAmount: p.minAmount, options: p.options || {} };
+        posCart[lineKey] = { productId: parseInt(p.id), name: p.name, price: amount, regularPrice: p.regularPrice, qty: 1, customAmount: true, minAmount: p.minAmount, options: p.options || {} };
       }
 
       closeModal('customAmountModal');
@@ -1436,9 +1578,14 @@
       const customName = document.getElementById('posCustomName').value.trim();
       const payMethod = document.getElementById('posPayMethod').value;
       const bill = parseFloat(document.getElementById('posCashBill').value) || 0;
+      const hiddenPrizeCode = document.getElementById('posHiddenPrizeCode').value.trim();
+      const redeemPoints = parseFloat(document.getElementById('posRedeemPoints').value) || 0;
 
       if (custType === 'REGISTERED' && !regCustId) {
         return alert("Please choose a registered member to credit points.");
+      }
+      if (hiddenPrizeCode && redeemPoints > 0) {
+        return alert("Use either loyalty points or one Hidden Treat voucher, not both in the same sale.");
       }
 
       const payload = {
@@ -1454,7 +1601,8 @@
         customer_name: customName || (custType === 'REGISTERED' ? 'Registered Member' : 'Counter Walk-in'),
         payment_method: payMethod,
         change_for: bill,
-        redeem_points: parseFloat(document.getElementById('posRedeemPoints').value) || 0,
+        redeem_points: redeemPoints,
+        hidden_prize_code: hiddenPrizeCode || null,
         notes: `Cashier POS (${diningOpt})`
       };
 
@@ -1473,9 +1621,11 @@
           if (bonusPts > 0) rewardLine += `\nCampaign Bonus: +${bonusPts.toFixed(1)} pts`;
           if (referralPts > 0) rewardLine += `\nFirst-Purchase Referral Bonus: +${referralPts.toFixed(1)} pts`;
           if (data.member_balance !== null && data.member_balance !== undefined) rewardLine += `\nNew Balance: ${Number(data.member_balance).toFixed(1)} pts`;
+          if (Number(data.hidden_prize_discount || 0) > 0) rewardLine += `\nHidden Treat Discount: -₱${Number(data.hidden_prize_discount).toFixed(2)}`;
           alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\nPoints Used: ${Number(data.points_redeemed || 0).toFixed(2)}\n${rewardLine}`);
           clearPosCart();
           document.getElementById('posCashBill').value = '';
+          document.getElementById('posHiddenPrizeCode').value = '';
           if (window.MacleensLiveUI) window.MacleensLiveUI.refresh(); else window.location.reload();
         } else {
           alert(data.message || "Failed to record sale.");
@@ -1577,7 +1727,9 @@
 
     function playCashierBeep() {
       try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const ctx = cashierChatAudio || new (window.AudioContext || window.webkitAudioContext)();
+        cashierChatAudio = ctx;
+        ctx.resume?.();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
