@@ -101,6 +101,12 @@ def main() -> int:
             with member_client.session_transaction() as browser:
                 browser['customer_id'] = member.id
 
+            # Eligible accounts can see a placed Community hunt before they
+            # claim anything; the global cooldown hides it after a win.
+            eligible_community_page = member_client.get('/community')
+            assert eligible_community_page.status_code == 200
+            assert f'data-community-hunt="{community_placement_hunt.id}"'.encode() in eligible_community_page.data
+
             # A points treat awards once and cannot be farmed by repeatedly
             # opening or pressing the visible gift.
             first_points = member_client.post(f'/api/hidden-prizes/{points_hunt.id}/claim')
@@ -110,6 +116,11 @@ def main() -> int:
             repeat_points = member_client.post(f'/api/hidden-prizes/{points_hunt.id}/claim')
             assert repeat_points.status_code == 200 and repeat_points.get_json()['already_claimed']
             assert m.HiddenPrizeClaim.query.filter_by(hunt_id=points_hunt.id, customer_id=member.id).count() == 1
+            cooldown_block = member_client.post(f'/api/hidden-prizes/{voucher_hunt.id}/claim')
+            assert cooldown_block.status_code == 400 and b'once every 3 days' in cooldown_block.data
+            points_claim = m.HiddenPrizeClaim.query.filter_by(hunt_id=points_hunt.id, customer_id=member.id).one()
+            points_claim.claimed_at = now - timedelta(days=4)
+            m.db.session.commit()
 
             # The account-bound voucher is claimed from its storefront product
             # placement. Cashier may enter or scan that code without manually
@@ -118,6 +129,9 @@ def main() -> int:
             voucher_body = voucher_response.get_json()
             assert voucher_response.status_code == 200 and voucher_body['prize_type'] == 'VOUCHER'
             voucher_code = voucher_body['claim_code']
+            voucher_claim = m.HiddenPrizeClaim.query.filter_by(claim_code=voucher_code).one()
+            voucher_claim.claimed_at = now - timedelta(days=4)
+            m.db.session.commit()
 
             cashier_client = m.app.test_client()
             with cashier_client.session_transaction() as browser:
@@ -145,11 +159,13 @@ def main() -> int:
             m.db.session.refresh(free_product)
             assert free_product.stock == 4
             free_claim = m.HiddenPrizeClaim.query.filter_by(claim_code=free_claim_body['claim_code']).first()
+            order_count_before_prize_handoff = m.Order.query.count()
             redeemed = cashier_client.post(f'/pos/redeem-hidden-prize/{free_claim.id}')
             assert redeemed.status_code == 302
             m.db.session.refresh(free_product)
             m.db.session.refresh(free_claim)
             assert free_product.stock == 4 and free_claim.status == 'REDEEMED'
+            assert free_claim.redeemed_order_id is None and m.Order.query.count() == order_count_before_prize_handoff
 
             # Expired product claims return their reserved stock even when the
             # next request is only a read-only dashboard page.
@@ -208,9 +224,9 @@ def main() -> int:
             assert storefront.status_code == 200 and b'hidden-treat-icon' in storefront.data
             community_page = member_client.get('/community')
             assert community_page.status_code == 200
-            assert f'data-community-hunt="{community_placement_hunt.id}"'.encode() in community_page.data
+            assert f'data-community-hunt="{community_placement_hunt.id}"'.encode() not in community_page.data
 
-    print('HIDDEN TREAT PLACEMENT + CASHIER AUTO-LINK V24 SMOKE CHECK PASSED')
+    print('HIDDEN TREAT COOLDOWN + CASHIER DIRECT-HANDOFF V25 SMOKE CHECK PASSED')
     return 0
 
 

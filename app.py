@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.08-hidden-treat-autolink-v24'
+APP_RELEASE = '2026.09.08-hidden-treat-cooldown-v25'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -2212,6 +2212,7 @@ HIDDEN_PRIZE_DEFAULT_PLACEMENTS = {
 HIDDEN_PRIZE_DISPLAY_SIZE_MIN = 24
 HIDDEN_PRIZE_DISPLAY_SIZE_MAX = 180
 HIDDEN_PRIZE_DISPLAY_SIZE_DEFAULT = 48
+HIDDEN_PRIZE_CLAIM_COOLDOWN_DAYS = 3
 
 
 def hidden_prize_placement_slot(hunt):
@@ -2319,6 +2320,11 @@ def active_hidden_prize_hunts(location, customer=None, product_id=None):
     """Return live, still-findable hunts for a placement and optional customer."""
     now = utc_now()
     expire_hidden_prize_claims(now, persist=True)
+    # A successful claim starts one account-wide cooldown. Hide other gifts
+    # while it is active so customers are not invited to click prizes that the
+    # API will (correctly) reject. The API still enforces this server-side.
+    if customer and hidden_prize_claim_cooldown_remaining(customer, at=now) > 0:
+        return []
     query = HiddenPrizeHunt.query.filter(
         HiddenPrizeHunt.location == location,
         HiddenPrizeHunt.is_active.is_(True),
@@ -2368,6 +2374,35 @@ def customer_hidden_prize_claims(customer, include_redeemed=False):
 
 def customer_hidden_prize_vouchers(customer):
     return [claim for claim in customer_hidden_prize_claims(customer) if claim.hunt and claim.hunt.prize_type == 'VOUCHER' and claim.status == 'AVAILABLE']
+
+
+def hidden_prize_claim_cooldown_remaining(customer, at=None):
+    """Return the remaining global claim cooldown, or zero when eligible.
+
+    The cooldown applies after any successful claim (points, voucher, or free
+    product), not after cashier handover. A customer therefore cannot claim
+    several different hunts in a short period by switching locations.
+    """
+    if not customer:
+        return 0.0
+    at = at or utc_now()
+    latest = HiddenPrizeClaim.query.filter_by(customer_id=customer.id).order_by(
+        HiddenPrizeClaim.claimed_at.desc(), HiddenPrizeClaim.id.desc()
+    ).first()
+    if not latest or not latest.claimed_at:
+        return 0.0
+    cooldown_end = latest.claimed_at + timedelta(days=HIDDEN_PRIZE_CLAIM_COOLDOWN_DAYS)
+    return max(0.0, (cooldown_end - at).total_seconds())
+
+
+def hidden_prize_claim_cooldown_message(customer, at=None):
+    remaining = hidden_prize_claim_cooldown_remaining(customer, at=at)
+    if remaining <= 0:
+        return ''
+    hours = remaining / 3600.0
+    if hours >= 24:
+        return f'You can claim another Hidden Treat after {hours / 24.0:.1f} more day(s). Customers may claim only once every {HIDDEN_PRIZE_CLAIM_COOLDOWN_DAYS} days.'
+    return f'You can claim another Hidden Treat in about {max(1, int(hours + 0.999))} hour(s). Customers may claim only once every {HIDDEN_PRIZE_CLAIM_COOLDOWN_DAYS} days.'
 
 
 def validate_hidden_prize_voucher(customer, raw_code, merchandise_subtotal):
@@ -5957,6 +5992,9 @@ def api_claim_hidden_prize(hunt_id):
         existing = HiddenPrizeClaim.query.filter_by(hunt_id=hunt.id, customer_id=cust.id).first()
         if existing:
             return jsonify({'success': True, 'already_claimed': True, 'message': hidden_prize_claim_message(existing), 'claim_code': existing.claim_code})
+        cooldown_message = hidden_prize_claim_cooldown_message(cust)
+        if cooldown_message:
+            raise OrderValidationError(cooldown_message)
         if hunt.max_winners and hidden_prize_claim_count(hunt.id) >= hunt.max_winners:
             raise OrderValidationError('All Hidden Treat prizes have already been found. Watch for the next hunt!')
 
@@ -7031,7 +7069,7 @@ def cashier_direct_sale():
 @app.route('/pos/redeem-hidden-prize/<int:claim_id>', methods=['POST'])
 @require_cashier
 def cashier_redeem_hidden_prize(claim_id):
-    """Hand over an already-reserved Hidden Treat product and keep an audit slip."""
+    """Hand over an already-reserved prize without creating a POS sale/order."""
     try:
         expire_hidden_prize_claims()
         claim = HiddenPrizeClaim.query.get_or_404(claim_id)
@@ -7048,36 +7086,19 @@ def cashier_redeem_hidden_prize(claim_id):
             claim.stock_reserved = True
 
         customer = claim.customer
-        order = Order(
-            order_type='HIDDEN_PRIZE',
-            dining_option='TAKEOUT',
-            customer_id=customer.id,
-            customer_name=customer.name,
-            contact_number=customer.contact,
-            subtotal=0.0,
-            delivery_fee=0.0,
-            total_amount=0.0,
-            payment_method='HIDDEN_PRIZE',
-            payment_verified=True,
-            status='COMPLETED',
-            fulfillment_status='FULFILLED',
-            notes=f'Hidden Treat product redeemed: {hunt.title} • {claim.claim_code}',
-        )
-        db.session.add(order)
-        db.session.flush()
-        db.session.add(OrderItem(
-            order_id=order.id,
-            product_id=product.id,
-            product_name=f'[Hidden Treat] {product.name}',
-            unit_price=0.0,
-            cost_price=max(0.0, parse_float(product.cost, 0.0)),
-            quantity=1,
-            subtotal=0.0,
-            selected_options=None,
-        ))
+        if not customer:
+            raise OrderValidationError('This Hidden Treat claim has no valid customer account.')
+        # The claim is the customer credit and audit record. Do not create an
+        # artificial zero-value Order/OrderItem: free prizes are not sales and
+        # must not appear in the Counter Tray, sales totals, or BIR records.
         claim.status = 'REDEEMED'
-        claim.redeemed_order_id = order.id
+        claim.redeemed_order_id = None
         claim.redeemed_at = utc_now()
+        db.session.add(PortalEvent(
+            source='HIDDEN_TREAT',
+            event_type='HIDDEN_PRIZE_PRODUCT_REDEEMED',
+            customer_id=customer.id,
+        ))
         db.session.commit()
         flash(f'Hidden Treat redeemed for {customer.name}: {product.name}.', 'success')
     except OrderValidationError as exc:
