@@ -160,12 +160,18 @@ def main() -> int:
             assert free_product.stock == 4
             free_claim = m.HiddenPrizeClaim.query.filter_by(claim_code=free_claim_body['claim_code']).first()
             order_count_before_prize_handoff = m.Order.query.count()
+            cashier_before_handoff = cashier_client.get('/pos/cashier')
+            assert cashier_before_handoff.status_code == 200
+            assert b'posHiddenPrizeCode' not in cashier_before_handoff.data
+            assert b'Redeem free product' in cashier_before_handoff.data
             redeemed = cashier_client.post(f'/pos/redeem-hidden-prize/{free_claim.id}')
             assert redeemed.status_code == 302
             m.db.session.refresh(free_product)
             m.db.session.refresh(free_claim)
             assert free_product.stock == 4 and free_claim.status == 'REDEEMED'
             assert free_claim.redeemed_order_id is None and m.Order.query.count() == order_count_before_prize_handoff
+            cashier_after_handoff = cashier_client.get('/pos/cashier')
+            assert free_claim_body['claim_code'].encode() not in cashier_after_handoff.data
 
             # Expired product claims return their reserved stock even when the
             # next request is only a read-only dashboard page.
@@ -226,7 +232,7 @@ def main() -> int:
             assert community_page.status_code == 200
             assert f'data-community-hunt="{community_placement_hunt.id}"'.encode() not in community_page.data
 
-    print('HIDDEN TREAT COOLDOWN + CASHIER DIRECT-HANDOFF V25 SMOKE CHECK PASSED')
+    print('HIDDEN TREAT PENDING-ONLY + DIRECT HANDOFF V27 SMOKE CHECK PASSED')
     return 0
 
 

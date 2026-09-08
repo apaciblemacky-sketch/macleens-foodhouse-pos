@@ -746,12 +746,14 @@ def main() -> int:
     for template_name, marker in [("store_catalog.html", "storefront_hunts_by_product"), ("customer_dashboard.html", "loyalty_hidden_hunts_by_slot"), ("community.html", "community_hidden_hunts_by_slot")]:
         if marker not in (TEMPLATES / template_name).read_text(encoding="utf-8"):
             fail(f"Hidden Treat placement is missing from {template_name}")
-    if "auto-loads its winning member" not in cashier_template or "voucher_owner = None" not in source:
-        fail("Cashier cannot securely auto-load the member who owns a Hidden Treat voucher")
+    if "voucher_owner = None" not in source:
+        fail("Hidden Treat voucher ownership validation is missing from the server")
     if "HIDDEN_PRIZE_CLAIM_COOLDOWN_DAYS = 3" not in source or "Customers may claim only once every" not in source:
         fail("Hidden Treat three-day customer claim cooldown is missing")
     if "HIDDEN_PRIZE_PRODUCT_REDEEMED" not in source or "without creating a POS sale/order" not in source:
         fail("Free Hidden Treat redemption must not create a POS sale/order")
+    if "posHiddenPrizeCode" in cashier_template or "posHiddenPrizeWrap" in cashier_template:
+        fail("Hidden Treat codes must not be entered from the Counter Tray")
     hidden_treat_smoke = ROOT / "scripts" / "hidden_treat_smoke_check.py"
     if not hidden_treat_smoke.exists():
         fail("Hidden Treat smoke-check script is missing")

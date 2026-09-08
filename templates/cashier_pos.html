@@ -289,11 +289,6 @@
           <input type="number" id="posRedeemPoints" min="0" step="0.01" value="0" class="form-input" style="margin-bottom:0; padding:3px;" oninput="renderPosCart()">
         </div>
 
-        <div id="posHiddenPrizeWrap" style="margin:4px 0;">
-          <label style="font-size:0.68rem; color:#f9a8d4; font-weight:bold;">Hidden Treat voucher code <span style="color:#94a3b8;">(optional • auto-loads its winning member • cannot combine with points)</span></label>
-          <input type="text" id="posHiddenPrizeCode" maxlength="40" autocomplete="off" placeholder="Example: TREAT-AB12CD34" class="form-input" style="margin-bottom:0; padding:3px; text-transform:uppercase;" oninput="this.value=this.value.toUpperCase(); renderPosCart()">
-          <div style="font-size:.62rem;color:#94a3b8;margin-top:2px;">No member search is needed: Cashier can enter or scan the code, while the server verifies the owner and discount.</div>
-        </div>
 
         <input type="text" id="posCustomName" placeholder="Customer Name / Remarks" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;">
       </div>
@@ -1367,7 +1362,6 @@
       const type = document.getElementById('posCustType').value;
       document.getElementById('posRegCustWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
       document.getElementById('posRedeemWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
-      document.getElementById('posHiddenPrizeWrap').style.display = 'block';
       if (type !== 'REGISTERED') {
         document.getElementById('posRedeemPoints').value = 0;
       }
@@ -1740,14 +1734,10 @@
       const customName = document.getElementById('posCustomName').value.trim();
       const payMethod = document.getElementById('posPayMethod').value;
       const bill = parseFloat(document.getElementById('posCashBill').value) || 0;
-      const hiddenPrizeCode = document.getElementById('posHiddenPrizeCode').value.trim();
       const redeemPoints = parseFloat(document.getElementById('posRedeemPoints').value) || 0;
 
-      if (custType === 'REGISTERED' && !regCustId && !hiddenPrizeCode) {
+      if (custType === 'REGISTERED' && !regCustId) {
         return alert("Please choose a registered member to credit points.");
-      }
-      if (hiddenPrizeCode && redeemPoints > 0) {
-        return alert("Use either loyalty points or one Hidden Treat voucher, not both in the same sale.");
       }
 
       const payload = {
@@ -1764,7 +1754,6 @@
         payment_method: payMethod,
         change_for: bill,
         redeem_points: redeemPoints,
-        hidden_prize_code: hiddenPrizeCode || null,
         notes: `Cashier POS (${diningOpt})`
       };
 
@@ -1787,7 +1776,6 @@
           alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\nPoints Used: ${Number(data.points_redeemed || 0).toFixed(2)}\n${rewardLine}`);
           clearPosCart();
           document.getElementById('posCashBill').value = '';
-          document.getElementById('posHiddenPrizeCode').value = '';
           if (window.MacleensLiveUI) window.MacleensLiveUI.refresh(); else window.location.reload();
         } else {
           alert(data.message || "Failed to record sale.");

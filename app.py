@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.08-hidden-treat-cooldown-v25'
+APP_RELEASE = '2026.09.08-hidden-treat-pending-only-v27'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -2352,6 +2352,21 @@ def hidden_prize_claim_code():
     raise OrderValidationError('Could not generate a unique Hidden Treat claim code. Please try again.')
 
 
+def normalize_hidden_prize_claim_code(raw_code):
+    """Normalize codes copied from a claim card, scanner, or QR payload.
+
+    Cashier staff may paste a code with line breaks, spaces, or a surrounding
+    URL from a phone scanner. Extract only a complete generated code and keep
+    the database lookup exact; partial/guessed codes must never be accepted.
+    """
+    raw = str(raw_code or '').replace('\u200b', '').strip().upper()
+    if not raw:
+        return ''
+    compact = re.sub(r'\s+', '', raw)
+    match = re.search(r'(?<![A-Z0-9])(?:HUNT|TREAT)-[A-Z0-9]{8}(?![A-Z0-9])', compact)
+    return match.group(0) if match else compact
+
+
 def hidden_prize_claim_message(claim):
     hunt = claim.hunt
     if hunt.prize_type == 'POINTS':
@@ -2407,7 +2422,7 @@ def hidden_prize_claim_cooldown_message(customer, at=None):
 
 def validate_hidden_prize_voucher(customer, raw_code, merchandise_subtotal):
     """Validate a voucher server-side; browser totals and claim text are never trusted."""
-    code = str(raw_code or '').strip().upper()
+    code = normalize_hidden_prize_claim_code(raw_code)
     if not code:
         return None, 0.0
     expire_hidden_prize_claims()
@@ -6088,7 +6103,7 @@ def api_storefront_checkout():
     landmark = str(data.get('landmark', '')).strip()
     delivery_address = str(data.get('delivery_address', '')).strip()
     gcash_ref = str(data.get('gcash_ref', '')).strip()
-    hidden_prize_code = str(data.get('hidden_prize_code', '')).strip().upper()
+    hidden_prize_code = normalize_hidden_prize_claim_code(data.get('hidden_prize_code', ''))
 
     if order_type not in {'PICKUP', 'DELIVERY'}:
         return jsonify({'success': False, 'message': 'Invalid order type.'}), 400
@@ -6909,7 +6924,7 @@ def cashier_direct_sale():
     cust_name = str(data.get('customer_name', 'Counter Walk-in')).strip() or 'Counter Walk-in'
     notes = str(data.get('notes', 'Cashier Counter POS Sale')).strip() or 'Cashier Counter POS Sale'
     change_for = parse_float(data.get('change_for'), 0.0)
-    hidden_prize_code = str(data.get('hidden_prize_code', '')).strip().upper()
+    hidden_prize_code = normalize_hidden_prize_claim_code(data.get('hidden_prize_code', ''))
 
     if dining_opt not in {'DINE-IN', 'TAKEOUT'}:
         return jsonify({'success': False, 'message': 'Invalid dining option.'}), 400
@@ -6937,7 +6952,7 @@ def cashier_direct_sale():
         if hidden_prize_code:
             code_claim = HiddenPrizeClaim.query.filter_by(claim_code=hidden_prize_code).first()
             if not code_claim or not code_claim.hunt:
-                raise OrderValidationError('That Hidden Treat code is unavailable or invalid.')
+                raise OrderValidationError('That Hidden Treat code was not found. Copy the complete HUNT-XXXXXXXX code from Pending Verification. Free-product codes must be redeemed there; only voucher claims can be attached to a paid sale.')
             if code_claim.hunt.prize_type != 'VOUCHER':
                 raise OrderValidationError('This code is for a free-product Hidden Treat. Use the Redeem free product button in Pending Verification instead.')
             if code_claim.status != 'AVAILABLE':
@@ -7109,6 +7124,7 @@ def cashier_redeem_hidden_prize(claim_id):
         app.logger.exception('Cashier Hidden Treat redemption failed claim_id=%s', claim_id)
         flash('The Hidden Treat could not be redeemed. Nothing was recorded.', 'error')
     return redirect(url_for('cashier_terminal'))
+
 
 @app.route('/pos/claim-promo', methods=['POST'])
 @require_cashier
