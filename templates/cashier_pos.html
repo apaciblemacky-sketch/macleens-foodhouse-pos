@@ -74,6 +74,7 @@
       <img src="{{ store_logo }}" onerror="this.onerror=null;this.src='/static/logo.png';" style="width:32px; height:32px; border-radius:50%;">
       <strong style="color:var(--hk-pink);">🖥️ CASHIER TERMINAL</strong>
       <span id="liveStatusBadge" style="background:#16a34a; color:white; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold;">LIVE (1s)</span>
+      <span id="cashierLocalClock" title="Uses this device's clock" aria-live="off" style="background:#0f172a;color:#cbd5e1;border:1px solid #475569;padding:2px 6px;border-radius:10px;font-size:.7rem;font-weight:800;white-space:nowrap;">🕒 --:--</span>
     </div>
     
     <div class="cashier-header-tools">
@@ -82,7 +83,8 @@
       <button onclick="openModal('reservationModal')" style="background:#0284c7; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📌 + Reserve Item</button>
       <button onclick="openModal('changeFundModal')" style="background:#065f46; color:#34d399; border:1px solid #059669; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💵 Change Fund</button>
       <button onclick="openModal('collectionModal')" style="background:#f43f5e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📋 + For Collection</button>
-      <button onclick="openModal('miscModal')" style="background:#8b5cf6; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🖨️ Misc / Printing</button>
+      <button onclick="openModal('miscModal')" style="background:#8b5cf6; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🧾 Misc Sale</button>
+      <button onclick="openModal('printingModal')" style="background:#a21caf; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🖨️ Printing</button>
       <button onclick="openModal('expenseModal')" style="background:#f59e0b; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💸 Expense</button>
       <button onclick="openModal('vaultModal')" style="background:#10b981; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🏦 Vault Drop (#{{ next_drop_num }})</button>
       <button onclick="openModal('memberQrModal')" style="background:#db2777; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🎁 New Member QR</button>
@@ -131,7 +133,7 @@
         <div style="font-size:.65rem;color:#cbd5e1;margin-bottom:6px;">Verify the member and hand over the listed prize. The prize stock was reserved when it was found.</div>
         {% for claim in hidden_prize_product_claims %}
         <div style="padding:6px 0;border-top:1px dashed #475569;font-size:.69rem;">
-          <strong>{{ claim.claim_code }} • {{ claim.hunt.prize_product.name if claim.hunt.prize_product else 'Free product' }}</strong><br><span style="color:#cbd5e1">For {{ claim.customer.name }} • found {{ claim.claimed_at.strftime('%b %d, %I:%M %p') if claim.claimed_at else 'today' }}</span>
+          <strong>{{ claim.claim_code }} • {{ claim.hunt.prize_product.name if claim.hunt.prize_product else 'Free product' }}</strong><br><span style="color:#cbd5e1">For {{ claim.customer.name }} • found {{ claim.claimed_at|ph_datetime('%b %d, %I:%M %p') if claim.claimed_at else 'today' }} PH time</span>
           <form action="{{ url_for('cashier_redeem_hidden_prize', claim_id=claim.id) }}" method="POST" onsubmit="return confirm('Hand over this Hidden Treat prize to {{ claim.customer.name|e }}? It cannot be redeemed twice.');" style="margin-top:4px"><button type="submit" class="btn-act" style="background:#db2777;color:white;width:100%">Redeem free product</button></form>
         </div>
         {% endfor %}
@@ -287,10 +289,10 @@
           <input type="number" id="posRedeemPoints" min="0" step="0.01" value="0" class="form-input" style="margin-bottom:0; padding:3px;" oninput="renderPosCart()">
         </div>
 
-        <div id="posHiddenPrizeWrap" style="display:none; margin:4px 0;">
-          <label style="font-size:0.68rem; color:#f9a8d4; font-weight:bold;">Hidden Treat voucher code <span style="color:#94a3b8;">(optional • cannot combine with points)</span></label>
+        <div id="posHiddenPrizeWrap" style="margin:4px 0;">
+          <label style="font-size:0.68rem; color:#f9a8d4; font-weight:bold;">Hidden Treat voucher code <span style="color:#94a3b8;">(optional • auto-loads its winning member • cannot combine with points)</span></label>
           <input type="text" id="posHiddenPrizeCode" maxlength="40" autocomplete="off" placeholder="Example: TREAT-AB12CD34" class="form-input" style="margin-bottom:0; padding:3px; text-transform:uppercase;" oninput="this.value=this.value.toUpperCase(); renderPosCart()">
-          <div style="font-size:.62rem;color:#94a3b8;margin-top:2px;">The discount is securely checked when the sale is recorded.</div>
+          <div style="font-size:.62rem;color:#94a3b8;margin-top:2px;">No member search is needed: Cashier can enter or scan the code, while the server verifies the owner and discount.</div>
         </div>
 
         <input type="text" id="posCustomName" placeholder="Customer Name / Remarks" class="form-input" style="margin-bottom:0; padding:3px; font-size:0.75rem;">
@@ -588,10 +590,11 @@
   <div id="miscModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#8b5cf6;">
       <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
-        <h3 style="color:#c084fc; font-size:1rem;">🖨️ Record Miscellaneous / Printing Service</h3>
+        <h3 style="color:#c084fc; font-size:1rem;">🧾 Record Miscellaneous Sale</h3>
         <button onclick="closeModal('miscModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
       <form action="/pos/misc-sale" method="POST">
+        <input type="hidden" name="service_type" value="MISC">
         <label style="font-size:0.75rem; color:#cbd5e1;">Link to Registered Customer (Optional)</label>
         <select name="registered_customer_id" class="form-input">
           <option value="">-- Anonymous / General Walk-in --</option>
@@ -603,13 +606,13 @@
         <label style="font-size:0.75rem; color:#cbd5e1;">Custom Customer Name</label>
         <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Kagawad Cruz">
 
-        <label style="font-size:0.75rem; color:#cbd5e1;">Service Name *</label>
-        <input type="text" name="service_name" class="form-input" list="serviceSuggestions" placeholder="e.g., Document Printing" required>
-        <datalist id="serviceSuggestions">
-          <option value="Document Printing">
-          <option value="Photo Printing">
-          <option value="Scanning / Laminating">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Miscellaneous Item / Service *</label>
+        <input type="text" name="service_name" class="form-input" list="miscSuggestions" placeholder="e.g., Special packaging" required>
+        <datalist id="miscSuggestions">
+          <option value="Special Packaging">
           <option value="Rush Service Fee">
+          <option value="Other Counter Service">
+          <option value="Custom Charge">
         </datalist>
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱) *</label>
@@ -622,9 +625,59 @@
         </select>
 
         <label style="font-size:0.75rem; color:#cbd5e1;">Notes / Specifics</label>
+        <input type="text" name="notes" class="form-input" placeholder="e.g., Reason for the charge">
+
+        <button type="submit" style="background:#8b5cf6; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Misc Sale</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- 4B. PRINTING SERVICE MODAL -->
+  <div id="printingModal" class="modal-backdrop">
+    <div class="modal-box" style="border-color:#d946ef;">
+      <div style="display:flex; justify-content:space-between; margin-bottom:12px;">
+        <h3 style="color:#f0abfc; font-size:1rem;">🖨️ Record Printing / Craft Service</h3>
+        <button onclick="closeModal('printingModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
+      </div>
+      <form action="/pos/misc-sale" method="POST">
+        <input type="hidden" name="service_type" value="PRINTING">
+        <label style="font-size:0.75rem; color:#cbd5e1;">Link to Registered Customer (Optional)</label>
+        <select name="registered_customer_id" class="form-input">
+          <option value="">-- Anonymous / General Walk-in --</option>
+          {% for c in customers_list %}
+            <option value="{{ c.id }}">{{ c.name }} ({{ c.contact }})</option>
+          {% endfor %}
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Custom Customer Name</label>
+        <input type="text" name="custom_customer_name" class="form-input" placeholder="e.g. Kagawad Cruz">
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Printing / Craft Service *</label>
+        <input type="text" name="service_name" class="form-input" list="printingSuggestions" placeholder="e.g., Document Printing" required>
+        <datalist id="printingSuggestions">
+          <option value="Document Printing">
+          <option value="Photo Printing">
+          <option value="Photocopy">
+          <option value="Scanning">
+          <option value="Laminating">
+          <option value="Rush ID">
+          <option value="Sticker Making">
+          <option value="Keychains">
+        </datalist>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Amount (₱) *</label>
+        <input type="number" step="0.25" name="amount" class="form-input" placeholder="0.00" required>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Payment Method</label>
+        <select name="payment_method" class="form-input">
+          <option value="CASH">Cash</option>
+          <option value="GCASH">GCash</option>
+        </select>
+
+        <label style="font-size:0.75rem; color:#cbd5e1;">Print / Job Notes</label>
         <input type="text" name="notes" class="form-input" placeholder="e.g., 10 pages black and white">
 
-        <button type="submit" style="background:#8b5cf6; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Service Sale</button>
+        <button type="submit" style="background:#a21caf; color:white; border:none; padding:8px; border-radius:6px; width:100%; font-weight:bold; cursor:pointer;">Record Printing Sale</button>
       </form>
     </div>
   </div>
@@ -1009,6 +1062,21 @@
     window.addEventListener('resize', syncCashierResponsiveLayout);
     syncCashierResponsiveLayout();
 
+    // The compact clock deliberately uses the browser device clock, so it
+    // matches the staff PC/tablet. Stored timestamps are still formatted in
+    // Philippine time on the server to keep records consistent across devices.
+    function updateCashierLocalClock() {
+      const clock = document.getElementById('cashierLocalClock');
+      if (!clock) return;
+      const now = new Date();
+      const time = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+      clock.textContent = `🕒 ${time}`;
+      clock.title = `This cashier device: ${now.toLocaleString()}`;
+    }
+    updateCashierLocalClock();
+    if (window.macleensCashierClockTimer) clearInterval(window.macleensCashierClockTimer);
+    window.macleensCashierClockTimer = window.setInterval(updateCashierLocalClock, 1000);
+
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; if (id === 'memberScanModal') stopMemberCameraScanner(); }
 
@@ -1299,10 +1367,9 @@
       const type = document.getElementById('posCustType').value;
       document.getElementById('posRegCustWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
       document.getElementById('posRedeemWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
-      document.getElementById('posHiddenPrizeWrap').style.display = (type === 'REGISTERED') ? 'block' : 'none';
+      document.getElementById('posHiddenPrizeWrap').style.display = 'block';
       if (type !== 'REGISTERED') {
         document.getElementById('posRedeemPoints').value = 0;
-        document.getElementById('posHiddenPrizeCode').value = '';
       }
       updateMemberQuickInfo();
       renderPosCart();
@@ -1676,7 +1743,7 @@
       const hiddenPrizeCode = document.getElementById('posHiddenPrizeCode').value.trim();
       const redeemPoints = parseFloat(document.getElementById('posRedeemPoints').value) || 0;
 
-      if (custType === 'REGISTERED' && !regCustId) {
+      if (custType === 'REGISTERED' && !regCustId && !hiddenPrizeCode) {
         return alert("Please choose a registered member to credit points.");
       }
       if (hiddenPrizeCode && redeemPoints > 0) {

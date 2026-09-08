@@ -746,6 +746,8 @@ def main() -> int:
     for template_name, marker in [("store_catalog.html", "storefront_hunts_by_product"), ("customer_dashboard.html", "loyalty_hidden_hunts_by_slot"), ("community.html", "community_hidden_hunts_by_slot")]:
         if marker not in (TEMPLATES / template_name).read_text(encoding="utf-8"):
             fail(f"Hidden Treat placement is missing from {template_name}")
+    if "auto-loads its winning member" not in cashier_template or "voucher_owner = None" not in source:
+        fail("Cashier cannot securely auto-load the member who owns a Hidden Treat voucher")
     hidden_treat_smoke = ROOT / "scripts" / "hidden_treat_smoke_check.py"
     if not hidden_treat_smoke.exists():
         fail("Hidden Treat smoke-check script is missing")

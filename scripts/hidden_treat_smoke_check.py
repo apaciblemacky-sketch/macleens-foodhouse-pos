@@ -112,7 +112,8 @@ def main() -> int:
             assert m.HiddenPrizeClaim.query.filter_by(hunt_id=points_hunt.id, customer_id=member.id).count() == 1
 
             # The account-bound voucher is claimed from its storefront product
-            # placement, then the cashier may use it for that same member only.
+            # placement. Cashier may enter or scan that code without manually
+            # searching for the member; the server resolves only its owner.
             voucher_response = member_client.post(f'/api/hidden-prizes/{voucher_hunt.id}/claim')
             voucher_body = voucher_response.get_json()
             assert voucher_response.status_code == 200 and voucher_body['prize_type'] == 'VOUCHER'
@@ -124,8 +125,8 @@ def main() -> int:
                 browser['_staff_last_activity'] = datetime.now().isoformat()
             sale = cashier_client.post('/pos/direct-sale', json={
                 'items': [{'product_id': flexible.id, 'quantity': 1, 'options': {}, 'unit_price': 27}],
-                'dining_option': 'TAKEOUT', 'customer_type': 'REGISTERED',
-                'registered_customer_id': member.id, 'payment_method': 'CASH',
+                'dining_option': 'TAKEOUT', 'customer_type': 'WALKIN',
+                'registered_customer_id': None, 'payment_method': 'CASH',
                 'change_for': 100, 'redeem_points': 0, 'hidden_prize_code': voucher_code,
                 'notes': 'Hidden Treat smoke test',
             })
@@ -133,7 +134,7 @@ def main() -> int:
             assert sale.status_code == 200 and sale_body['success']
             assert round(sale_body['hidden_prize_discount'], 2) == 2.70
             order = m.db.session.get(m.Order, sale_body['order_id'])
-            assert round(order.hidden_prize_discount, 2) == 2.70
+            assert round(order.hidden_prize_discount, 2) == 2.70 and order.customer_id == member.id
             assert m.HiddenPrizeClaim.query.filter_by(claim_code=voucher_code).first().status == 'REDEEMED'
 
             # Product prizes reserve stock at claim time and do not deduct it
@@ -209,7 +210,7 @@ def main() -> int:
             assert community_page.status_code == 200
             assert f'data-community-hunt="{community_placement_hunt.id}"'.encode() in community_page.data
 
-    print('HIDDEN TREAT PLACEMENT + FLEXIBLE-PRICE CASHIER V23 SMOKE CHECK PASSED')
+    print('HIDDEN TREAT PLACEMENT + CASHIER AUTO-LINK V24 SMOKE CHECK PASSED')
     return 0
 
 

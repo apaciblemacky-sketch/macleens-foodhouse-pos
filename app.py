@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.08-hidden-treat-placement-v23'
+APP_RELEASE = '2026.09.08-hidden-treat-autolink-v24'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -6889,8 +6889,30 @@ def cashier_direct_sale():
         hidden_prize_claim = None
         hidden_prize_discount = 0.0
         contact = 'N/A'
+        # A voucher code is an account-bound, high-entropy claim code. It is
+        # safe for Cashier to use it as the member lookup key: the server still
+        # verifies the exact owner, availability, expiry, order minimum, and
+        # one-use status before applying any discount. This prevents staff from
+        # having to search for the member again after the customer already
+        # claimed the reward in the portal.
+        voucher_owner = None
+        if hidden_prize_code:
+            code_claim = HiddenPrizeClaim.query.filter_by(claim_code=hidden_prize_code).first()
+            if not code_claim or not code_claim.hunt:
+                raise OrderValidationError('That Hidden Treat code is unavailable or invalid.')
+            if code_claim.hunt.prize_type != 'VOUCHER':
+                raise OrderValidationError('This code is for a free-product Hidden Treat. Use the Redeem free product button in Pending Verification instead.')
+            if code_claim.status != 'AVAILABLE':
+                raise OrderValidationError('That Hidden Treat voucher has already been used or is no longer available.')
+            voucher_owner = code_claim.customer
+            if not voucher_owner:
+                raise OrderValidationError('This Hidden Treat voucher has no valid member account.')
         if cust_type == 'REGISTERED':
             cust = db.session.get(Customer, parse_int(reg_id, 0))
+            # If Cashier did not pick a member, the voucher itself securely
+            # identifies its owner and completes the member selection.
+            if not cust and voucher_owner:
+                cust = voucher_owner
             if not cust:
                 raise OrderValidationError('Please select a valid registered member.')
             issue = customer_access_issue(cust)
@@ -6905,7 +6927,15 @@ def cashier_direct_sale():
         elif parse_float(data.get('redeem_points'), 0.0) > 0:
             raise OrderValidationError('Select a registered member before redeeming points.')
         elif hidden_prize_code:
-            raise OrderValidationError('Select the registered member who owns this Hidden Treat voucher.')
+            # Let a valid voucher automatically load its owner even when the
+            # counter started as an anonymous walk-in sale.
+            cust = voucher_owner
+            issue = customer_access_issue(cust)
+            if issue:
+                raise OrderValidationError(issue)
+            cust_name = cust.name
+            contact = cust.contact
+            hidden_prize_claim, hidden_prize_discount = validate_hidden_prize_voucher(cust, hidden_prize_code, subtotal)
 
         total = max(0.0, subtotal - points_discount - hidden_prize_discount)
         if pay_method == 'CASH' and change_for and change_for < total:
