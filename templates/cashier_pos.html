@@ -11,7 +11,8 @@
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background: #0f172a; color: white; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
 
-    header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    header { background: #1e293b; padding: 8px 16px; border-bottom: 2px solid #334155; display: flex; justify-content: space-between; align-items: center; gap:10px; }
+    .cashier-header-tools { display:flex; gap:6px; align-items:center; }
     .pos-layout { display: grid; grid-template-columns: 340px 1fr 340px 310px; flex: 1; height: calc(100vh - 45px); }
 
     .queue-panel { background: #1e293b; border-right: 2px solid #334155; padding: 10px; overflow-y: auto; }
@@ -30,10 +31,40 @@
     .cart-items-box { background: #0f172a; border-radius: 6px; border: 1px solid #334155; flex: 1; padding: 8px; overflow-y: auto; min-height: 120px; }
 
     .pickup-panel { background: #1e293b; border-left: 2px solid #334155; padding: 10px; overflow-y: auto; }
+    .cashier-side-tabs { display:none; gap:5px; padding-bottom:9px; margin-bottom:9px; border-bottom:1px solid #334155; overflow-x:auto; }
+    .cashier-side-tab { border:1px solid #475569; background:#0f172a; color:#cbd5e1; border-radius:7px; padding:6px 7px; font-size:.67rem; font-weight:900; cursor:pointer; white-space:nowrap; }
+    .cashier-side-tab.active { background:var(--hk-pink); border-color:#f9a8d4; color:#fff; }
+    .cashier-side-tab small { display:inline-block; min-width:15px; padding:1px 4px; margin-left:2px; border-radius:999px; background:rgba(255,255,255,.17); color:inherit; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
     .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center; }
     .modal-box { background: #1e293b; color: white; border: 2px solid #ec4899; border-radius: 12px; width: 90%; max-width: 520px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
     .form-input { width: 100%; background: #0f172a; border: 1px solid #475569; color: white; padding: 6px 8px; border-radius: 4px; font-size: 0.8rem; margin-bottom: 8px; }
+
+    /* Android/tablet cashier: information stays in one left tab panel, menu
+       stays in the middle, and the Counter Tray is always the far-right work area. */
+    body.tablet-pos-mode header { min-height:58px; padding:7px 10px; align-items:center; overflow:hidden; }
+    body.tablet-pos-mode .cashier-header-tools { flex:1; min-width:0; overflow-x:auto; padding:2px 1px 4px; white-space:nowrap; scrollbar-width:thin; }
+    body.tablet-pos-mode .cashier-header-tools > * { flex:0 0 auto; }
+    body.tablet-pos-mode .pos-layout { grid-template-columns:minmax(230px,.82fr) minmax(270px,1fr) minmax(350px,1.18fr); grid-template-rows:minmax(0,1fr); height:calc(100vh - 60px); min-width:0; }
+    body.tablet-pos-mode .queue-panel, body.tablet-pos-mode .pickup-panel { grid-column:1; grid-row:1; min-width:0; border-left:0; border-right:2px solid #334155; }
+    body.tablet-pos-mode .queue-panel { display:block; }
+    body.tablet-pos-mode .pickup-panel { display:none; }
+    body.tablet-pos-mode .catalog-panel { grid-column:2; grid-row:1; min-width:0; }
+    body.tablet-pos-mode .pos-cart-panel { grid-column:3; grid-row:1; min-width:0; border-left:2px solid #334155; }
+    body.tablet-pos-mode .cashier-side-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); overflow:visible; }
+    body.tablet-pos-mode .cashier-side-tab { min-width:0; white-space:normal; line-height:1.15; }
+    body.tablet-pos-mode .dish-grid { grid-template-columns:repeat(auto-fill,minmax(115px,1fr)); }
+    body.tablet-pos-mode .ticket-card { font-size:.78rem; }
+
+    /* Android phones keep the same tabs, but stack the work areas safely. */
+    body.phone-pos-mode { height:auto; min-height:100vh; overflow:auto; }
+    body.phone-pos-mode header { position:sticky; top:0; z-index:50; align-items:flex-start; }
+    body.phone-pos-mode header > div:first-child strong { font-size:.78rem; }
+    body.phone-pos-mode .pos-layout { display:grid; grid-template-columns:1fr; grid-template-rows:auto; height:auto; min-height:calc(100vh - 60px); }
+    body.phone-pos-mode .queue-panel, body.phone-pos-mode .pickup-panel, body.phone-pos-mode .catalog-panel, body.phone-pos-mode .pos-cart-panel { grid-column:1; grid-row:auto; border:0; border-bottom:2px solid #334155; max-height:none; }
+    body.phone-pos-mode .pos-cart-panel { position:sticky; bottom:0; z-index:35; max-height:56vh; }
+    body.phone-pos-mode .cashier-side-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); overflow:visible; }
+    body.phone-pos-mode .cashier-side-tab { min-width:0; white-space:normal; line-height:1.15; }
   </style>
 </head>
 <body>
@@ -45,7 +76,7 @@
       <span id="liveStatusBadge" style="background:#16a34a; color:white; padding:2px 6px; border-radius:10px; font-size:0.7rem; font-weight:bold;">LIVE (1s)</span>
     </div>
     
-    <div style="display:flex; gap:6px; align-items:center;">
+    <div class="cashier-header-tools">
       <button onclick="openPromoModal('BURGER_FRIES_50', '🍔 Claim ₱50 Burger + Fries Deal', 50)" style="background:#e11d48; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🍔 + Burger (₱50)</button>
       <button onclick="openPromoModal('BEEFY_NACHOS_75', '🧀 Claim ₱75 Beefy Nachos Deal', 75)" style="background:#d97706; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🧀 + Nachos (₱75)</button>
       <button onclick="openModal('reservationModal')" style="background:#0284c7; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">📌 + Reserve Item</button>
@@ -66,7 +97,15 @@
 
   <div class="pos-layout">
     <!-- 1. Verification Queue -->
-    <div class="queue-panel">
+    <div class="queue-panel" id="cashierQueuePanel">
+      <div class="cashier-side-tabs" aria-label="Cashier information tabs">
+        <button type="button" class="cashier-side-tab active" data-cashier-side-tab-button="pending" onclick="selectCashierSideTab('pending')">📥 Pending <small>{{ pending_orders|length }}</small></button>
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="members" onclick="selectCashierSideTab('members')">🟢 Members <small>{{ online_customers|length }}</small></button>
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="credit" onclick="selectCashierSideTab('credit')">📋 Credit <small>{{ credit_customers|length }}</small></button>
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="unpaid" onclick="selectCashierSideTab('unpaid')">📦 Unpaid <small>{{ unpaid_collections|length }}</small></button>
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="recent" onclick="selectCashierSideTab('recent')">🧾 Recent</button>
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="orders" onclick="selectCashierSideTab('orders')">⏱ Orders</button>
+      </div>
       <h3 style="font-size:0.85rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
       {% if community_gift_vouchers or community_mystery_drops %}
       <div style="background:#0f172a;border:1.5px solid #f59e0b;border-radius:9px;padding:8px;margin-bottom:10px;">
@@ -282,9 +321,17 @@
     </div>
 
     <!-- 4. Right Status Panels: Online Users & Credit AR -->
-    <div class="pickup-panel">
+    <div class="pickup-panel" id="cashierStatusPanel">
+      <div class="cashier-side-tabs" aria-label="Cashier information tabs">
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="pending" onclick="selectCashierSideTab('pending')">📥 Pending <small>{{ pending_orders|length }}</small></button>
+        <button type="button" class="cashier-side-tab active" data-cashier-side-tab-button="members" onclick="selectCashierSideTab('members')">🟢 Members <small>{{ online_customers|length }}</small></button>
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="credit" onclick="selectCashierSideTab('credit')">📋 Credit <small>{{ credit_customers|length }}</small></button>
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="unpaid" onclick="selectCashierSideTab('unpaid')">📦 Unpaid <small>{{ unpaid_collections|length }}</small></button>
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="recent" onclick="selectCashierSideTab('recent')">🧾 Recent</button>
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="orders" onclick="selectCashierSideTab('orders')">⏱ Orders</button>
+      </div>
       <!-- 🟢 Online Members -->
-      <div style="background:#1e293b; border:1.5px solid #10b981; border-radius:8px; padding:8px; margin-bottom:10px;">
+      <div data-cashier-side-section="members" style="background:#1e293b; border:1.5px solid #10b981; border-radius:8px; padding:8px; margin-bottom:10px;">
         <h3 style="font-size:0.8rem; color:#34d399; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
           <span>🟢 Online Members</span>
           <span style="background:#059669; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ online_customers|length }}</span>
@@ -303,7 +350,7 @@
       </div>
 
       <!-- 📋 Member Credit AR -->
-      <div style="background:#1e293b; border:1.5px solid #f43f5e; border-radius:8px; padding:8px; margin-bottom:10px;">
+      <div data-cashier-side-section="credit" style="background:#1e293b; border:1.5px solid #f43f5e; border-radius:8px; padding:8px; margin-bottom:10px;">
         <h3 style="font-size:0.8rem; color:#fb7185; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
           <span>📋 Member Credit AR</span>
           <span style="background:#e11d48; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ credit_customers|length }}</span>
@@ -332,7 +379,7 @@
       </div>
 
       <!-- Unpaid Orders -->
-      <div style="background:#1e293b; border:1.5px solid #f97316; border-radius:8px; padding:8px; margin-bottom:10px;">
+      <div data-cashier-side-section="unpaid" style="background:#1e293b; border:1.5px solid #f97316; border-radius:8px; padding:8px; margin-bottom:10px;">
         <h3 style="font-size:0.8rem; color:#fdba74; margin-bottom:6px; display:flex; justify-content:space-between; align-items:center;">
           <span>📦 Unpaid Orders</span>
           <span style="background:#ea580c; color:white; padding:1px 6px; border-radius:10px; font-size:0.7rem; font-weight:900;">{{ unpaid_collections|length }}</span>
@@ -359,7 +406,7 @@
         </div>
       </div>
 
-      <div style="background:#1e293b; border:1.5px solid #10b981; border-radius:8px; padding:8px; margin-bottom:10px;">
+      <div data-cashier-side-section="recent" style="background:#1e293b; border:1.5px solid #10b981; border-radius:8px; padding:8px; margin-bottom:10px;">
         <h3 style="font-size:0.8rem; color:#6ee7b7; margin-bottom:6px;">🧾 Recent Purchases — Apply Points</h3>
         <div style="max-height:150px; overflow-y:auto;">
           {% for ro in completed_orders %}
@@ -373,7 +420,7 @@
         </div>
       </div>
 
-      <div style="background:#1e293b;border:1.5px solid #38bdf8;border-radius:8px;padding:8px;margin-bottom:10px;">
+      <div data-cashier-side-section="orders" style="background:#1e293b;border:1.5px solid #38bdf8;border-radius:8px;padding:8px;margin-bottom:10px;">
         <h3 style="font-size:.8rem;color:#7dd3fc;margin-bottom:6px;">⏱ Customer Order Tracker</h3>
         <div style="max-height:190px;overflow-y:auto;">
           {% for ro in completed_orders %}
@@ -920,6 +967,47 @@
 
   <script>
     let posCart = {};
+
+    let activeCashierSideTab = 'pending';
+    function isAndroidOrTabletCashier() {
+      const ua = navigator.userAgent || '';
+      const mobileDevice = /Android|iPad|Tablet/i.test(ua) || (navigator.maxTouchPoints > 1 && window.innerWidth <= 1300);
+      return mobileDevice;
+    }
+    function syncCashierResponsiveLayout() {
+      const compact = isAndroidOrTabletCashier();
+      const phone = compact && window.innerWidth < 700;
+      document.body.classList.toggle('tablet-pos-mode', compact && !phone);
+      document.body.classList.toggle('phone-pos-mode', phone);
+      if (!compact) {
+        document.getElementById('cashierQueuePanel').style.display = '';
+        document.getElementById('cashierStatusPanel').style.display = '';
+        document.querySelectorAll('[data-cashier-side-section]').forEach(section => section.style.display = '');
+        return;
+      }
+      selectCashierSideTab(activeCashierSideTab, true);
+    }
+    function selectCashierSideTab(tab, skipSave) {
+      const allowed = ['pending', 'members', 'credit', 'unpaid', 'recent', 'orders'];
+      if (!allowed.includes(tab)) return;
+      activeCashierSideTab = tab;
+      if (!skipSave) { try { sessionStorage.setItem('macleens:cashier-side-tab', tab); } catch (_) {} }
+      document.querySelectorAll('[data-cashier-side-tab-button]').forEach(button => {
+        button.classList.toggle('active', button.dataset.cashierSideTabButton === tab);
+      });
+      const compact = document.body.classList.contains('tablet-pos-mode') || document.body.classList.contains('phone-pos-mode');
+      if (!compact) return;
+      const queue = document.getElementById('cashierQueuePanel');
+      const status = document.getElementById('cashierStatusPanel');
+      queue.style.display = tab === 'pending' ? 'block' : 'none';
+      status.style.display = tab === 'pending' ? 'none' : 'block';
+      document.querySelectorAll('[data-cashier-side-section]').forEach(section => {
+        section.style.display = section.dataset.cashierSideSection === tab ? 'block' : 'none';
+      });
+    }
+    try { activeCashierSideTab = sessionStorage.getItem('macleens:cashier-side-tab') || 'pending'; } catch (_) {}
+    window.addEventListener('resize', syncCashierResponsiveLayout);
+    syncCashierResponsiveLayout();
 
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
     function closeModal(id) { document.getElementById(id).style.display = 'none'; if (id === 'memberScanModal') stopMemberCameraScanner(); }

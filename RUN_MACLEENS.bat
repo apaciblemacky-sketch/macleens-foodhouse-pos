@@ -91,6 +91,14 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running Cashier Android/tablet layout and Tablet removal checks...
+"%PYTHON_CMD%" scripts\cashier_tablet_layout_smoke_check.py
+if errorlevel 1 (
+  echo Cashier layout or Tablet-removal checks failed. The system was not started.
+  pause
+  exit /b 1
+)
+
 echo Starting Macleen's Food House at http://127.0.0.1:5000
 start "" http://127.0.0.1:5000
 "%PYTHON_CMD%" app.py

@@ -166,6 +166,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running Cashier Android/tablet layout and Tablet removal checks...
+%DEPLOY_CHECK_CMD% scripts\cashier_tablet_layout_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Cashier layout or Tablet-removal checks failed.
+  pause
+  exit /b 1
+)
+
 echo.
 echo GitHub remote:
 echo %DEPLOY_REMOTE%
@@ -238,7 +247,7 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.07-unpaid-livechat-v19
+echo Expected release after Render finishes: 2026.09.08-tablet-cashier-layout-v20
 echo Then test one product link, both role-locked Community dashboards,
 echo 25-person @mentions, cover photos, no-refresh comments, project workspaces,
 echo Financial Statements, one bundle checkout, one protected digital download,

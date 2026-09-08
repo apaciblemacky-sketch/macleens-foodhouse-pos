@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.07-unpaid-livechat-v19'
+APP_RELEASE = '2026.09.08-tablet-cashier-layout-v20'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -6325,89 +6325,6 @@ def group_order_submit(token):
         flash(f'Please review the group cart: {exc}', 'error')
         return redirect(url_for('group_order_page', token=token))
 
-# ==================== TABLET KIOSK ENDPOINTS ====================
-
-@app.route('/tablet')
-def tablet_kiosk():
-    categories = Category.query.all()
-    all_active_products = Product.query.filter_by(is_active=True).all()
-    available_products = [p for p in all_active_products if is_product_available_now(p)]
-    return render_template('tablet.html', categories=categories, products=available_products)
-
-@app.route('/api/tablet-checkout', methods=['POST'])
-def api_tablet_checkout():
-    data = request.get_json() or {}
-    dining_opt = str(data.get('dining_option', 'DINE-IN')).upper()
-    if dining_opt not in {'DINE-IN', 'TAKEOUT'}:
-        dining_opt = 'DINE-IN'
-    pay_method = str(data.get('payment_method', 'CASH')).upper()
-    if pay_method not in {'CASH', 'GCASH'}:
-        return jsonify({'success': False, 'message': 'Invalid kiosk payment method.'}), 400
-    notes = str(data.get('notes', 'Tablet Self-Order')).strip() or 'Tablet Self-Order'
-
-    cust = None
-    member_identifier = str(data.get('member_identifier', '')).strip()
-    member_pin = str(data.get('member_pin', '')).strip()
-    if member_identifier or member_pin:
-        if not member_identifier or not member_pin:
-            return jsonify({'success': False, 'message': 'Enter both member mobile/card ID and 4-digit PIN, or leave both blank for guest checkout.'}), 400
-        if not is_valid_customer_pin(member_pin):
-            return jsonify({'success': False, 'message': 'Member PIN must be exactly 4 digits.'}), 400
-        cust = get_customer_by_identifier(member_identifier)
-        if not cust or not check_password_hash(cust.pin_hash, member_pin):
-            return jsonify({'success': False, 'message': 'Invalid member ID/mobile number or PIN.'}), 403
-        issue = customer_access_issue(cust)
-        if issue:
-            return jsonify({'success': False, 'message': issue}), 403
-
-    try:
-        lines = validate_and_lock_cart(data.get('items', []), require_available=True)
-        subtotal = cart_subtotal(lines)
-        order = Order(
-            order_type='TABLET',
-            dining_option=dining_opt,
-            customer_id=cust.id if cust else None,
-            customer_name=cust.name if cust else 'Tablet Kiosk Guest',
-            contact_number=cust.contact if cust else 'Kiosk',
-            subtotal=subtotal,
-            delivery_fee=0.0,
-            total_amount=subtotal,
-            payment_method=pay_method,
-            payment_verified=False,
-            status='VERIFICATION',
-            notes=notes,
-        )
-        db.session.add(order)
-        db.session.flush()
-
-        for line in lines:
-            prod = line['product']
-            db.session.add(OrderItem(
-                order_id=order.id,
-                product_id=prod.id,
-                product_name=prod.name,
-                unit_price=line['unit_price'],
-                cost_price=line['cost_price'],
-                quantity=line['quantity'],
-                subtotal=line['subtotal'],
-                selected_options=line.get('selected_options_json'),
-            ))
-        reserve_cart_stock(lines)
-        db.session.commit()
-        return jsonify({
-            'success': True,
-            'order_id': order.id,
-            'total': subtotal,
-            'member_name': cust.name if cust else None,
-        })
-    except OrderValidationError as exc:
-        db.session.rollback()
-        return jsonify({'success': False, 'message': str(exc)}), 400
-    except Exception:
-        db.session.rollback()
-        app.logger.exception('Tablet checkout failed')
-        return jsonify({'success': False, 'message': 'Server error. No kiosk order was recorded.'}), 500
-
 # ==================== CASHIER TERMINAL & CLAIM DISPATCH ====================
 
 @app.route('/pos/cashier')
@@ -6415,7 +6332,7 @@ def api_tablet_checkout():
 def cashier_terminal():
     categories = Category.query.all()
     # Cashier is an internal staff terminal, so show every active product even
-    # when its public/tablet availability window is currently closed.
+    # when its public availability window is currently closed.
     products = Product.query.filter_by(is_active=True).order_by(Product.id.asc()).all()
 
     # These are core cashier queries. Do not hide database/schema failures behind empty panels.

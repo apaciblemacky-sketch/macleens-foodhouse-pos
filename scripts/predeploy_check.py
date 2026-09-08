@@ -729,6 +729,21 @@ def main() -> int:
         fail(f"Hidden Treat smoke-check script does not compile: {exc.msg}")
     ok("Hidden Treat reward locations, voucher rules, cashier redemption, and separate flexible-price lines are present")
 
+    cashier_layout_smoke = ROOT / "scripts" / "cashier_tablet_layout_smoke_check.py"
+    if not cashier_layout_smoke.exists():
+        fail("Cashier Android/tablet layout smoke-check script is missing")
+    try:
+        py_compile.compile(str(cashier_layout_smoke), doraise=True)
+    except py_compile.PyCompileError as exc:
+        fail(f"Cashier Android/tablet layout smoke-check script does not compile: {exc.msg}")
+    if "@app.route('/tablet')" in source or "@app.route('/api/tablet-checkout'" in source:
+        fail("retired Tablet ordering endpoints are still exposed")
+    cashier_layout = (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")
+    for marker in ["cashierQueuePanel", "cashierStatusPanel", "cashier-side-tabs", "isAndroidOrTabletCashier", "selectCashierSideTab", "tablet-pos-mode"]:
+        if marker not in cashier_layout:
+            fail(f"Cashier Android/tablet tab-layout marker is missing: {marker}")
+    ok("Tablet ordering is removed and Cashier uses a tabbed Android/tablet information panel with Counter Tray on the right")
+
     storefront_amount_markers = [
         "allow_storefront_custom_amount=True",
         "collectSpecificAmount",
