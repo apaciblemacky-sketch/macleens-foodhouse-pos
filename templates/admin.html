@@ -899,12 +899,17 @@
       <div style="background:#faf5ff;color:#6b21a8;border:1px solid #d8b4fe;border-radius:999px;padding:5px 8px;font-size:.67rem;font-weight:900;">Suggested: one small hunt per week</div>
     </div>
 
-    <form action="{{ url_for('admin_create_hidden_prize_hunt') }}" method="POST" style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:11px;">
+    <form action="{{ url_for('admin_create_hidden_prize_hunt') }}" method="POST" enctype="multipart/form-data" style="background:#faf5ff;border:1px solid #e9d5ff;border-radius:10px;padding:11px;">
       <div class="form-row">
         <div class="form-group" style="min-width:180px;"><label>Hunt Name *</label><input class="form-control" name="title" required maxlength="140" placeholder="e.g. Find Palabok’s Gift"></div>
         <div class="form-group" style="min-width:175px;"><label>Where to Hide It *</label><select class="form-control" name="location" id="hiddenHuntLocation" onchange="syncHiddenTreatForm()"><option value="STOREFRONT_PRODUCT">Inside a storefront product</option><option value="LOYALTY_PORTAL">Inside loyalty portal</option><option value="COMMUNITY">Inside Community</option></select></div>
         <div class="form-group" id="hiddenHuntLocationProductWrap" style="min-width:180px;"><label>Storefront Product *</label><select class="form-control" name="location_product_id"><option value="">Choose active product</option>{% for product in products if product.is_active %}<option value="{{ product.id }}">{{ product.name }} • ₱{{ "%.2f"|format(product.price or 0) }}</option>{% endfor %}</select></div>
         <div class="form-group" style="min-width:145px;"><label>Prize Type *</label><select class="form-control" name="prize_type" id="hiddenHuntPrizeType" onchange="syncHiddenTreatForm()"><option value="POINTS">Loyalty points</option><option value="VOUCHER">Discount voucher</option><option value="PRODUCT">Free product</option></select></div>
+      </div>
+      <div class="form-row" style="margin-top:7px;">
+        <div class="form-group" style="min-width:235px;"><label>Exact Display Area *</label><select class="form-control" name="placement_slot" id="hiddenHuntPlacementSlot">{% for placement_location, choices in hidden_prize_placement_options.items() %}{% for slot, label in choices %}<option value="{{ slot }}" data-hidden-location="{{ placement_location }}">{{ label }}</option>{% endfor %}{% endfor %}</select><small style="color:#64748b;font-size:.62rem;">Choose exactly where customers will see this prize.</small></div>
+        <div class="form-group" style="min-width:145px;"><label>Prize Display Size *</label><input class="form-control" name="display_size_px" type="number" min="24" max="180" value="48" required><small style="color:#64748b;font-size:.62rem;">24–180 px</small></div>
+        <div class="form-group" style="min-width:220px;"><label>Prize Photo (optional)</label><input class="form-control" name="display_image" type="file" accept="image/jpeg,image/png,image/webp"><small style="color:#64748b;font-size:.62rem;">JPG/PNG/WEBP, up to 2.5 MB. Blank = gift box.</small></div>
       </div>
       <div class="form-row" style="margin-top:7px;">
         <div class="form-group" id="hiddenHuntPointsWrap" style="min-width:130px;"><label>Points Prize</label><input class="form-control" name="points_amount" type="number" min="0.01" max="1000" step="0.01" value="5"></div>
@@ -924,7 +929,7 @@
 
     <div style="max-height:330px;overflow:auto;margin-top:12px;">
       <table>
-        <thead><tr><th>Hunt / Location</th><th>Prize</th><th>Schedule</th><th>Found</th><th>Status</th></tr></thead>
+        <thead><tr><th>Hunt / Location</th><th>Prize</th><th>Schedule</th><th>Found</th><th>Display</th><th>Status</th></tr></thead>
         <tbody>
           {% for hunt in hidden_prize_hunts %}
           <tr>
@@ -932,9 +937,10 @@
             <td>{% if hunt.prize_type == 'POINTS' %}+{{ hunt.points_amount|round(2) }} points{% elif hunt.prize_type == 'VOUCHER' %}{{ hunt.voucher_discount_percent|round(2) }}% voucher{% if hunt.voucher_min_order %}<br><span style="font-size:.65rem;color:#64748b;">min ₱{{ "%.2f"|format(hunt.voucher_min_order) }}</span>{% endif %}{% else %}Free {{ hunt.prize_product.name if hunt.prize_product else 'product removed' }}{% endif %}</td>
             <td style="font-size:.67rem;">{{ hunt.starts_at|ph_datetime }}<br>to {{ hunt.ends_at|ph_datetime }}</td>
             <td><strong>{{ hidden_prize_claim_counts.get(hunt.id, 0) }}</strong>{% if hunt.max_winners %} / {{ hunt.max_winners }}{% else %} / ∞{% endif %}</td>
+            <td style="min-width:210px;"><details><summary style="cursor:pointer;font-size:.68rem;font-weight:800;">{{ hidden_prize_placement_label(hunt) }}<br>{{ hidden_prize_display_size(hunt) }} px • {{ 'custom photo' if hunt.display_image_data else 'gift box' }}</summary><form action="{{ url_for('admin_update_hidden_prize_display', hunt_id=hunt.id) }}" method="POST" enctype="multipart/form-data" style="margin-top:7px;display:grid;gap:5px;"><select class="form-control" name="placement_slot" style="padding:4px;font-size:.68rem;">{% for slot, label in hidden_prize_placement_options.get(hunt.location, ()) %}<option value="{{ slot }}" {% if hidden_prize_placement_slot(hunt) == slot %}selected{% endif %}>{{ label }}</option>{% endfor %}</select><input class="form-control" name="display_size_px" type="number" min="24" max="180" value="{{ hidden_prize_display_size(hunt) }}" style="padding:4px;font-size:.68rem;"><input class="form-control" name="display_image" type="file" accept="image/jpeg,image/png,image/webp" style="padding:3px;font-size:.63rem;"><label style="font-size:.63rem;color:#64748b;"><input type="checkbox" name="remove_display_image"> Use gift box instead</label><button class="btn" type="submit" style="background:#7e22ce;color:white;padding:4px 7px;font-size:.65rem;">Save display</button></form></details></td>
             <td><form action="{{ url_for('admin_toggle_hidden_prize_hunt', hunt_id=hunt.id) }}" method="POST"><span style="font-size:.67rem;font-weight:900;color:{{ '#15803d' if hunt.is_active else '#b45309' }};">{{ 'ACTIVE' if hunt.is_active else 'PAUSED' }}</span><button class="btn" type="submit" style="display:block;margin-top:5px;background:{{ '#f59e0b' if hunt.is_active else '#16a34a' }};color:white;padding:4px 7px;font-size:.65rem;">{{ 'Pause' if hunt.is_active else 'Resume' }}</button></form></td>
           </tr>
-          {% else %}<tr><td colspan="5" style="text-align:center;color:#64748b;padding:17px;">No Hidden Treat Hunt yet. Create a small weekly reward to start.</td></tr>{% endfor %}
+          {% else %}<tr><td colspan="6" style="text-align:center;color:#64748b;padding:17px;">No Hidden Treat Hunt yet. Create a small weekly reward to start.</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>
@@ -1261,6 +1267,20 @@
       show('hiddenHuntVoucherWrap', prize === 'VOUCHER');
       show('hiddenHuntVoucherMinWrap', prize === 'VOUCHER');
       show('hiddenHuntProductPrizeWrap', prize === 'PRODUCT');
+      const placement = document.getElementById('hiddenHuntPlacementSlot');
+      if (placement) {
+        let selectedAllowed = false;
+        Array.from(placement.options).forEach(option => {
+          const allowed = option.dataset.hiddenLocation === location;
+          option.hidden = !allowed;
+          option.disabled = !allowed;
+          if (allowed && option.selected) selectedAllowed = true;
+        });
+        if (!selectedAllowed) {
+          const firstAllowed = Array.from(placement.options).find(option => !option.disabled);
+          if (firstAllowed) firstAllowed.selected = true;
+        }
+      }
     }
     syncHiddenTreatForm();
     function addBundleItemRow() {

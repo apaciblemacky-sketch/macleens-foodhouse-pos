@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.08-tablet-cashier-layout-v20'
+APP_RELEASE = '2026.09.08-hidden-treat-placement-v23'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -348,6 +348,11 @@ class HiddenPrizeHunt(db.Model):
     title = db.Column(db.String(140), nullable=False)
     location = db.Column(db.String(30), nullable=False)  # STOREFRONT_PRODUCT, LOYALTY_PORTAL, COMMUNITY
     location_product_id = db.Column(db.Integer, db.ForeignKey('product.id', ondelete='SET NULL'), nullable=True, index=True)
+    # Exact visual destination is configurable separately from the broader
+    # system area, so an owner can move a prize without changing its reward.
+    placement_slot = db.Column(db.String(60), nullable=True, default='AUTO')
+    display_size_px = db.Column(db.Integer, nullable=False, default=48)
+    display_image_data = db.Column(db.Text, nullable=True)
     prize_type = db.Column(db.String(20), nullable=False)  # POINTS, VOUCHER, PRODUCT
     points_amount = db.Column(db.Float, nullable=False, default=0.0)
     voucher_discount_percent = db.Column(db.Float, nullable=False, default=0.0)
@@ -975,6 +980,21 @@ class CommunityAlert(db.Model):
     created_by = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
+class CustomerAppAnnouncement(db.Model):
+    """A staff-created announcement delivered only to opted-in installed apps."""
+    __tablename__ = 'customer_app_announcement'
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(100), nullable=False)
+    body = db.Column(db.String(240), nullable=False)
+    category = db.Column(db.String(30), nullable=False, default='ANNOUNCEMENT')
+    target_role = db.Column(db.String(20), nullable=False, default='ALL')
+    cta_url = db.Column(db.String(500), nullable=True)
+    created_by = db.Column(db.String(50), nullable=True)
+    sent_count = db.Column(db.Integer, nullable=False, default=0)
+    failed_count = db.Column(db.Integer, nullable=False, default=0)
+    skipped_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
 class CommunityCheckin(db.Model):
     __tablename__ = 'community_checkin'
     __table_args__ = (UniqueConstraint('customer_id', 'checkin_date', name='uq_community_daily_checkin'),)
@@ -1042,6 +1062,9 @@ class CommunityPushSubscription(db.Model):
     p256dh = db.Column(db.Text, nullable=False)
     auth = db.Column(db.Text, nullable=False)
     is_active = db.Column(db.Boolean, nullable=False, default=True)
+    # One browser/PWA subscription may opt out of individual notification
+    # categories without disabling the customer's other devices.
+    notification_preferences = db.Column(db.Text, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
@@ -1670,6 +1693,9 @@ def serve_manifest():
 def serve_sw():
     response = send_from_directory(os.path.join(app.root_path, 'static'), 'sw.js', mimetype='application/javascript')
     response.headers['Service-Worker-Allowed'] = '/'
+    # A service worker can otherwise remain cached after a deployment and keep
+    # using old notification behavior on customers' installed apps.
+    response.headers['Cache-Control'] = 'no-store, max-age=0'
     return response
 
 # ==================== SAFE MIGRATION & RUN HOOKS ====================
@@ -1816,6 +1842,14 @@ def run_schema_migrations():
         ],
         'community_group': [
             ('external_chat_url', 'VARCHAR(500)'),
+        ],
+        'community_push_subscription': [
+            ('notification_preferences', 'TEXT'),
+        ],
+        'hidden_prize_hunt': [
+            ('placement_slot', "VARCHAR(60) DEFAULT 'AUTO'"),
+            ('display_size_px', 'INTEGER DEFAULT 48'),
+            ('display_image_data', 'TEXT'),
         ],
         'digital_item': [
             ('asset_file_id', 'INTEGER'),
@@ -2141,6 +2175,98 @@ def record_points_redemption(cust, points, order_id=None, reason='Purchase disco
 
 HIDDEN_PRIZE_LOCATIONS = ('STOREFRONT_PRODUCT', 'LOYALTY_PORTAL', 'COMMUNITY')
 HIDDEN_PRIZE_TYPES = ('POINTS', 'VOUCHER', 'PRODUCT')
+HIDDEN_PRIZE_PLACEMENT_OPTIONS = {
+    'STOREFRONT_PRODUCT': (
+        ('STOREFRONT_IMAGE_TOP_LEFT', 'Product photo — top left'),
+        ('STOREFRONT_IMAGE_TOP_RIGHT', 'Product photo — top right'),
+        ('STOREFRONT_TITLE', 'Beside the product name'),
+        ('STOREFRONT_DESCRIPTION', 'Below the product description'),
+        ('STOREFRONT_ADD_BUTTON', 'Below the Add to Basket button'),
+    ),
+    'LOYALTY_PORTAL': (
+        ('LOYALTY_REWARDS', 'Rewards section'),
+        ('LOYALTY_FAVORITES', 'Saved favorites'),
+        ('LOYALTY_SUGGEST', 'Product request section'),
+        ('LOYALTY_CARD', 'Card design section'),
+        ('LOYALTY_DEALS', 'Member deals'),
+        ('LOYALTY_ORDERS', 'Purchases & orders'),
+        ('LOYALTY_ACCOUNT', 'Account section'),
+    ),
+    'COMMUNITY': (
+        ('COMMUNITY_WELCOME', 'Community welcome header'),
+        ('COMMUNITY_WALL', 'Community wall — before posts'),
+        ('COMMUNITY_PEOPLE', 'People tab'),
+        ('COMMUNITY_SETTINGS', 'Settings tab'),
+    ),
+}
+HIDDEN_PRIZE_PLACEMENT_LABELS = {
+    slot: label
+    for options in HIDDEN_PRIZE_PLACEMENT_OPTIONS.values()
+    for slot, label in options
+}
+HIDDEN_PRIZE_DEFAULT_PLACEMENTS = {
+    'STOREFRONT_PRODUCT': 'STOREFRONT_TITLE',
+    'LOYALTY_PORTAL': 'LOYALTY_REWARDS',
+    'COMMUNITY': 'COMMUNITY_WELCOME',
+}
+HIDDEN_PRIZE_DISPLAY_SIZE_MIN = 24
+HIDDEN_PRIZE_DISPLAY_SIZE_MAX = 180
+HIDDEN_PRIZE_DISPLAY_SIZE_DEFAULT = 48
+
+
+def hidden_prize_placement_slot(hunt):
+    """Return a valid, location-compatible visual slot for old and new hunts."""
+    location = str(getattr(hunt, 'location', '') or '').upper()
+    valid_slots = {slot for slot, _ in HIDDEN_PRIZE_PLACEMENT_OPTIONS.get(location, ())}
+    selected = str(getattr(hunt, 'placement_slot', '') or '').upper()
+    if selected in valid_slots:
+        return selected
+    return HIDDEN_PRIZE_DEFAULT_PLACEMENTS.get(location, '')
+
+
+def hidden_prize_placement_label(hunt):
+    return HIDDEN_PRIZE_PLACEMENT_LABELS.get(
+        hidden_prize_placement_slot(hunt), 'Default display location'
+    )
+
+
+def hidden_prize_display_size(hunt):
+    value = parse_int(getattr(hunt, 'display_size_px', HIDDEN_PRIZE_DISPLAY_SIZE_DEFAULT), HIDDEN_PRIZE_DISPLAY_SIZE_DEFAULT)
+    return max(HIDDEN_PRIZE_DISPLAY_SIZE_MIN, min(HIDDEN_PRIZE_DISPLAY_SIZE_MAX, value))
+
+
+def hidden_prize_hunts_by_slot(hunts):
+    """Group live eligible hunts by their safe visual slot, preserving order."""
+    grouped = {}
+    for hunt in hunts or ():
+        slot = hidden_prize_placement_slot(hunt)
+        if slot:
+            grouped.setdefault(slot, []).append(hunt)
+    return grouped
+
+
+def hidden_prize_image_from_request(file_key='display_image'):
+    """Store a compact owner-uploaded gift image as a safe local data URL."""
+    upload = request.files.get(file_key)
+    if not upload or not upload.filename:
+        return None
+    declared = (upload.mimetype or '').lower()
+    if declared not in {'image/jpeg', 'image/png', 'image/webp'}:
+        raise OrderValidationError('Hidden Treat images must be JPG, PNG, or WEBP.')
+    raw = upload.read(2_500_001)
+    if len(raw) > 2_500_000:
+        raise OrderValidationError('Hidden Treat images must be 2.5 MB or smaller.')
+    try:
+        with Image.open(io.BytesIO(raw)) as source:
+            source.verify()
+        with Image.open(io.BytesIO(raw)) as source:
+            image = ImageOps.exif_transpose(source).convert('RGBA')
+            image.thumbnail((512, 512), Image.Resampling.LANCZOS)
+            canvas = io.BytesIO()
+            image.save(canvas, format='WEBP', quality=86, method=6)
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise OrderValidationError('The Hidden Treat image could not be read safely.')
+    return 'data:image/webp;base64,' + base64.b64encode(canvas.getvalue()).decode('ascii')
 
 
 def hidden_prize_admin_datetime(value, fallback=None):
@@ -2922,6 +3048,24 @@ def customer_access_issue(cust):
 
 CUSTOMER_CHAT_MESSAGE_MAX = 500
 CUSTOMER_CHAT_SUPPORT_TTL = timedelta(hours=24)
+# These answers are written into the same temporary cashier conversation as a
+# customer message.  Keeping the small, fixed list server-side means a refresh
+# or a live-chat poll can never erase a suggested answer, while clients cannot
+# create arbitrary messages marked as coming from the business.
+CUSTOMER_CHAT_SUGGESTED_ANSWERS = {
+    'menu': {
+        'question': 'What is available?',
+        'answer': 'Use the menu search and “Ulam for Today” section to see what is available now. Items marked unavailable can still be viewed but cannot be added yet.',
+    },
+    'points': {
+        'question': 'How do points work?',
+        'answer': 'Eligible paid purchases earn points based on the current store rule. You can use points as a discount during checkout when your balance is eligible.',
+    },
+    'gcash': {
+        'question': 'How do I pay GCash?',
+        'answer': 'Choose GCash at checkout. When QR Ph is active, the secure payment page shows a QR code for GCash or another compatible app; otherwise enter the last 6 digits of your GCash reference so the cashier can verify it.',
+    },
+}
 
 
 def clean_expired_customer_chats():
@@ -3678,33 +3822,143 @@ def active_community_alerts(role, include_all_roles=False):
         query = query.filter(CommunityAlert.target_role.in_(('ALL', role)))
     return query.order_by(CommunityAlert.created_at.desc()).all()
 
-def send_community_alert_push(alert):
-    """Send consent-based Web Push when VAPID is configured; keep in-app alerts otherwise."""
-    private_key = (os.environ.get('WEBPUSH_VAPID_PRIVATE_KEY') or '').strip()
-    subject = (os.environ.get('WEBPUSH_VAPID_SUBJECT') or '').strip()
-    if not private_key or not subject:
-        return {'configured': False, 'sent': 0, 'failed': 0}
+
+# App-notification delivery is opt-in, per installed browser/PWA, and uses
+# only broad categories. Never place a PIN, mobile number, address, payment
+# reference, or other private information in a push payload.
+APP_NOTIFICATION_CATEGORIES = (
+    'ANNOUNCEMENT', 'MENU', 'PROMO', 'ORDER', 'CASHIER_CHAT', 'LOYALTY', 'COMMUNITY',
+)
+APP_NOTIFICATION_CATEGORY_LABELS = {
+    'ANNOUNCEMENT': 'General announcements',
+    'MENU': 'Today’s menu / availability',
+    'PROMO': 'Promos and member deals',
+    'ORDER': 'Order progress',
+    'CASHIER_CHAT': 'Cashier chat replies',
+    'LOYALTY': 'Points and rewards',
+    'COMMUNITY': 'Community Flash Perch alerts',
+}
+APP_NOTIFICATION_DEFAULT_SOUND_CATEGORIES = ('ANNOUNCEMENT', 'MENU', 'PROMO', 'ORDER', 'CASHIER_CHAT')
+APP_NOTIFICATION_ANNOUNCEMENT_COOLDOWN = timedelta(minutes=2)
+
+
+def normalize_app_notification_preferences(value, default_all=True):
+    """Return ordered, safe notification categories from a JSON/list input."""
+    if value is None:
+        return list(APP_NOTIFICATION_CATEGORIES) if default_all else []
+    raw = value
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            raw = []
+    if not isinstance(raw, (list, tuple, set)):
+        raw = []
+    selected = {str(item or '').strip().upper() for item in raw}
+    return [category for category in APP_NOTIFICATION_CATEGORIES if category in selected]
+
+
+def app_notification_preferences_json(value):
+    return json.dumps(normalize_app_notification_preferences(value), separators=(',', ':'))
+
+
+def app_notification_sound_categories():
+    """Admin controls which delivered categories request the device's normal sound."""
+    try:
+        row = StoreSetting.query.filter_by(key='app_push_sound_categories').first()
+        if row is None:
+            return list(APP_NOTIFICATION_DEFAULT_SOUND_CATEGORIES)
+        # An empty selection is intentional: it lets Admin request silent
+        # notifications without disabling their visual delivery.
+        return normalize_app_notification_preferences(row.value, default_all=False)
+    except Exception:
+        # Existing installations should not suddenly receive a sound for every
+        # social reaction. Use focused operational categories until Admin chooses.
+        return list(APP_NOTIFICATION_DEFAULT_SOUND_CATEGORIES)
+
+
+def app_push_is_configured():
+    return bool(
+        (os.environ.get('WEBPUSH_VAPID_PUBLIC_KEY') or '').strip()
+        and (os.environ.get('WEBPUSH_VAPID_PRIVATE_KEY') or '').strip()
+        and (os.environ.get('WEBPUSH_VAPID_SUBJECT') or '').strip()
+    )
+
+
+def save_customer_app_push_subscription(customer, payload):
+    """Validate and store one opted-in browser/PWA subscription for a customer."""
+    endpoint = str((payload or {}).get('endpoint') or '').strip()
+    keys = (payload or {}).get('keys') if isinstance((payload or {}).get('keys'), dict) else {}
+    p256dh = str(keys.get('p256dh') or '').strip()
+    auth = str(keys.get('auth') or '').strip()
+    if not endpoint.startswith('https://') or len(endpoint) > 3000 or not p256dh or not auth:
+        raise OrderValidationError('The browser returned an invalid app-notification subscription.')
+    preferences = normalize_app_notification_preferences((payload or {}).get('notification_preferences'), default_all=True)
+    subscription = CommunityPushSubscription.query.filter_by(endpoint=endpoint).first()
+    if subscription:
+        subscription.customer_id = customer.id
+        subscription.p256dh = p256dh
+        subscription.auth = auth
+        subscription.is_active = True
+        subscription.notification_preferences = json.dumps(preferences, separators=(',', ':'))
+    else:
+        subscription = CommunityPushSubscription(
+            customer_id=customer.id, endpoint=endpoint, p256dh=p256dh, auth=auth,
+            is_active=True, notification_preferences=json.dumps(preferences, separators=(',', ':')),
+        )
+        db.session.add(subscription)
+    return subscription, preferences
+
+
+def app_push_customer_ids_for_role(target_role):
+    role = str(target_role or 'ALL').upper()
+    if role == 'ALL':
+        return None
+    if role not in COMMUNITY_ROLES:
+        return []
+    return [row.customer_id for row in CommunityProfile.query.filter_by(role=role).all()]
+
+
+def send_customer_app_push(title, body, *, url='/', category='ANNOUNCEMENT', target_role='ALL', customer_ids=None):
+    """Send consented Web Push to installed Macleen's apps without blocking business flow."""
+    category = str(category or 'ANNOUNCEMENT').upper()
+    if category not in APP_NOTIFICATION_CATEGORIES:
+        category = 'ANNOUNCEMENT'
+    if not app_push_is_configured():
+        return {'configured': False, 'sent': 0, 'failed': 0, 'skipped': 0}
     try:
         from pywebpush import webpush, WebPushException
     except ImportError:
         app.logger.warning('Web Push is configured but pywebpush is not installed')
-        return {'configured': False, 'sent': 0, 'failed': 0}
+        return {'configured': False, 'sent': 0, 'failed': 0, 'skipped': 0}
 
     query = CommunityPushSubscription.query.filter_by(is_active=True)
-    if alert.target_role in COMMUNITY_ROLES:
-        customer_ids = [row.customer_id for row in CommunityProfile.query.filter_by(role=alert.target_role).all()]
-        if not customer_ids:
-            return {'configured': True, 'sent': 0, 'failed': 0}
-        query = query.filter(CommunityPushSubscription.customer_id.in_(customer_ids))
+    if customer_ids is None:
+        customer_ids = app_push_customer_ids_for_role(target_role)
+    if customer_ids is not None:
+        ids = sorted({parse_int(item, 0) for item in customer_ids if parse_int(item, 0) > 0})
+        if not ids:
+            return {'configured': True, 'sent': 0, 'failed': 0, 'skipped': 0}
+        query = query.filter(CommunityPushSubscription.customer_id.in_(ids))
+
+    safe_url = str(url or '/').strip()
+    if not safe_url.startswith(('/', 'https://', 'http://')):
+        safe_url = '/'
     payload = json.dumps({
-        'title': alert.title,
-        'body': alert.body,
-        'url': alert.cta_url or '/community',
-        'tag': f'community-alert-{alert.id}',
+        'title': str(title or "Macleen's Food House")[:100],
+        'body': str(body or 'A new Macleen’s update is waiting.')[:240],
+        'url': safe_url,
+        'category': category,
+        'sound': category in app_notification_sound_categories(),
+        'tag': f'macleens-{category.lower()}-{secrets.token_hex(5)}',
     })
-    sent = 0
-    failed = 0
+    private_key = (os.environ.get('WEBPUSH_VAPID_PRIVATE_KEY') or '').strip()
+    subject = (os.environ.get('WEBPUSH_VAPID_SUBJECT') or '').strip()
+    sent = failed = skipped = 0
     for subscription in query.all():
+        if category not in normalize_app_notification_preferences(subscription.notification_preferences, default_all=True):
+            skipped += 1
+            continue
         try:
             webpush(
                 subscription_info={
@@ -3722,12 +3976,23 @@ def send_community_alert_push(alert):
             status_code = getattr(getattr(exc, 'response', None), 'status_code', None)
             if status_code in {404, 410}:
                 subscription.is_active = False
-            app.logger.warning('Community Web Push failed for subscription %s: HTTP %s', subscription.id, status_code)
+            app.logger.warning('Customer app Web Push failed for subscription %s: HTTP %s', subscription.id, status_code)
         except Exception:
             failed += 1
-            app.logger.exception('Unexpected Community Web Push failure for subscription %s', subscription.id)
+            app.logger.exception('Unexpected customer app Web Push failure for subscription %s', subscription.id)
     db.session.commit()
-    return {'configured': True, 'sent': sent, 'failed': failed}
+    return {'configured': True, 'sent': sent, 'failed': failed, 'skipped': skipped}
+
+
+def send_community_alert_push(alert):
+    """Keep Flash Perch delivery inside the Community audience only."""
+    community_query = CommunityProfile.query
+    if alert.target_role in COMMUNITY_ROLES:
+        community_query = community_query.filter_by(role=alert.target_role)
+    return send_customer_app_push(
+        alert.title, alert.body, url=alert.cta_url or '/community', category='COMMUNITY',
+        customer_ids=[row.customer_id for row in community_query.all()],
+    )
 
 LOYALTY_CARD_THEMES = {
     'pink-classic': 'Classic Pink',
@@ -5532,10 +5797,15 @@ def store_catalog():
 
     # A hunt is visible only at its selected product location and disappears
     # after this loyalty account successfully claims it.
-    storefront_hunt_by_product = {}
+    storefront_hunts_by_product = {}
     for hunt in active_hidden_prize_hunts('STOREFRONT_PRODUCT', customer=cust):
-        if hunt.location_product_id and hunt.location_product_id not in storefront_hunt_by_product:
-            storefront_hunt_by_product[hunt.location_product_id] = hunt
+        if hunt.location_product_id:
+            slot = hidden_prize_placement_slot(hunt)
+            # One item may safely have more than one hunt only when each has a
+            # different configured display area. Keep the oldest hunt in a
+            # specific area visible first to avoid overlapping prize buttons.
+            product_slots = storefront_hunts_by_product.setdefault(hunt.location_product_id, {})
+            product_slots.setdefault(slot, hunt)
 
     reorder_cart = session.pop('reorder_cart', None)
 
@@ -5555,7 +5825,8 @@ def store_catalog():
                            trending_ids=trending_ids,
                            ulams_today=ulams_today,
                            bundle_deals=bundle_deals,
-                           storefront_hunt_by_product=storefront_hunt_by_product,
+                           storefront_hunts_by_product=storefront_hunts_by_product,
+                           hidden_prize_display_size=hidden_prize_display_size,
                            reorder_cart=reorder_cart,
                            storefront_payment_settings=storefront_payment_settings(),
                            messenger_menu_url=(messenger_menu_start_url() if marketing_settings()['daily_menu_messenger_reply'] else ''),
@@ -5971,6 +6242,23 @@ def customer_chat_messages_api():
     query = CustomerChatMessage.query.filter_by(customer_id=customer.id, order_id=(order.id if order else None))
     if request.method == 'POST':
         payload = request.get_json(silent=True) or {}
+        suggested_topic = str(payload.get('suggested_topic', '')).strip().lower()
+        if suggested_topic:
+            suggestion = CUSTOMER_CHAT_SUGGESTED_ANSWERS.get(suggested_topic)
+            if not suggestion:
+                db.session.rollback()
+                return jsonify({'success': False, 'message': 'That suggested question is not available.'}), 400
+            expires_at = None if order else utc_now() + CUSTOMER_CHAT_SUPPORT_TTL
+            db.session.add(CustomerChatMessage(
+                customer_id=customer.id, order_id=(order.id if order else None),
+                sender_type='CUSTOMER', body=suggestion['question'], expires_at=expires_at,
+            ))
+            db.session.add(CustomerChatMessage(
+                customer_id=customer.id, order_id=(order.id if order else None),
+                sender_type='SYSTEM', body=suggestion['answer'], expires_at=expires_at,
+            ))
+            db.session.commit()
+            return jsonify({'success': True, 'suggested_topic': suggested_topic, 'answer': suggestion['answer']})
         body = str(payload.get('message', '')).strip()
         if not body:
             db.session.rollback()
@@ -6000,6 +6288,65 @@ def customer_chat_messages_api():
         'order_id': order.id if order else None,
         'messages': [customer_chat_message_payload(message) for message in messages],
     })
+
+
+def current_app_notification_customer():
+    customer_id = parse_int(session.get('customer_id'), 0)
+    customer = db.session.get(Customer, customer_id) if customer_id else None
+    issue = customer_access_issue(customer)
+    if not customer:
+        return None, 'Log in to manage Macleen’s app notifications.'
+    if issue:
+        return None, issue
+    return customer, None
+
+
+@app.route('/api/app-notifications/subscribe', methods=['POST'])
+def customer_app_push_subscribe():
+    """Explicit permission-only subscription for the installed customer PWA."""
+    customer, issue = current_app_notification_customer()
+    if issue:
+        return jsonify({'success': False, 'message': issue}), 401 if not session.get('customer_id') else 403
+    if not app_push_is_configured():
+        return jsonify({'success': False, 'message': 'App notifications are not configured by Macleen’s staff yet.'}), 503
+    payload = request.get_json(silent=True) or {}
+    subscription_payload = payload.get('subscription') if isinstance(payload.get('subscription'), dict) else payload
+    if not isinstance(subscription_payload, dict):
+        return jsonify({'success': False, 'message': 'The app did not return a valid notification subscription.'}), 400
+    subscription_payload = dict(subscription_payload)
+    subscription_payload['notification_preferences'] = payload.get(
+        'notification_preferences', subscription_payload.get('notification_preferences')
+    )
+    try:
+        _, preferences = save_customer_app_push_subscription(customer, subscription_payload)
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'preferences': preferences,
+            'message': 'MacLeen’s app notifications are enabled for this device.',
+        })
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not save customer app notification subscription')
+        return jsonify({'success': False, 'message': 'Could not save this app notification setting.'}), 500
+
+
+@app.route('/api/app-notifications/unsubscribe', methods=['POST'])
+def customer_app_push_unsubscribe():
+    customer, issue = current_app_notification_customer()
+    if issue:
+        return jsonify({'success': False, 'message': issue}), 401 if not session.get('customer_id') else 403
+    payload = request.get_json(silent=True) or {}
+    endpoint = str(payload.get('endpoint') or '').strip()
+    query = CommunityPushSubscription.query.filter_by(customer_id=customer.id)
+    if endpoint:
+        query = query.filter_by(endpoint=endpoint)
+    updated = query.update({'is_active': False}, synchronize_session=False)
+    db.session.commit()
+    return jsonify({'success': True, 'disabled': updated, 'message': 'App notifications are disabled for this device.'})
 
 
 @app.route('/api/cashier/customer-chats', methods=['GET'])
@@ -6035,6 +6382,15 @@ def cashier_customer_chat_thread_api(thread_key):
             expires_at=None if order else utc_now() + CUSTOMER_CHAT_SUPPORT_TTL,
         ))
         db.session.commit()
+        # Background alert is optional and must never prevent a cashier reply.
+        try:
+            send_customer_app_push(
+                "New message from Macleen’s", body,
+                url=(f'/order/track/{order.public_token}' if order and order.public_token else '/portal/dashboard'),
+                category='CASHIER_CHAT', customer_ids=[customer.id],
+            )
+        except Exception:
+            app.logger.exception('Could not send optional cashier-chat app notification')
         return jsonify({'success': True})
     messages = query.order_by(CustomerChatMessage.created_at.asc()).limit(100).all()
     changed = False
@@ -6610,6 +6966,16 @@ def cashier_direct_sale():
         reserve_cart_stock(lines)
         marketing = apply_member_marketing_rewards(cust, order) if cust else {'bonus_points': 0.0, 'referral_member_points': 0.0, 'referrer_points': 0.0}
         db.session.commit()
+        if cust:
+            try:
+                earned_label = f' +{points_earned:g} point(s)' if points_earned > 0 else ''
+                send_customer_app_push(
+                    'Counter purchase recorded',
+                    f'Your ₱{total:,.2f} purchase was recorded.{earned_label}',
+                    url='/portal/dashboard#rewards', category='LOYALTY', customer_ids=[cust.id],
+                )
+            except Exception:
+                app.logger.exception('Could not send optional loyalty app notification for counter sale')
         return jsonify({
             'success': True,
             'order_id': order.id,
@@ -6852,10 +7218,14 @@ def cashier_create_reservation():
 @app.route('/pos/misc-sale', methods=['POST'])
 @require_cashier
 def cashier_misc_sale():
-    service_name = request.form.get('service_name', '').strip() or 'Printing / Custom Service'
+    service_type = str(request.form.get('service_type', 'MISC')).strip().upper()
+    if service_type not in {'MISC', 'PRINTING'}:
+        service_type = 'MISC'
+    service_label = 'Printing' if service_type == 'PRINTING' else 'Misc'
+    service_name = request.form.get('service_name', '').strip() or f'{service_label} Service'
     amount = parse_float(request.form.get('amount'), 0.0)
     pay_method = request.form.get('payment_method', 'CASH').upper()
-    notes = request.form.get('notes', '').strip() or 'Over-the-counter Misc Service'
+    notes = request.form.get('notes', '').strip() or f'Over-the-counter {service_label} Service'
     reg_cust_id = request.form.get('registered_customer_id')
     custom_name = request.form.get('custom_customer_name', '').strip()
 
@@ -6890,7 +7260,7 @@ def cashier_misc_sale():
         customer_name = custom_name
 
     order = Order(
-        order_type='SERVICE/MISC',
+        order_type=f'SERVICE/{service_type}',
         dining_option='SERVICE',
         customer_id=cust_id,
         customer_name=customer_name,
@@ -6911,7 +7281,7 @@ def cashier_misc_sale():
     db.session.add(OrderItem(
         order_id=order.id,
         product_id=None,
-        product_name=f"[Service] {service_name}",
+        product_name=f"[{service_label}] {service_name}",
         unit_price=amount,
         cost_price=0.0,
         quantity=1,
@@ -6921,7 +7291,7 @@ def cashier_misc_sale():
         apply_member_marketing_rewards(cust, order)
 
     db.session.commit()
-    flash(f"Misc Sale recorded: {service_name} for {customer_name} (₱{amount:,.2f})", "success")
+    flash(f"{service_label} sale recorded: {service_name} for {customer_name} (₱{amount:,.2f})", "success")
     return redirect(url_for('cashier_terminal'))
 
 @app.route('/pos/record-change-fund', methods=['POST'])
@@ -7072,6 +7442,16 @@ def cashier_settle_collection(order_id):
             apply_member_marketing_rewards(cust, order)
 
     db.session.commit()
+    if order.customer_id:
+        try:
+            send_customer_app_push(
+                f'Payment confirmed for order #{order.id}',
+                'Your payment was recorded. Thank you for your order!',
+                url=f'/order/track/{order.public_token}' if order.public_token else '/portal/dashboard#orders',
+                category='ORDER', customer_ids=[order.customer_id],
+            )
+        except Exception:
+            app.logger.exception('Could not send settled-collection notification for order_id=%s', order.id)
     bonus_msg = f" (+{earned} pts earned for Same-Day payment!)" if earned > 0 else " (No points: paid after order date)"
     flash(f"Collection #{order.id} for {order.customer_name} settled via {pay_method}!{bonus_msg}", "success")
     return redirect(url_for('cashier_terminal'))
@@ -7394,6 +7774,16 @@ def verify_order(order_id):
         sync_craft_order_after_main_verification(order, accepted=True)
         sync_digital_order_after_main_verification(order, accepted=True)
         db.session.commit()
+        if order.customer_id:
+            try:
+                send_customer_app_push(
+                    f'Order #{order.id} is being prepared',
+                    'Your order was confirmed by the cashier. We will update you again when it is ready.',
+                    url=f'/order/track/{order.public_token}' if order.public_token else '/portal/dashboard#orders',
+                    category='ORDER', customer_ids=[order.customer_id],
+                )
+            except Exception:
+                app.logger.exception('Could not send accepted-order notification for order_id=%s', order.id)
         if order.payment_method == 'CREDIT':
             flash(f'Order #{order.id} accepted as A/R Credit and added to Member Credit AR.', 'success')
         else:
@@ -7426,6 +7816,16 @@ def verify_order(order_id):
                 is_read=False,
             ))
         db.session.commit()
+        if order.customer_id:
+            try:
+                send_customer_app_push(
+                    f'Order #{order.id} needs payment confirmation',
+                    'Your order is on payment hold. Please contact the cashier once payment is ready.',
+                    url=f'/order/track/{order.public_token}' if order.public_token else '/portal/dashboard#orders',
+                    category='ORDER', customer_ids=[order.customer_id],
+                )
+            except Exception:
+                app.logger.exception('Could not send payment-hold notification for order_id=%s', order.id)
         flash(f'Order #{order.id} moved to Unpaid Orders and marked as payment hold.', 'info')
     elif action == 'REJECT':
         if order.customer_id and parse_float(order.points_redeemed, 0.0) > 0:
@@ -7449,6 +7849,15 @@ def verify_order(order_id):
         sync_craft_order_after_main_verification(order, accepted=False)
         sync_digital_order_after_main_verification(order, accepted=False)
         db.session.commit()
+        if order.customer_id:
+            try:
+                send_customer_app_push(
+                    f'Order #{order.id} was cancelled',
+                    'The cashier cancelled this order. Please message us if you need assistance.',
+                    url='/portal/dashboard#orders', category='ORDER', customer_ids=[order.customer_id],
+                )
+            except Exception:
+                app.logger.exception('Could not send cancelled-order notification for order_id=%s', order.id)
         flash(f'Order #{order.id} cancelled and reserved stock restored.', 'info')
     else:
         flash('Invalid verification action.', 'error')
@@ -7474,6 +7883,20 @@ def update_order_fulfillment(order_id):
     if new_status == 'FULFILLED':
         clear_order_customer_chat(order.id)
     db.session.commit()
+    if order.customer_id:
+        try:
+            status_copy = {
+                'PREPARING': 'The kitchen is preparing your order.',
+                'READY': 'Your order is ready for pickup or handoff.',
+                'FULFILLED': 'Your order was marked fulfilled. Thank you!',
+            }[new_status]
+            send_customer_app_push(
+                f'Order #{order.id}: {new_status.title()}', status_copy,
+                url=f'/order/track/{order.public_token}' if order.public_token else '/portal/dashboard#orders',
+                category='ORDER', customer_ids=[order.customer_id],
+            )
+        except Exception:
+            app.logger.exception('Could not send fulfillment notification for order_id=%s', order.id)
     flash(f'Order #{order.id} is now {new_status.title()}.', 'success')
     return redirect(url_for('cashier_terminal'))
 
@@ -11636,7 +12059,9 @@ def admin_dashboard():
 
             if str(o.order_type or '').upper().startswith('CRAFT') or pname.startswith('[Craft]'):
                 craft_revenue_total += (it.subtotal or 0.0)
-            elif '[Service]' in pname or o.order_type == 'SERVICE/MISC' or 'Printing' in pname:
+            elif ('[Service]' in pname or '[Misc]' in pname or '[Printing]' in pname
+                  or str(o.order_type or '').upper() in {'SERVICE/MISC', 'SERVICE/PRINTING'}
+                  or 'Printing' in pname):
                 service_revenue_total += (it.subtotal or 0.0)
             else:
                 food_revenue_total += (it.subtotal or 0.0)
@@ -11697,6 +12122,10 @@ def admin_dashboard():
         bundle_deals=bundle_deals,
         hidden_prize_hunts=hidden_prize_hunts,
         hidden_prize_claim_counts=hidden_prize_claim_counts,
+        hidden_prize_placement_options=HIDDEN_PRIZE_PLACEMENT_OPTIONS,
+        hidden_prize_placement_slot=hidden_prize_placement_slot,
+        hidden_prize_placement_label=hidden_prize_placement_label,
+        hidden_prize_display_size=hidden_prize_display_size,
                            product_sales_stats=product_sales_stats, 
                            food_revenue_total=food_revenue_total, 
                            service_revenue_total=service_revenue_total, 
@@ -12244,12 +12673,22 @@ def hidden_prize_admin_redirect():
     return redirect(url_for('admin_dashboard') + '#hidden-treat-hunts')
 
 
-def hidden_prize_form_values(form):
+def hidden_prize_form_values(form, display_image_data=None):
     title = re.sub(r'\s+', ' ', (form.get('title') or '').strip())[:140]
     location = str(form.get('location') or '').strip().upper()
     prize_type = str(form.get('prize_type') or '').strip().upper()
     if not title or location not in HIDDEN_PRIZE_LOCATIONS or prize_type not in HIDDEN_PRIZE_TYPES:
         raise OrderValidationError('Choose a hunt title, a valid location, and a valid prize type.')
+
+    valid_slots = {slot for slot, _ in HIDDEN_PRIZE_PLACEMENT_OPTIONS[location]}
+    placement_slot = str(form.get('placement_slot') or '').strip().upper()
+    if placement_slot not in valid_slots:
+        raise OrderValidationError('Choose an exact display area that belongs to the selected Hidden Treat location.')
+    display_size_px = parse_int(form.get('display_size_px'), HIDDEN_PRIZE_DISPLAY_SIZE_DEFAULT)
+    if not HIDDEN_PRIZE_DISPLAY_SIZE_MIN <= display_size_px <= HIDDEN_PRIZE_DISPLAY_SIZE_MAX:
+        raise OrderValidationError(
+            f'Hidden Treat display size must be from {HIDDEN_PRIZE_DISPLAY_SIZE_MIN} to {HIDDEN_PRIZE_DISPLAY_SIZE_MAX} pixels.'
+        )
 
     starts_at = hidden_prize_admin_datetime(form.get('starts_at'), utc_now())
     ends_at = hidden_prize_admin_datetime(form.get('ends_at'))
@@ -12299,6 +12738,9 @@ def hidden_prize_form_values(form):
         'title': title,
         'location': location,
         'location_product_id': location_product_id,
+        'placement_slot': placement_slot,
+        'display_size_px': display_size_px,
+        'display_image_data': display_image_data,
         'prize_type': prize_type,
         'points_amount': points_amount,
         'voucher_discount_percent': voucher_discount_percent,
@@ -12315,7 +12757,9 @@ def hidden_prize_form_values(form):
 @require_admin
 def admin_create_hidden_prize_hunt():
     try:
-        values = hidden_prize_form_values(request.form)
+        values = hidden_prize_form_values(
+            request.form, display_image_data=hidden_prize_image_from_request('display_image')
+        )
         db.session.add(HiddenPrizeHunt(
             **values,
             is_active=bool(request.form.get('is_active')),
@@ -12330,6 +12774,40 @@ def admin_create_hidden_prize_hunt():
         db.session.rollback()
         app.logger.exception('Could not create Hidden Treat Hunt')
         flash('Hidden Treat Hunt could not be created. No hunt was saved.', 'error')
+    return hidden_prize_admin_redirect()
+
+
+@app.route('/admin/hidden-prizes/<int:hunt_id>/display', methods=['POST'])
+@require_admin
+def admin_update_hidden_prize_display(hunt_id):
+    """Move an existing hunt inside its chosen system area and update its visual."""
+    hunt = HiddenPrizeHunt.query.get_or_404(hunt_id)
+    try:
+        valid_slots = {slot for slot, _ in HIDDEN_PRIZE_PLACEMENT_OPTIONS.get(hunt.location, ())}
+        placement_slot = str(request.form.get('placement_slot') or '').strip().upper()
+        if placement_slot not in valid_slots:
+            raise OrderValidationError('Choose a valid display area for this Hidden Treat location.')
+        display_size_px = parse_int(request.form.get('display_size_px'), HIDDEN_PRIZE_DISPLAY_SIZE_DEFAULT)
+        if not HIDDEN_PRIZE_DISPLAY_SIZE_MIN <= display_size_px <= HIDDEN_PRIZE_DISPLAY_SIZE_MAX:
+            raise OrderValidationError(
+                f'Hidden Treat display size must be from {HIDDEN_PRIZE_DISPLAY_SIZE_MIN} to {HIDDEN_PRIZE_DISPLAY_SIZE_MAX} pixels.'
+            )
+        uploaded_image = hidden_prize_image_from_request('display_image')
+        hunt.placement_slot = placement_slot
+        hunt.display_size_px = display_size_px
+        if request.form.get('remove_display_image'):
+            hunt.display_image_data = None
+        elif uploaded_image:
+            hunt.display_image_data = uploaded_image
+        db.session.commit()
+        flash(f"Hidden Treat display updated: {hidden_prize_placement_label(hunt)} at {display_size_px}px.", 'success')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not update Hidden Treat display hunt_id=%s', hunt_id)
+        flash('Hidden Treat display could not be updated. No changes were saved.', 'error')
     return hidden_prize_admin_redirect()
 
 
@@ -13023,6 +13501,7 @@ def community_home():
         ))
     mentionable_profiles = mentionable_query.order_by(CommunityProfile.handle.asc()).limit(300).all()
     community_hidden_hunts = active_hidden_prize_hunts('COMMUNITY', customer=cust)
+    community_hidden_hunts_by_slot = hidden_prize_hunts_by_slot(community_hidden_hunts)
     return render_template(
         'community.html',
         cust=cust,
@@ -13084,6 +13563,8 @@ def community_home():
         community_max_post_mentions=COMMUNITY_MAX_POST_MENTIONS,
         mentionable_profiles=mentionable_profiles,
         community_hidden_hunts=community_hidden_hunts,
+        community_hidden_hunts_by_slot=community_hidden_hunts_by_slot,
+        hidden_prize_display_size=hidden_prize_display_size,
     )
 
 @app.route('/community/member/<string:handle>')
@@ -14301,23 +14782,13 @@ def community_push_subscribe():
     cust, profile, error = community_api_actor()
     if error:
         return error
-    if not (os.environ.get('WEBPUSH_VAPID_PUBLIC_KEY') and os.environ.get('WEBPUSH_VAPID_PRIVATE_KEY')):
+    if not app_push_is_configured():
         return jsonify({'success': False, 'message': 'Background push is not configured yet. In-app Flash Perch alerts remain active.'}), 503
     data = request.get_json(silent=True) or {}
-    endpoint = str(data.get('endpoint') or '').strip()
-    keys = data.get('keys') if isinstance(data.get('keys'), dict) else {}
-    p256dh = str(keys.get('p256dh') or '').strip()
-    auth = str(keys.get('auth') or '').strip()
-    if not endpoint.startswith('https://') or len(endpoint) > 3000 or not p256dh or not auth:
-        return jsonify({'success': False, 'message': 'The browser returned an invalid push subscription.'}), 400
-    subscription = CommunityPushSubscription.query.filter_by(endpoint=endpoint).first()
-    if subscription:
-        subscription.customer_id = cust.id
-        subscription.p256dh = p256dh
-        subscription.auth = auth
-        subscription.is_active = True
-    else:
-        db.session.add(CommunityPushSubscription(customer_id=cust.id, endpoint=endpoint, p256dh=p256dh, auth=auth, is_active=True))
+    try:
+        save_customer_app_push_subscription(cust, data)
+    except OrderValidationError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
     profile.push_opt_in = True
     db.session.commit()
     return jsonify({'success': True, 'message': 'Flash Perch browser alerts enabled.'})
@@ -14343,6 +14814,7 @@ def community_admin():
     group_review_messages = []
     ads = CommunityAd.query.order_by(CommunityAd.created_at.desc()).all()
     alerts = CommunityAlert.query.order_by(CommunityAlert.created_at.desc()).limit(30).all()
+    app_announcements = CustomerAppAnnouncement.query.order_by(CustomerAppAnnouncement.created_at.desc()).limit(30).all()
     flash_polls = CommunityPost.query.filter_by(is_flash_poll=True).order_by(CommunityPost.publish_date.desc()).limit(30).all()
     keywords = CommunityKeyword.query.order_by(CommunityKeyword.category.asc(), CommunityKeyword.phrase.asc()).all()
     pending_drops = []
@@ -14371,6 +14843,7 @@ def community_admin():
         'new_members_today': new_members_today,
         'pending_students': pending_students,
         'unread_join_notices': sum(1 for row in admin_notices if not row.is_read),
+        'app_push_subscriptions': CommunityPushSubscription.query.filter_by(is_active=True).count(),
     }
     return render_template(
         'community_admin.html',
@@ -14382,6 +14855,7 @@ def community_admin():
         group_review_messages=group_review_messages,
         ads=ads,
         alerts=alerts,
+        app_announcements=app_announcements,
         flash_polls=flash_polls,
         keywords=keywords,
         pending_drops=pending_drops,
@@ -14391,7 +14865,10 @@ def community_admin():
         stats=stats,
         report_reasons=COMMUNITY_REPORT_REASONS,
         today=today,
-        webpush_configured=bool(os.environ.get('WEBPUSH_VAPID_PUBLIC_KEY') and os.environ.get('WEBPUSH_VAPID_PRIVATE_KEY') and os.environ.get('WEBPUSH_VAPID_SUBJECT')),
+        webpush_configured=app_push_is_configured(),
+        app_push_configured=app_push_is_configured(),
+        app_notification_categories=APP_NOTIFICATION_CATEGORY_LABELS,
+        app_notification_sound_categories=app_notification_sound_categories(),
         production_sqlite_warning=bool(IS_PRODUCTION and db.engine.dialect.name == 'sqlite'),
         community_controls={
             'registration': COMMUNITY_REGISTRATION_OPEN,
@@ -14627,6 +15104,87 @@ def community_admin_toggle_ad(ad_id):
     db.session.commit()
     flash(f'Community ad {"activated" if ad.is_active else "paused"}.', 'success')
     return redirect(url_for('community_admin') + '#ads')
+
+@app.route('/admin/community/app-notification-sounds', methods=['POST'])
+@require_admin
+def community_admin_save_app_notification_sounds():
+    """Save the categories that ask the device for its normal alert sound."""
+    selected = normalize_app_notification_preferences(
+        request.form.getlist('sound_category'), default_all=False
+    )
+    try:
+        setting = StoreSetting.query.filter_by(key='app_push_sound_categories').first()
+        serialized = json.dumps(selected, separators=(',', ':'))
+        if setting:
+            setting.value = serialized
+        else:
+            db.session.add(StoreSetting(key='app_push_sound_categories', value=serialized))
+        db.session.commit()
+        if selected:
+            labels = ', '.join(APP_NOTIFICATION_CATEGORY_LABELS[category] for category in selected)
+            flash(f'App notification sound is enabled for: {labels}.', 'success')
+        else:
+            flash('App notifications will now be visual-only unless the customer device overrides this setting.', 'info')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not save app push sound preferences')
+        flash('Could not save the app notification sound settings.', 'error')
+    return redirect(url_for('community_admin') + '#app-notifications')
+
+
+@app.route('/admin/community/app-announcement', methods=['POST'])
+@require_admin
+def community_admin_create_app_announcement():
+    """Create a low-volume broadcast to customers who explicitly enabled push."""
+    try:
+        title = re.sub(r'\s+', ' ', (request.form.get('title') or '').strip())
+        body = re.sub(r'\s+', ' ', (request.form.get('body') or '').strip())
+        category = (request.form.get('category') or 'ANNOUNCEMENT').strip().upper()
+        target_role = (request.form.get('target_role') or 'ALL').strip().upper()
+        if not title or len(title) > 100 or not body or len(body) > 240:
+            raise OrderValidationError('An announcement needs a title and message within the shown limits.')
+        if category not in APP_NOTIFICATION_CATEGORIES:
+            raise OrderValidationError('Choose a valid notification category.')
+        if target_role not in {'ALL', *COMMUNITY_ROLES}:
+            raise OrderValidationError('Choose a valid announcement audience.')
+        latest = CustomerAppAnnouncement.query.order_by(CustomerAppAnnouncement.created_at.desc()).first()
+        if latest and utc_now() - latest.created_at < APP_NOTIFICATION_ANNOUNCEMENT_COOLDOWN:
+            seconds_left = max(1, int((APP_NOTIFICATION_ANNOUNCEMENT_COOLDOWN - (utc_now() - latest.created_at)).total_seconds()))
+            raise OrderValidationError(f'Wait {seconds_left} seconds before sending another app announcement. This protects customers from notification spam.')
+        announcement = CustomerAppAnnouncement(
+            title=title,
+            body=body,
+            category=category,
+            target_role=target_role,
+            cta_url=community_safe_cta(request.form.get('cta_url'), default='/portal/dashboard'),
+            created_by=session.get('admin_user') or 'admin',
+        )
+        db.session.add(announcement)
+        db.session.commit()
+        delivery = send_customer_app_push(
+            announcement.title, announcement.body, url=announcement.cta_url,
+            category=announcement.category, target_role=announcement.target_role,
+        )
+        announcement.sent_count = delivery['sent']
+        announcement.failed_count = delivery['failed']
+        announcement.skipped_count = delivery['skipped']
+        db.session.commit()
+        if delivery['configured']:
+            flash(
+                f'Announcement sent to {delivery["sent"]} device(s). '
+                f'{delivery["skipped"]} skipped by customer preferences; {delivery["failed"]} failed.',
+                'success',
+            )
+        else:
+            flash('Announcement was saved, but it could not reach phones until the Web Push VAPID settings are configured.', 'error')
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not send customer app announcement')
+        flash('The app announcement could not be sent. No delivery counts were recorded.', 'error')
+    return redirect(url_for('community_admin') + '#app-notifications')
 
 @app.route('/admin/community/alert', methods=['POST'])
 @require_admin
@@ -15027,6 +15585,7 @@ def customer_dashboard():
     hidden_prize_claims = customer_hidden_prize_claims(cust)
     hidden_prize_vouchers = [claim for claim in hidden_prize_claims if claim.hunt and claim.hunt.prize_type == 'VOUCHER' and claim.status == 'AVAILABLE']
     loyalty_hidden_hunts = active_hidden_prize_hunts('LOYALTY_PORTAL', customer=cust)
+    loyalty_hidden_hunts_by_slot = hidden_prize_hunts_by_slot(loyalty_hidden_hunts)
     referral_rewards_count = ReferralReward.query.filter_by(referrer_customer_id=cust.id).count()
     favorite_items = Product.query.join(
         CustomerWishlist, CustomerWishlist.product_id == Product.id
@@ -15046,6 +15605,14 @@ def customer_dashboard():
          and (order.fulfillment_status or '').upper() != 'FULFILLED'),
         '',
     )
+    app_push_subscriptions = CommunityPushSubscription.query.filter_by(
+        customer_id=cust.id, is_active=True
+    ).order_by(CommunityPushSubscription.updated_at.desc()).all()
+    latest_app_push_subscription = app_push_subscriptions[0] if app_push_subscriptions else None
+    app_push_preferences = normalize_app_notification_preferences(
+        latest_app_push_subscription.notification_preferences if latest_app_push_subscription else None,
+        default_all=True,
+    )
 
     return render_template(
         'customer_dashboard.html',
@@ -15060,12 +15627,19 @@ def customer_dashboard():
         hidden_prize_claims=hidden_prize_claims,
         hidden_prize_vouchers=hidden_prize_vouchers,
         loyalty_hidden_hunts=loyalty_hidden_hunts,
+        loyalty_hidden_hunts_by_slot=loyalty_hidden_hunts_by_slot,
+        hidden_prize_display_size=hidden_prize_display_size,
         referral_rewards_count=referral_rewards_count,
         favorite_items=favorite_items,
         loyalty_card_themes=LOYALTY_CARD_THEMES,
         qr_data=qr_data,
         qr_target=qr_target,
         active_order_chat_token=active_order_chat_token,
+        app_push_configured=app_push_is_configured(),
+        app_push_subscribed=bool(latest_app_push_subscription),
+        app_push_preferences=app_push_preferences,
+        app_notification_categories=APP_NOTIFICATION_CATEGORY_LABELS,
+        vapid_public_key=(os.environ.get('WEBPUSH_VAPID_PUBLIC_KEY') or '').strip(),
         today=ph_today(),
     )
 

@@ -119,6 +119,8 @@
     .store-chat-toggle{position:fixed;right:16px;bottom:134px;z-index:90;border:0;border-radius:999px;background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff;font-weight:900;padding:11px 14px;box-shadow:0 12px 28px rgba(15,118,110,.28);cursor:pointer}.store-chat-panel{position:fixed;right:14px;bottom:132px;width:min(360px,calc(100vw - 28px));height:460px;display:none;z-index:91;border:1px solid #99f6e4;border-radius:19px;background:#fff;box-shadow:0 18px 45px rgba(15,23,42,.24);overflow:hidden}.store-chat-panel.open{display:flex;flex-direction:column}.store-chat-head{display:flex;justify-content:space-between;align-items:center;padding:12px;background:linear-gradient(135deg,#0f766e,#0d9488);color:#fff}.store-chat-log{flex:1;overflow:auto;padding:11px;background:#f8fafc}.store-chat-msg{max-width:86%;margin:6px 0;padding:8px 10px;border-radius:12px;font-size:.78rem;line-height:1.38;white-space:pre-wrap}.store-chat-msg.customer{margin-left:auto;background:#dbeafe;color:#1e3a8a}.store-chat-msg.cashier,.store-chat-msg.system{background:#fff;border:1px solid #e2e8f0;color:#334155}.store-chat-quick{display:flex;gap:5px;overflow:auto;padding:8px;border-top:1px solid #e2e8f0}.store-chat-quick button{border:1px solid #99f6e4;background:#f0fdfa;color:#115e59;border-radius:999px;padding:6px 8px;font-size:.66rem;font-weight:850;white-space:nowrap;cursor:pointer}.store-chat-send{display:flex;gap:6px;padding:9px;border-top:1px solid #e2e8f0}.store-chat-send input{flex:1;border:1px solid #cbd5e1;border-radius:9px;padding:9px;font-size:.78rem}.store-chat-send button{border:0;border-radius:9px;background:#ec4899;color:#fff;padding:8px 11px;font-weight:900;cursor:pointer}
     @media(max-width:720px){header .brand span{display:none}header>div:last-child .nav-btn:nth-of-type(n+2),header>div:last-child button{display:none}.hero img{width:86px;height:86px;margin:0 0 8px 14px}.p-img{height:124px}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.interaction-bar{gap:4px}.btn-review{padding:6px 7px}.drawer{max-width:none}.scroll-btn{display:none}}
     @media(min-width:721px){.student-bottom-nav{left:50%;transform:translateX(-50%);width:500px;border-radius:18px 18px 0 0;border:1px solid #e2e8f0;border-bottom:0}.p-img{height:175px}}
+    /* Owner-configured Hidden Treat locations on product cards. */
+    .hidden-treat-photo-wrap{position:relative}.hidden-treat-icon{display:inline-grid;place-items:center;vertical-align:middle;flex:none;border:1px solid #fcd34d;background:linear-gradient(135deg,#fff7ed,#fef3c7);border-radius:12px;padding:3px;cursor:pointer;line-height:1;overflow:hidden;box-shadow:0 7px 17px #92400e18;animation:hiddenTreatGlow 1.8s ease-in-out infinite}.hidden-treat-icon:hover{transform:scale(1.08)}.hidden-treat-icon img{width:100%;height:100%;object-fit:cover;border-radius:9px}.hidden-treat-icon.overlay{position:absolute;z-index:4}.hidden-treat-icon.top-left{top:7px;left:7px}.hidden-treat-icon.top-right{top:7px;right:7px}.hidden-treat-inline{margin:0 0 5px}.hidden-treat-below-add{margin:7px auto 0;display:grid}
   </style>
 </head>
 <body>
@@ -253,19 +255,28 @@
 
     <!-- MAIN DISH CATALOG -->
     <div class="section-title">🍽️ <span id="catalogTitleText">All Dishes</span></div>
+    {% macro product_hidden_treat(hunt, css_class='') -%}
+      {%- if hunt -%}<button type="button" class="hidden-treat-icon {{ css_class }}" data-hidden-hunt="{{ hunt.id }}" onclick="claimHiddenTreat({{ hunt.id }}, this)" style="width:{{ hidden_prize_display_size(hunt) }}px;height:{{ hidden_prize_display_size(hunt) }}px;" title="Something may be hidden here" aria-label="Open a hidden gift">{% if hunt.display_image_data %}<img src="{{ hunt.display_image_data }}" alt="">{% else %}🎁{% endif %}</button>{%- endif -%}
+    {%- endmacro %}
     <div class="product-grid" id="productGrid">
       {% for p in products %}
+      {% set product_hunts = storefront_hunts_by_product.get(p.id, {}) %}
       <div class="product-card" data-cat="{{ p.category_name }}" data-name="{{ p.name|lower }} {{ p.category_name|lower }} {{ (p.description or '')|lower }}" data-price="{{ product_starting_price(p) }}" data-available="{{ '1' if product_is_available_now(p) else '0' }}" data-trending="{{ '1' if p.id in trending_ids else '0' }}">
         <div class="product-badges">{% if p.id in trending_ids %}<span class="product-badge trending">Popular now</span>{% endif %}{% if p.is_top_seller %}<span class="product-badge">Best seller</span>{% elif p.is_featured %}<span class="product-badge">Featured</span>{% endif %}</div>
         <div>
+          <div class="hidden-treat-photo-wrap">
           {% if p.image_url %}
             <img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="lazy" class="p-img" alt="{{ p.name }}" onerror="this.style.display='none';this.nextElementSibling.style.display='grid';"><div class="p-img" style="display:none;place-items:center;font-size:2.5rem">🍲</div>
           {% else %}
             <div class="p-img" style="display:flex; justify-content:center; align-items:center; font-size:2.5rem;">🍲</div>
           {% endif %}
+          {{ product_hidden_treat(product_hunts.get('STOREFRONT_IMAGE_TOP_LEFT'), 'overlay top-left') }}
+          {{ product_hidden_treat(product_hunts.get('STOREFRONT_IMAGE_TOP_RIGHT'), 'overlay top-right') }}
+          </div>
           <span style="font-size:0.68rem; font-weight:bold; color:#ec4899;">{{ p.category_name }}</span>
-          <div class="p-title" style="display:flex;align-items:center;justify-content:space-between;gap:5px;">{{ p.name }}{% set hidden_hunt = storefront_hunt_by_product.get(p.id) %}{% if hidden_hunt %}<button type="button" class="hidden-treat-icon" data-hidden-hunt="{{ hidden_hunt.id }}" onclick="claimHiddenTreat({{ hidden_hunt.id }}, this)" title="Something may be hidden here" aria-label="Open a hidden gift">🎁</button>{% endif %}</div>
+          <div class="p-title" style="display:flex;align-items:center;justify-content:space-between;gap:5px;">{{ p.name }}{{ product_hidden_treat(product_hunts.get('STOREFRONT_TITLE')) }}</div>
           {% if p.description %}<div style="font-size:.68rem;color:#64748b;line-height:1.35;margin:-1px 0 5px">{{ p.description }}</div>{% endif %}
+          {{ product_hidden_treat(product_hunts.get('STOREFRONT_DESCRIPTION'), 'hidden-treat-inline') }}
           <div class="p-price">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div>
           <div class="product-meta"><span>⏱ {{ p.prep_minutes or 10 }} min</span><span>⭐ +{{ (product_starting_price(p)//30)|int }} pts</span>{% if p.stock <= 10 %}<span style="color:#b45309">{{ p.stock }} left</span>{% endif %}</div>
           {% if p.size_schema %}<div style="font-size:0.68rem; color:#be185d; font-weight:800; margin-bottom:3px;">Choose size • priced per size</div>{% endif %}
@@ -291,6 +302,7 @@
           <div style="font-size:0.7rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:5px 7px;margin-bottom:5px;font-weight:800;text-align:center;">⏰ Visible now • ordering follows its availability schedule{% if p.available_start_time and p.available_end_time %}: {{ p.available_start_time }}–{{ p.available_end_time }}{% endif %}</div>
           <button class="btn-add" type="button" disabled style="background:#94a3b8;cursor:not-allowed;">Not Available to Order Now</button>
           {% endif %}
+          {{ product_hidden_treat(product_hunts.get('STOREFRONT_ADD_BUTTON'), 'hidden-treat-below-add') }}
         </div>
       </div>
       {% endfor %}
@@ -1111,13 +1123,25 @@
       if (open && storefrontChatEnabled) loadStoreChat();
       if (open) document.getElementById('storeChatInput').focus();
     }
-    function storeBotAnswer(kind) {
+    async function storeBotAnswer(kind) {
       const answers = {
         menu: 'Use the menu search and “Ulam for Today” section to see what is available now. Items marked unavailable can still be viewed but cannot be added yet.',
         points: 'Eligible paid purchases earn points based on the current store rule. You can use points as a discount during checkout when your balance is eligible.',
         gcash: storefrontPaymongoActive ? 'Choose GCash QR Ph at checkout. After you place the order, the secure payment page opens and shows the QR Ph code for GCash or another compatible app.' : 'Choose GCash at checkout, then enter the last 6 digits of your GCash reference so the cashier can verify it.',
       };
-      appendStoreChatBubble('system', answers[kind] || 'I can help with menu, rewards, GCash, or connecting you with the cashier.');
+      if (!storefrontChatEnabled) {
+        appendStoreChatBubble('system', answers[kind] || 'I can help with menu, rewards, GCash, or connecting you with the cashier.');
+        return;
+      }
+      try {
+        const res = await fetch(storefrontChatRequestUrl(), {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({suggested_topic: kind})
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) return showToast(data.message || 'Could not save that suggested answer.');
+        await loadStoreChat();
+      } catch (_) { showToast('Could not save that suggested answer. Please check your connection.'); }
     }
     function openCashierChat() {
       toggleStoreChat(true);

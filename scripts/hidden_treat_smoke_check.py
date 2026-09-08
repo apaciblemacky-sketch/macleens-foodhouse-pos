@@ -5,9 +5,11 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+from io import BytesIO
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from PIL import Image
 from werkzeug.security import generate_password_hash
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -55,19 +57,35 @@ def main() -> int:
 
             points_hunt = live_hunt(
                 m, title='Portal Points Test', location='LOYALTY_PORTAL', prize_type='POINTS',
-                now=now, points_amount=3, max_winners=1,
+                now=now, placement_slot='LOYALTY_REWARDS', display_size_px=52,
+                points_amount=3, max_winners=1,
             )
             voucher_hunt = live_hunt(
                 m, title='Store Voucher Test', location='STOREFRONT_PRODUCT', prize_type='VOUCHER',
-                now=now, location_product_id=flexible.id, voucher_discount_percent=10,
+                now=now, placement_slot='STOREFRONT_IMAGE_TOP_RIGHT', display_size_px=64,
+                location_product_id=flexible.id, voucher_discount_percent=10,
                 voucher_min_order=20, max_winners=1,
             )
             product_hunt = live_hunt(
                 m, title='Community Product Test', location='COMMUNITY', prize_type='PRODUCT',
                 now=now, prize_product_id=free_product.id, max_winners=1,
             )
-            m.db.session.add_all([points_hunt, voucher_hunt, product_hunt])
+            community_placement_hunt = live_hunt(
+                m, title='Community Placement Test', location='COMMUNITY', prize_type='POINTS',
+                now=now, placement_slot='COMMUNITY_PEOPLE', display_size_px=58,
+                points_amount=2, max_winners=1,
+            )
+            profile = m.CommunityProfile(
+                customer_id=member.id, handle='hidden-tester', role='RESIDENT',
+                barangay=m.BINALBAGAN_BARANGAYS[0], resident_since_year=2020,
+                verification_status='VERIFIED', verification_method='SELF_DECLARED',
+                first_post_approved=True,
+            )
+            m.db.session.add_all([points_hunt, voucher_hunt, product_hunt, community_placement_hunt, profile])
             m.db.session.commit()
+            assert m.hidden_prize_placement_slot(points_hunt) == 'LOYALTY_REWARDS'
+            assert m.hidden_prize_display_size(voucher_hunt) == 64
+            assert m.hidden_prize_hunts_by_slot([voucher_hunt])['STOREFRONT_IMAGE_TOP_RIGHT'][0].id == voucher_hunt.id
 
             # Two different entered amounts for one flexible-price product stay
             # as two order lines, even in the same cashier order.
@@ -158,20 +176,40 @@ def main() -> int:
             with cashier_client.session_transaction() as browser:
                 browser['admin_user'] = 'admin'
             ph_end = m.utc_naive_to_ph(now + timedelta(days=2)).strftime('%Y-%m-%dT%H:%M')
+            image_buffer = BytesIO()
+            Image.new('RGB', (640, 480), '#d946ef').save(image_buffer, format='PNG')
             admin_created = cashier_client.post('/admin/hidden-prizes/create', data={
                 'title': 'Admin Form Test', 'location': 'LOYALTY_PORTAL', 'prize_type': 'POINTS',
+                'placement_slot': 'LOYALTY_FAVORITES', 'display_size_px': '76',
+                'display_image': (BytesIO(image_buffer.getvalue()), 'treat.png'),
                 'points_amount': '1', 'max_winners': '1', 'ends_at': ph_end, 'is_active': 'on',
             })
             assert admin_created.status_code == 302
-            assert m.HiddenPrizeHunt.query.filter_by(title='Admin Form Test').count() == 1
+            admin_hunt = m.HiddenPrizeHunt.query.filter_by(title='Admin Form Test').one()
+            assert admin_hunt.placement_slot == 'LOYALTY_FAVORITES'
+            assert admin_hunt.display_size_px == 76
+            assert (admin_hunt.display_image_data or '').startswith('data:image/webp;base64,')
+            display_update = cashier_client.post(
+                f'/admin/hidden-prizes/{admin_hunt.id}/display', data={
+                    'placement_slot': 'LOYALTY_ACCOUNT', 'display_size_px': '110',
+                    'remove_display_image': 'on',
+                },
+            )
+            assert display_update.status_code == 302
+            m.db.session.refresh(admin_hunt)
+            assert admin_hunt.placement_slot == 'LOYALTY_ACCOUNT'
+            assert admin_hunt.display_size_px == 110 and admin_hunt.display_image_data is None
             admin_page = cashier_client.get('/admin')
-            assert admin_page.status_code == 200 and b'Hidden Treat Hunts' in admin_page.data
+            assert admin_page.status_code == 200 and b'Exact Display Area' in admin_page.data
             portal_page = member_client.get('/portal/dashboard')
-            assert portal_page.status_code == 200 and b'Hidden Treats' in portal_page.data
+            assert portal_page.status_code == 200 and b'hidden-treat-button' in portal_page.data
             storefront = member_client.get('/')
             assert storefront.status_code == 200 and b'hidden-treat-icon' in storefront.data
+            community_page = member_client.get('/community')
+            assert community_page.status_code == 200
+            assert f'data-community-hunt="{community_placement_hunt.id}"'.encode() in community_page.data
 
-    print('HIDDEN TREAT + FLEXIBLE-PRICE CASHIER V18 SMOKE CHECK PASSED')
+    print('HIDDEN TREAT PLACEMENT + FLEXIBLE-PRICE CASHIER V23 SMOKE CHECK PASSED')
     return 0
 
 

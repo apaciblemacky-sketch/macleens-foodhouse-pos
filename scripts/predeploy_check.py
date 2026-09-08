@@ -52,6 +52,8 @@ REQUIRED_DB_COLUMNS = {
     "vault_drop": {"id", "drop_number", "amount", "cash_breakdown", "created_at"},
     "bundle_deal": {"id", "name", "description", "discount_type", "discount_value", "is_active", "created_by", "created_at"},
     "bundle_deal_item": {"id", "bundle_id", "product_id", "quantity"},
+    "hidden_prize_hunt": {"id", "title", "location", "location_product_id", "placement_slot", "display_size_px", "display_image_data", "prize_type", "points_amount", "voucher_discount_percent", "voucher_min_order", "prize_product_id", "max_winners", "starts_at", "ends_at", "reward_expires_at", "is_active", "created_at"},
+    "hidden_prize_claim": {"id", "hunt_id", "customer_id", "claim_code", "status", "stock_reserved", "expires_at", "claimed_at"},
     "digital_asset_file": {"id", "original_filename", "download_filename", "content_type", "file_size", "sha256", "file_data", "uploaded_by", "created_at"},
     "digital_item": {"id", "name", "product_type", "price", "asset_file_id", "asset_version", "asset_updated_at", "asset_release_notes", "delivery_instructions", "app_device_limit", "is_active", "created_at"},
     "digital_order": {"id", "item_id", "payment_status", "asset_file_id", "delivery_access_code", "download_count", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "activation_device_limit"},
@@ -137,7 +139,8 @@ REQUIRED_DB_COLUMNS = {
     "community_store_checkin": {"id", "customer_id", "order_id", "checkin_date", "recorded_by", "created_at"},
     "community_drop": {"id", "customer_id", "milestone_day", "period_key", "reward_type", "product_id", "status", "redeemed_order_id", "points_awarded"},
     "community_gift": {"id", "sender_customer_id", "recipient_customer_id", "gift_type", "points_amount", "product_id", "claim_code", "status"},
-    "community_push_subscription": {"id", "customer_id", "endpoint", "p256dh", "auth", "is_active"},
+    "community_push_subscription": {"id", "customer_id", "endpoint", "p256dh", "auth", "is_active", "notification_preferences"},
+    "customer_app_announcement": {"id", "title", "body", "category", "target_role", "cta_url", "sent_count", "failed_count", "skipped_count", "created_at"},
     "community_moderation_action": {"id", "post_id", "profile_id", "admin_username", "action", "note", "created_at"},
 }
 
@@ -150,7 +153,13 @@ MIGRATABLE_DB_COLUMNS = {
     "order": {"base_points_earned", "hidden_prize_discount", "receipt_number", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response"},
     "delivery_zone": {"requires_detailed_address"},
     "digital_item": {"asset_version", "asset_updated_at", "asset_release_notes"},
+    "community_push_subscription": {"notification_preferences"},
+    "hidden_prize_hunt": {"placement_slot", "display_size_px", "display_image_data"},
 }
+
+# SQLAlchemy's idempotent db.create_all() creates these additive tables at app
+# startup. They are safe to be absent from an older bundled SQLite database.
+CREATE_ON_START_TABLES = {"customer_app_announcement"}
 
 
 def fail(message: str) -> None:
@@ -438,6 +447,8 @@ def main() -> int:
         "payment_redirect_url", "order_chat_token", "REPORT_UNPAID",
         "Please standby while our cashier reviews", "macleens:active-order-chat",
         "togglePortalCashierChat", "GCash QR Ph", "Live Customer Chats",
+        "CUSTOMER_CHAT_SUGGESTED_ANSWERS", "suggested_topic", "storeBotAnswer",
+        "cashierLocalClock", "claimed_at|ph_datetime", "printingModal", "service_type",
     ]:
         if marker not in (source + store_text + dashboard_text + (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")):
             fail(f"storefront QR Ph, COD, delivery, or live-chat marker is missing: {marker}")
@@ -445,7 +456,7 @@ def main() -> int:
 
     community_markers = [
         "class CommunityProfile(db.Model):", "class CommunityPost(db.Model):",
-        "class CommunityGift(db.Model):", "class CommunityPushSubscription(db.Model):", "class CommunityStoreCheckin(db.Model):", "class CommunityConnection(db.Model):",
+        "class CommunityGift(db.Model):", "class CommunityPushSubscription(db.Model):", "class CustomerAppAnnouncement(db.Model):", "class CommunityStoreCheckin(db.Model):", "class CommunityConnection(db.Model):",
         "class CommunityFollow(db.Model):", "class CommunityEngagementReward(db.Model):",
         "class CommunityMention(db.Model):", "class CommunityNotification(db.Model):",
         "class CommunityAdminNotice(db.Model):", "class CommunityGroup(db.Model):",
@@ -471,6 +482,7 @@ def main() -> int:
         "COMMUNITY_TRUSTED_POST_THRESHOLD", "COMMUNITY_MAX_OWNED_GROUPS", "COMMUNITY_MAX_POST_MENTIONS",
         "COMMUNITY_INTERNAL_CHAT_OPEN", "COMMUNITY_SOCIAL_REWARDS_OPEN",
         "COMMUNITY_GIFTING_OPEN", "COMMUNITY_RESHARING_OPEN",
+        "@app.route('/api/app-notifications/subscribe'", "send_customer_app_push", "app_push_sound_categories",
         "external_chat_url = db.Column", "cover_image_data = db.Column", "community_cover_image_from_request", "community_group_task_summary", "mode': 'clicks_only'",
     ]
     missing = [marker for marker in community_markers if marker not in source]
@@ -556,6 +568,7 @@ def main() -> int:
     for marker in [
         "scripts\\predeploy_check.py",
         "scripts\\community_smoke_check.py",
+        "scripts\\customer_app_notifications_smoke_check.py",
         'git push origin "%DEPLOY_BRANCH%"',
         "Type DEPLOY to commit and push these changes",
         "This script never force-pushes",
@@ -577,6 +590,15 @@ def main() -> int:
         fail(f"Community smoke-check script does not compile: {exc.msg}")
     ok("isolated Community behavior smoke-check script is included")
 
+    app_notification_smoke_script = ROOT / "scripts" / "customer_app_notifications_smoke_check.py"
+    if not app_notification_smoke_script.exists():
+        fail("scripts/customer_app_notifications_smoke_check.py is missing")
+    try:
+        py_compile.compile(str(app_notification_smoke_script), doraise=True)
+    except py_compile.PyCompileError as exc:
+        fail(f"App-notification smoke-check script does not compile: {exc.msg}")
+    ok("installed-app notification smoke-check script is included")
+
     gitignore = ROOT / ".gitignore"
     if not gitignore.exists():
         fail(".gitignore is missing")
@@ -597,6 +619,9 @@ def main() -> int:
             tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             for table, required in REQUIRED_DB_COLUMNS.items():
                 if table not in tables:
+                    if table in CREATE_ON_START_TABLES:
+                        print(f"INFO: bundled SQLite DB will create additive table {table!r} at startup")
+                        continue
                     fail(f"bundled SQLite DB is missing table {table!r}")
                 columns = {row[1] for row in conn.execute(f'PRAGMA table_info("{table}")')}
                 missing = sorted(required - columns)
@@ -709,15 +734,16 @@ def main() -> int:
         "class HiddenPrizeHunt(db.Model):", "class HiddenPrizeClaim(db.Model):",
         "@app.route('/api/hidden-prizes/<int:hunt_id>/claim'", "@app.route('/pos/redeem-hidden-prize/<int:claim_id>'",
         "validate_hidden_prize_voucher", "hidden_prize_discount", "active_hidden_prize_hunts",
-        "@app.route('/admin/hidden-prizes/create'", "@app.route('/admin/hidden-prizes/<int:hunt_id>/toggle'",
+        "hidden_prize_image_from_request", "hidden_prize_display_size",
+        "@app.route('/admin/hidden-prizes/create'", "@app.route('/admin/hidden-prizes/<int:hunt_id>/display'", "@app.route('/admin/hidden-prizes/<int:hunt_id>/toggle'",
     ]
     missing_hidden_treat = [marker for marker in hidden_treat_markers if marker not in source]
     if missing_hidden_treat:
         fail("Hidden Treat engine markers are missing: " + ", ".join(missing_hidden_treat))
-    for marker in ["Hidden Treat Hunts", "Create Hidden Treat Hunt"]:
+    for marker in ["Hidden Treat Hunts", "Create Hidden Treat Hunt", "Exact Display Area", "Prize Display Size", "Prize Photo (optional)"]:
         if marker not in admin_template:
             fail(f"Hidden Treat admin control is missing: {marker}")
-    for template_name, marker in [("store_catalog.html", "hidden-treat-icon"), ("customer_dashboard.html", "Hidden Treats"), ("community.html", "community-hidden-treat")]:
+    for template_name, marker in [("store_catalog.html", "storefront_hunts_by_product"), ("customer_dashboard.html", "loyalty_hidden_hunts_by_slot"), ("community.html", "community_hidden_hunts_by_slot")]:
         if marker not in (TEMPLATES / template_name).read_text(encoding="utf-8"):
             fail(f"Hidden Treat placement is missing from {template_name}")
     hidden_treat_smoke = ROOT / "scripts" / "hidden_treat_smoke_check.py"
