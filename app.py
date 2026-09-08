@@ -76,7 +76,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.08-hidden-treat-pending-only-v27'
+APP_RELEASE = '2026.09.08-digital-secure-checkout-v30'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -2027,6 +2027,20 @@ def run_db_setup():
             if not DigitalCategory.query.filter(db.func.lower(DigitalCategory.name) == category_name.lower()).first():
                 db.session.add(DigitalCategory(name=category_name, is_active=True))
         ensure_default_digital_support_faqs()
+        # Keep the food catalog simple and consistent across Admin, POS, and
+        # storefront filters without deleting any products or sales history.
+        beverage_names = {'coffee-based', 'coffee based', 'drinks', 'drink', 'shake & dessert', 'shakes & dessert', 'softdrinks', 'soft drinks'}
+        for product in Product.query.all():
+            category_key = (product.category_name or '').strip().casefold()
+            if category_key in beverage_names:
+                product.category_name = 'Beverages'
+            elif category_key in {'street food', 'street foods'}:
+                product.category_name = 'Daily Specials'
+        for old_name in ('Coffee-Based', 'Drinks', 'Drink', 'Shake & Dessert', 'Shakes & Dessert', 'Softdrinks', 'Soft Drinks', 'Street Food', 'Street Foods'):
+            Category.query.filter(db.func.lower(Category.name) == old_name.lower()).delete(synchronize_session=False)
+        for wanted in ('Beverages', 'Daily Specials'):
+            if not Category.query.filter(db.func.lower(Category.name) == wanted.lower()).first():
+                db.session.add(Category(name=wanted))
         db.session.commit()
 
         # Existing orders pre-date private tracking links. Backfill them once with
@@ -5026,7 +5040,11 @@ def create_main_digital_order(digital_order):
         order_type='DIGITAL', dining_option='TAKEOUT', customer_id=digital_order.customer_id,
         customer_name=digital_order.customer_name, contact_number=digital_order.contact_number,
         subtotal=digital_order.total_price, delivery_fee=0.0, total_amount=digital_order.total_price,
-        payment_method=digital_order.payment_method, payment_verified=False, status='VERIFICATION',
+        # Secure Digital checkout orders must never enter Cashier's manual
+        # verification queue. They become completed only after the gateway's
+        # server-side confirmation below.
+        payment_method=digital_order.payment_method, payment_verified=False, status='SECURE_PAYMENT',
+        fulfillment_status='PAYMENT_HOLD',
         gcash_ref=digital_order.gcash_ref,
         notes=f'[DIGITAL BUSINESS] Digital Order #{digital_order.id}: {digital_order.requirements or "No customization requirements"}',
     )
@@ -7781,6 +7799,10 @@ def verify_order(order_id):
     order = Order.query.get_or_404(order_id)
     action = request.form.get('action')
 
+    if (order.order_type or '').upper() == 'DIGITAL' and (order.payment_method or '').upper() == 'QRPH' and not order.payment_verified:
+        flash('Digital Secure Checkout is verified automatically by the server. It cannot be cashier-approved.', 'info')
+        return redirect(url_for('cashier_terminal'))
+
     if order.status != 'VERIFICATION':
         flash(f'Order #{order.id} is already {order.status}.', 'info')
         return redirect(url_for('cashier_terminal'))
@@ -8383,12 +8405,15 @@ DIGITAL_ASSET_BLOCKED_EXTENSIONS = {
     '.apk', '.app', '.bat', '.cmd', '.com', '.dll', '.dmg', '.exe', '.jar', '.msi',
     '.ps1', '.scr', '.sh', '.vbs', '.wsf',
 }
-DIGITAL_PAYMENT_METHODS = ('CASH', 'GCASH', 'QRPH', 'PAYPAL')
+# Digital Business uses one customer-facing payment route. The value remains
+# QRPH internally so the gateway can request only the QR Ph rail, while the
+# public interface calls it "Secure Checkout" rather than naming a processor.
+DIGITAL_PAYMENT_METHODS = ('QRPH',)
 DIGITAL_SUPPORT_FACEBOOK_DEFAULT = 'https://www.facebook.com/macleensdigital/'
 DIGITAL_SUPPORT_DEFAULT_FAQS = (
     (
         'How do I buy a digital product?',
-        'Choose the product, enter your order details, and select GCash or another available payment method. Your order stays private and the system releases a ready file only after payment is confirmed.',
+        'Choose the product, enter your order details, then continue through Secure Checkout. Your order stays private and the system releases a ready file automatically after secure payment confirmation.',
     ),
     (
         'How do I download after payment?',
@@ -8423,12 +8448,10 @@ def save_digital_setting(key, value):
 
 
 def digital_payment_settings():
-    # Manual GCash verification remains the safe default. The admin may
-    # explicitly turn on PayMongo for *Digital* QR Ph orders after adding the
-    # required Render secret and webhook. Food House orders never use this.
-    mode = digital_setting('digital_gcash_gateway_mode', 'MANUAL').strip().upper()
-    if mode not in {'MANUAL', 'PAYMONGO'}:
-        mode = 'MANUAL'
+    # Digital Business now uses QR Ph Secure Checkout exclusively. Historical
+    # manual/PayPal orders remain readable and can still be reconciled, but
+    # customers cannot create another manual payment order from this portal.
+    mode = 'PAYMONGO'
     support_url = digital_setting('digital_support_facebook_url', DIGITAL_SUPPORT_FACEBOOK_DEFAULT).strip()
     if not support_url.startswith(('https://www.facebook.com/', 'https://facebook.com/', 'https://m.facebook.com/')):
         support_url = DIGITAL_SUPPORT_FACEBOOK_DEFAULT
@@ -8439,7 +8462,6 @@ def digital_payment_settings():
         os.environ.get('PAYPAL_CLIENT_ID', '').strip() and
         os.environ.get('PAYPAL_CLIENT_SECRET', '').strip()
     )
-    paypal_enabled = digital_setting('digital_paypal_checkout_enabled', '1').strip() not in {'0', 'false', 'no', 'off'}
     paymongo_ready = bool(os.environ.get('PAYMONGO_SECRET_KEY', '').strip())
     public_base = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
     return {
@@ -8447,8 +8469,10 @@ def digital_payment_settings():
         'paymongo_ready': paymongo_ready,
         'paymongo_active': bool(mode == 'PAYMONGO' and paymongo_ready),
         'paypal_ready': paypal_ready,
-        'paypal_enabled': paypal_enabled,
-        'paypal_available': bool(paypal_ready and paypal_enabled),
+        # Kept as false so existing historical PayPal records can still be
+        # displayed/verified without offering PayPal to new buyers.
+        'paypal_enabled': False,
+        'paypal_available': False,
         'paypal_mode': paypal_mode,
         'paypal_webhook_ready': bool(paypal_ready and os.environ.get('PAYPAL_WEBHOOK_ID', '').strip()),
         'support_url': support_url,
@@ -8632,11 +8656,20 @@ def digital_device_hash(value):
 
 
 def ensure_default_digital_support_faqs():
-    """Seed useful customer shortcuts once, without replacing admin-written answers."""
-    if DigitalSupportFAQ.query.count():
+    """Seed shortcuts once and safely replace one known obsolete payment copy."""
+    existing = DigitalSupportFAQ.query.order_by(DigitalSupportFAQ.id.asc()).all()
+    if not existing:
+        for position, (question, answer) in enumerate(DIGITAL_SUPPORT_DEFAULT_FAQS, start=1):
+            db.session.add(DigitalSupportFAQ(question=question, answer=answer, is_active=True, sort_order=position * 10))
         return
-    for position, (question, answer) in enumerate(DIGITAL_SUPPORT_DEFAULT_FAQS, start=1):
-        db.session.add(DigitalSupportFAQ(question=question, answer=answer, is_active=True, sort_order=position * 10))
+    # This exact old system default is no longer true after Secure Checkout
+    # became the only Digital payment path. Custom admin answers are left
+    # untouched.
+    old_payment_copy = 'Choose the product, enter your order details, and select GCash or another available payment method. Your order stays private and the system releases a ready file only after payment is confirmed.'
+    new_payment_copy = dict(DIGITAL_SUPPORT_DEFAULT_FAQS).get('How do I buy a digital product?')
+    for faq in existing:
+        if faq.question == 'How do I buy a digital product?' and faq.answer == old_payment_copy and new_payment_copy:
+            faq.answer = new_payment_copy
 
 
 def digital_support_prepared_answer(question):
@@ -8726,7 +8759,7 @@ def digital_confirm_gateway_payment(order, gateway=None):
         return False
     digital_mark_order_paid(order, payment_gateway=(gateway or order.payment_gateway or 'PAYMONGO'))
     main_order = order.main_order
-    if main_order and main_order.status == 'VERIFICATION':
+    if main_order and main_order.status in {'VERIFICATION', 'SECURE_PAYMENT'}:
         main_order.payment_verified = True
         main_order.is_unpaid = False
         main_order.status = 'COMPLETED'
@@ -8742,7 +8775,7 @@ def digital_public_base_url():
 def digital_create_paymongo_checkout(order):
     secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
     if not secret_key:
-        raise OrderValidationError('Online QR Ph checkout is not configured yet. Use the displayed GCash payment instructions and wait for cashier verification.')
+        raise OrderValidationError('Secure Checkout is not configured yet. Please try again later or message Macleen’s Digital on Facebook.')
     success_url = digital_public_base_url() + url_for('digital_payment_return', token=order.tracking_token)
     cancel_url = digital_public_base_url() + url_for('digital_order_status', token=order.tracking_token)
     payload = {
@@ -8770,7 +8803,7 @@ def digital_create_paymongo_checkout(order):
         )
         body = response.json() if response.content else {}
     except (requests.RequestException, ValueError) as exc:
-        raise OrderValidationError('Could not start the GCash checkout. Please try again or message Macleen’s Digital on Facebook.') from exc
+        raise OrderValidationError('Could not start Secure Checkout. Please try again or message Macleen’s Digital on Facebook.') from exc
     if not response.ok:
         message = ((body.get('errors') or [{}])[0].get('detail') if isinstance(body, dict) else '') or 'The payment gateway declined the checkout request.'
         raise OrderValidationError(str(message)[:240])
@@ -9085,11 +9118,11 @@ def digital_support_fallback(question):
         return 'Your paid private order page shows the download access code and any staff-provided license key or activation notes. The download code is not automatically an app password unless the product instructions specifically say it is.'
     if any(term in text_value for term in ('download', 'code', 'file')):
         return 'After payment is confirmed, open your private order link. The page will show your access code and let you download the attached digital file. Save that private page and keep the code private.'
-    if any(term in text_value for term in ('gcash', 'qr ph', 'qrph', 'pay', 'payment', 'refund')):
-        return 'Manual GCash orders are released after cashier verification. QR Ph and PayPal Digital orders unlock only after the payment gateway confirms the exact payment. Keep your private tracking link and contact Macleen’s Digital if payment is pending.'
+    if any(term in text_value for term in ('gcash', 'qr ph', 'qrph', 'pay', 'payment', 'refund', 'secure checkout')):
+        return 'Digital purchases use Secure Checkout. When secure payment confirmation succeeds, your private order page unlocks the file automatically—there is no cashier approval step. Keep your private tracking link and contact Macleen’s Digital if confirmation is still pending.'
     if any(term in text_value for term in ('custom', 'website', 'resume', 'tracker', 'system')):
         return 'For custom systems, web résumés, trackers, and other made-for-you work, submit your requirements on the item page. The team will confirm the scope and delivery timeline.'
-    return 'I can help explain Digital products, downloads, order status, GCash checkout, app access, and custom work. For account-specific, payment, or detailed project concerns, please message Macleen’s Digital on Facebook.'
+    return 'I can help explain Digital products, downloads, Secure Checkout, order status, app access, and custom work. For account-specific, payment, or detailed project concerns, please message Macleen’s Digital on Facebook.'
 
 
 def digital_support_ai_reply(question, use_prepared_answer=True):
@@ -9114,7 +9147,7 @@ def digital_support_ai_reply(question, use_prepared_answer=True):
         "Give a genuinely helpful, specific answer only about the supplied digital catalog, prepared help answers, downloads, payment process, app access, and custom-work ordering. "
         "Use the prepared help answers as factual guidance, but adapt them to the customer's exact question instead of copying blindly. "
         "Explain steps in plain language when useful. Never pretend a file is an installable mobile app, and never say a download access code is an app password unless supplied product instructions say that. "
-        "Never ask for a GCash PIN, OTP, full card details, passwords, or access codes. Never claim that payment is confirmed unless the system says so. "
+        "Never ask for an e-wallet PIN, OTP, full card details, passwords, or access codes. Never claim that payment is confirmed unless the system says so. "
         "For order-specific, payment, refund, or unclear concerns, direct the customer to Macleen's Digital Facebook page. "
         "Keep the answer warm, practical, and below 180 words.\n\n"
         f"CATALOG: {json.dumps(catalog, ensure_ascii=False)}\nPREPARED HELP: {json.dumps(prepared_faqs, ensure_ascii=False)}\nQUESTION: {question}"
@@ -9189,47 +9222,42 @@ def digital_item_detail(item_id):
     contact = request.form.get('contact_number', '').strip()[:50]
     email = request.form.get('email', '').strip()[:120]
     qty = max(1, min(100, parse_int(request.form.get('quantity'), 1)))
-    method = request.form.get('payment_method', 'GCASH').upper()
-    ref = request.form.get('gcash_ref', '').strip()[:30] or None
-    if not name or not contact or '@' not in email or method not in DIGITAL_PAYMENT_METHODS:
-        flash('Name, contact number, a valid delivery email, and payment method are required.', 'error')
+    requested_method = request.form.get('payment_method', 'QRPH').upper()
+    if not name or not contact or '@' not in email:
+        flash('Name, contact number, and a valid delivery email are required.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     payment_settings = digital_payment_settings()
-    if method == 'QRPH' and not payment_settings['paymongo_active']:
-        flash('QR Ph checkout is not available yet. Please choose manual GCash/Cash or contact Macleen’s Digital.', 'error')
+    if requested_method != 'QRPH':
+        flash('Only Secure Checkout is available for Digital products.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
-    if method == 'PAYPAL' and not payment_settings['paypal_available']:
-        flash('PayPal checkout is not available yet. Please choose manual GCash/Cash or contact Macleen’s Digital.', 'error')
+    if not payment_settings['paymongo_active']:
+        flash('Secure Checkout is temporarily unavailable. Please try again later or message Macleen’s Digital on Facebook.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
+    method = 'QRPH'
     order = DigitalOrder(item_id=item.id, customer_name=name, contact_number=contact, email=email,
         quantity=qty, unit_price=item.price, unit_cost=item.cost or 0, total_price=item.price * qty,
-        payment_method=method, gcash_ref=ref, asset_file_id=item.asset_file_id,
+        payment_method=method, asset_file_id=item.asset_file_id,
         delivery_access_code=digital_access_code(), activation_device_limit=max(0, min(3, parse_int(item.app_device_limit, 0))),
         requirements=request.form.get('requirements','').strip()[:3000] or None)
-    db.session.add(order); db.session.flush(); create_main_digital_order(order)
-    item.orders_count = parse_int(item.orders_count, 0) + qty; db.session.commit()
-    if method == 'PAYPAL':
-        # The local record is committed before redirecting. If PayPal is
-        # temporarily unavailable, the customer still receives a private
-        # tracking page instead of losing a submitted order.
-        try:
-            checkout_url = digital_create_paypal_checkout(order)
-            db.session.commit()
-            return redirect(checkout_url)
-        except OrderValidationError as exc:
-            db.session.rollback()
-            flash(str(exc), 'error')
-    elif method == 'QRPH' and payment_settings['paymongo_active']:
-        try:
-            checkout_url = digital_create_paymongo_checkout(order)
-            db.session.commit()
-            return redirect(checkout_url)
-        except OrderValidationError as exc:
-            db.session.rollback()
-            flash(str(exc), 'error')
-    elif method == 'GCASH' and not ref:
-        flash('Your order was created. Add the GCash reference when you message us or when cashier verifies the payment.', 'info')
-    return redirect(url_for('digital_order_status', token=order.tracking_token))
+    try:
+        # Keep the local Digital and financial records atomic with checkout
+        # creation. A failed checkout leaves no manual/cashier-verification
+        # order behind for the customer to resolve.
+        db.session.add(order)
+        db.session.flush()
+        create_main_digital_order(order)
+        checkout_url = digital_create_paymongo_checkout(order)
+        item.orders_count = parse_int(item.orders_count, 0) + qty
+        db.session.commit()
+        return redirect(checkout_url)
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Digital Secure Checkout creation failed')
+        flash('Could not start Secure Checkout. Please try again or message Macleen’s Digital on Facebook.', 'error')
+    return redirect(url_for('digital_item_detail', item_id=item.id))
 
 @app.route('/digital/order/<token>')
 def digital_order_status(token):
@@ -9489,6 +9517,22 @@ def digital_category_add():
         db.session.add(DigitalCategory(name=name)); db.session.commit(); flash('Digital category added.', 'success')
     return redirect(url_for('digital_admin'))
 
+@app.route('/admin/digital/category/<int:category_id>/delete', methods=['POST'])
+@require_admin
+def digital_category_delete(category_id):
+    category = DigitalCategory.query.get_or_404(category_id)
+    in_use = DigitalItem.query.filter(db.func.lower(DigitalItem.category_name) == category.name.lower()).count()
+    if in_use:
+        category.is_active = False
+        db.session.commit()
+        flash(f"Category '{category.name}' is hidden because {in_use} digital offer(s) still use it. Existing products and order history remain intact.", 'info')
+    else:
+        name = category.name
+        db.session.delete(category)
+        db.session.commit()
+        flash(f"Digital category '{name}' deleted.", 'success')
+    return redirect(url_for('digital_admin'))
+
 @app.route('/admin/digital/item/save', methods=['POST'])
 @require_admin
 def digital_item_save():
@@ -9554,11 +9598,6 @@ def digital_item_save():
 @app.route('/admin/digital/payment-settings', methods=['POST'])
 @require_admin
 def digital_payment_settings_save():
-    mode = request.form.get('gateway_mode', 'MANUAL').strip().upper()
-    if mode not in {'MANUAL', 'PAYMONGO'}:
-        flash('Choose a valid GCash payment mode.', 'error')
-        return redirect(url_for('digital_admin'))
-    paypal_enabled = request.form.get('paypal_enabled') == '1'
     provider = request.form.get('bot_provider', 'AUTO').strip().upper()
     support_url = request.form.get('support_url', '').strip() or DIGITAL_SUPPORT_FACEBOOK_DEFAULT
     if provider not in {'AUTO', 'GEMINI', 'OPENAI', 'TEMPLATE'}:
@@ -9567,13 +9606,15 @@ def digital_payment_settings_save():
     if not support_url.startswith(('https://www.facebook.com/', 'https://facebook.com/', 'https://m.facebook.com/')):
         flash('Use the full Macleen’s Digital Facebook Page URL for support.', 'error')
         return redirect(url_for('digital_admin'))
-    save_digital_setting('digital_gcash_gateway_mode', mode)
-    save_digital_setting('digital_paypal_checkout_enabled', '1' if paypal_enabled else '0')
+    # Force one public payment rail. Legacy values remain only for old order
+    # history; no customer can select them from Digital Business anymore.
+    save_digital_setting('digital_gcash_gateway_mode', 'PAYMONGO')
+    save_digital_setting('digital_paypal_checkout_enabled', '0')
     save_digital_setting('digital_support_bot_provider', provider)
     save_digital_setting('digital_support_facebook_url', support_url[:500])
     db.session.commit()
-    if mode == 'PAYMONGO' and not os.environ.get('PAYMONGO_SECRET_KEY', '').strip():
-        flash('Settings saved. PayMongo mode is selected, but QR Ph remains unavailable until PAYMONGO_SECRET_KEY is added in Render.', 'info')
+    if not os.environ.get('PAYMONGO_SECRET_KEY', '').strip():
+        flash('Settings saved. Secure Checkout remains unavailable until PAYMONGO_SECRET_KEY is added in Render.', 'info')
     else:
         flash('Digital payment and support settings saved.', 'success')
     return redirect(url_for('digital_admin'))
@@ -9586,12 +9627,30 @@ def digital_order_update(order_id):
     if status not in ('PENDING_PAYMENT','PAID','IN_PROGRESS','READY','DELIVERED','CANCELLED'):
         flash('Invalid digital fulfillment status.', 'error'); return redirect(url_for('digital_admin'))
     if order.payment_status != 'PAID' and status in ('READY','DELIVERED'):
-        flash('Cashier must confirm payment before releasing a digital product.', 'error'); return redirect(url_for('digital_admin'))
+        flash('Secure payment confirmation is required before releasing a digital product.', 'error'); return redirect(url_for('digital_admin'))
     order.status=status; order.fulfillment_url=request.form.get('fulfillment_url','').strip() or None
     order.license_key=request.form.get('license_key','').strip()[:255] or None
     order.fulfillment_notes=request.form.get('fulfillment_notes','').strip()[:3000] or None
     if status == 'DELIVERED': order.completed_at=utc_now()
     db.session.commit(); flash('Digital order updated.', 'success'); return redirect(url_for('digital_admin'))
+
+@app.route('/admin/digital/order/<int:order_id>/delete', methods=['POST'])
+@require_admin
+def digital_order_delete(order_id):
+    """Remove one Digital Admin order record and its delivery/activation data.
+
+    The product and protected uploaded file remain untouched. A linked cashier
+    order is retained so Food House financial records are never silently
+    erased from this cleanup action.
+    """
+    order = DigitalOrder.query.get_or_404(order_id)
+    activation_count = DigitalAppActivationCode.query.filter_by(order_id=order.id).delete(synchronize_session=False)
+    order_label = f'#{order.id}'
+    db.session.delete(order)
+    db.session.commit()
+    extra = f' and {activation_count} device activation record(s)' if activation_count else ''
+    flash(f'Digital order {order_label}, its payment/fulfillment details{extra} were deleted. The product, uploaded file, and any linked cashier financial record were kept.', 'success')
+    return redirect(url_for('digital_admin'))
 
 
 @app.route('/admin/digital/order/<int:order_id>/reset-access-code', methods=['POST'])
@@ -12132,6 +12191,11 @@ def admin_dashboard():
                 service_revenue_total += (it.subtotal or 0.0)
             else:
                 food_revenue_total += (it.subtotal or 0.0)
+
+    product_sales_stats = dict(sorted(
+        product_sales_stats.items(),
+        key=lambda row: (-row[1]['revenue'], -row[1]['qty'], row[0].casefold()),
+    ))
 
     food_revenue_total += all_vault
     total_ar = sum((c.outstanding_ar or 0.0) for c in customers)

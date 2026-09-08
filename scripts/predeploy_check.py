@@ -332,7 +332,7 @@ def main() -> int:
         if not (TEMPLATES / name).exists():
             fail(f"Digital Business template is missing: {name}")
     digital_template_text = "\n".join((TEMPLATES / name).read_text(encoding="utf-8") for name in ["digital/base.html", "digital/item.html", "digital/order_status.html", "digital/admin.html"])
-    for marker in ["protected digital asset", "Download access code", "digital-support-bot", "Suggested AI Help Bot questions", "GEMINI_API_KEY", "One-time app codes", "Message Macleen’s Digital on Facebook", "PayMongo & PayPal status", "PayMongo QR Ph Checkout", "QR Ph — secure PayMongo checkout", "Offer PayPal Checkout"]:
+    for marker in ["protected digital asset", "Download access code", "digital-support-bot", "Suggested AI Help Bot questions", "GEMINI_API_KEY", "One-time app codes", "Message Macleen’s Digital on Facebook", "Secure Checkout status", "Secure Checkout is the only public Digital payment option", "Continue to Secure Checkout"]:
         if marker not in digital_template_text:
             fail(f"Digital asset/payment/support UI marker is missing: {marker}")
     digital_smoke = ROOT / "scripts" / "digital_assets_gateway_smoke_check.py"
@@ -363,7 +363,7 @@ def main() -> int:
     for marker in ["Phone Scanner", "applyMobileLoyaltyScan", "pollMobileLoyaltyScanner", "/api/mobile-scanner/pending"]:
         if marker not in (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8"):
             fail(f"cashier phone-scanner integration marker is missing: {marker}")
-    ok("Digital Business catalog, selectable PayMongo QR Ph, optional PayPal, Gemini help, app activation, and loyalty checks are present")
+    ok("Digital Business Secure Checkout, automatic release, Gemini help, app activation, and loyalty checks are present")
 
     student_markers = [
         "@app.route('/api/favorite/<int:product_id>'", "@app.route('/portal/reorder/<int:order_id>'",

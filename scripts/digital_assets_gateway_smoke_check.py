@@ -52,7 +52,7 @@ def main() -> int:
             order = m.DigitalOrder(
                 item_id=item.id, customer_name='Digital Tester', contact_number='09981234567',
                 email='tester@example.com', quantity=1, unit_price=49, unit_cost=0,
-                total_price=49, payment_method='GCASH', asset_file_id=asset.id,
+                total_price=49, payment_method='QRPH', asset_file_id=asset.id,
                 delivery_access_code='MFH-SMOKETEST', status='PENDING_PAYMENT', payment_status='PENDING',
             )
             m.db.session.add(order)
@@ -61,7 +61,7 @@ def main() -> int:
             m.digital_mark_order_paid(order)
             assert order.status == 'READY' and m.digital_order_can_download(order)
 
-            # Exercise the hosted GCash adapter without making a network call.
+            # Exercise the hosted QR Ph adapter without making a network call.
             gateway_order = m.DigitalOrder(
                 item_id=item.id, customer_name='Gateway Tester', contact_number='09987654321',
                 email='gateway@example.com', quantity=2, unit_price=49, unit_cost=0,
@@ -101,53 +101,6 @@ def main() -> int:
                 m.requests.post, m.requests.get = original_post, original_get
                 os.environ.pop('PAYMONGO_SECRET_KEY', None)
 
-            # PayPal is an optional Digital-only checkout. The customer is
-            # redirected to paypal.com, then the server captures the stored
-            # exact order amount before the protected file is released.
-            paypal_order = m.DigitalOrder(
-                item_id=item.id, customer_name='PayPal Tester', contact_number='09981112222',
-                email='paypal@example.com', quantity=1, unit_price=49, unit_cost=0,
-                total_price=49, payment_method='PAYPAL', asset_file_id=asset.id,
-                delivery_access_code='MFH-PAYPAL', status='PENDING_PAYMENT', payment_status='PENDING',
-            )
-            m.db.session.add(paypal_order)
-            m.db.session.flush()
-            m.create_main_digital_order(paypal_order)
-            os.environ['PAYPAL_CLIENT_ID'] = 'paypal-smoke-client'
-            os.environ['PAYPAL_CLIENT_SECRET'] = 'paypal-smoke-secret'
-            os.environ['PAYPAL_MODE'] = 'sandbox'
-            def paypal_payload(status, include_link=False):
-                body = {
-                    'id': 'PAYPAL-SMOKE-ORDER', 'status': status,
-                    'purchase_units': [{'reference_id': f'MFH-DIGITAL-{paypal_order.id}', 'custom_id': str(paypal_order.id), 'amount': {'currency_code': 'PHP', 'value': '49.00'}}],
-                }
-                if include_link:
-                    body['links'] = [{'rel': 'approve', 'href': 'https://www.sandbox.paypal.com/checkoutnow?token=PAYPAL-SMOKE-ORDER'}]
-                return body
-            try:
-                def fake_paypal_post(url, **kwargs):
-                    if url.endswith('/v1/oauth2/token'):
-                        return FakeResponse({'access_token': 'paypal-access-token-long-enough'})
-                    if url.endswith('/v2/checkout/orders'):
-                        return FakeResponse(paypal_payload('CREATED', include_link=True))
-                    if url.endswith('/capture'):
-                        return FakeResponse(paypal_payload('COMPLETED'))
-                    raise AssertionError(f'Unexpected PayPal POST: {url}')
-                m.requests.post = fake_paypal_post
-                m.requests.get = lambda url, **kwargs: FakeResponse(paypal_payload('APPROVED'))
-                with m.app.test_request_context('/'):
-                    paypal_url = m.digital_create_paypal_checkout(paypal_order)
-                assert paypal_url.startswith('https://www.sandbox.paypal.com/')
-                assert paypal_order.payment_gateway == 'PAYPAL' and paypal_order.gateway_checkout_id == 'PAYPAL-SMOKE-ORDER'
-                assert m.digital_capture_paypal_payment(paypal_order, 'PAYPAL-SMOKE-ORDER')
-                assert paypal_order.payment_status == 'PAID' and paypal_order.status == 'READY'
-                assert paypal_order.main_order.status == 'COMPLETED' and paypal_order.main_order.payment_verified
-            finally:
-                m.requests.post, m.requests.get = original_post, original_get
-                os.environ.pop('PAYPAL_CLIENT_ID', None)
-                os.environ.pop('PAYPAL_CLIENT_SECRET', None)
-                os.environ.pop('PAYPAL_MODE', None)
-
             m.save_digital_setting('digital_support_bot_provider', 'TEMPLATE')
             m.db.session.commit()
 
@@ -156,33 +109,46 @@ def main() -> int:
                 browser['admin_user'] = 'admin'
                 browser['_staff_last_activity'] = datetime.now().isoformat()
 
-            # The Digital admin can explicitly select an automated PayMongo
-            # QR Ph flow and independently offer PayPal. Neither choice
-            # affects Food House payment methods.
+            # Digital Business has one public payment route: Secure Checkout
+            # backed by the QR Ph adapter. Food House payment methods stay
+            # separate.
             os.environ['PAYMONGO_SECRET_KEY'] = 'sk_test_payment_settings'
-            os.environ['PAYPAL_CLIENT_ID'] = 'paypal-settings-client'
-            os.environ['PAYPAL_CLIENT_SECRET'] = 'paypal-settings-secret'
             settings_saved = client.post('/admin/digital/payment-settings', data={
-                'gateway_mode': 'PAYMONGO', 'paypal_enabled': '1',
                 'bot_provider': 'TEMPLATE', 'support_url': m.DIGITAL_SUPPORT_FACEBOOK_DEFAULT,
             })
             assert settings_saved.status_code == 302
             settings = m.digital_payment_settings()
             assert settings['gateway_mode'] == 'PAYMONGO' and settings['paymongo_active']
-            assert settings['paypal_enabled'] and settings['paypal_available']
+            assert not settings['paypal_enabled'] and not settings['paypal_available']
             enabled_item_page = client.get(f'/digital/item/{item.id}')
             assert enabled_item_page.status_code == 200
-            assert b'secure PayMongo checkout' in enabled_item_page.data and b'QR Ph' in enabled_item_page.data and 'PayPal — international checkout'.encode() in enabled_item_page.data
-            settings_saved = client.post('/admin/digital/payment-settings', data={
-                'gateway_mode': 'MANUAL', 'bot_provider': 'TEMPLATE',
-                'support_url': m.DIGITAL_SUPPORT_FACEBOOK_DEFAULT,
-            })
-            assert settings_saved.status_code == 302
-            settings = m.digital_payment_settings()
-            assert settings['gateway_mode'] == 'MANUAL' and not settings['paypal_enabled']
-            os.environ.pop('PAYMONGO_SECRET_KEY', None)
-            os.environ.pop('PAYPAL_CLIENT_ID', None)
-            os.environ.pop('PAYPAL_CLIENT_SECRET', None)
+            assert b'Secure Checkout' in enabled_item_page.data
+            assert b'PayMongo' not in enabled_item_page.data and b'GCash' not in enabled_item_page.data
+            assert b'<select name="payment_method"' not in enabled_item_page.data
+
+            # A tampered/manual payment choice is rejected and does not leave
+            # a pending cashier-verification order behind.
+            blocked_manual = client.post(
+                f'/digital/item/{item.id}',
+                data={'customer_name': 'Blocked Manual', 'contact_number': '09981111111', 'email': 'manual@example.com', 'quantity': '1', 'payment_method': 'GCASH'},
+            )
+            assert blocked_manual.status_code == 302
+            assert not m.DigitalOrder.query.filter_by(email='manual@example.com').first()
+
+            # A checkout-start failure rolls back both Digital and sales rows;
+            # it cannot fall back to a cashier-verification order.
+            def fake_failed_checkout_post(*args, **kwargs):
+                return FakeResponse({'errors': [{'detail': 'Gateway unavailable'}]}, status_code=503)
+            m.requests.post = fake_failed_checkout_post
+            try:
+                failed_checkout = client.post(
+                    f'/digital/item/{item.id}',
+                    data={'customer_name': 'Failed Checkout', 'contact_number': '09982222222', 'email': 'failed@example.com', 'quantity': '1', 'payment_method': 'QRPH'},
+                )
+            finally:
+                m.requests.post = original_post
+            assert failed_checkout.status_code == 302
+            assert not m.DigitalOrder.query.filter_by(email='failed@example.com').first()
 
             status_page = client.get(f'/digital/order/{order.tracking_token}')
             assert status_page.status_code == 200
@@ -249,28 +215,49 @@ def main() -> int:
             assert uploaded_item and uploaded_item.asset_file and uploaded_item.asset_file.file_data == b'example workbook bytes'
             assert uploaded_item.delivery_instructions.startswith('Open the included') and uploaded_item.app_device_limit == 3
 
-            # A normal Digital order creates the linked cashier transaction; a
-            # cashier/admin acceptance must unlock the attached ready download.
-            storefront_order_response = client.post(
-                f'/digital/item/{item.id}',
-                data={'customer_name': 'Cashier Sync', 'contact_number': '09980000000', 'email': 'sync@example.com', 'quantity': '1', 'payment_method': 'GCASH', 'gcash_ref': '123456'},
-            )
-            assert storefront_order_response.status_code == 302
-            storefront_order = m.DigitalOrder.query.filter_by(email='sync@example.com').first()
-            assert storefront_order and storefront_order.main_order_id and storefront_order.asset_file_id == item.asset_file_id and storefront_order.activation_device_limit == 2
-            cashier_accept = client.post(f'/pos/verify/{storefront_order.main_order_id}', data={'action': 'ACCEPT'})
-            assert cashier_accept.status_code == 302
+            # A normal public order can only use Secure Checkout. The server
+            # confirmation immediately marks both records paid/ready; a
+            # cashier acceptance is neither shown nor required.
+            def fake_public_checkout_post(*args, **kwargs):
+                return FakeResponse({'data': {'id': 'cs_public_smoke', 'attributes': {'checkout_url': 'https://checkout.example.test/public'}}})
+            m.requests.post = fake_public_checkout_post
+            try:
+                secure_order_response = client.post(
+                    f'/digital/item/{item.id}',
+                    data={'customer_name': 'Secure Checkout', 'contact_number': '09980000000', 'email': 'secure@example.com', 'quantity': '1', 'payment_method': 'QRPH'},
+                )
+            finally:
+                m.requests.post = original_post
+            assert secure_order_response.status_code == 302 and secure_order_response.headers['Location'] == 'https://checkout.example.test/public'
+            secure_order = m.DigitalOrder.query.filter_by(email='secure@example.com').first()
+            assert secure_order and secure_order.main_order_id and secure_order.asset_file_id == item.asset_file_id and secure_order.activation_device_limit == 2
+            assert secure_order.main_order.status == 'SECURE_PAYMENT'
+            assert not m.Order.query.filter_by(id=secure_order.main_order_id, status='VERIFICATION').first()
+            # Even an old direct cashier URL cannot force this gateway order
+            # into a paid state before server-side confirmation.
+            blocked_cashier = client.post(f'/pos/verify/{secure_order.main_order_id}', data={'action': 'ACCEPT'})
+            assert blocked_cashier.status_code == 302
             m.db.session.expire_all()
-            storefront_order = m.db.session.get(m.DigitalOrder, storefront_order.id)
-            assert storefront_order.payment_status == 'PAID' and storefront_order.status == 'READY'
+            secure_order = m.db.session.get(m.DigitalOrder, secure_order.id)
+            assert secure_order.payment_status == 'PENDING' and secure_order.main_order.status == 'SECURE_PAYMENT'
+            m.requests.get = lambda *args, **kwargs: FakeResponse({'data': {'attributes': {'payment_intent': {'attributes': {'status': 'succeeded'}}}}})
+            try:
+                assert m.digital_check_paymongo_payment(secure_order)
+            finally:
+                m.requests.get = original_get
+            m.db.session.commit()
+            m.db.session.expire_all()
+            secure_order = m.db.session.get(m.DigitalOrder, secure_order.id)
+            assert secure_order.payment_status == 'PAID' and secure_order.status == 'READY'
+            assert secure_order.main_order.status == 'COMPLETED' and secure_order.main_order.payment_verified
 
             # The product's saved maximum device count is copied to the paid
             # order automatically. Each code binds to one device in an app.
-            activation_codes = m.DigitalAppActivationCode.query.filter_by(order_id=storefront_order.id).order_by(m.DigitalAppActivationCode.id).all()
+            activation_codes = m.DigitalAppActivationCode.query.filter_by(order_id=secure_order.id).order_by(m.DigitalAppActivationCode.id).all()
             assert len(activation_codes) == 2 and all(code.status == 'UNUSED' for code in activation_codes)
-            issued = client.post(f'/admin/digital/order/{storefront_order.id}/activation-codes', data={'device_limit': '3'})
+            issued = client.post(f'/admin/digital/order/{secure_order.id}/activation-codes', data={'device_limit': '3'})
             assert issued.status_code == 302
-            assert m.DigitalAppActivationCode.query.filter_by(order_id=storefront_order.id).count() == 3
+            assert m.DigitalAppActivationCode.query.filter_by(order_id=secure_order.id).count() == 3
             activation = client.post('/api/digital/app/activate', json={
                 'activation_code': activation_codes[0].activation_code,
                 'device_id': 'smoke-device-0001', 'device_name': 'Smoke Test Phone',
@@ -286,7 +273,7 @@ def main() -> int:
                 'activation_token': activation_data['activation_token'], 'device_id': 'smoke-device-0001',
             })
             assert validation.status_code == 200 and validation.get_json()['success']
-            paid_page = client.get(f'/digital/order/{storefront_order.tracking_token}')
+            paid_page = client.get(f'/digital/order/{secure_order.tracking_token}')
             assert paid_page.status_code == 200 and b'Your app activation codes' in paid_page.data
 
             try:
@@ -301,7 +288,7 @@ def main() -> int:
             assert admin_page.status_code == 200
             assert b'protected digital asset' in admin_page.data.lower() and b'Draft with Gemini' in admin_page.data and b'upload update' in admin_page.data
 
-    print('DIGITAL ASSETS, MANUAL GCASH, QR PH, PAYPAL CHECKOUT, AI FAQ, AND APP ACTIVATION SMOKE CHECK PASSED')
+    print('DIGITAL ASSETS, SECURE CHECKOUT, AUTOMATIC RELEASE, AI FAQ, AND APP ACTIVATION SMOKE CHECK PASSED')
     return 0
 
 
