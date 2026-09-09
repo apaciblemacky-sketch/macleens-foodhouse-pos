@@ -13,16 +13,17 @@
   </section>
   <section class="card">
     <h2>Order — ₱{{ '%.2f'|format(item.price) }}</h2>
-    {% if payment_settings.paymongo_active %}
+    {% if payment_settings.paymongo_active or payment_settings.paypal_available %}
     <form method="post" data-no-live>
       <label>Name</label><input name="customer_name" required autocomplete="name">
       <label>Contact</label><input name="contact_number" required inputmode="tel" autocomplete="tel">
       <label>Delivery email</label><input type="email" name="email" required autocomplete="email">
       <label>Quantity</label><input type="number" name="quantity" min="1" max="100" value="1">
-      <input type="hidden" name="payment_method" value="QRPH">
-      <label>Payment</label><div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:11px;margin:4px 0 12px"><strong>Secure Checkout</strong><p class="muted" style="margin:6px 0 0">Continue to a protected checkout page. Your compatible e-wallet or bank app can complete payment there. The file unlocks automatically once secure payment confirmation succeeds.</p></div>
+      <label>Payment</label><select name="payment_method" id="digitalPaymentMethod">{% if payment_settings.paymongo_active %}<option value="QRPH">Secure Checkout</option>{% endif %}{% if payment_settings.paypal_available %}<option value="PAYPAL">PayPal</option>{% endif %}</select>
+      {% if payment_settings.paymongo_active %}<div id="secureCheckoutNotice" style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:11px;margin:4px 0 12px"><strong>Secure Checkout</strong><p class="muted" style="margin:6px 0 0">Continue to a protected checkout page. Your compatible e-wallet or bank app can complete payment there. The file unlocks automatically once secure payment confirmation succeeds.</p></div>{% endif %}
+      {% if payment_settings.paypal_available %}<div id="paypalCheckoutNotice" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px;margin:4px 0 12px"><strong>PayPal checkout</strong><p class="muted" style="margin:6px 0 0">Continue to PayPal to approve the exact PHP amount. Your file unlocks automatically after PayPal confirms the payment.</p></div>{% endif %}
       <label>Customization / requirements</label><textarea name="requirements" rows="5" maxlength="3000" placeholder="Tell us what you need, if this is a custom order."></textarea>
-      <button class="btn" type="submit">Continue to Secure Checkout</button>
+      <button class="btn" id="digitalCheckoutButton" type="submit">Continue to Secure Checkout</button>
     </form>
     <p class="muted" style="margin-bottom:0">Never share your PIN, OTP, account password, or private access code. For detailed help, use the Facebook support button below.</p>
     {% else %}
@@ -30,4 +31,7 @@
     {% endif %}
   </section>
 </div>
+<script>
+  (()=>{const method=document.getElementById('digitalPaymentMethod'),secure=document.getElementById('secureCheckoutNotice'),paypal=document.getElementById('paypalCheckoutNotice'),button=document.getElementById('digitalCheckoutButton');if(!method)return;const update=()=>{const usingPayPal=method.value==='PAYPAL';if(secure)secure.style.display=usingPayPal?'none':'block';if(paypal)paypal.style.display=usingPayPal?'block':'none';if(button)button.textContent=usingPayPal?'Continue to PayPal':'Continue to Secure Checkout';};method.addEventListener('change',update);update();})();
+</script>
 {% endblock %}

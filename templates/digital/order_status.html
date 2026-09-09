@@ -8,7 +8,7 @@
   <p class="muted">Keep this private page bookmarked. It is part of the protection for your file and must not be posted publicly. Your download code protects the file download; it is not automatically an app password.</p>
 
   {% if order.payment_gateway in ['PAYMONGO','PAYPAL'] and order.payment_status != 'PAID' %}
-  <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:13px;padding:12px;margin:13px 0"><strong>Secure Checkout is awaiting confirmation.</strong><p class="muted" style="margin:6px 0 10px">The server checks the exact secure payment before releasing a file. No cashier approval is needed after confirmation.</p><form method="post" action="{{ url_for('digital_check_payment',token=order.tracking_token) }}"><button class="btn" type="submit">Check payment</button></form></div>
+  <div id="digitalPaymentCheck" data-status-url="{{ url_for('digital_payment_status',token=order.tracking_token) }}" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:13px;padding:12px;margin:13px 0"><strong>{{ 'PayPal' if order.payment_gateway=='PAYPAL' else 'Secure Checkout' }} is awaiting confirmation.</strong><p id="digitalPaymentCheckMessage" class="muted" style="margin:6px 0 10px">Checking automatically every 5 seconds. The file releases as soon as the secure payment is confirmed—no cashier approval is needed.</p><form method="post" action="{{ url_for('digital_check_payment',token=order.tracking_token) }}"><button class="btn" type="submit">Check payment now</button></form></div>
   {% endif %}
 
   {% if can_download %}
@@ -39,5 +39,8 @@
   {% if order.fulfillment_notes %}<p style="white-space:pre-wrap">{{ order.fulfillment_notes }}</p>{% endif %}
   <p style="margin-top:18px"><a class="btn btn-pink" target="_blank" rel="noopener" href="{{ payment_settings.support_url }}">Need help? Message Macleen’s Digital on Facebook</a></p>
 </section>
-<script>document.getElementById('copyAccessCode')?.addEventListener('click',async()=>{const button=document.getElementById('copyAccessCode');try{await navigator.clipboard.writeText(document.getElementById('accessCode').textContent.trim());button.textContent='Copied';setTimeout(()=>button.textContent='Copy code',1400);}catch(_){button.textContent='Copy the code above';}});</script>
+<script>
+  document.getElementById('copyAccessCode')?.addEventListener('click',async()=>{const button=document.getElementById('copyAccessCode');try{await navigator.clipboard.writeText(document.getElementById('accessCode').textContent.trim());button.textContent='Copied';setTimeout(()=>button.textContent='Copy code',1400);}catch(_){button.textContent='Copy the code above';}});
+  (()=>{const panel=document.getElementById('digitalPaymentCheck'),message=document.getElementById('digitalPaymentCheckMessage');if(!panel)return;let attempts=0,checking=false;const check=async()=>{if(checking||attempts>=36)return;checking=true;attempts+=1;try{const response=await fetch(panel.dataset.statusUrl,{headers:{'X-Requested-With':'XMLHttpRequest'},cache:'no-store'});const data=await response.json();if(data.paid){if(message)message.textContent='Payment confirmed. Opening your delivery now…';window.location.reload();return;}if(message)message.textContent=`Still checking securely… (${attempts}/36). Your file opens automatically once confirmation arrives.`;}catch(_){if(message)message.textContent='Connection delayed. We will keep checking automatically.';}finally{checking=false;if(attempts<36)setTimeout(check,5000);}};setTimeout(check,5000);})();
+</script>
 {% endblock %}

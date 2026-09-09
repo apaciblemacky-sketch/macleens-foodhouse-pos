@@ -101,6 +101,60 @@ def main() -> int:
                 m.requests.post, m.requests.get = original_post, original_get
                 os.environ.pop('PAYMONGO_SECRET_KEY', None)
 
+            # PayPal is a separate server-verified Digital checkout route.
+            # Its approval page never releases the file by itself: the server
+            # fetches and captures the exact stored PayPal order first.
+            paypal_order = m.DigitalOrder(
+                item_id=item.id, customer_name='PayPal Tester', contact_number='09985555555',
+                email='paypal@example.com', quantity=1, unit_price=49, unit_cost=0,
+                total_price=49, payment_method='PAYPAL', asset_file_id=asset.id,
+                delivery_access_code='MFH-PAYPAL', status='PENDING_PAYMENT', payment_status='PENDING',
+            )
+            m.db.session.add(paypal_order)
+            m.db.session.flush()
+            m.create_main_digital_order(paypal_order)
+            paypal_values = {}
+            def paypal_payload(status, approve=False):
+                body = {
+                    'id': 'PAYPAL-SMOKE-ORDER', 'status': status,
+                    'purchase_units': [{
+                        'reference_id': paypal_values.get('reference_id', f'MFH-DIGITAL-{paypal_order.id}'),
+                        'custom_id': paypal_values.get('custom_id', str(paypal_order.id)),
+                        'amount': {'currency_code': 'PHP', 'value': paypal_values.get('value', '49.00')},
+                    }],
+                }
+                if approve:
+                    body['links'] = [{'rel': 'approve', 'href': 'https://www.sandbox.paypal.com/checkoutnow?token=PAYPAL-SMOKE-ORDER'}]
+                return body
+            def fake_paypal_post(url, *args, **kwargs):
+                if url.endswith('/v1/oauth2/token'):
+                    return FakeResponse({'access_token': 'paypal-access-token-for-smoke'})
+                if url.endswith('/v2/checkout/orders'):
+                    unit = kwargs['json']['purchase_units'][0]
+                    paypal_values.update({key: unit[key] for key in ('reference_id', 'custom_id')})
+                    paypal_values['value'] = unit['amount']['value']
+                    return FakeResponse(paypal_payload('CREATED', approve=True))
+                if url.endswith('/capture'):
+                    return FakeResponse(paypal_payload('COMPLETED'))
+                raise AssertionError(f'Unexpected PayPal POST: {url}')
+            try:
+                os.environ['PAYPAL_CLIENT_ID'] = 'paypal-smoke-client'
+                os.environ['PAYPAL_CLIENT_SECRET'] = 'paypal-smoke-secret'
+                os.environ['PAYPAL_MODE'] = 'sandbox'
+                m.requests.post = fake_paypal_post
+                with m.app.test_request_context('/'):
+                    paypal_url = m.digital_create_paypal_checkout(paypal_order)
+                assert paypal_url.startswith('https://www.sandbox.paypal.com/') and paypal_order.payment_gateway == 'PAYPAL'
+                m.requests.get = lambda *args, **kwargs: FakeResponse(paypal_payload('APPROVED'))
+                assert m.digital_check_paypal_payment(paypal_order)
+                assert paypal_order.payment_status == 'PAID' and paypal_order.status == 'READY'
+                assert paypal_order.main_order.status == 'COMPLETED' and paypal_order.main_order.payment_verified
+            finally:
+                m.requests.post, m.requests.get = original_post, original_get
+                os.environ.pop('PAYPAL_CLIENT_ID', None)
+                os.environ.pop('PAYPAL_CLIENT_SECRET', None)
+                os.environ.pop('PAYPAL_MODE', None)
+
             m.save_digital_setting('digital_support_bot_provider', 'TEMPLATE')
             m.db.session.commit()
 
@@ -109,22 +163,24 @@ def main() -> int:
                 browser['admin_user'] = 'admin'
                 browser['_staff_last_activity'] = datetime.now().isoformat()
 
-            # Digital Business has one public payment route: Secure Checkout
-            # backed by the QR Ph adapter. Food House payment methods stay
-            # separate.
+            # Digital Business offers Secure Checkout (QRPH) and optional
+            # PayPal. Food House payment methods stay separate.
             os.environ['PAYMONGO_SECRET_KEY'] = 'sk_test_payment_settings'
+            os.environ['PAYPAL_CLIENT_ID'] = 'paypal-settings-client'
+            os.environ['PAYPAL_CLIENT_SECRET'] = 'paypal-settings-secret'
+            os.environ['PAYPAL_MODE'] = 'sandbox'
             settings_saved = client.post('/admin/digital/payment-settings', data={
-                'bot_provider': 'TEMPLATE', 'support_url': m.DIGITAL_SUPPORT_FACEBOOK_DEFAULT,
+                'bot_provider': 'TEMPLATE', 'support_url': m.DIGITAL_SUPPORT_FACEBOOK_DEFAULT, 'paypal_enabled': '1',
             })
             assert settings_saved.status_code == 302
             settings = m.digital_payment_settings()
             assert settings['gateway_mode'] == 'PAYMONGO' and settings['paymongo_active']
-            assert not settings['paypal_enabled'] and not settings['paypal_available']
+            assert settings['paypal_enabled'] and settings['paypal_available']
             enabled_item_page = client.get(f'/digital/item/{item.id}')
             assert enabled_item_page.status_code == 200
-            assert b'Secure Checkout' in enabled_item_page.data
+            assert b'Secure Checkout' in enabled_item_page.data and b'PayPal' in enabled_item_page.data
             assert b'PayMongo' not in enabled_item_page.data and b'GCash' not in enabled_item_page.data
-            assert b'<select name="payment_method"' not in enabled_item_page.data
+            assert b'<select name="payment_method"' in enabled_item_page.data
 
             # A tampered/manual payment choice is rejected and does not leave
             # a pending cashier-verification order behind.
@@ -242,10 +298,11 @@ def main() -> int:
             assert secure_order.payment_status == 'PENDING' and secure_order.main_order.status == 'SECURE_PAYMENT'
             m.requests.get = lambda *args, **kwargs: FakeResponse({'data': {'attributes': {'payment_intent': {'attributes': {'status': 'succeeded'}}}}})
             try:
-                assert m.digital_check_paymongo_payment(secure_order)
+                automatic_check = client.get(f'/api/digital/order/{secure_order.tracking_token}/payment-status')
             finally:
                 m.requests.get = original_get
-            m.db.session.commit()
+            automatic_data = automatic_check.get_json()
+            assert automatic_check.status_code == 200 and automatic_data['paid'] and automatic_data['download_ready']
             m.db.session.expire_all()
             secure_order = m.db.session.get(m.DigitalOrder, secure_order.id)
             assert secure_order.payment_status == 'PAID' and secure_order.status == 'READY'
@@ -288,7 +345,7 @@ def main() -> int:
             assert admin_page.status_code == 200
             assert b'protected digital asset' in admin_page.data.lower() and b'Draft with Gemini' in admin_page.data and b'upload update' in admin_page.data
 
-    print('DIGITAL ASSETS, SECURE CHECKOUT, AUTOMATIC RELEASE, AI FAQ, AND APP ACTIVATION SMOKE CHECK PASSED')
+    print('DIGITAL ASSETS, SECURE CHECKOUT + PAYPAL, AUTOMATIC RELEASE, AI FAQ, AND APP ACTIVATION SMOKE CHECK PASSED')
     return 0
 
 

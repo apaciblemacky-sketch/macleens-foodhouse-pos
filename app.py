@@ -7799,8 +7799,8 @@ def verify_order(order_id):
     order = Order.query.get_or_404(order_id)
     action = request.form.get('action')
 
-    if (order.order_type or '').upper() == 'DIGITAL' and (order.payment_method or '').upper() == 'QRPH' and not order.payment_verified:
-        flash('Digital Secure Checkout is verified automatically by the server. It cannot be cashier-approved.', 'info')
+    if (order.order_type or '').upper() == 'DIGITAL' and (order.payment_method or '').upper() in {'QRPH', 'PAYPAL'} and not order.payment_verified:
+        flash('Digital online checkout is verified automatically by the server. It cannot be cashier-approved.', 'info')
         return redirect(url_for('cashier_terminal'))
 
     if order.status != 'VERIFICATION':
@@ -8405,15 +8405,14 @@ DIGITAL_ASSET_BLOCKED_EXTENSIONS = {
     '.apk', '.app', '.bat', '.cmd', '.com', '.dll', '.dmg', '.exe', '.jar', '.msi',
     '.ps1', '.scr', '.sh', '.vbs', '.wsf',
 }
-# Digital Business uses one customer-facing payment route. The value remains
-# QRPH internally so the gateway can request only the QR Ph rail, while the
-# public interface calls it "Secure Checkout" rather than naming a processor.
-DIGITAL_PAYMENT_METHODS = ('QRPH',)
+# QRPH remains labelled "Secure Checkout" in the public interface. PayPal is
+# a separately named, opt-in option for buyers who prefer it.
+DIGITAL_PAYMENT_METHODS = ('QRPH', 'PAYPAL')
 DIGITAL_SUPPORT_FACEBOOK_DEFAULT = 'https://www.facebook.com/macleensdigital/'
 DIGITAL_SUPPORT_DEFAULT_FAQS = (
     (
         'How do I buy a digital product?',
-        'Choose the product, enter your order details, then continue through Secure Checkout. Your order stays private and the system releases a ready file automatically after secure payment confirmation.',
+        'Choose the product, enter your order details, then choose Secure Checkout or PayPal. Your order stays private and the system releases a ready file automatically after the selected provider confirms payment.',
     ),
     (
         'How do I download after payment?',
@@ -8448,9 +8447,9 @@ def save_digital_setting(key, value):
 
 
 def digital_payment_settings():
-    # Digital Business now uses QR Ph Secure Checkout exclusively. Historical
-    # manual/PayPal orders remain readable and can still be reconciled, but
-    # customers cannot create another manual payment order from this portal.
+    # Digital Business keeps QR Ph Secure Checkout as its local option and
+    # exposes PayPal only when the admin explicitly enables it after adding
+    # valid environment credentials. Cash/manual verification stays retired.
     mode = 'PAYMONGO'
     support_url = digital_setting('digital_support_facebook_url', DIGITAL_SUPPORT_FACEBOOK_DEFAULT).strip()
     if not support_url.startswith(('https://www.facebook.com/', 'https://facebook.com/', 'https://m.facebook.com/')):
@@ -8462,6 +8461,7 @@ def digital_payment_settings():
         os.environ.get('PAYPAL_CLIENT_ID', '').strip() and
         os.environ.get('PAYPAL_CLIENT_SECRET', '').strip()
     )
+    paypal_enabled = digital_setting('digital_paypal_checkout_enabled', '0').strip() not in {'0', 'false', 'no', 'off'}
     paymongo_ready = bool(os.environ.get('PAYMONGO_SECRET_KEY', '').strip())
     public_base = os.environ.get('PUBLIC_BASE_URL', '').strip().rstrip('/')
     return {
@@ -8469,10 +8469,8 @@ def digital_payment_settings():
         'paymongo_ready': paymongo_ready,
         'paymongo_active': bool(mode == 'PAYMONGO' and paymongo_ready),
         'paypal_ready': paypal_ready,
-        # Kept as false so existing historical PayPal records can still be
-        # displayed/verified without offering PayPal to new buyers.
-        'paypal_enabled': False,
-        'paypal_available': False,
+        'paypal_enabled': paypal_enabled,
+        'paypal_available': bool(paypal_ready and paypal_enabled),
         'paypal_mode': paypal_mode,
         'paypal_webhook_ready': bool(paypal_ready and os.environ.get('PAYPAL_WEBHOOK_ID', '').strip()),
         'support_url': support_url,
@@ -8884,7 +8882,7 @@ def digital_paypal_access_token():
     client_id = os.environ.get('PAYPAL_CLIENT_ID', '').strip()
     client_secret = os.environ.get('PAYPAL_CLIENT_SECRET', '').strip()
     if not client_id or not client_secret:
-        raise OrderValidationError('PayPal checkout is not configured yet. Please choose GCash/Cash or contact Macleen’s Digital.')
+        raise OrderValidationError('PayPal checkout is not configured yet. Please choose Secure Checkout or contact Macleen’s Digital.')
     try:
         response = requests.post(
             digital_paypal_api_base() + '/v1/oauth2/token',
@@ -9118,11 +9116,11 @@ def digital_support_fallback(question):
         return 'Your paid private order page shows the download access code and any staff-provided license key or activation notes. The download code is not automatically an app password unless the product instructions specifically say it is.'
     if any(term in text_value for term in ('download', 'code', 'file')):
         return 'After payment is confirmed, open your private order link. The page will show your access code and let you download the attached digital file. Save that private page and keep the code private.'
-    if any(term in text_value for term in ('gcash', 'qr ph', 'qrph', 'pay', 'payment', 'refund', 'secure checkout')):
-        return 'Digital purchases use Secure Checkout. When secure payment confirmation succeeds, your private order page unlocks the file automatically—there is no cashier approval step. Keep your private tracking link and contact Macleen’s Digital if confirmation is still pending.'
+    if any(term in text_value for term in ('gcash', 'qr ph', 'qrph', 'paypal', 'pay', 'payment', 'refund', 'secure checkout')):
+        return 'Digital purchases use Secure Checkout or PayPal. When the selected provider confirms payment, your private order page unlocks the file automatically—there is no cashier approval step. Keep your private tracking link and contact Macleen’s Digital if confirmation is still pending.'
     if any(term in text_value for term in ('custom', 'website', 'resume', 'tracker', 'system')):
         return 'For custom systems, web résumés, trackers, and other made-for-you work, submit your requirements on the item page. The team will confirm the scope and delivery timeline.'
-    return 'I can help explain Digital products, downloads, Secure Checkout, order status, app access, and custom work. For account-specific, payment, or detailed project concerns, please message Macleen’s Digital on Facebook.'
+    return 'I can help explain Digital products, downloads, Secure Checkout, PayPal, order status, app access, and custom work. For account-specific, payment, or detailed project concerns, please message Macleen’s Digital on Facebook.'
 
 
 def digital_support_ai_reply(question, use_prepared_answer=True):
@@ -9227,13 +9225,16 @@ def digital_item_detail(item_id):
         flash('Name, contact number, and a valid delivery email are required.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     payment_settings = digital_payment_settings()
-    if requested_method != 'QRPH':
-        flash('Only Secure Checkout is available for Digital products.', 'error')
+    if requested_method not in DIGITAL_PAYMENT_METHODS:
+        flash('Choose Secure Checkout or PayPal for this Digital product.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
-    if not payment_settings['paymongo_active']:
+    if requested_method == 'QRPH' and not payment_settings['paymongo_active']:
         flash('Secure Checkout is temporarily unavailable. Please try again later or message Macleen’s Digital on Facebook.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
-    method = 'QRPH'
+    if requested_method == 'PAYPAL' and not payment_settings['paypal_available']:
+        flash('PayPal is temporarily unavailable. Please choose Secure Checkout or message Macleen’s Digital on Facebook.', 'error')
+        return redirect(url_for('digital_item_detail', item_id=item.id))
+    method = requested_method
     order = DigitalOrder(item_id=item.id, customer_name=name, contact_number=contact, email=email,
         quantity=qty, unit_price=item.price, unit_cost=item.cost or 0, total_price=item.price * qty,
         payment_method=method, asset_file_id=item.asset_file_id,
@@ -9246,7 +9247,7 @@ def digital_item_detail(item_id):
         db.session.add(order)
         db.session.flush()
         create_main_digital_order(order)
-        checkout_url = digital_create_paymongo_checkout(order)
+        checkout_url = digital_create_paypal_checkout(order) if method == 'PAYPAL' else digital_create_paymongo_checkout(order)
         item.orders_count = parse_int(item.orders_count, 0) + qty
         db.session.commit()
         return redirect(checkout_url)
@@ -9255,8 +9256,8 @@ def digital_item_detail(item_id):
         flash(str(exc), 'error')
     except Exception:
         db.session.rollback()
-        app.logger.exception('Digital Secure Checkout creation failed')
-        flash('Could not start Secure Checkout. Please try again or message Macleen’s Digital on Facebook.', 'error')
+        app.logger.exception('Digital checkout creation failed')
+        flash(f"Could not start {'PayPal' if method == 'PAYPAL' else 'Secure Checkout'}. Please try again or message Macleen’s Digital on Facebook.", 'error')
     return redirect(url_for('digital_item_detail', item_id=item.id))
 
 @app.route('/digital/order/<token>')
@@ -9272,6 +9273,30 @@ def digital_order_status(token):
         activation_codes=digital_active_activation_codes(order) if digital_paid_order(order) else [],
         download_asset=download_asset, current_asset_version=digital_order_asset_version(order),
     )
+
+
+@app.route('/api/digital/order/<token>/payment-status')
+def digital_payment_status(token):
+    """Re-check a private order without making the customer press refresh.
+
+    The private token remains the credential. This route always verifies the
+    provider server-to-server and never trusts a browser return or a client
+    side "paid" value.
+    """
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    verified_now = False
+    if order.payment_gateway in {'PAYMONGO', 'PAYPAL'} and order.payment_status != 'PAID':
+        verified_now = digital_check_gateway_payment(order)
+        db.session.commit()
+    response = jsonify({
+        'success': True,
+        'payment_status': order.payment_status,
+        'paid': order.payment_status == 'PAID',
+        'download_ready': digital_order_can_download(order),
+        'verified_now': verified_now,
+    })
+    response.headers['Cache-Control'] = 'no-store, max-age=0'
+    return response
 
 
 @app.route('/digital/order/<token>/payment-return')
@@ -9598,6 +9623,7 @@ def digital_item_save():
 @app.route('/admin/digital/payment-settings', methods=['POST'])
 @require_admin
 def digital_payment_settings_save():
+    paypal_enabled = request.form.get('paypal_enabled') == '1'
     provider = request.form.get('bot_provider', 'AUTO').strip().upper()
     support_url = request.form.get('support_url', '').strip() or DIGITAL_SUPPORT_FACEBOOK_DEFAULT
     if provider not in {'AUTO', 'GEMINI', 'OPENAI', 'TEMPLATE'}:
@@ -9606,17 +9632,19 @@ def digital_payment_settings_save():
     if not support_url.startswith(('https://www.facebook.com/', 'https://facebook.com/', 'https://m.facebook.com/')):
         flash('Use the full Macleen’s Digital Facebook Page URL for support.', 'error')
         return redirect(url_for('digital_admin'))
-    # Force one public payment rail. Legacy values remain only for old order
-    # history; no customer can select them from Digital Business anymore.
+    # Manual cash/GCash stays retired. PayPal is a separate opt-in online
+    # checkout, not a cashier-verification fallback.
     save_digital_setting('digital_gcash_gateway_mode', 'PAYMONGO')
-    save_digital_setting('digital_paypal_checkout_enabled', '0')
+    save_digital_setting('digital_paypal_checkout_enabled', '1' if paypal_enabled else '0')
     save_digital_setting('digital_support_bot_provider', provider)
     save_digital_setting('digital_support_facebook_url', support_url[:500])
     db.session.commit()
+    notices = []
     if not os.environ.get('PAYMONGO_SECRET_KEY', '').strip():
-        flash('Settings saved. Secure Checkout remains unavailable until PAYMONGO_SECRET_KEY is added in Render.', 'info')
-    else:
-        flash('Digital payment and support settings saved.', 'success')
+        notices.append('Secure Checkout remains unavailable until PAYMONGO_SECRET_KEY is added in Render.')
+    if paypal_enabled and not (os.environ.get('PAYPAL_CLIENT_ID', '').strip() and os.environ.get('PAYPAL_CLIENT_SECRET', '').strip()):
+        notices.append('PayPal remains unavailable until PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET are added in Render.')
+    flash(' '.join(notices) if notices else 'Digital payment and support settings saved.', 'info' if notices else 'success')
     return redirect(url_for('digital_admin'))
 
 @app.route('/admin/digital/order/<int:order_id>/update', methods=['POST'])
