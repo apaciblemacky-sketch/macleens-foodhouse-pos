@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused checks for storefront QR Ph, COD, delivery details, and live chat."""
+"""Focused checks for QR PH-only storefront, delivery details, and live chat."""
 from __future__ import annotations
 
 import os
@@ -30,7 +30,7 @@ def checkout_payload(product_id, **extra):
     payload = {
         'items': [{'product_id': product_id, 'quantity': 1, 'options': {}}],
         'order_type': 'PICKUP', 'target_time': 'ASAP (20 mins)',
-        'payment_method': 'CASH', 'change_for': 100, 'notes': '',
+        'payment_method': 'QRPH', 'notes': '',
     }
     payload.update(extra)
     return payload
@@ -67,22 +67,20 @@ def main() -> int:
             with customer_client.session_transaction() as browser:
                 browser['customer_id'] = customer.id
             storefront = customer_client.get('/')
-            assert storefront.status_code == 200 and b'GCash QR Ph' in storefront.data and b'Need help?' in storefront.data
+            assert storefront.status_code == 200 and b'QR PH payment' in storefront.data and b'Need help?' in storefront.data
             dashboard = customer_client.get('/portal/dashboard')
             assert dashboard.status_code == 200 and b'portalCashierChatPanel' in dashboard.data
 
-            # Cash bill is mandatory, delivery COD requires the staff switch,
-            # and detailed zones do not accept an address without a landmark.
-            missing_bill = customer_client.post('/api/storefront-checkout', json=checkout_payload(product.id, change_for=None))
-            assert missing_bill.status_code == 400 and b'cash bill' in missing_bill.data.lower()
-            denied_cod = customer_client.post('/api/storefront-checkout', json=checkout_payload(
+            # The public store is QR PH-only, and detailed zones do not accept
+            # an address without a landmark.
+            blocked_manual = customer_client.post('/api/storefront-checkout', json=checkout_payload(
                 product.id, order_type='DELIVERY', delivery_zone_id=detail_zone.id,
                 delivery_address='Purok 3', landmark='Blue gate', payment_method='CASH', change_for=100,
             ))
-            assert denied_cod.status_code == 403 and b'cash on delivery' in denied_cod.data.lower()
+            assert blocked_manual.status_code == 400 and b'qr ph is the only payment' in blocked_manual.data.lower()
             missing_landmark = customer_client.post('/api/storefront-checkout', json=checkout_payload(
                 product.id, order_type='DELIVERY', delivery_zone_id=detail_zone.id,
-                delivery_address='Purok 3', landmark='', payment_method='GCASH',
+                delivery_address='Purok 3', landmark='', payment_method='QRPH',
             ))
             assert missing_landmark.status_code == 400 and b'landmark' in missing_landmark.data.lower()
 
@@ -99,7 +97,7 @@ def main() -> int:
                 m.requests.post = fake_post
                 response = customer_client.post('/api/storefront-checkout', json=checkout_payload(
                     product.id, order_type='DELIVERY', delivery_zone_id=zone_only.id,
-                    delivery_address='', landmark='', payment_method='GCASH', change_for=None,
+                    delivery_address='', landmark='', payment_method='QRPH',
                 ))
                 body = response.get_json()
                 assert response.status_code == 200 and body['success'] and body['payment_redirect_url'] == 'https://checkout.paymongo.test/storefront'
@@ -108,11 +106,12 @@ def main() -> int:
                 order = m.db.session.get(m.Order, body['order_id'])
                 assert order.payment_gateway == 'PAYMONGO' and order.delivery_address.startswith('Barangay: Paglaum')
                 opening_chat = m.CustomerChatMessage.query.filter_by(order_id=order.id, sender_type='SYSTEM').one()
-                assert 'Please standby while our cashier reviews' in opening_chat.body
+                assert 'Complete QR PH' in opening_chat.body
                 assert body['order_chat_token'] == order.public_token
 
                 m.requests.get = lambda *args, **kwargs: FakeResponse({'data': {'attributes': {'payment_intent': {'attributes': {'status': 'succeeded'}}}}})
                 assert m.storefront_check_paymongo_payment(order) and order.payment_verified
+                assert order.status == 'COMPLETED' and order.fulfillment_status == 'PREPARING'
             finally:
                 m.requests.post, m.requests.get = original_post, original_get
 
@@ -129,29 +128,6 @@ def main() -> int:
             with cashier.session_transaction() as browser:
                 browser['cashier_user'] = 'cashier-smoke'
                 browser['_staff_last_activity'] = datetime.now().isoformat()
-
-            # Reporting a normal pending order as unpaid must place it in the
-            # same visible Cashier Unpaid Orders collection queue, not leave it
-            # silently inside verification.
-            manual_response = customer_client.post('/api/storefront-checkout', json=checkout_payload(product.id))
-            manual_body = manual_response.get_json()
-            assert manual_response.status_code == 200 and manual_body['success']
-            unpaid_order = m.db.session.get(m.Order, manual_body['order_id'])
-            reported = cashier.post(f'/pos/verify/{unpaid_order.id}', data={'action': 'REPORT_UNPAID'})
-            assert reported.status_code == 302
-            unpaid_order = m.db.session.get(m.Order, unpaid_order.id)
-            m.db.session.refresh(unpaid_order)
-            m.db.session.refresh(customer)
-            assert unpaid_order.is_unpaid and unpaid_order.status == 'UNPAID_COLLECTION'
-            assert unpaid_order.fulfillment_status == 'PAYMENT_HOLD'
-            assert customer.outstanding_ar == unpaid_order.total_amount
-            cashier_terminal = cashier.get('/pos/cashier')
-            assert cashier_terminal.status_code == 200 and f'#{unpaid_order.id}'.encode() in cashier_terminal.data
-            settled = cashier.post(f'/pos/settle-collection/{unpaid_order.id}', data={'payment_method': 'CASH'})
-            assert settled.status_code == 302
-            m.db.session.refresh(unpaid_order)
-            m.db.session.refresh(customer)
-            assert not unpaid_order.is_unpaid and unpaid_order.status == 'COMPLETED' and customer.outstanding_ar == 0
 
             threads = cashier.get('/api/cashier/customer-chats')
             thread_data = threads.get_json()
@@ -170,7 +146,7 @@ def main() -> int:
             assert fulfilled.status_code == 302
             assert m.CustomerChatMessage.query.filter_by(order_id=order.id).count() == 0
 
-    print('STOREFRONT QR PH, COD, DELIVERY DETAIL, AND TEMPORARY LIVE CHAT SMOKE CHECK PASSED')
+    print('STOREFRONT QR PH, DELIVERY DETAIL, AND TEMPORARY LIVE CHAT SMOKE CHECK PASSED')
     return 0
 
 

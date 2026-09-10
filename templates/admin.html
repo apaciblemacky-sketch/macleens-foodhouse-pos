@@ -77,9 +77,8 @@
   </div>
 
   <div class="card" style="border-color:#93c5fd;background:#eff6ff;display:flex;gap:14px;align-items:end;justify-content:space-between;flex-wrap:wrap;">
-    <div><h3 style="color:#075985;margin-bottom:4px">📱 Storefront GCash QR Ph</h3><p style="font-size:.78rem;color:#075985">Manual GCash stays available as a fallback. PayMongo mode opens a secure QR Ph payment page and verifies it from the server before a cashier can accept it.</p></div>
-    <form action="{{ url_for('admin_storefront_payment_settings') }}" method="POST" style="display:flex;gap:7px;align-items:end;flex-wrap:wrap"><label style="font-size:.75rem;font-weight:800">GCash checkout<input type="hidden" name="form_source" value="admin"><select class="form-control" name="storefront_gcash_gateway_mode" style="width:180px;margin-top:3px"><option value="MANUAL" {% if storefront_payment_settings.gateway_mode != 'PAYMONGO' %}selected{% endif %}>Manual GCash reference</option><option value="PAYMONGO" {% if storefront_payment_settings.gateway_mode == 'PAYMONGO' %}selected{% endif %}>PayMongo QR Ph</option></select></label><button class="btn" style="background:#0284c7;color:#fff" type="submit">Save GCash setting</button></form>
-    <div style="font-size:.72rem;font-weight:850;color:{{ '#166534' if storefront_payment_settings.paymongo_ready else '#92400e' }}">{{ '✓ PAYMONGO_SECRET_KEY detected' if storefront_payment_settings.paymongo_ready else '⚠ Add PAYMONGO_SECRET_KEY in Render first' }}</div>
+    <div><h3 style="color:#075985;margin-bottom:4px">📱 Storefront QR PH</h3><p style="font-size:.78rem;color:#075985">Food Store and Crafts use QR PH checkout only. PayMongo verifies the payment server-side, then the order moves to preparation automatically.</p></div>
+    <div style="font-size:.72rem;font-weight:850;color:{{ '#166534' if storefront_payment_settings.paymongo_ready else '#92400e' }}">{{ '✓ QR PH is ready' if storefront_payment_settings.paymongo_ready else '⚠ Add PAYMONGO_SECRET_KEY in Render first' }}</div>
   </div>
 
   <!-- 📊 COMPREHENSIVE FINANCIAL PERFORMANCE TABLE -->
@@ -759,11 +758,23 @@
     <div style="display:flex;flex-wrap:wrap;gap:8px;">
       {% for z in delivery_zones %}
       <div style="border:1px solid #d1fae5;border-radius:8px;padding:8px;min-width:220px;flex:1;">
-        <strong style="font-size:.8rem;">{{ z.place_name }} • {{ z.barangay }}</strong><div style="font-size:.7rem;color:#64748b;margin:3px 0 6px;">{{ 'Requires Purok + landmark' if z.requires_detailed_address else 'Zone-only (details hidden)' }}</div>
-        <form action="{{ url_for('admin_manage_delivery_zones') }}" method="POST"><input type="hidden" name="action" value="TOGGLE_DETAILS"><input type="hidden" name="zone_id" value="{{ z.id }}"><button type="submit" class="btn" style="padding:4px 7px;font-size:.69rem;background:{{ '#0f766e' if z.requires_detailed_address else '#f59e0b' }};color:#fff;">{{ 'Use zone-only handoff' if z.requires_detailed_address else 'Require address details' }}</button></form>
+        <strong style="font-size:.8rem;">{{ z.place_name }} • {{ z.barangay }}</strong><div style="font-size:.7rem;color:#64748b;margin:3px 0 6px;">{{ 'Active for delivery' if z.is_active else 'Disabled — hidden from checkout' }} · {{ 'Requires Purok + landmark' if z.requires_detailed_address else 'Zone-only (details hidden)' }}</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap"><form action="{{ url_for('admin_manage_delivery_zones') }}" method="POST"><input type="hidden" name="action" value="TOGGLE_DETAILS"><input type="hidden" name="zone_id" value="{{ z.id }}"><button type="submit" class="btn" style="padding:4px 7px;font-size:.69rem;background:{{ '#0f766e' if z.requires_detailed_address else '#f59e0b' }};color:#fff;">{{ 'Use zone-only handoff' if z.requires_detailed_address else 'Require address details' }}</button></form><form action="{{ url_for('admin_manage_delivery_zones') }}" method="POST"><input type="hidden" name="action" value="TOGGLE_ACTIVE"><input type="hidden" name="zone_id" value="{{ z.id }}"><button type="submit" class="btn" style="padding:4px 7px;font-size:.69rem;background:{{ '#dc2626' if z.is_active else '#059669' }};color:#fff;">{{ 'Disable delivery' if z.is_active else 'Enable delivery' }}</button></form></div>
       </div>
       {% else %}<div style="font-size:.78rem;color:#64748b;">No delivery zones have been added yet.</div>{% endfor %}
     </div>
+  </div>
+
+  <div class="card" id="app-notifications" style="border-color:#bfdbfe;">
+    <h3 style="color:#075985;margin-bottom:6px;font-size:1rem;">📲 Send installed-app update</h3>
+    <p style="font-size:.75rem;color:#475569;margin-bottom:10px;">Manually notify customers who installed the web app and chose to receive notifications—for example, when you add a menu item or make a store adjustment. The device uses its normal notification sound when this category is enabled in Community Admin.</p>
+    <form action="{{ url_for('community_admin_create_app_announcement') }}" method="POST" class="form-row">
+      <input type="hidden" name="return_to" value="MASTER"><input type="hidden" name="category" value="CATALOG"><input type="hidden" name="target_role" value="ALL">
+      <div class="form-group" style="flex:1;"><label>Title *</label><input name="title" maxlength="100" required placeholder="New items are available"></div>
+      <div class="form-group" style="flex:2;"><label>Message *</label><input name="body" maxlength="240" required placeholder="We added new items to the menu. Tap to see them."></div>
+      <div class="form-group" style="flex:1;"><label>Open this page</label><input name="cta_url" value="/" maxlength="300"></div>
+      <div class="form-group" style="align-self:end;"><button type="submit" class="btn">Send app notification</button></div>
+    </form>
   </div>
 
   <!-- ➕ RESTORED: ADD DISH FORM -->

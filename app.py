@@ -1186,6 +1186,12 @@ class CraftOrder(db.Model):
     payment_method = db.Column(db.String(20), nullable=False, default='CASH')
     payment_status = db.Column(db.String(20), nullable=False, default='PENDING')
     gcash_ref = db.Column(db.String(20), nullable=True)
+    payment_gateway = db.Column(db.String(30), nullable=True)
+    gateway_checkout_id = db.Column(db.String(120), nullable=True, index=True)
+    gateway_checkout_url = db.Column(db.Text, nullable=True)
+    gateway_checked_at = db.Column(db.DateTime, nullable=True)
+    gateway_response = db.Column(db.Text, nullable=True)
+    tracking_token = db.Column(db.String(64), unique=True, nullable=True, default=lambda: secrets.token_urlsafe(24))
     status = db.Column(db.String(30), nullable=False, default='PENDING')
     pickup_location = db.Column(db.String(150), default="Macleen's Food House")
     notes = db.Column(db.Text, nullable=True)
@@ -1209,6 +1215,34 @@ class CraftLedger(db.Model):
     notes = db.Column(db.String(255), nullable=True)
     created_by = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
+
+
+class SupportContribution(db.Model):
+    """A transparent, one-payment-at-a-time support contribution.
+
+    QR Ph requires the supporter to approve every payment, so a ``MONTHLY``
+    choice records a voluntary monthly-support intention only. It never creates
+    an automatic charge or stores a payment credential.
+    """
+    __tablename__ = 'support_contribution'
+    id = db.Column(db.Integer, primary_key=True)
+    source = db.Column(db.String(20), nullable=False, default='STOREFRONT')
+    supporter_name = db.Column(db.String(100), nullable=False)
+    contact_number = db.Column(db.String(50), nullable=True)
+    email = db.Column(db.String(120), nullable=True)
+    amount = db.Column(db.Float, nullable=False)
+    frequency = db.Column(db.String(20), nullable=False, default='ONE_TIME')
+    message = db.Column(db.String(500), nullable=True)
+    payment_status = db.Column(db.String(20), nullable=False, default='PENDING')
+    payment_gateway = db.Column(db.String(30), nullable=True)
+    gateway_checkout_id = db.Column(db.String(120), nullable=True, unique=True, index=True)
+    gateway_checkout_url = db.Column(db.Text, nullable=True)
+    gateway_checked_at = db.Column(db.DateTime, nullable=True)
+    gateway_response = db.Column(db.Text, nullable=True)
+    tracking_token = db.Column(db.String(64), unique=True, nullable=False, default=lambda: secrets.token_urlsafe(24))
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    paid_at = db.Column(db.DateTime, nullable=True)
+
 
 class DigitalCategory(db.Model):
     __tablename__ = 'digital_category'
@@ -1444,6 +1478,7 @@ class MessengerDelivery(db.Model):
 
 CRAFT_ORDER_STATUSES = ('PENDING', 'READY', 'COMPLETED', 'CANCELLED')
 CRAFT_PAYMENT_METHODS = ('CASH', 'GCASH')
+CRAFT_PUBLIC_PAYMENT_METHODS = ('QRPH',)
 CRAFT_DEFAULT_IMAGE = '/static/craft/default-craft.png'
 
 # Catalog imported from the previous public Macleen's Crafts storefront.
@@ -1809,6 +1844,14 @@ def run_schema_migrations():
         'craft_comment': [
             ('ip_address', 'VARCHAR(64)'),
         ],
+        'craft_order': [
+            ('payment_gateway', 'VARCHAR(30)'),
+            ('gateway_checkout_id', 'VARCHAR(120)'),
+            ('gateway_checkout_url', 'TEXT'),
+            ('gateway_checked_at', 'TIMESTAMP'),
+            ('gateway_response', 'TEXT'),
+            ('tracking_token', 'VARCHAR(64)'),
+        ],
         'investor_interest': [
             ('offer_code', "VARCHAR(40) DEFAULT 'GENERAL'"),
             ('payout_option', 'VARCHAR(30)'),
@@ -2022,8 +2065,14 @@ def run_db_setup():
                     app.logger.warning('Created bootstrap %s account %r using the built-in first-run PIN. Change it in Admin immediately.', role, username)
         if not CraftCategory.query.filter(db.func.lower(CraftCategory.name) == 'general').first():
             db.session.add(CraftCategory(name='General', image_url=CRAFT_DEFAULT_IMAGE, is_active=True))
+        if not CraftCategory.query.filter(db.func.lower(CraftCategory.name) == 'sticker').first():
+            db.session.add(CraftCategory(name='Sticker', image_url=CRAFT_DEFAULT_IMAGE, is_active=True))
         # Categories are useful immediately but never invent products, prices, or sales.
-        for category_name in ('School', 'Internship & Work', 'Personal Finance', 'Small Business', 'Productivity', 'General'):
+        legacy_school = DigitalCategory.query.filter(db.func.lower(DigitalCategory.name) == 'school').first()
+        if legacy_school:
+            legacy_school.is_active = False
+            DigitalItem.query.filter(db.func.lower(DigitalItem.category_name) == 'school').update({'category_name': 'Templates'}, synchronize_session=False)
+        for category_name in ('Templates', 'Internship & Work', 'Personal Finance', 'Small Business', 'Productivity', 'General'):
             if not DigitalCategory.query.filter(db.func.lower(DigitalCategory.name) == category_name.lower()).first():
                 db.session.add(DigitalCategory(name=category_name, is_active=True))
         ensure_default_digital_support_faqs()
@@ -3891,18 +3940,19 @@ def active_community_alerts(role, include_all_roles=False):
 # only broad categories. Never place a PIN, mobile number, address, payment
 # reference, or other private information in a push payload.
 APP_NOTIFICATION_CATEGORIES = (
-    'ANNOUNCEMENT', 'MENU', 'PROMO', 'ORDER', 'CASHIER_CHAT', 'LOYALTY', 'COMMUNITY',
+    'ANNOUNCEMENT', 'MENU', 'CATALOG', 'PROMO', 'ORDER', 'CASHIER_CHAT', 'LOYALTY', 'COMMUNITY',
 )
 APP_NOTIFICATION_CATEGORY_LABELS = {
     'ANNOUNCEMENT': 'General announcements',
     'MENU': 'Today’s menu / availability',
+    'CATALOG': 'New items and store adjustments',
     'PROMO': 'Promos and member deals',
     'ORDER': 'Order progress',
     'CASHIER_CHAT': 'Cashier chat replies',
     'LOYALTY': 'Points and rewards',
     'COMMUNITY': 'Community Flash Perch alerts',
 }
-APP_NOTIFICATION_DEFAULT_SOUND_CATEGORIES = ('ANNOUNCEMENT', 'MENU', 'PROMO', 'ORDER', 'CASHIER_CHAT')
+APP_NOTIFICATION_DEFAULT_SOUND_CATEGORIES = ('ANNOUNCEMENT', 'MENU', 'CATALOG', 'PROMO', 'ORDER', 'CASHIER_CHAT')
 APP_NOTIFICATION_ANNOUNCEMENT_COOLDOWN = timedelta(minutes=2)
 
 
@@ -4977,7 +5027,7 @@ def craft_add_sale_ledger(craft_order):
         craft_order_id=craft_order.id,
         main_order_id=craft_order.main_order_id,
         notes=f'Completed Craft Order #{craft_order.id}',
-        created_by=session.get('cashier_user') or session.get('admin_user') or 'system',
+        created_by=(session.get('cashier_user') or session.get('admin_user') or 'system') if has_request_context() else 'system',
     ))
 
 
@@ -5002,6 +5052,7 @@ def sync_craft_order_after_main_verification(main_order, accepted):
 
 def create_main_craft_order(craft_order):
     member = db.session.get(Customer, craft_order.customer_id) if craft_order.customer_id else None
+    is_qrph = (craft_order.payment_method or '').upper() == 'QRPH'
     main_order = Order(
         order_type='CRAFT',
         dining_option='TAKEOUT',
@@ -5017,7 +5068,8 @@ def create_main_craft_order(craft_order):
         total_amount=craft_order.total_price,
         payment_method=craft_order.payment_method,
         payment_verified=False,
-        status='VERIFICATION',
+        status='SECURE_PAYMENT' if is_qrph else 'VERIFICATION',
+        fulfillment_status='PAYMENT_HOLD' if is_qrph else 'SUBMITTED',
         notes=f'[CRAFT SHOP] Craft Order #{craft_order.id}: {craft_order.notes or "No special note"}',
     )
     db.session.add(main_order)
@@ -6114,19 +6166,18 @@ def api_storefront_checkout():
     data = request.get_json() or {}
     order_type = str(data.get('order_type', 'PICKUP')).upper()
     dining_opt = str(data.get('dining_option', 'TAKEOUT')).upper()
-    pay_method = str(data.get('payment_method', 'CASH')).upper()
+    pay_method = str(data.get('payment_method', 'QRPH')).upper()
     notes = str(data.get('notes', '')).strip() or 'None'
     target_time = str(data.get('target_time', '')).strip()
     zone_id = data.get('delivery_zone_id')
     landmark = str(data.get('landmark', '')).strip()
     delivery_address = str(data.get('delivery_address', '')).strip()
-    gcash_ref = str(data.get('gcash_ref', '')).strip()
     hidden_prize_code = normalize_hidden_prize_claim_code(data.get('hidden_prize_code', ''))
 
     if order_type not in {'PICKUP', 'DELIVERY'}:
         return jsonify({'success': False, 'message': 'Invalid order type.'}), 400
-    if pay_method not in {'CASH', 'GCASH', 'CREDIT'}:
-        return jsonify({'success': False, 'message': 'Invalid payment method.'}), 400
+    if pay_method != 'QRPH':
+        return jsonify({'success': False, 'message': 'QR PH is the only payment option for storefront orders.'}), 400
 
     status = check_operating_status()
     if order_type == 'PICKUP' and not status['store_open']:
@@ -6156,13 +6207,9 @@ def api_storefront_checkout():
     else:
         dining_opt = 'TAKEOUT' if dining_opt not in {'DINE-IN', 'TAKEOUT'} else dining_opt
 
-    if pay_method == 'CREDIT' and not cust.is_credit_eligible:
-        return jsonify({'success': False, 'message': 'Your account is not authorized for A/R Credit.'}), 403
-    if order_type == 'DELIVERY' and pay_method == 'CASH' and not cust.is_cod_eligible:
-        return jsonify({'success': False, 'message': 'Cash on Delivery is not enabled for this account. Please choose GCash QR Ph or ask staff to enable COD.'}), 403
     payment_settings = storefront_payment_settings()
-    if pay_method == 'GCASH' and not payment_settings['paymongo_active'] and (len(gcash_ref) != 6 or not gcash_ref.isdigit()):
-        return jsonify({'success': False, 'message': 'Please input the 6-digit GCash Reference Number.'}), 400
+    if not payment_settings['paymongo_active']:
+        return jsonify({'success': False, 'message': 'QR PH is temporarily unavailable. Please try again later.'}), 503
 
     try:
         lines = validate_and_lock_cart(
@@ -6179,20 +6226,6 @@ def api_storefront_checkout():
             raise OrderValidationError('Use either loyalty points or one Hidden Treat voucher on this order, not both.')
         total = max(0.0, subtotal + delivery_fee - points_discount - hidden_prize_discount)
 
-        if pay_method == 'CREDIT':
-            available_credit = customer_available_credit(cust, include_pending=True)
-            if total > available_credit + 1e-9:
-                return jsonify({
-                    'success': False,
-                    'message': f'Credit limit exceeded. Available credit: ₱{available_credit:,.2f}.'
-                }), 400
-
-        change_for = parse_float(data.get('change_for'), 0.0) if pay_method == 'CASH' else 0.0
-        if pay_method == 'CASH' and change_for <= 0:
-            return jsonify({'success': False, 'message': 'Please enter the cash bill / amount to prepare.'}), 400
-        if pay_method == 'CASH' and change_for + 1e-9 < total:
-            return jsonify({'success': False, 'message': 'Cash bill cannot be less than the order total.'}), 400
-
         order = Order(
             order_type=order_type,
             dining_option=dining_opt,
@@ -6204,8 +6237,6 @@ def api_storefront_checkout():
             landmark=final_landmark if order_type == 'DELIVERY' else None,
             pickup_time=target_time if order_type == 'PICKUP' else None,
             target_time=target_time,
-            change_for=change_for if pay_method == 'CASH' and change_for > 0 else None,
-            gcash_ref=gcash_ref if pay_method == 'GCASH' and not payment_settings['paymongo_active'] else None,
             subtotal=subtotal,
             delivery_fee=delivery_fee,
             total_amount=total,
@@ -6214,7 +6245,8 @@ def api_storefront_checkout():
             hidden_prize_discount=hidden_prize_discount,
             payment_method=pay_method,
             payment_verified=False,
-            status='VERIFICATION',
+            status='SECURE_PAYMENT',
+            fulfillment_status='PAYMENT_HOLD',
             notes=notes,
         )
         db.session.add(order)
@@ -6226,8 +6258,7 @@ def api_storefront_checkout():
             hidden_prize_claim.redeemed_at = utc_now()
 
         checkout_url = None
-        if pay_method == 'GCASH' and payment_settings['paymongo_active']:
-            checkout_url = storefront_create_paymongo_checkout(order)
+        checkout_url = storefront_create_paymongo_checkout(order)
         record_points_redemption(cust, points_redeemed, order.id, 'Storefront points discount')
 
         for line in lines:
@@ -6246,7 +6277,7 @@ def api_storefront_checkout():
             customer_id=cust.id,
             order_id=order.id,
             sender_type='SYSTEM',
-            body=f"Thank you for your order, {cust.name.split()[0] if cust.name else 'there'}! Please standby while our cashier reviews Order #{order.id}. This chat is open now, and we will reply here as soon as possible.",
+            body=f"Thank you for your order, {cust.name.split()[0] if cust.name else 'there'}! Complete QR PH for Order #{order.id}; payment confirmation will automatically send it to preparation. This chat is open if you need the cashier.",
             is_read=False,
         ))
         reserve_cart_stock(lines)
@@ -6274,15 +6305,16 @@ def order_tracking(token):
     payment_message = ''
     if request.args.get('payment') == 'return' and order.payment_gateway == 'PAYMONGO':
         if storefront_check_paymongo_payment(order):
-            payment_message = 'GCash QR Ph payment confirmed. Your order is now waiting for cashier acceptance.'
+            payment_message = 'QR PH payment confirmed. Your order is now being prepared.'
         else:
-            payment_message = 'GCash QR Ph payment is still being confirmed. Please wait a moment before trying again.'
+            payment_message = 'QR PH payment is still being confirmed. Please wait a moment before trying again.'
         db.session.commit()
     stage = (order.fulfillment_status or 'SUBMITTED').upper()
     if order.status == 'CANCELLED':
         stage = 'CANCELLED'
     stages = [
-        ('SUBMITTED', 'Order sent', 'Your order is waiting for cashier confirmation.'),
+        ('PAYMENT_HOLD', 'Complete QR PH', 'Your order will move to preparation automatically after payment is confirmed.'),
+        ('SUBMITTED', 'Order sent', 'Your order has been received.'),
         ('PREPARING', 'Preparing', 'The kitchen or counter is working on your order.'),
         ('READY', 'Ready', 'Your order is ready for pickup or delivery handoff.'),
         ('FULFILLED', 'Completed', 'Your order has been handed over.'),
@@ -8131,18 +8163,17 @@ def craft_order_item(item_id):
         email = request.form.get('email', '').strip()[:120] or None
         fb = request.form.get('fb_account', '').strip()[:150] or None
         qty = parse_int(request.form.get('quantity'), 1)
-        payment_method = request.form.get('payment_method', 'CASH').strip().upper()
-        gcash_ref = request.form.get('gcash_ref', '').strip()[:20] or None
+        payment_method = request.form.get('payment_method', 'QRPH').strip().upper()
         notes = request.form.get('notes', '').strip()[:1000] or None
 
         if not name or not contact:
             error = 'Name and contact number are required.'
         elif qty <= 0 or qty > 100:
             error = 'Quantity must be between 1 and 100.'
-        elif payment_method not in CRAFT_PAYMENT_METHODS:
-            error = 'Choose Cash or GCash.'
-        elif payment_method == 'GCASH' and (not gcash_ref or len(gcash_ref) < 6):
-            error = 'Please enter at least the last 6 digits of the GCash reference.'
+        elif payment_method not in CRAFT_PUBLIC_PAYMENT_METHODS:
+            error = 'QR PH is the only payment option for Craft Shop orders.'
+        elif not storefront_payment_settings()['paymongo_active']:
+            error = 'QR PH is temporarily unavailable. Please try again later.'
         elif item.availability_type == 'IN_STOCK' and qty > parse_int(item.stock_quantity, 0):
             error = f'Sorry, only {item.stock_quantity} item(s) are currently in stock.'
         else:
@@ -8164,21 +8195,112 @@ def craft_order_item(item_id):
                     total_cost=max(0.0, parse_float(item.cost, 0.0)) * qty,
                     payment_method=payment_method,
                     payment_status='PENDING',
-                    gcash_ref=gcash_ref,
-                    status='PENDING',
+                    status='PENDING_PAYMENT',
                     notes=notes,
                 )
                 db.session.add(craft_order)
                 db.session.flush()
                 create_main_craft_order(craft_order)
+                checkout_url = craft_create_paymongo_checkout(craft_order)
                 item.orders_count = parse_int(item.orders_count, 0) + qty
                 db.session.commit()
-                return render_template('craft/order_success.html', order=craft_order, item=item)
+                return redirect(checkout_url)
             except Exception:
                 db.session.rollback()
                 app.logger.exception('Craft order creation failed')
                 error = 'We could not place the craft order. Please try again.'
-    return render_template('craft/order_form.html', item=item, error=error, cust=cust)
+    return render_template('craft/order_form.html', item=item, error=error, cust=cust, payment_settings=storefront_payment_settings())
+
+
+@app.route('/craft/order/status/<token>')
+def craft_order_status(token):
+    order = CraftOrder.query.filter_by(tracking_token=token).first_or_404()
+    if order.payment_gateway == 'PAYMONGO' and order.payment_status != 'PAID':
+        craft_check_paymongo_payment(order)
+        db.session.commit()
+    return render_template('craft/order_success.html', order=order, item=order.craft_item, payment_settings=storefront_payment_settings())
+
+
+@app.route('/craft/order/status/<token>/payment-return')
+def craft_payment_return(token):
+    order = CraftOrder.query.filter_by(tracking_token=token).first_or_404()
+    if craft_check_paymongo_payment(order):
+        db.session.commit()
+        flash('QR PH payment confirmed. Your craft order is now being prepared.', 'success')
+    else:
+        db.session.commit()
+        flash('QR PH is still confirming your payment. This page checks again automatically.', 'info')
+    return redirect(url_for('craft_order_status', token=order.tracking_token))
+
+
+@app.route('/support', methods=['GET', 'POST'])
+def support_contribution():
+    """Collect an optional QR PH contribution from any public portal.
+
+    ``MONTHLY_PLEDGE`` is deliberately a support intention, not automatic
+    recurring billing. QR PH requires each future payment to be approved by
+    the supporter again.
+    """
+    allowed_sources = {'STOREFRONT', 'DIGITAL', 'CRAFT'}
+    source = str(request.values.get('source', 'STOREFRONT')).strip().upper()
+    if source not in allowed_sources:
+        source = 'STOREFRONT'
+    settings = storefront_payment_settings()
+    if request.method == 'GET':
+        return render_template('support_contribution.html', source=source, payment_settings=settings)
+    name = re.sub(r'\s+', ' ', (request.form.get('supporter_name') or '').strip())[:100]
+    contact = re.sub(r'\s+', ' ', (request.form.get('contact_number') or '').strip())[:50] or None
+    email = (request.form.get('email') or '').strip()[:120] or None
+    amount = round(parse_float(request.form.get('amount'), 0.0), 2)
+    frequency = (request.form.get('frequency') or 'ONE_TIME').strip().upper()
+    message = re.sub(r'\s+', ' ', (request.form.get('message') or '').strip())[:500] or None
+    if not name or amount < 1 or amount > 100000:
+        flash('Enter your name and a support amount from ₱1.00 to ₱100,000.00.', 'error')
+        return redirect(url_for('support_contribution', source=source))
+    if frequency not in {'ONE_TIME', 'MONTHLY_PLEDGE'}:
+        frequency = 'ONE_TIME'
+    if not settings['paymongo_active']:
+        flash('QR PH is temporarily unavailable. Please try again later.', 'error')
+        return redirect(url_for('support_contribution', source=source))
+    contribution = SupportContribution(
+        source=source, supporter_name=name, contact_number=contact, email=email,
+        amount=amount, frequency=frequency, message=message,
+    )
+    try:
+        db.session.add(contribution)
+        db.session.flush()
+        checkout_url = support_create_paymongo_checkout(contribution)
+        db.session.commit()
+        return redirect(checkout_url)
+    except OrderValidationError as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Support contribution checkout creation failed')
+        flash('Could not start QR PH. No contribution was recorded.', 'error')
+    return redirect(url_for('support_contribution', source=source))
+
+
+@app.route('/support/status/<token>')
+def support_contribution_status(token):
+    contribution = SupportContribution.query.filter_by(tracking_token=token).first_or_404()
+    if contribution.payment_gateway == 'PAYMONGO' and contribution.payment_status != 'PAID':
+        support_check_paymongo_payment(contribution)
+        db.session.commit()
+    return render_template('support_status.html', contribution=contribution)
+
+
+@app.route('/support/status/<token>/payment-return')
+def support_payment_return(token):
+    contribution = SupportContribution.query.filter_by(tracking_token=token).first_or_404()
+    if support_check_paymongo_payment(contribution):
+        db.session.commit()
+        flash('Thank you! Your QR PH contribution is confirmed.', 'success')
+    else:
+        db.session.commit()
+        flash('QR PH is still confirming the contribution. This page checks again automatically.', 'info')
+    return redirect(url_for('support_contribution_status', token=contribution.tracking_token))
 
 @app.route('/admin/craft')
 @require_admin
@@ -8326,7 +8448,7 @@ def craft_update_order_status(order_id):
     craft_order = CraftOrder.query.get_or_404(order_id)
     new_status = request.form.get('status', '').strip().upper()
     if new_status not in ('PENDING', 'READY', 'CANCELLED'):
-        flash('Use the Cashier POS to complete/accept a craft sale. Craft Admin can mark Pending, Ready, or Cancelled.', 'error')
+        flash('Craft Admin can mark unpaid orders Pending, Ready, or Cancelled. Confirmed QR PH sales complete automatically.', 'error')
         return redirect(url_for('craft_admin_dashboard'))
     if craft_order.status == 'COMPLETED':
         flash('Completed craft sales are locked. Use a Refund transaction instead of changing the sale.', 'error')
@@ -8336,8 +8458,9 @@ def craft_update_order_status(order_id):
         craft_order.status = 'CANCELLED'
         craft_order.payment_status = 'CANCELLED'
         craft_restore_stock(craft_order)
-        if main_order and main_order.status == 'VERIFICATION':
+        if main_order and main_order.status in {'VERIFICATION', 'SECURE_PAYMENT'}:
             main_order.status = 'CANCELLED'
+            main_order.fulfillment_status = 'CANCELLED'
     else:
         if craft_order.status == 'CANCELLED':
             item = db.session.get(CraftItem, craft_order.item_id)
@@ -8348,7 +8471,8 @@ def craft_update_order_status(order_id):
                 item.stock_quantity -= craft_order.quantity
             craft_order.stock_restored = False
             if main_order and main_order.status == 'CANCELLED':
-                main_order.status = 'VERIFICATION'
+                main_order.status = 'SECURE_PAYMENT' if craft_order.payment_method == 'QRPH' else 'VERIFICATION'
+                main_order.fulfillment_status = 'PAYMENT_HOLD' if craft_order.payment_method == 'QRPH' else 'SUBMITTED'
         craft_order.status = new_status
     db.session.commit()
     flash(f'Craft Order #{craft_order.id} updated to {craft_order.status}.', 'success')
@@ -8405,14 +8529,13 @@ DIGITAL_ASSET_BLOCKED_EXTENSIONS = {
     '.apk', '.app', '.bat', '.cmd', '.com', '.dll', '.dmg', '.exe', '.jar', '.msi',
     '.ps1', '.scr', '.sh', '.vbs', '.wsf',
 }
-# QRPH remains labelled "Secure Checkout" in the public interface. PayPal is
-# a separately named, opt-in option for buyers who prefer it.
+# QR PH is the public label. PayPal is a separately named, opt-in option.
 DIGITAL_PAYMENT_METHODS = ('QRPH', 'PAYPAL')
 DIGITAL_SUPPORT_FACEBOOK_DEFAULT = 'https://www.facebook.com/macleensdigital/'
 DIGITAL_SUPPORT_DEFAULT_FAQS = (
     (
         'How do I buy a digital product?',
-        'Choose the product, enter your order details, then choose Secure Checkout or PayPal. Your order stays private and the system releases a ready file automatically after the selected provider confirms payment.',
+        'Choose the product, enter your order details, then choose QR PH or PayPal. Your order stays private and the system releases a ready file automatically after the selected provider confirms payment.',
     ),
     (
         'How do I download after payment?',
@@ -8447,7 +8570,7 @@ def save_digital_setting(key, value):
 
 
 def digital_payment_settings():
-    # Digital Business keeps QR Ph Secure Checkout as its local option and
+    # Digital Business keeps QR PH as its local option and
     # exposes PayPal only when the admin explicitly enables it after adding
     # valid environment credentials. Cash/manual verification stays retired.
     mode = 'PAYMONGO'
@@ -8485,20 +8608,16 @@ def digital_payment_settings():
 
 
 def storefront_payment_settings():
-    """Return storefront QR Ph availability without ever exposing secret keys.
+    """Public Food House and Crafts now use QR Ph only.
 
-    This is deliberately separate from the Digital portal setting.  Turning on
-    a QR Ph checkout for downloaded files must not silently change how food
-    and delivery orders are collected.
+    The stored mode is no longer consulted for public checkout: leaving an old
+    ``MANUAL`` setting behind must never bring Cash or manual GCash back.
     """
-    mode = digital_setting('storefront_gcash_gateway_mode', 'MANUAL').strip().upper()
-    if mode not in {'MANUAL', 'PAYMONGO'}:
-        mode = 'MANUAL'
     paymongo_ready = bool(os.environ.get('PAYMONGO_SECRET_KEY', '').strip())
     return {
-        'gateway_mode': mode,
+        'gateway_mode': 'PAYMONGO',
         'paymongo_ready': paymongo_ready,
-        'paymongo_active': bool(mode == 'PAYMONGO' and paymongo_ready),
+        'paymongo_active': paymongo_ready,
     }
 
 
@@ -8515,7 +8634,7 @@ def storefront_create_paymongo_checkout(order):
     """
     secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
     if not secret_key:
-        raise OrderValidationError('GCash QR Ph is not configured yet. Please choose cash or ask the cashier for help.')
+        raise OrderValidationError('QR PH is not configured yet. Please try again later or message the cashier.')
     success_url = storefront_public_base_url() + url_for('order_tracking', token=order.public_token) + '?payment=return'
     cancel_url = storefront_public_base_url() + url_for('order_tracking', token=order.public_token) + '?payment=cancelled'
     item_name = f"Macleen's Food House Order #{order.id}"
@@ -8547,7 +8666,7 @@ def storefront_create_paymongo_checkout(order):
         )
         body = response.json() if response.content else {}
     except (requests.RequestException, ValueError) as exc:
-        raise OrderValidationError('Could not start the GCash QR Ph checkout. Please try again or choose cash.') from exc
+        raise OrderValidationError('Could not start QR PH. Please try again in a moment.') from exc
     if not response.ok:
         message = ((body.get('errors') or [{}])[0].get('detail') if isinstance(body, dict) else '') or 'The payment gateway declined the checkout request.'
         raise OrderValidationError(str(message)[:240])
@@ -8565,8 +8684,48 @@ def storefront_create_paymongo_checkout(order):
     return checkout_url
 
 
+def mark_online_main_order_paid(order):
+    """Finalize an already-confirmed QR PH order without cashier approval."""
+    if not order:
+        return False
+    changed = not bool(order.payment_verified) or order.status != 'COMPLETED'
+    order.payment_verified = True
+    order.is_unpaid = False
+    order.status = 'COMPLETED'
+    order.fulfillment_status = 'PREPARING'
+    if order.customer_id and order.base_points_earned is None:
+        customer = db.session.get(Customer, order.customer_id)
+        if customer and not customer_access_issue(customer):
+            customer.accumulated_spend = (customer.accumulated_spend or 0.0) + order.total_amount
+            earned = loyalty_points_from_amount(order.total_amount)
+            order.base_points_earned = earned
+            if earned > 0:
+                customer.points_balance = (customer.points_balance or 0.0) + earned
+                db.session.add(RewardLedger(
+                    customer_id=customer.id, points_change=earned,
+                    reason=f'QR PH Purchase Order #{order.id}',
+                ))
+            apply_member_marketing_rewards(customer, order)
+    return changed
+
+
+def paymongo_response_statuses(payload):
+    statuses = []
+    def collect(value):
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key == 'status' and isinstance(nested, str):
+                    statuses.append(nested.strip().lower())
+                collect(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect(nested)
+    collect(payload.get('data') if isinstance(payload, dict) else {})
+    return sorted(set(statuses))
+
+
 def storefront_check_paymongo_payment(order):
-    """Verify a storefront QR Ph payment with PayMongo before cashiers accept it."""
+    """Verify a QR PH payment and move it straight to preparation."""
     if not order or order.payment_verified or order.payment_gateway != 'PAYMONGO' or not order.gateway_checkout_id:
         return bool(order and order.payment_verified)
     secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
@@ -8585,23 +8744,175 @@ def storefront_check_paymongo_payment(order):
     if not response.ok or not isinstance(body, dict):
         order.gateway_response = json.dumps({'checkout_verified': False, 'http_status': response.status_code}, separators=(',', ':'))
         return False
-    statuses = []
-    def collect_statuses(value):
-        if isinstance(value, dict):
-            for key, nested in value.items():
-                if key == 'status' and isinstance(nested, str):
-                    statuses.append(nested.strip().lower())
-                collect_statuses(nested)
-        elif isinstance(value, list):
-            for nested in value:
-                collect_statuses(nested)
-    collect_statuses(body.get('data') or {})
+    statuses = paymongo_response_statuses(body)
     paid = bool({'paid', 'succeeded', 'successful'} & set(statuses))
-    order.gateway_response = json.dumps({'checkout_verified': True, 'statuses': sorted(set(statuses))[:8]}, separators=(',', ':'))
+    order.gateway_response = json.dumps({'checkout_verified': True, 'statuses': statuses[:8]}, separators=(',', ':'))
     if paid:
-        order.payment_verified = True
-        order.is_unpaid = False
+        mark_online_main_order_paid(order)
     return paid
+
+
+def craft_create_paymongo_checkout(craft_order):
+    """Create a QR PH checkout for a Craft order; no cashier payment approval."""
+    secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
+    if not secret_key:
+        raise OrderValidationError('QR PH is not configured yet. Please try again later.')
+    success_url = storefront_public_base_url() + url_for('craft_payment_return', token=craft_order.tracking_token)
+    cancel_url = storefront_public_base_url() + url_for('craft_order_status', token=craft_order.tracking_token)
+    item_name = f"Macleen's Crafts Order #{craft_order.id}"
+    payload = {'data': {'attributes': {
+        'line_items': [{
+            'currency': 'PHP', 'amount': max(1, int(round(parse_float(craft_order.total_price, 0.0) * 100))),
+            'name': item_name[:120], 'quantity': 1,
+        }],
+        'payment_method_types': ['qrph'],
+        'success_url': success_url,
+        'cancel_url': cancel_url,
+        'description': item_name,
+        'reference_number': f'MFH-CRAFT-{craft_order.id}',
+        'metadata': {'craft_order_id': str(craft_order.id)},
+        'billing': {
+            'name': (craft_order.customer_name or 'Macleen customer')[:120],
+            'phone': (craft_order.contact_number or '')[:40],
+        },
+        'send_email_receipt': bool((craft_order.email or '').strip()),
+    }}}
+    if (craft_order.email or '').strip():
+        payload['data']['attributes']['billing']['email'] = craft_order.email.strip()[:180]
+    try:
+        response = requests.post(
+            'https://api.paymongo.com/v2/checkout_sessions', auth=(secret_key, ''),
+            json=payload, timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError) as exc:
+        raise OrderValidationError('Could not start QR PH. Please try again in a moment.') from exc
+    if not response.ok:
+        message = ((body.get('errors') or [{}])[0].get('detail') if isinstance(body, dict) else '') or 'The payment gateway declined the checkout request.'
+        raise OrderValidationError(str(message)[:240])
+    data = body.get('data') if isinstance(body, dict) else None
+    attributes = data.get('attributes') if isinstance(data, dict) else None
+    checkout_url = (attributes.get('checkout_url') if isinstance(attributes, dict) else '') or ''
+    parsed = urlparse(checkout_url)
+    if not isinstance(data, dict) or not data.get('id') or parsed.scheme != 'https' or not parsed.netloc:
+        raise OrderValidationError('The payment gateway returned an invalid checkout link. No payment was taken.')
+    craft_order.payment_gateway = 'PAYMONGO'
+    craft_order.gateway_checkout_id = str(data['id'])[:120]
+    craft_order.gateway_checkout_url = checkout_url[:2000]
+    craft_order.gateway_checked_at = utc_now()
+    craft_order.gateway_response = json.dumps({'checkout_created': True}, separators=(',', ':'))
+    return checkout_url
+
+
+def craft_confirm_gateway_payment(craft_order):
+    if not craft_order or craft_order.payment_status == 'PAID':
+        return False
+    craft_order.payment_status = 'PAID'
+    craft_order.status = 'COMPLETED'
+    craft_order.completed_at = utc_now()
+    craft_order.stock_restored = False
+    if craft_order.main_order:
+        mark_online_main_order_paid(craft_order.main_order)
+    craft_add_sale_ledger(craft_order)
+    return True
+
+
+def craft_check_paymongo_payment(craft_order):
+    if not craft_order or craft_order.payment_status == 'PAID' or craft_order.payment_gateway != 'PAYMONGO' or not craft_order.gateway_checkout_id:
+        return bool(craft_order and craft_order.payment_status == 'PAID')
+    secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
+    if not secret_key:
+        return False
+    try:
+        response = requests.get(
+            f'https://api.paymongo.com/v2/checkout_sessions/{craft_order.gateway_checkout_id}',
+            auth=(secret_key, ''), timeout=(4, 20),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError):
+        app.logger.warning('Could not verify PayMongo checkout for Craft order %s', craft_order.id)
+        return False
+    craft_order.gateway_checked_at = utc_now()
+    if not response.ok or not isinstance(body, dict):
+        craft_order.gateway_response = json.dumps({'checkout_verified': False, 'http_status': response.status_code}, separators=(',', ':'))
+        return False
+    statuses = paymongo_response_statuses(body)
+    paid = bool({'paid', 'succeeded', 'successful'} & set(statuses))
+    craft_order.gateway_response = json.dumps({'checkout_verified': True, 'statuses': statuses[:8]}, separators=(',', ':'))
+    return bool(paid and craft_confirm_gateway_payment(craft_order))
+
+
+def support_create_paymongo_checkout(contribution):
+    """Create a one-time QR PH request for a support contribution."""
+    secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
+    if not secret_key:
+        raise OrderValidationError('QR PH is not configured yet. Please try again later.')
+    success_url = storefront_public_base_url() + url_for('support_payment_return', token=contribution.tracking_token)
+    cancel_url = storefront_public_base_url() + url_for('support_contribution_status', token=contribution.tracking_token)
+    title = "Macleen's monthly support" if contribution.frequency == 'MONTHLY_PLEDGE' else "Macleen's support contribution"
+    payload = {'data': {'attributes': {
+        'line_items': [{
+            'currency': 'PHP', 'amount': max(1, int(round(parse_float(contribution.amount, 0.0) * 100))),
+            'name': title[:120], 'quantity': 1,
+        }],
+        'payment_method_types': ['qrph'],
+        'success_url': success_url, 'cancel_url': cancel_url,
+        'description': title,
+        'reference_number': f'MFH-SUPPORT-{contribution.id}',
+        'metadata': {'support_contribution_id': str(contribution.id), 'source': contribution.source},
+        'billing': {'name': contribution.supporter_name[:120], 'phone': (contribution.contact_number or '')[:40]},
+        'send_email_receipt': bool((contribution.email or '').strip()),
+    }}}
+    if (contribution.email or '').strip():
+        payload['data']['attributes']['billing']['email'] = contribution.email.strip()[:180]
+    try:
+        response = requests.post('https://api.paymongo.com/v2/checkout_sessions', auth=(secret_key, ''), json=payload, timeout=(4, 25))
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError) as exc:
+        raise OrderValidationError('Could not start QR PH. Please try again in a moment.') from exc
+    if not response.ok:
+        message = ((body.get('errors') or [{}])[0].get('detail') if isinstance(body, dict) else '') or 'The payment gateway declined the checkout request.'
+        raise OrderValidationError(str(message)[:240])
+    data = body.get('data') if isinstance(body, dict) else None
+    attributes = data.get('attributes') if isinstance(data, dict) else None
+    checkout_url = (attributes.get('checkout_url') if isinstance(attributes, dict) else '') or ''
+    parsed = urlparse(checkout_url)
+    if not isinstance(data, dict) or not data.get('id') or parsed.scheme != 'https' or not parsed.netloc:
+        raise OrderValidationError('The payment gateway returned an invalid checkout link. No payment was taken.')
+    contribution.payment_gateway = 'PAYMONGO'
+    contribution.gateway_checkout_id = str(data['id'])[:120]
+    contribution.gateway_checkout_url = checkout_url[:2000]
+    contribution.gateway_checked_at = utc_now()
+    contribution.gateway_response = json.dumps({'checkout_created': True}, separators=(',', ':'))
+    return checkout_url
+
+
+def support_check_paymongo_payment(contribution):
+    if not contribution or contribution.payment_status == 'PAID' or contribution.payment_gateway != 'PAYMONGO' or not contribution.gateway_checkout_id:
+        return bool(contribution and contribution.payment_status == 'PAID')
+    secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
+    if not secret_key:
+        return False
+    try:
+        response = requests.get(
+            f'https://api.paymongo.com/v2/checkout_sessions/{contribution.gateway_checkout_id}',
+            auth=(secret_key, ''), timeout=(4, 20),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError):
+        app.logger.warning('Could not verify PayMongo checkout for support contribution %s', contribution.id)
+        return False
+    contribution.gateway_checked_at = utc_now()
+    if not response.ok or not isinstance(body, dict):
+        contribution.gateway_response = json.dumps({'checkout_verified': False, 'http_status': response.status_code}, separators=(',', ':'))
+        return False
+    statuses = paymongo_response_statuses(body)
+    contribution.gateway_response = json.dumps({'checkout_verified': True, 'statuses': statuses[:8]}, separators=(',', ':'))
+    if {'paid', 'succeeded', 'successful'} & set(statuses):
+        contribution.payment_status = 'PAID'
+        contribution.paid_at = utc_now()
+        return True
+    return False
 
 
 def digital_access_code():
@@ -8773,7 +9084,7 @@ def digital_public_base_url():
 def digital_create_paymongo_checkout(order):
     secret_key = os.environ.get('PAYMONGO_SECRET_KEY', '').strip()
     if not secret_key:
-        raise OrderValidationError('Secure Checkout is not configured yet. Please try again later or message Macleen’s Digital on Facebook.')
+        raise OrderValidationError('QR PH is not configured yet. Please try again later or message the cashier.')
     success_url = digital_public_base_url() + url_for('digital_payment_return', token=order.tracking_token)
     cancel_url = digital_public_base_url() + url_for('digital_order_status', token=order.tracking_token)
     payload = {
@@ -8801,7 +9112,7 @@ def digital_create_paymongo_checkout(order):
         )
         body = response.json() if response.content else {}
     except (requests.RequestException, ValueError) as exc:
-        raise OrderValidationError('Could not start Secure Checkout. Please try again or message Macleen’s Digital on Facebook.') from exc
+        raise OrderValidationError('Could not start QR PH. Please try again in a moment.') from exc
     if not response.ok:
         message = ((body.get('errors') or [{}])[0].get('detail') if isinstance(body, dict) else '') or 'The payment gateway declined the checkout request.'
         raise OrderValidationError(str(message)[:240])
@@ -9117,10 +9428,10 @@ def digital_support_fallback(question):
     if any(term in text_value for term in ('download', 'code', 'file')):
         return 'After payment is confirmed, open your private order link. The page will show your access code and let you download the attached digital file. Save that private page and keep the code private.'
     if any(term in text_value for term in ('gcash', 'qr ph', 'qrph', 'paypal', 'pay', 'payment', 'refund', 'secure checkout')):
-        return 'Digital purchases use Secure Checkout or PayPal. When the selected provider confirms payment, your private order page unlocks the file automatically—there is no cashier approval step. Keep your private tracking link and contact Macleen’s Digital if confirmation is still pending.'
+        return 'Digital purchases use QR PH or PayPal. When the selected provider confirms payment, your private order page unlocks the file automatically—there is no cashier approval step. Keep your private tracking link and message the cashier if confirmation is still pending.'
     if any(term in text_value for term in ('custom', 'website', 'resume', 'tracker', 'system')):
         return 'For custom systems, web résumés, trackers, and other made-for-you work, submit your requirements on the item page. The team will confirm the scope and delivery timeline.'
-    return 'I can help explain Digital products, downloads, Secure Checkout, PayPal, order status, app access, and custom work. For account-specific, payment, or detailed project concerns, please message Macleen’s Digital on Facebook.'
+    return 'I can help explain Digital products, downloads, QR PH, PayPal, order status, app access, and custom work. For account-specific, payment, or detailed project concerns, please message the cashier.'
 
 
 def digital_support_ai_reply(question, use_prepared_answer=True):
@@ -9203,11 +9514,16 @@ def digital_support_rate_allowed():
 @app.route('/digital')
 def digital_store():
     category = request.args.get('category', '').strip()
+    if category.casefold() == 'school':
+        category = ''
     query = DigitalItem.query.filter_by(is_active=True)
     if category:
         query = query.filter_by(category_name=category)
     return render_template('digital/index.html', items=query.order_by(DigitalItem.is_featured.desc(), DigitalItem.name.asc()).all(),
-                           categories=DigitalCategory.query.filter_by(is_active=True).order_by(DigitalCategory.name).all(), selected_category=category,
+                           categories=DigitalCategory.query.filter(
+                               DigitalCategory.is_active.is_(True),
+                               db.func.lower(DigitalCategory.name) != 'school',
+                           ).order_by(DigitalCategory.name).all(), selected_category=category,
                            payment_settings=digital_payment_settings())
 
 @app.route('/digital/item/<int:item_id>', methods=['GET', 'POST'])
@@ -9226,13 +9542,13 @@ def digital_item_detail(item_id):
         return redirect(url_for('digital_item_detail', item_id=item.id))
     payment_settings = digital_payment_settings()
     if requested_method not in DIGITAL_PAYMENT_METHODS:
-        flash('Choose Secure Checkout or PayPal for this Digital product.', 'error')
+        flash('Choose QR PH or PayPal for this Digital product.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     if requested_method == 'QRPH' and not payment_settings['paymongo_active']:
-        flash('Secure Checkout is temporarily unavailable. Please try again later or message Macleen’s Digital on Facebook.', 'error')
+        flash('QR PH is temporarily unavailable. Please try again later or message the cashier.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     if requested_method == 'PAYPAL' and not payment_settings['paypal_available']:
-        flash('PayPal is temporarily unavailable. Please choose Secure Checkout or message Macleen’s Digital on Facebook.', 'error')
+        flash('PayPal is temporarily unavailable. Please choose QR PH or message the cashier.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     method = requested_method
     order = DigitalOrder(item_id=item.id, customer_name=name, contact_number=contact, email=email,
@@ -9257,7 +9573,7 @@ def digital_item_detail(item_id):
     except Exception:
         db.session.rollback()
         app.logger.exception('Digital checkout creation failed')
-        flash(f"Could not start {'PayPal' if method == 'PAYPAL' else 'Secure Checkout'}. Please try again or message Macleen’s Digital on Facebook.", 'error')
+        flash(f"Could not start {'PayPal' if method == 'PAYPAL' else 'QR PH'}. Please try again or message the cashier.", 'error')
     return redirect(url_for('digital_item_detail', item_id=item.id))
 
 @app.route('/digital/order/<token>')
@@ -9339,7 +9655,7 @@ def digital_check_payment(token):
 
 @app.route('/api/paymongo/webhook', methods=['POST'])
 def paymongo_webhook():
-    """Confirm paid Digital and storefront checkout sessions without trusting the webhook body itself.
+    """Confirm paid Digital, Food House, Craft, and support checkouts.
 
     Each candidate Checkout Session ID is matched to a local order and retrieved
     again from PayMongo using the merchant's secret key. This means a spoofed or
@@ -9352,9 +9668,15 @@ def paymongo_webhook():
     for checkout_id in digital_paymongo_webhook_checkout_ids(payload):
         digital_order = DigitalOrder.query.filter_by(payment_gateway='PAYMONGO', gateway_checkout_id=checkout_id).first()
         storefront_order = Order.query.filter_by(payment_gateway='PAYMONGO', gateway_checkout_id=checkout_id).first()
+        craft_order = CraftOrder.query.filter_by(payment_gateway='PAYMONGO', gateway_checkout_id=checkout_id).first()
+        contribution = SupportContribution.query.filter_by(payment_gateway='PAYMONGO', gateway_checkout_id=checkout_id).first()
         if digital_order and digital_check_paymongo_payment(digital_order):
             processed += 1
         if storefront_order and storefront_check_paymongo_payment(storefront_order):
+            processed += 1
+        if craft_order and craft_check_paymongo_payment(craft_order):
+            processed += 1
+        if contribution and support_check_paymongo_payment(contribution):
             processed += 1
     if processed:
         db.session.commit()
@@ -13242,6 +13564,10 @@ def admin_manage_delivery_zones():
         zone = DeliveryZone.query.get(request.form.get('zone_id'))
         if zone:
             zone.requires_detailed_address = not bool(zone.requires_detailed_address)
+    elif action == 'TOGGLE_ACTIVE':
+        zone = DeliveryZone.query.get(request.form.get('zone_id'))
+        if zone:
+            zone.is_active = not bool(zone.is_active)
     elif action == 'DELETE':
         zid = request.form.get('zone_id')
         zone = DeliveryZone.query.get(zid)
@@ -15343,7 +15669,13 @@ def community_admin_create_app_announcement():
         db.session.rollback()
         app.logger.exception('Could not send customer app announcement')
         flash('The app announcement could not be sent. No delivery counts were recorded.', 'error')
-    return redirect(url_for('community_admin') + '#app-notifications')
+    announcement_return_to = (request.form.get('return_to') or '').strip().upper()
+    announcement_return_urls = {
+        'MASTER': url_for('admin_dashboard') + '#app-notifications',
+        'DIGITAL': url_for('digital_admin') + '#app-notifications',
+        'CRAFT': url_for('craft_admin_dashboard') + '#app-notifications',
+    }
+    return redirect(announcement_return_urls.get(announcement_return_to, url_for('community_admin') + '#app-notifications'))
 
 @app.route('/admin/community/alert', methods=['POST'])
 @require_admin

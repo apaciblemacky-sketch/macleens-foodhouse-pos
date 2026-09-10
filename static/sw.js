@@ -25,6 +25,9 @@ self.addEventListener('push', (event) => {
     badge: '/static/logo.png',
     tag: payload.tag || 'macleens-community',
     renotify: true,
+    // Browsers/PWAs choose the actual sound. This requests the device's
+    // normal notification alert for categories enabled by the administrator.
+    silent: payload.sound === false,
     data: {url},
   }));
 });

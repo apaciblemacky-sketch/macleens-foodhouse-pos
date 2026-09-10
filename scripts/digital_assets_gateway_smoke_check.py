@@ -163,7 +163,7 @@ def main() -> int:
                 browser['admin_user'] = 'admin'
                 browser['_staff_last_activity'] = datetime.now().isoformat()
 
-            # Digital Business offers Secure Checkout (QRPH) and optional
+            # Digital Business offers QR PH and optional
             # PayPal. Food House payment methods stay separate.
             os.environ['PAYMONGO_SECRET_KEY'] = 'sk_test_payment_settings'
             os.environ['PAYPAL_CLIENT_ID'] = 'paypal-settings-client'
@@ -178,7 +178,7 @@ def main() -> int:
             assert settings['paypal_enabled'] and settings['paypal_available']
             enabled_item_page = client.get(f'/digital/item/{item.id}')
             assert enabled_item_page.status_code == 200
-            assert b'Secure Checkout' in enabled_item_page.data and b'PayPal' in enabled_item_page.data
+            assert b'QR PH' in enabled_item_page.data and b'PayPal' in enabled_item_page.data
             assert b'PayMongo' not in enabled_item_page.data and b'GCash' not in enabled_item_page.data
             assert b'<select name="payment_method"' in enabled_item_page.data
 
@@ -271,7 +271,7 @@ def main() -> int:
             assert uploaded_item and uploaded_item.asset_file and uploaded_item.asset_file.file_data == b'example workbook bytes'
             assert uploaded_item.delivery_instructions.startswith('Open the included') and uploaded_item.app_device_limit == 3
 
-            # A normal public order can only use Secure Checkout. The server
+            # A normal public order can only use QR PH. The server
             # confirmation immediately marks both records paid/ready; a
             # cashier acceptance is neither shown nor required.
             def fake_public_checkout_post(*args, **kwargs):
@@ -280,7 +280,7 @@ def main() -> int:
             try:
                 secure_order_response = client.post(
                     f'/digital/item/{item.id}',
-                    data={'customer_name': 'Secure Checkout', 'contact_number': '09980000000', 'email': 'secure@example.com', 'quantity': '1', 'payment_method': 'QRPH'},
+                    data={'customer_name': 'QR PH Checkout', 'contact_number': '09980000000', 'email': 'secure@example.com', 'quantity': '1', 'payment_method': 'QRPH'},
                 )
             finally:
                 m.requests.post = original_post
@@ -345,7 +345,7 @@ def main() -> int:
             assert admin_page.status_code == 200
             assert b'protected digital asset' in admin_page.data.lower() and b'Draft with Gemini' in admin_page.data and b'upload update' in admin_page.data
 
-    print('DIGITAL ASSETS, SECURE CHECKOUT + PAYPAL, AUTOMATIC RELEASE, AI FAQ, AND APP ACTIVATION SMOKE CHECK PASSED')
+    print('DIGITAL ASSETS, QR PH + PAYPAL, AUTOMATIC RELEASE, SUPPORT DRAFTS, AND APP ACTIVATION SMOKE CHECK PASSED')
     return 0
 
 

@@ -121,6 +121,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running installed-app notification checks...
+%DEPLOY_CHECK_CMD% scripts\customer_app_notifications_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Installed-app notification checks failed.
+  pause
+  exit /b 1
+)
+
 echo Running Financial Statements and Bundle Deals behavior checks...
 %DEPLOY_CHECK_CMD% scripts\financial_bundle_smoke_check.py
 if errorlevel 1 (

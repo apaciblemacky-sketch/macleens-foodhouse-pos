@@ -57,6 +57,7 @@ REQUIRED_DB_COLUMNS = {
     "digital_asset_file": {"id", "original_filename", "download_filename", "content_type", "file_size", "sha256", "file_data", "uploaded_by", "created_at"},
     "digital_item": {"id", "name", "product_type", "price", "asset_file_id", "asset_version", "asset_updated_at", "asset_release_notes", "delivery_instructions", "app_device_limit", "is_active", "created_at"},
     "digital_order": {"id", "item_id", "payment_status", "asset_file_id", "delivery_access_code", "download_count", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "activation_device_limit"},
+    "craft_order": {"id", "item_id", "payment_method", "payment_status", "status", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "tracking_token"},
     "digital_support_faq": {"id", "question", "answer", "is_active", "sort_order", "created_at", "updated_at"},
     "digital_app_activation_code": {"id", "order_id", "activation_code", "status", "device_fingerprint_hash", "device_name", "activation_token_hash", "activated_at", "last_validated_at", "created_at"},
     "financial_source_exclusion": {"id", "source_kind", "source_key", "is_excluded", "note", "updated_by", "created_at", "updated_at"},
@@ -154,12 +155,16 @@ MIGRATABLE_DB_COLUMNS = {
     "delivery_zone": {"requires_detailed_address"},
     "digital_item": {"asset_version", "asset_updated_at", "asset_release_notes"},
     "community_push_subscription": {"notification_preferences"},
+    "craft_order": {"payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "tracking_token"},
     "hidden_prize_hunt": {"placement_slot", "display_size_px", "display_image_data"},
 }
 
 # SQLAlchemy's idempotent db.create_all() creates these additive tables at app
 # startup. They are safe to be absent from an older bundled SQLite database.
-CREATE_ON_START_TABLES = {"customer_app_announcement"}
+CREATE_ON_START_TABLES = {
+    "customer_app_announcement", "hidden_prize_hunt", "hidden_prize_claim",
+    "support_contribution",
+}
 
 
 def fail(message: str) -> None:
@@ -333,7 +338,7 @@ def main() -> int:
         if not (TEMPLATES / name).exists():
             fail(f"Digital Business template is missing: {name}")
     digital_template_text = "\n".join((TEMPLATES / name).read_text(encoding="utf-8") for name in ["digital/base.html", "digital/item.html", "digital/order_status.html", "digital/admin.html"])
-    for marker in ["protected digital asset", "Download access code", "digital-support-bot", "Suggested AI Help Bot questions", "GEMINI_API_KEY", "One-time app codes", "Message Macleen’s Digital on Facebook", "Secure Checkout status", "Secure Checkout is the local Digital payment option", "Offer PayPal checkout for Digital products", "Continue to Secure Checkout", "Continue to PayPal", "Checking automatically every 5 seconds"]:
+    for marker in ["protected digital asset", "Download access code", "One-time app codes", "Message Macleen’s Digital on Facebook", "QR PH status", "QR PH is the local Digital payment option", "Offer PayPal checkout for Digital products", "Continue to QR PH", "Continue to PayPal", "Checking automatically every 5 seconds", "Chat with cashier"]:
         if marker not in digital_template_text:
             fail(f"Digital asset/payment/support UI marker is missing: {marker}")
     digital_smoke = ROOT / "scripts" / "digital_assets_gateway_smoke_check.py"
@@ -364,7 +369,7 @@ def main() -> int:
     for marker in ["Phone Scanner", "applyMobileLoyaltyScan", "pollMobileLoyaltyScanner", "/api/mobile-scanner/pending"]:
         if marker not in (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8"):
             fail(f"cashier phone-scanner integration marker is missing: {marker}")
-    ok("Digital Business Secure Checkout, PayPal, automatic release, Gemini help, app activation, and loyalty checks are present")
+    ok("Digital Business QR PH, PayPal, automatic release, cashier chat, app activation, and loyalty checks are present")
 
     student_markers = [
         "@app.route('/api/favorite/<int:product_id>'", "@app.route('/portal/reorder/<int:order_id>'",
@@ -446,14 +451,32 @@ def main() -> int:
         "CustomerChatMessage", "is_cod_eligible", "requires_detailed_address",
         "/api/customer-chat/messages", "cashier_customer_chats_api",
         "payment_redirect_url", "order_chat_token", "REPORT_UNPAID",
-        "Please standby while our cashier reviews", "macleens:active-order-chat",
-        "togglePortalCashierChat", "GCash QR Ph", "Live Customer Chats",
+        "macleens:active-order-chat", "togglePortalCashierChat", "Live Customer Chats",
+        "QR PH is the only payment option for storefront orders.", "TOGGLE_ACTIVE",
         "CUSTOMER_CHAT_SUGGESTED_ANSWERS", "suggested_topic", "storeBotAnswer",
         "cashierLocalClock", "claimed_at|ph_datetime", "printingModal", "service_type",
     ]:
         if marker not in (source + store_text + dashboard_text + (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8")):
             fail(f"storefront QR Ph, COD, delivery, or live-chat marker is missing: {marker}")
     ok("modern storefront, loyalty safeguard, digital update downloads, BIR sales record, favorites, reorder, and tracking are present")
+
+    for marker in [
+        "class SupportContribution(db.Model):", "CRAFT_PUBLIC_PAYMENT_METHODS = ('QRPH',)",
+        "craft_create_paymongo_checkout", "craft_check_paymongo_payment",
+        "support_create_paymongo_checkout", "community_admin_create_app_announcement",
+        "'CATALOG': 'New items and store adjustments'", "'sound': category in app_notification_sound_categories()",
+    ]:
+        if marker not in source:
+            fail(f"QR PH Craft/support/installed-app marker is missing: {marker}")
+    for rel in ["store_catalog.html", "digital/base.html", "craft/base.html", "support_contribution.html", "support_status.html"]:
+        if not (TEMPLATES / rel).exists():
+            fail(f"QR PH Craft/support template is missing: {rel}")
+    storefront_text = (TEMPLATES / "store_catalog.html").read_text(encoding="utf-8")
+    if "ALL MENU" in storefront_text or 'value="CASH"' in storefront_text or 'value="GCASH"' in storefront_text:
+        fail("public storefront still exposes retired all-menu or manual payment options")
+    if "Sticker" not in source or "Send installed-app update" not in (admin_text + digital_template_text + (TEMPLATES / "craft/admin.html").read_text(encoding="utf-8")):
+        fail("Craft sticker category or installed-app announcement controls are missing")
+    ok("QR PH Crafts, support contributions, delivery-zone controls, and installed-app announcements are present")
 
     community_markers = [
         "class CommunityProfile(db.Model):", "class CommunityPost(db.Model):",

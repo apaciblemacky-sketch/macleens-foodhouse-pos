@@ -138,6 +138,7 @@
       {% endif %}
       <a href="{{ url_for('craft_store') }}" class="nav-btn" style="background:#7c3aed;">🎨 Crafts</a>
       <a href="{{ url_for('digital_store') }}" class="nav-btn" style="background:#0891b2;">💻 Digital</a>
+      <a href="{{ url_for('support_contribution',source='STOREFRONT') }}" class="nav-btn" style="background:#db2777;">♥ Support</a>
       <button type="button" class="nav-btn" style="border:none;cursor:pointer;background:#0f766e;color:white;" onclick="shareStoreLink()">↗ Share</button>
     </div>
   </header>
@@ -247,14 +248,13 @@
     <!-- CATEGORY FILTER BAR -->
     <div class="section-title">📂 Menu Categories</div>
     <div class="cat-grid">
-      <div class="cat-card active" onclick="showCategory('ALL', this)">ALL MENU</div>
       {% for c in categories %}
         <div class="cat-card" onclick='showCategory({{ c.name|tojson }}, this)'>{{ c.name }}</div>
       {% endfor %}
     </div>
 
     <!-- MAIN DISH CATALOG -->
-    <div class="section-title">🍽️ <span id="catalogTitleText">All Dishes</span></div>
+    <div class="section-title">🍽️ <span id="catalogTitleText">Menu</span></div>
     {% macro product_hidden_treat(hunt, css_class='') -%}
       {%- if hunt -%}<button type="button" class="hidden-treat-icon {{ css_class }}" data-hidden-hunt="{{ hunt.id }}" onclick="claimHiddenTreat({{ hunt.id }}, this)" style="width:{{ hidden_prize_display_size(hunt) }}px;height:{{ hidden_prize_display_size(hunt) }}px;" title="Something may be hidden here" aria-label="Open a hidden gift">{% if hunt.display_image_data %}<img src="{{ hunt.display_image_data }}" alt="">{% else %}🎁{% endif %}</button>{%- endif -%}
     {%- endmacro %}
@@ -404,13 +404,8 @@
 
         <div style="margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold;">Payment Method *</label>
-          <select id="payMethod" class="form-control" onchange="checkPayMethod()">
-            <option value="CASH" id="cashPaymentOption">Cash on Counter</option>
-            <option value="GCASH">{% if storefront_payment_settings.paymongo_active %}GCash QR Ph{% else %}GCash{% endif %}</option>
-            {% if cust and cust.is_credit_eligible %}
-              <option value="CREDIT">A/R Credit — Available ₱{{ "{:,.2f}".format(credit_available or 0.0) }}</option>
-            {% endif %}
-          </select>
+          <input type="hidden" id="payMethod" value="QRPH">
+          <div style="padding:10px;border-radius:9px;background:#eff6ff;color:#075985;font-size:.76rem;font-weight:800;line-height:1.45;">QR PH payment will open after you place the order. Scan using any QR PH-compatible banking or wallet app. Your order is confirmed automatically once payment succeeds.</div>
         </div>
 
         {% if cust %}
@@ -427,21 +422,6 @@
         </div>
         {% endif %}
         {% endif %}
-
-        <div id="cashChangeFields" style="margin-bottom:10px;">
-          <label style="font-size:0.8rem; font-weight:bold; color:var(--hk-dark);" id="cashBillLabel">Cash Bill / Amount to Pay (₱) *</label>
-          <input type="number" step="1" min="1" id="changeFor" class="form-control" placeholder="e.g. 500, 1000, or Exact Amount" oninput="calculateChangePreview()">
-          <div id="changePreview" style="font-size:0.75rem; color:#059669; font-weight:bold; margin-top:4px; display:none;"></div>
-        </div>
-
-        <div id="gcashFields" style="display:none; margin-bottom:10px;">
-          {% if storefront_payment_settings.paymongo_active %}
-            <div style="padding:10px;border-radius:9px;background:#eff6ff;color:#075985;font-size:.76rem;font-weight:800;line-height:1.4;">GCash QR Ph will open securely after you place the order. Scan the QR using GCash or another QR Ph-supported app, then return here for cashier confirmation.</div>
-          {% else %}
-            <label style="font-size:0.8rem; font-weight:bold; color:#0284c7;">Last 6 Digits of GCash Ref # *</label>
-            <input type="text" id="gcashRef" maxlength="6" class="form-control" placeholder="e.g. 849201">
-          {% endif %}
-        </div>
 
         <div style="margin-bottom:10px;">
           <label style="font-size:0.8rem; font-weight:bold;">Preparation Notes <span style="font-weight:normal;color:#64748b;">(optional)</span></label>
@@ -753,14 +733,8 @@
     function closeDrawer() { document.getElementById('drawerWrap').className = ''; }
 
     function checkPayMethod() {
-      const p = document.getElementById('payMethod').value;
-      document.getElementById('gcashFields').style.display = (p === 'GCASH') ? 'block' : 'none';
-      
-      const cashBox = document.getElementById('cashChangeFields');
-      if (cashBox) {
-        cashBox.style.display = (p === 'CASH') ? 'block' : 'none';
-      }
-      calculateChangePreview();
+      // Public storefront payments are QR PH only. This function stays for
+      // existing checkout refresh calls when the delivery type changes.
     }
 
     function calculateChangePreview() {
@@ -791,16 +765,6 @@
 
     function syncCheckoutOptions() {
       const isDelivery = document.getElementById('orderType')?.value === 'DELIVERY';
-      const cashOption = document.getElementById('cashPaymentOption');
-      const payment = document.getElementById('payMethod');
-      const cashBillLabel = document.getElementById('cashBillLabel');
-      if (cashOption) {
-        cashOption.textContent = isDelivery ? 'Cash on Delivery' : 'Cash on Counter';
-        cashOption.disabled = isDelivery && !customerCodEligible;
-        cashOption.hidden = isDelivery && !customerCodEligible;
-      }
-      if (isDelivery && !customerCodEligible && payment?.value === 'CASH') payment.value = 'GCASH';
-      if (cashBillLabel) cashBillLabel.textContent = isDelivery ? 'Cash Bill / Amount to Prepare (₱) *' : 'Cash Bill / Amount to Pay (₱) *';
 
       const zoneOption = document.getElementById('deliveryZone')?.selectedOptions?.[0];
       const needsDetails = isDelivery && zoneOption?.dataset?.requiresDetails === 'true';
@@ -972,11 +936,8 @@
       const notes = document.getElementById('orderNotes').value.trim();
       const orderType = document.getElementById('orderType').value;
       const pay = document.getElementById('payMethod').value;
-      const gcash = document.getElementById('gcashRef')?.value.trim() || '';
       const hiddenPrizeCode = document.getElementById('hiddenPrizeCode')?.value || '';
       const requestedPoints = parseFloat(document.getElementById('redeemPoints')?.value) || 0;
-      const changeForInput = document.getElementById('changeFor');
-      const changeForVal = (changeForInput && changeForInput.value) ? parseFloat(changeForInput.value) : null;
       
       let landmark = document.getElementById('landmark').value.trim();
       let deliveryAddress = document.getElementById('deliveryAddress').value.trim();
@@ -992,9 +953,6 @@
 
       if (!targetTime) return showToast("Please fill in your target time.");
       if (hiddenPrizeCode && requestedPoints > 0) return showToast('Use either your Hidden Treat voucher or loyalty points, not both.');
-      if (pay === 'CASH' && (!Number.isFinite(changeForVal) || changeForVal <= 0)) return showToast("Please enter the cash bill / amount to prepare.");
-      if (pay === 'GCASH' && !storefrontPaymongoActive && gcash.length !== 6) return showToast("Please input the 6-digit GCash Reference Number.");
-
       const payload = {
         items: keys.map(id => {
           const item = cart[id];
@@ -1010,8 +968,6 @@
         delivery_zone_id: orderType === 'DELIVERY' ? document.getElementById('deliveryZone').value : null,
         target_time: targetTime,
         payment_method: pay,
-        gcash_ref: gcash,
-        change_for: changeForVal,
         notes: notes,
         delivery_address: deliveryAddress,
         landmark: landmark,
@@ -1026,7 +982,7 @@
       });
       const data = await res.json();
       if (data.success) {
-        showToast(data.payment_redirect_url ? `Order #${data.order_id} created! Opening GCash QR Ph…` : `Order #${data.order_id} sent! Cashier chat is open — please standby.`);
+        showToast(data.payment_redirect_url ? `Order #${data.order_id} created! Opening QR PH…` : `Order #${data.order_id} sent.`);
         cart = {};
         saveCart();
         renderCart();
@@ -1127,7 +1083,7 @@
       const answers = {
         menu: 'Use the menu search and “Ulam for Today” section to see what is available now. Items marked unavailable can still be viewed but cannot be added yet.',
         points: 'Eligible paid purchases earn points based on the current store rule. You can use points as a discount during checkout when your balance is eligible.',
-        gcash: storefrontPaymongoActive ? 'Choose GCash QR Ph at checkout. After you place the order, the secure payment page opens and shows the QR Ph code for GCash or another compatible app.' : 'Choose GCash at checkout, then enter the last 6 digits of your GCash reference so the cashier can verify it.',
+        gcash: 'Choose QR PH at checkout. After you place the order, the payment page opens and shows a QR code that works with compatible banks and wallets.',
       };
       if (!storefrontChatEnabled) {
         appendStoreChatBubble('system', answers[kind] || 'I can help with menu, rewards, GCash, or connecting you with the cashier.');

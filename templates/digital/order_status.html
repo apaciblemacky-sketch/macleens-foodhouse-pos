@@ -8,7 +8,7 @@
   <p class="muted">Keep this private page bookmarked. It is part of the protection for your file and must not be posted publicly. Your download code protects the file download; it is not automatically an app password.</p>
 
   {% if order.payment_gateway in ['PAYMONGO','PAYPAL'] and order.payment_status != 'PAID' %}
-  <div id="digitalPaymentCheck" data-status-url="{{ url_for('digital_payment_status',token=order.tracking_token) }}" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:13px;padding:12px;margin:13px 0"><strong>{{ 'PayPal' if order.payment_gateway=='PAYPAL' else 'Secure Checkout' }} is awaiting confirmation.</strong><p id="digitalPaymentCheckMessage" class="muted" style="margin:6px 0 10px">Checking automatically every 5 seconds. The file releases as soon as the secure payment is confirmed—no cashier approval is needed.</p><form method="post" action="{{ url_for('digital_check_payment',token=order.tracking_token) }}"><button class="btn" type="submit">Check payment now</button></form></div>
+  <div id="digitalPaymentCheck" data-status-url="{{ url_for('digital_payment_status',token=order.tracking_token) }}" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:13px;padding:12px;margin:13px 0"><strong>{{ 'PayPal' if order.payment_gateway=='PAYPAL' else 'QR PH' }} is awaiting confirmation.</strong><p id="digitalPaymentCheckMessage" class="muted" style="margin:6px 0 10px">Checking automatically every 5 seconds. The file releases as soon as payment is confirmed—no cashier approval is needed.</p><form method="post" action="{{ url_for('digital_check_payment',token=order.tracking_token) }}"><button class="btn" type="submit">Check payment now</button></form></div>
   {% endif %}
 
   {% if can_download %}

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Support Macleen's</title>
+  <style>:root{--teal:#0f766e;--pink:#db2777;--ink:#172033;--muted:#64748b}*{box-sizing:border-box}body{margin:0;background:linear-gradient(145deg,#f0fdfa,#fff7fb);font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}main{max-width:640px;margin:0 auto;padding:28px 16px 48px}.card{background:#fff;border:1px solid #dbe7e4;border-radius:22px;padding:22px;box-shadow:0 16px 35px #17203312}h1{margin:0 0 8px;font-size:1.8rem}p{line-height:1.5}.muted{color:var(--muted);font-size:.9rem}.pill{display:inline-block;border-radius:999px;background:#ccfbf1;color:#115e59;padding:5px 9px;font-size:.7rem;font-weight:850}label{display:block;font-size:.82rem;font-weight:800;margin-top:12px}input,select,textarea{width:100%;font:inherit;border:1px solid #b8d6d0;border-radius:11px;padding:11px;margin-top:5px}button,.back{display:inline-block;background:linear-gradient(135deg,var(--teal),#0d9488);color:#fff;border:0;border-radius:12px;padding:11px 14px;font-weight:900;text-decoration:none;cursor:pointer;margin-top:16px}.back{background:#fff;color:#115e59;border:1px solid #99f6e4;margin-right:7px}.notice{background:#eff6ff;border:1px solid #bfdbfe;border-radius:13px;padding:12px;font-size:.84rem;line-height:1.45;margin-top:15px}.flash{padding:10px;border-radius:10px;background:#fee2e2;color:#991b1b;margin-bottom:12px;font-weight:750}</style>
+</head>
+<body><main>
+  <a class="back" href="{% if source=='DIGITAL' %}{{ url_for('digital_store') }}{% elif source=='CRAFT' %}{{ url_for('craft_store') }}{% else %}{{ url_for('store_catalog') }}{% endif %}">← Back</a>
+  <section class="card">
+    <span class="pill">Optional support</span><h1>Support Macleen’s</h1>
+    <p class="muted">Your contribution helps us keep improving Macleen’s Food House, Digital, and Crafts. Thank you for believing in our small business.</p>
+    {% with messages=get_flashed_messages(with_categories=true) %}{% for _,message in messages %}<div class="flash">{{ message }}</div>{% endfor %}{% endwith %}
+    {% if payment_settings.paymongo_active %}
+    <form method="post"><input type="hidden" name="source" value="{{ source }}">
+      <label>Your name *</label><input name="supporter_name" required maxlength="100" autocomplete="name">
+      <label>Mobile number <span class="muted">(optional)</span></label><input name="contact_number" maxlength="50" inputmode="tel" autocomplete="tel">
+      <label>Email <span class="muted">(optional)</span></label><input name="email" type="email" maxlength="120" autocomplete="email">
+      <label>Support amount (₱) *</label><input name="amount" type="number" min="1" max="100000" step=".01" required placeholder="100.00">
+      <label>Support type</label><select name="frequency"><option value="ONE_TIME">One-time contribution</option><option value="MONTHLY_PLEDGE">Monthly support pledge (manual renewal)</option></select>
+      <label>Message <span class="muted">(optional)</span></label><textarea name="message" rows="3" maxlength="500" placeholder="A short note for Macleen’s"></textarea>
+      <div class="notice"><strong>QR PH only.</strong> Every payment is approved by you in your payment app. A monthly pledge is not an automatic charge—we will never save your card, PIN, or wallet details.</div>
+      <button type="submit">Continue to QR PH</button>
+    </form>
+    {% else %}<div class="notice"><strong>QR PH is temporarily unavailable.</strong> Please try again later.</div>{% endif %}
+  </section>
+</main></body></html>

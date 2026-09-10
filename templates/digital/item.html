@@ -19,19 +19,19 @@
       <label>Contact</label><input name="contact_number" required inputmode="tel" autocomplete="tel">
       <label>Delivery email</label><input type="email" name="email" required autocomplete="email">
       <label>Quantity</label><input type="number" name="quantity" min="1" max="100" value="1">
-      <label>Payment</label><select name="payment_method" id="digitalPaymentMethod">{% if payment_settings.paymongo_active %}<option value="QRPH">Secure Checkout</option>{% endif %}{% if payment_settings.paypal_available %}<option value="PAYPAL">PayPal</option>{% endif %}</select>
-      {% if payment_settings.paymongo_active %}<div id="secureCheckoutNotice" style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:11px;margin:4px 0 12px"><strong>Secure Checkout</strong><p class="muted" style="margin:6px 0 0">Continue to a protected checkout page. Your compatible e-wallet or bank app can complete payment there. The file unlocks automatically once secure payment confirmation succeeds.</p></div>{% endif %}
+      <label>Payment</label><select name="payment_method" id="digitalPaymentMethod">{% if payment_settings.paymongo_active %}<option value="QRPH">QR PH</option>{% endif %}{% if payment_settings.paypal_available %}<option value="PAYPAL">PayPal</option>{% endif %}</select>
+      {% if payment_settings.paymongo_active %}<div id="secureCheckoutNotice" style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:11px;margin:4px 0 12px"><strong>QR PH</strong><p class="muted" style="margin:6px 0 0">Continue to the QR PH payment page. Use your compatible e-wallet or bank app. The file unlocks automatically after payment is confirmed.</p></div>{% endif %}
       {% if payment_settings.paypal_available %}<div id="paypalCheckoutNotice" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px;margin:4px 0 12px"><strong>PayPal checkout</strong><p class="muted" style="margin:6px 0 0">Continue to PayPal to approve the exact PHP amount. Your file unlocks automatically after PayPal confirms the payment.</p></div>{% endif %}
       <label>Customization / requirements</label><textarea name="requirements" rows="5" maxlength="3000" placeholder="Tell us what you need, if this is a custom order."></textarea>
-      <button class="btn" id="digitalCheckoutButton" type="submit">Continue to Secure Checkout</button>
+      <button class="btn" id="digitalCheckoutButton" type="submit">Continue to QR PH</button>
     </form>
     <p class="muted" style="margin-bottom:0">Never share your PIN, OTP, account password, or private access code. For detailed help, use the Facebook support button below.</p>
     {% else %}
-    <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:13px;padding:13px"><strong>Secure Checkout is temporarily unavailable.</strong><p class="muted" style="margin:7px 0 0">Please try again later or message Macleen’s Digital on Facebook for help.</p></div>
+    <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:13px;padding:13px"><strong>QR PH is temporarily unavailable.</strong><p class="muted" style="margin:7px 0 0">Please try again later or message the cashier for help.</p></div>
     {% endif %}
   </section>
 </div>
 <script>
-  (()=>{const method=document.getElementById('digitalPaymentMethod'),secure=document.getElementById('secureCheckoutNotice'),paypal=document.getElementById('paypalCheckoutNotice'),button=document.getElementById('digitalCheckoutButton');if(!method)return;const update=()=>{const usingPayPal=method.value==='PAYPAL';if(secure)secure.style.display=usingPayPal?'none':'block';if(paypal)paypal.style.display=usingPayPal?'block':'none';if(button)button.textContent=usingPayPal?'Continue to PayPal':'Continue to Secure Checkout';};method.addEventListener('change',update);update();})();
+  (()=>{const method=document.getElementById('digitalPaymentMethod'),secure=document.getElementById('secureCheckoutNotice'),paypal=document.getElementById('paypalCheckoutNotice'),button=document.getElementById('digitalCheckoutButton');if(!method)return;const update=()=>{const usingPayPal=method.value==='PAYPAL';if(secure)secure.style.display=usingPayPal?'none':'block';if(paypal)paypal.style.display=usingPayPal?'block':'none';if(button)button.textContent=usingPayPal?'Continue to PayPal':'Continue to QR PH';};method.addEventListener('change',update);update();})();
 </script>
 {% endblock %}
