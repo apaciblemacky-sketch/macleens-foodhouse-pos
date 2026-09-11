@@ -11,12 +11,14 @@ import math
 import os
 import re
 import secrets
+import mimetypes
+import zipfile
 from datetime import datetime, date, timedelta, time, timezone
 from functools import wraps
 from urllib.parse import parse_qs, unquote_plus, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory, Response, has_request_context
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_from_directory, Response, has_request_context, abort
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, text, UniqueConstraint, and_, or_
 from werkzeug.exceptions import RequestEntityTooLarge
@@ -76,7 +78,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.08-digital-secure-checkout-v30'
+APP_RELEASE = '2026.09.12-digital-hosted-app-uploader-v31'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -1289,6 +1291,11 @@ class DigitalItem(db.Model):
     # keeping the normal per-use price unchanged.
     lifetime_enabled = db.Column(db.Boolean, default=False, nullable=False)
     lifetime_price = db.Column(db.Float, default=0.0, nullable=False)
+    # Generic hosted apps uploaded from Digital Admin. CHAT Lite uses the
+    # built-in template and keeps hosted_app_key='CHAT_LITE'.
+    hosted_app_key = db.Column(db.String(40), nullable=True)
+    hosted_app_entrypoint = db.Column(db.String(255), nullable=True)
+    hosted_customer_access = db.Column(db.String(20), nullable=True)
     cost = db.Column(db.Float, default=0.0)
     image_url = db.Column(db.Text, nullable=True)
     sample_url = db.Column(db.Text, nullable=True)
@@ -1933,6 +1940,9 @@ def run_schema_migrations():
             ('asset_file_id', 'INTEGER'),
             ('lifetime_enabled', 'BOOLEAN DEFAULT FALSE'),
             ('lifetime_price', 'FLOAT DEFAULT 0.0'),
+            ('hosted_app_key', 'VARCHAR(40)'),
+            ('hosted_app_entrypoint', 'VARCHAR(255)'),
+            ('hosted_customer_access', 'VARCHAR(20)'),
             ('delivery_instructions', 'TEXT'),
             ('app_device_limit', 'INTEGER DEFAULT 0'),
             ('asset_version', 'INTEGER DEFAULT 1'),
@@ -9491,6 +9501,179 @@ def ensure_default_digital_support_faqs():
             faq.answer = new_payment_copy
 
 
+HOSTED_APP_ACCESS_MODES = {'FREE', 'PER_USE', 'LIFETIME', 'BOTH'}
+
+
+def digital_hosted_customer_access(item):
+    """Return the customer access menu for a hosted app.
+
+    Older CHAT Lite rows predate hosted_customer_access, so derive BOTH when
+    Lifetime Access was already enabled and otherwise preserve PER_USE.
+    """
+    raw = (getattr(item, 'hosted_customer_access', None) or '').strip().upper()
+    if raw in HOSTED_APP_ACCESS_MODES:
+        return raw
+    if item and getattr(item, 'lifetime_enabled', False) and parse_float(getattr(item, 'lifetime_price', 0), 0) > 0:
+        return 'BOTH'
+    return 'PER_USE'
+
+
+def digital_hosted_has_per_use(item):
+    return digital_hosted_customer_access(item) in {'PER_USE', 'BOTH'}
+
+
+def digital_hosted_has_lifetime(item):
+    return digital_hosted_customer_access(item) in {'LIFETIME', 'BOTH'}
+
+
+def digital_hosted_is_free(item):
+    return digital_hosted_customer_access(item) == 'FREE'
+
+
+def digital_is_uploaded_hosted_app(item):
+    return bool(
+        item and item.product_type == 'HOSTED_APP' and
+        (getattr(item, 'hosted_app_key', None) or '').upper() == 'UPLOADED' and
+        getattr(item, 'hosted_app_entrypoint', None) and item.asset_file
+    )
+
+
+def digital_is_chat_lite(item):
+    return bool(item and item.product_type == 'HOSTED_APP' and (getattr(item, 'hosted_app_key', None) or '').upper() == 'CHAT_LITE')
+
+
+def digital_usage_app_key(item):
+    if digital_is_chat_lite(item):
+        return 'CHAT_LITE'
+    return f'DIGITAL_ITEM_{getattr(item, "id", 0)}'[:50]
+
+
+def digital_hosted_app_upload(upload):
+    """Validate one static HTML app and persist the exact upload in the DB.
+
+    Supported formats are a single HTML file or a ZIP containing index.html.
+    ZIP paths are checked against traversal and zip-bomb style expansion.
+    """
+    asset = digital_asset_from_upload(upload)
+    filename = (asset.original_filename or '').lower()
+    if filename.endswith(('.html', '.htm')):
+        return asset, 'index.html'
+    if not filename.endswith('.zip'):
+        raise OrderValidationError('Hosted apps must be a single .html file or a .zip containing index.html.')
+    try:
+        with zipfile.ZipFile(io.BytesIO(asset.file_data)) as bundle:
+            infos = [entry for entry in bundle.infolist() if not entry.is_dir()]
+            if not infos:
+                raise OrderValidationError('The hosted-app ZIP is empty.')
+            if len(infos) > 750:
+                raise OrderValidationError('The hosted-app ZIP has too many files. Keep it under 750 files.')
+            expanded = 0
+            index_candidates = []
+            for entry in infos:
+                name = entry.filename.replace('\\', '/').lstrip('/')
+                parts = [part for part in name.split('/') if part not in {'', '.'}]
+                if not parts or '..' in parts:
+                    raise OrderValidationError('The hosted-app ZIP contains an unsafe file path.')
+                if entry.flag_bits & 0x1:
+                    raise OrderValidationError('Password-protected ZIP entries are not supported for hosted apps.')
+                # Unix symlinks are not allowed in a hosted static bundle.
+                if ((entry.external_attr >> 16) & 0o170000) == 0o120000:
+                    raise OrderValidationError('Hosted-app ZIP files cannot contain symbolic links.')
+                expanded += max(0, int(entry.file_size or 0))
+                if entry.file_size > 12 * 1024 * 1024:
+                    raise OrderValidationError('A hosted-app file is larger than 12 MB. Optimize large assets first.')
+                if expanded > 60 * 1024 * 1024:
+                    raise OrderValidationError('The hosted-app ZIP expands beyond the 60 MB safety limit.')
+                if parts[-1].casefold() == 'index.html':
+                    index_candidates.append('/'.join(parts))
+            if not index_candidates:
+                raise OrderValidationError('The hosted-app ZIP must contain an index.html entry page.')
+            # Prefer root index.html; otherwise accept the shallowest app folder.
+            index_candidates.sort(key=lambda value: (value.count('/'), len(value), value.casefold()))
+            return asset, index_candidates[0][:255]
+    except zipfile.BadZipFile:
+        raise OrderValidationError('That ZIP cannot be opened. Upload a valid static web-app ZIP.')
+
+
+def digital_hosted_bundle_file(item, requested_path=None):
+    if not digital_is_uploaded_hosted_app(item):
+        return None
+    asset = item.asset_file
+    entrypoint = (item.hosted_app_entrypoint or 'index.html').replace('\\', '/').lstrip('/')
+    requested = (requested_path or entrypoint).replace('\\', '/').lstrip('/')
+    parts = [part for part in requested.split('/') if part not in {'', '.'}]
+    if not parts or '..' in parts:
+        return None
+    normalized = '/'.join(parts)
+    lower_name = (asset.original_filename or '').lower()
+    if lower_name.endswith(('.html', '.htm')):
+        if normalized not in {'index.html', entrypoint}:
+            return None
+        return asset.file_data, 'text/html; charset=utf-8', 'index.html'
+    try:
+        with zipfile.ZipFile(io.BytesIO(asset.file_data)) as bundle:
+            # Zip names are case-sensitive; entrypoint is stored exactly.
+            info = bundle.getinfo(normalized)
+            if info.is_dir() or info.file_size > 12 * 1024 * 1024:
+                return None
+            payload = bundle.read(info)
+    except (zipfile.BadZipFile, KeyError, RuntimeError):
+        return None
+    mime = mimetypes.guess_type(normalized)[0] or 'application/octet-stream'
+    if mime.startswith('text/') or mime in {'application/javascript', 'application/json', 'image/svg+xml'}:
+        if 'charset=' not in mime:
+            mime += '; charset=utf-8'
+    return payload, mime, normalized
+
+
+def digital_hosted_content_response(item, requested_path=None):
+    result = digital_hosted_bundle_file(item, requested_path)
+    if not result:
+        abort(404)
+    payload, mime, name = result
+    response = Response(payload, content_type=mime)
+    response.headers['Cache-Control'] = 'private, no-store, max-age=0'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Referrer-Policy'] = 'no-referrer'
+    # Sandboxed apps have an opaque browser origin. CORS on the already
+    # entitlement-protected asset URL keeps module scripts/fonts working
+    # without granting access to Macleen's cookies or admin APIs.
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
+    if name.lower().endswith(('.html', '.htm')):
+        # Uploaded browser code runs in an opaque origin. It cannot call
+        # Macleen's authenticated admin APIs with same-origin privileges.
+        response.headers['Content-Security-Policy'] = 'sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock'
+    return response
+
+
+def digital_admin_hosted_token(item_id, ttl_seconds=3600):
+    expiry = int(datetime.now(timezone.utc).timestamp()) + max(300, min(14400, int(ttl_seconds)))
+    payload = f'{int(item_id)}:{expiry}'
+    secret = str(app.config.get('SECRET_KEY') or '').encode('utf-8')
+    signature = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()[:40]
+    raw = f'{payload}:{signature}'.encode('utf-8')
+    return base64.urlsafe_b64encode(raw).decode('ascii').rstrip('=')
+
+
+def digital_admin_hosted_token_item(token):
+    try:
+        padded = token + ('=' * (-len(token) % 4))
+        decoded = base64.urlsafe_b64decode(padded.encode('ascii')).decode('utf-8')
+        item_raw, expiry_raw, signature = decoded.split(':', 2)
+        item_id = int(item_raw); expiry = int(expiry_raw)
+        if expiry < int(datetime.now(timezone.utc).timestamp()):
+            return None
+        payload = f'{item_id}:{expiry}'
+        secret = str(app.config.get('SECRET_KEY') or '').encode('utf-8')
+        expected = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()[:40]
+        if not hmac.compare_digest(signature, expected):
+            return None
+        return item_id
+    except (TypeError, ValueError, UnicodeDecodeError):
+        return None
+
+
 def ensure_chat_lite_digital_product():
     item = DigitalItem.query.filter(db.func.lower(DigitalItem.name) == 'chat lite ephemeral').first()
     if not item:
@@ -9502,7 +9685,8 @@ def ensure_chat_lite_digital_product():
         db.session.add(DigitalItem(
             name='CHAT Lite Ephemeral',
             description='Private, zero-trace peer-to-peer room with group chat, video calling, screen sharing, and direct file sharing. Choose ₱5 per usage, or an optional one-time Lifetime Access plan when enabled by admin.',
-            category_name='Apps & Tools', product_type='HOSTED_APP', price=5.0, lifetime_enabled=False, lifetime_price=0.0, cost=0.0,
+            category_name='Apps & Tools', product_type='HOSTED_APP', price=5.0, lifetime_enabled=False, lifetime_price=0.0,
+            hosted_app_key='CHAT_LITE', hosted_customer_access='PER_USE', cost=0.0,
             image_url='/static/logo.png', file_format='Hosted web app',
             license_terms='Per-use purchases create hosted room usages. Lifetime Access, when offered, unlocks repeated hosted use for the original buyer. Do not resell or redistribute the hosted application.',
             delivery_instructions='After payment, open your private order page and launch CHAT Lite. Per-use purchases create usage passes; Lifetime Access can be reopened without buying another usage.',
@@ -9511,6 +9695,9 @@ def ensure_chat_lite_digital_product():
         return
     # Keep the requested hosted-app pricing authoritative without altering admin-written copy.
     item.product_type = 'HOSTED_APP'
+    item.hosted_app_key = 'CHAT_LITE'
+    if not item.hosted_customer_access:
+        item.hosted_customer_access = 'BOTH' if item.lifetime_enabled and parse_float(item.lifetime_price, 0) > 0 else 'PER_USE'
     item.price = 5.0
     item.category_name = item.category_name or 'Apps & Tools'
     item.is_active = True
@@ -9536,7 +9723,7 @@ def ensure_digital_usage_passes(order):
     target = max(1, min(100, parse_int(order.quantity, 1)))
     existing = DigitalUsagePass.query.filter_by(order_id=order.id).order_by(DigitalUsagePass.id.asc()).all()
     for _ in range(len(existing), target):
-        db.session.add(DigitalUsagePass(order_id=order.id, app_key='CHAT_LITE', status='UNUSED'))
+        db.session.add(DigitalUsagePass(order_id=order.id, app_key=digital_usage_app_key(order.item), status='UNUSED'))
     db.session.flush()
     return DigitalUsagePass.query.filter_by(order_id=order.id).order_by(DigitalUsagePass.id.asc()).all()
 
@@ -9596,7 +9783,7 @@ def digital_order_asset_version(order):
 def digital_order_can_download(order):
     asset = digital_order_download_asset(order)
     return bool(
-        order and asset and
+        order and asset and order.item and order.item.product_type == 'DOWNLOAD' and
         order.payment_status == 'PAID' and order.status in {'READY', 'DELIVERED'}
     )
 
@@ -10097,7 +10284,8 @@ def digital_item_detail(item_id):
     item = DigitalItem.query.filter_by(id=item_id, is_active=True).first_or_404()
     if request.method == 'GET':
         item.views = parse_int(item.views, 0) + 1; db.session.commit()
-        return render_template('digital/item.html', item=item, payment_settings=digital_payment_settings())
+        return render_template('digital/item.html', item=item, payment_settings=digital_payment_settings(),
+                               hosted_access=digital_hosted_customer_access(item) if item.product_type == 'HOSTED_APP' else None)
     name = request.form.get('customer_name', '').strip()[:100]
     contact = request.form.get('contact_number', '').strip()[:50]
     email = request.form.get('email', '').strip()[:120]
@@ -10105,16 +10293,27 @@ def digital_item_detail(item_id):
     access_plan = 'STANDARD'
     unit_price = item.price
     if item.product_type == 'HOSTED_APP':
-        requested_plan = request.form.get('access_plan', 'PER_USE').strip().upper()
+        hosted_access = digital_hosted_customer_access(item)
+        if hosted_access == 'FREE':
+            if digital_is_uploaded_hosted_app(item):
+                return redirect(url_for('digital_hosted_app_free', item_id=item.id))
+            flash('This hosted app is not available for public free launch.', 'error')
+            return redirect(url_for('digital_item_detail', item_id=item.id))
+        requested_plan = request.form.get('access_plan', '').strip().upper()
+        if not requested_plan:
+            requested_plan = 'LIFETIME' if hosted_access == 'LIFETIME' else 'PER_USE'
         if requested_plan == 'LIFETIME':
             lifetime_price = max(0.0, parse_float(item.lifetime_price, 0.0))
-            if not item.lifetime_enabled or lifetime_price <= 0:
+            if not digital_hosted_has_lifetime(item) or not item.lifetime_enabled or lifetime_price <= 0:
                 flash('Lifetime Access is not available for this hosted app right now.', 'error')
                 return redirect(url_for('digital_item_detail', item_id=item.id))
             access_plan = 'LIFETIME'
             unit_price = lifetime_price
             qty = 1
         else:
+            if not digital_hosted_has_per_use(item) or parse_float(item.price, 0) <= 0:
+                flash('Per-use access is not available for this hosted app right now.', 'error')
+                return redirect(url_for('digital_item_detail', item_id=item.id))
             access_plan = 'PER_USE'
             unit_price = item.price
     requested_method = request.form.get('payment_method', 'QRPH').upper()
@@ -10298,13 +10497,15 @@ def digital_launch_hosted_app(token, pass_id):
         usage.status = 'EXPIRED'
     if usage.status == 'EXPIRED':
         db.session.commit()
-        flash('That CHAT Lite usage has ended. Buy another ₱5 usage to start a new room.', 'info')
+        flash(f'That {order.item.name} usage has ended. Purchase another usage to start again.', 'info')
         return redirect(url_for('digital_order_status', token=token))
     if usage.status == 'UNUSED':
         usage.status = 'ACTIVE'
         usage.started_at = now
         usage.expires_at = now + timedelta(hours=6)
         db.session.commit()
+    if digital_is_uploaded_hosted_app(order.item):
+        return redirect(url_for('digital_hosted_app_per_use', access_token=usage.access_token))
     return redirect(url_for('digital_chat_lite_hosted', access_token=usage.access_token))
 
 
@@ -10327,6 +10528,8 @@ def digital_launch_hosted_app_lifetime(token):
     if not digital_paid_order(order) or not order.item or order.item.product_type != 'HOSTED_APP' or digital_order_access_plan(order) != 'LIFETIME':
         flash('Lifetime Access unlocks only after its one-time payment is confirmed.', 'error')
         return redirect(url_for('digital_order_status', token=token))
+    if digital_is_uploaded_hosted_app(order.item):
+        return redirect(url_for('digital_hosted_app_lifetime', token=order.tracking_token))
     return redirect(url_for('digital_chat_lite_lifetime', token=order.tracking_token))
 
 
@@ -10336,6 +10539,105 @@ def digital_chat_lite_lifetime(token):
     if not digital_paid_order(order) or not order.item or order.item.product_type != 'HOSTED_APP' or digital_order_access_plan(order) != 'LIFETIME':
         abort(403)
     return render_template('digital/apps/chat_lite.html', usage_pass=None, order=order, access_mode='LIFETIME')
+
+
+@app.route('/digital/apps/hosted/<string:access_token>')
+def digital_hosted_app_per_use(access_token):
+    usage = DigitalUsagePass.query.filter_by(access_token=access_token).first_or_404()
+    now = utc_now()
+    if usage.status == 'ACTIVE' and usage.expires_at and usage.expires_at <= now:
+        usage.status = 'EXPIRED'; db.session.commit()
+    if usage.status != 'ACTIVE' or not usage.expires_at or usage.expires_at <= now:
+        return render_template('digital/hosted_app_expired.html'), 403
+    order = usage.order
+    if not digital_paid_order(order) or not digital_is_uploaded_hosted_app(order.item):
+        abort(403)
+    content_url = url_for('digital_hosted_content_per_use', access_token=access_token, asset_path=order.item.hosted_app_entrypoint)
+    return render_template('digital/apps/hosted_app_viewer.html', item=order.item, access_mode='PER_USE', content_url=content_url,
+                           end_url=url_for('digital_hosted_end_usage', access_token=access_token), usage_pass=usage)
+
+
+@app.route('/digital/apps/hosted/<string:access_token>/content/', defaults={'asset_path': None})
+@app.route('/digital/apps/hosted/<string:access_token>/content/<path:asset_path>')
+def digital_hosted_content_per_use(access_token, asset_path):
+    usage = DigitalUsagePass.query.filter_by(access_token=access_token).first_or_404()
+    if usage.status != 'ACTIVE' or not usage.expires_at or usage.expires_at <= utc_now():
+        abort(403)
+    order = usage.order
+    if not digital_paid_order(order) or not digital_is_uploaded_hosted_app(order.item):
+        abort(403)
+    return digital_hosted_content_response(order.item, asset_path)
+
+
+@app.route('/digital/apps/hosted/<string:access_token>/end', methods=['POST'])
+def digital_hosted_end_usage(access_token):
+    usage = DigitalUsagePass.query.filter_by(access_token=access_token).first_or_404()
+    if usage.status == 'ACTIVE':
+        usage.status = 'EXPIRED'
+        usage.expires_at = utc_now()
+        db.session.commit()
+    return redirect(url_for('digital_order_status', token=usage.order.tracking_token))
+
+
+@app.route('/digital/apps/hosted/lifetime/<string:token>')
+def digital_hosted_app_lifetime(token):
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    if not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME' or not digital_is_uploaded_hosted_app(order.item):
+        abort(403)
+    content_url = url_for('digital_hosted_content_lifetime', token=token, asset_path=order.item.hosted_app_entrypoint)
+    return render_template('digital/apps/hosted_app_viewer.html', item=order.item, access_mode='LIFETIME', content_url=content_url, end_url=None, usage_pass=None)
+
+
+@app.route('/digital/apps/hosted/lifetime/<string:token>/content/', defaults={'asset_path': None})
+@app.route('/digital/apps/hosted/lifetime/<string:token>/content/<path:asset_path>')
+def digital_hosted_content_lifetime(token, asset_path):
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    if not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME' or not digital_is_uploaded_hosted_app(order.item):
+        abort(403)
+    return digital_hosted_content_response(order.item, asset_path)
+
+
+@app.route('/digital/apps/free/<int:item_id>')
+def digital_hosted_app_free(item_id):
+    item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP', is_active=True).first_or_404()
+    if not digital_hosted_is_free(item) or not digital_is_uploaded_hosted_app(item):
+        abort(403)
+    content_url = url_for('digital_hosted_content_free', item_id=item.id, asset_path=item.hosted_app_entrypoint)
+    return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='FREE', content_url=content_url, end_url=None, usage_pass=None)
+
+
+@app.route('/digital/apps/free/<int:item_id>/content/', defaults={'asset_path': None})
+@app.route('/digital/apps/free/<int:item_id>/content/<path:asset_path>')
+def digital_hosted_content_free(item_id, asset_path):
+    item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP', is_active=True).first_or_404()
+    if not digital_hosted_is_free(item) or not digital_is_uploaded_hosted_app(item):
+        abort(403)
+    return digital_hosted_content_response(item, asset_path)
+
+
+@app.route('/admin/digital/hosted-app/<int:item_id>')
+@require_admin
+def admin_digital_hosted_app(item_id):
+    item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP').first_or_404()
+    if digital_is_chat_lite(item):
+        return redirect(url_for('admin_chat_lite'))
+    if not digital_is_uploaded_hosted_app(item):
+        abort(404)
+    content_token = digital_admin_hosted_token(item.id)
+    content_url = url_for('admin_digital_hosted_content', content_token=content_token, asset_path=item.hosted_app_entrypoint)
+    return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='ADMIN', content_url=content_url, end_url=None, usage_pass=None)
+
+
+@app.route('/admin/digital/hosted-content/<string:content_token>/', defaults={'asset_path': None})
+@app.route('/admin/digital/hosted-content/<string:content_token>/<path:asset_path>')
+def admin_digital_hosted_content(content_token, asset_path):
+    item_id = digital_admin_hosted_token_item(content_token)
+    if not item_id:
+        abort(403)
+    item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP').first_or_404()
+    if not digital_is_uploaded_hosted_app(item):
+        abort(404)
+    return digital_hosted_content_response(item, asset_path)
 
 
 @app.route('/admin/chat-lite')
@@ -10517,8 +10819,9 @@ def digital_admin():
         categories=DigitalCategory.query.order_by(DigitalCategory.name).all(), orders=orders,
         payment_settings=digital_payment_settings(), support_faqs=DigitalSupportFAQ.query.order_by(DigitalSupportFAQ.sort_order.asc(), DigitalSupportFAQ.id.asc()).all(),
         activation_codes_by_order=activation_codes_by_order,
-        order_assets={order.id: digital_order_download_asset(order) for order in orders},
+        order_assets={order.id: (digital_order_download_asset(order) if order.item and order.item.product_type == 'DOWNLOAD' else None) for order in orders},
         order_asset_versions={order.id: digital_order_asset_version(order) for order in orders},
+        hosted_items=DigitalItem.query.filter(DigitalItem.product_type == 'HOSTED_APP', DigitalItem.hosted_app_key == 'UPLOADED').order_by(DigitalItem.name.asc()).all(),
         announcement=portal_announcement('DIGITAL'))
 
 @app.route('/admin/digital/category/add', methods=['POST'])
@@ -10544,6 +10847,68 @@ def digital_category_delete(category_id):
         db.session.commit()
         flash(f"Digital category '{name}' deleted.", 'success')
     return redirect(url_for('digital_admin'))
+
+@app.route('/admin/digital/hosted-app/save', methods=['POST'])
+@require_admin
+def digital_hosted_app_save():
+    item_id = parse_int(request.form.get('item_id'), 0)
+    item = db.session.get(DigitalItem, item_id) if item_id else DigitalItem()
+    if item_id and (item.product_type != 'HOSTED_APP' or (item.hosted_app_key or '').upper() != 'UPLOADED'):
+        flash('Use this uploader only for HTML apps that were uploaded through Hosted Apps.', 'error')
+        return redirect(url_for('digital_admin'))
+    name = request.form.get('name', '').strip()[:120]
+    access = request.form.get('hosted_customer_access', 'PER_USE').strip().upper()
+    per_use_price = max(0.0, parse_float(request.form.get('price'), 0.0))
+    lifetime_price = max(0.0, parse_float(request.form.get('lifetime_price'), 0.0))
+    if not name:
+        flash('Enter a hosted app name.', 'error'); return redirect(url_for('digital_admin'))
+    if access not in HOSTED_APP_ACCESS_MODES:
+        flash('Choose Free, Per Use, Lifetime, or Per Use + Lifetime.', 'error'); return redirect(url_for('digital_admin'))
+    if access in {'PER_USE', 'BOTH'} and per_use_price <= 0:
+        flash('Enter a per-use price greater than zero.', 'error'); return redirect(url_for('digital_admin'))
+    if access in {'LIFETIME', 'BOTH'} and lifetime_price <= 0:
+        flash('Enter a Lifetime Access price greater than zero.', 'error'); return redirect(url_for('digital_admin'))
+    upload = request.files.get('hosted_app_file')
+    if not item_id and (not upload or not (upload.filename or '').strip()):
+        flash('Upload the HTML app or ZIP package.', 'error'); return redirect(url_for('digital_admin'))
+    try:
+        if upload and (upload.filename or '').strip():
+            asset, entrypoint = digital_hosted_app_upload(upload)
+            db.session.add(asset); db.session.flush()
+            item.asset_file_id = asset.id
+            item.hosted_app_entrypoint = entrypoint
+            item.asset_updated_at = utc_now()
+            item.asset_version = max(1, parse_int(item.asset_version, 1)) + (1 if item_id else 0)
+            item.asset_release_notes = request.form.get('asset_release_notes', '').strip()[:3000] or None
+        item.name = name
+        item.description = request.form.get('description', '').strip()[:5000] or None
+        item.category_name = request.form.get('category_name', 'Apps & Tools').strip()[:80] or 'Apps & Tools'
+        item.product_type = 'HOSTED_APP'
+        item.hosted_app_key = 'UPLOADED'
+        item.hosted_customer_access = access
+        item.price = per_use_price if access in {'PER_USE', 'BOTH'} else 0.0
+        item.lifetime_enabled = access in {'LIFETIME', 'BOTH'}
+        item.lifetime_price = lifetime_price if item.lifetime_enabled else 0.0
+        item.cost = max(0.0, parse_float(request.form.get('cost'), 0.0))
+        item.image_url = request.form.get('image_url', '').strip() or '/static/logo.png'
+        item.sample_url = None
+        item.file_format = 'Hosted HTML app'
+        item.license_terms = request.form.get('license_terms', '').strip()[:3000] or None
+        item.delivery_instructions = 'Launch this app from your paid/private Digital order page. The hosted source package is not delivered as a customer download.'
+        item.app_device_limit = 0
+        item.turnaround_days = 0
+        item.is_active = request.form.get('is_active') == '1'
+        item.is_featured = request.form.get('is_featured') == '1'
+        if not item_id:
+            db.session.add(item)
+        db.session.commit()
+        flash(f'{item.name} hosted app saved. Admin Free Access is always available from Digital Admin.', 'success')
+    except OrderValidationError as exc:
+        db.session.rollback(); flash(str(exc), 'error')
+    except Exception:
+        db.session.rollback(); app.logger.exception('Hosted Digital app save failed'); flash('Could not save the hosted HTML app.', 'error')
+    return redirect(url_for('digital_admin'))
+
 
 @app.route('/admin/digital/item/save', methods=['POST'])
 @require_admin
