@@ -1285,6 +1285,10 @@ class DigitalItem(db.Model):
     category_name = db.Column(db.String(80), default='General', nullable=False)
     product_type = db.Column(db.String(30), default='DOWNLOAD', nullable=False)
     price = db.Column(db.Float, nullable=False)
+    # Hosted apps may optionally offer a separate one-time lifetime plan while
+    # keeping the normal per-use price unchanged.
+    lifetime_enabled = db.Column(db.Boolean, default=False, nullable=False)
+    lifetime_price = db.Column(db.Float, default=0.0, nullable=False)
     cost = db.Column(db.Float, default=0.0)
     image_url = db.Column(db.Text, nullable=True)
     sample_url = db.Column(db.Text, nullable=True)
@@ -1333,6 +1337,9 @@ class DigitalOrder(db.Model):
     unit_price = db.Column(db.Float, nullable=False)
     unit_cost = db.Column(db.Float, default=0.0)
     total_price = db.Column(db.Float, nullable=False)
+    # STANDARD for normal products, PER_USE/LIFETIME for hosted apps. Old
+    # hosted-app orders are interpreted as PER_USE for backward compatibility.
+    access_plan = db.Column(db.String(20), default='STANDARD', nullable=False)
     payment_method = db.Column(db.String(20), nullable=False)
     payment_status = db.Column(db.String(20), default='PENDING')
     gcash_ref = db.Column(db.String(30), nullable=True)
@@ -1924,6 +1931,8 @@ def run_schema_migrations():
         ],
         'digital_item': [
             ('asset_file_id', 'INTEGER'),
+            ('lifetime_enabled', 'BOOLEAN DEFAULT FALSE'),
+            ('lifetime_price', 'FLOAT DEFAULT 0.0'),
             ('delivery_instructions', 'TEXT'),
             ('app_device_limit', 'INTEGER DEFAULT 0'),
             ('asset_version', 'INTEGER DEFAULT 1'),
@@ -1932,6 +1941,7 @@ def run_schema_migrations():
         ],
         'digital_order': [
             ('asset_file_id', 'INTEGER'),
+            ('access_plan', "VARCHAR(20) DEFAULT 'STANDARD'"),
             ('delivery_access_code', 'VARCHAR(24)'),
             ('download_count', 'INTEGER DEFAULT 0'),
             ('last_download_at', 'TIMESTAMP'),
@@ -1977,6 +1987,11 @@ def run_schema_migrations():
         if 'product' in tables:
             conn.execute(text("UPDATE product SET allow_custom_amount = FALSE WHERE allow_custom_amount IS NULL"))
             conn.execute(text("UPDATE product SET prep_minutes = 10 WHERE prep_minutes IS NULL OR prep_minutes < 1"))
+        if 'digital_item' in tables:
+            conn.execute(text("UPDATE digital_item SET lifetime_enabled = FALSE WHERE lifetime_enabled IS NULL"))
+            conn.execute(text("UPDATE digital_item SET lifetime_price = 0.0 WHERE lifetime_price IS NULL"))
+        if 'digital_order' in tables:
+            conn.execute(text("UPDATE digital_order SET access_plan = 'STANDARD' WHERE access_plan IS NULL OR access_plan = ''"))
         if 'order' in tables:
             conn.execute(text("UPDATE \"order\" SET fulfillment_status = CASE WHEN status = 'COMPLETED' THEN 'FULFILLED' WHEN status = 'CANCELLED' THEN 'CANCELLED' ELSE 'SUBMITTED' END WHERE fulfillment_status IS NULL OR fulfillment_status = ''"))
         if 'delivery_zone' in tables:
@@ -9419,6 +9434,14 @@ def digital_paid_order(order):
     return bool(order and order.payment_status == 'PAID' and order.status in {'PAID', 'IN_PROGRESS', 'READY', 'DELIVERED'})
 
 
+def digital_order_access_plan(order):
+    """Return a stable hosted-app plan while preserving all older ₱5 orders."""
+    raw = (getattr(order, 'access_plan', None) or '').strip().upper()
+    if order and order.item and order.item.product_type == 'HOSTED_APP':
+        return 'LIFETIME' if raw == 'LIFETIME' else 'PER_USE'
+    return 'STANDARD'
+
+
 def digital_active_activation_codes(order):
     if not order:
         return []
@@ -9478,11 +9501,11 @@ def ensure_chat_lite_digital_product():
     if not item:
         db.session.add(DigitalItem(
             name='CHAT Lite Ephemeral',
-            description='Private, zero-trace peer-to-peer room with group chat, video calling, screen sharing, and direct file sharing. ₱5 buys one hosted room usage/session.',
-            category_name='Apps & Tools', product_type='HOSTED_APP', price=5.0, cost=0.0,
+            description='Private, zero-trace peer-to-peer room with group chat, video calling, screen sharing, and direct file sharing. Choose ₱5 per usage, or an optional one-time Lifetime Access plan when enabled by admin.',
+            category_name='Apps & Tools', product_type='HOSTED_APP', price=5.0, lifetime_enabled=False, lifetime_price=0.0, cost=0.0,
             image_url='/static/logo.png', file_format='Hosted web app',
-            license_terms='One paid purchase creates one hosted room usage. Do not resell or redistribute the hosted application.',
-            delivery_instructions='After payment, open your private order page and tap Launch CHAT Lite. One quantity equals one room usage/session.',
+            license_terms='Per-use purchases create hosted room usages. Lifetime Access, when offered, unlocks repeated hosted use for the original buyer. Do not resell or redistribute the hosted application.',
+            delivery_instructions='After payment, open your private order page and launch CHAT Lite. Per-use purchases create usage passes; Lifetime Access can be reopened without buying another usage.',
             turnaround_days=0, is_active=True, is_featured=True,
         ))
         return
@@ -9508,7 +9531,7 @@ def digital_usage_passes(order, include_expired=False):
 
 
 def ensure_digital_usage_passes(order):
-    if not order or not order.item or order.item.product_type != 'HOSTED_APP':
+    if not order or not order.item or order.item.product_type != 'HOSTED_APP' or digital_order_access_plan(order) == 'LIFETIME':
         return []
     target = max(1, min(100, parse_int(order.quantity, 1)))
     existing = DigitalUsagePass.query.filter_by(order_id=order.id).order_by(DigitalUsagePass.id.asc()).all()
@@ -10079,6 +10102,21 @@ def digital_item_detail(item_id):
     contact = request.form.get('contact_number', '').strip()[:50]
     email = request.form.get('email', '').strip()[:120]
     qty = max(1, min(100, parse_int(request.form.get('quantity'), 1)))
+    access_plan = 'STANDARD'
+    unit_price = item.price
+    if item.product_type == 'HOSTED_APP':
+        requested_plan = request.form.get('access_plan', 'PER_USE').strip().upper()
+        if requested_plan == 'LIFETIME':
+            lifetime_price = max(0.0, parse_float(item.lifetime_price, 0.0))
+            if not item.lifetime_enabled or lifetime_price <= 0:
+                flash('Lifetime Access is not available for this hosted app right now.', 'error')
+                return redirect(url_for('digital_item_detail', item_id=item.id))
+            access_plan = 'LIFETIME'
+            unit_price = lifetime_price
+            qty = 1
+        else:
+            access_plan = 'PER_USE'
+            unit_price = item.price
     requested_method = request.form.get('payment_method', 'QRPH').upper()
     if not name or not contact or '@' not in email:
         flash('Name, contact number, and a valid delivery email are required.', 'error')
@@ -10094,8 +10132,9 @@ def digital_item_detail(item_id):
         flash('PayPal is temporarily unavailable. Please choose QR PH or message the cashier.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     method = requested_method
-    order = DigitalOrder(item_id=item.id, customer_name=name, contact_number=contact, email=email,
-        quantity=qty, unit_price=item.price, unit_cost=item.cost or 0, total_price=item.price * qty,
+    member_id = parse_int(session.get('customer_id'), 0) or None
+    order = DigitalOrder(item_id=item.id, customer_id=member_id, customer_name=name, contact_number=contact, email=email,
+        quantity=qty, unit_price=unit_price, unit_cost=item.cost or 0, total_price=unit_price * qty, access_plan=access_plan,
         payment_method=method, asset_file_id=item.asset_file_id,
         delivery_access_code=digital_access_code(), activation_device_limit=max(0, min(3, parse_int(item.app_device_limit, 0))),
         requirements=request.form.get('requirements','').strip()[:3000] or None)
@@ -10131,6 +10170,7 @@ def digital_order_status(token):
         can_open_external_delivery=digital_order_can_open_external_delivery(order), payment_settings=digital_payment_settings(),
         activation_codes=digital_active_activation_codes(order) if digital_paid_order(order) else [],
         download_asset=download_asset, current_asset_version=digital_order_asset_version(order),
+        access_plan=digital_order_access_plan(order),
         usage_passes=digital_usage_passes(order, include_expired=True) if order.payment_status == 'PAID' else [],
     )
 
@@ -10249,8 +10289,8 @@ def paypal_webhook():
 @app.route('/digital/order/<token>/launch/<int:pass_id>', methods=['POST'])
 def digital_launch_hosted_app(token, pass_id):
     order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
-    if not digital_paid_order(order) or not order.item or order.item.product_type != 'HOSTED_APP':
-        flash('This hosted app unlocks only after confirmed payment.', 'error')
+    if not digital_paid_order(order) or not order.item or order.item.product_type != 'HOSTED_APP' or digital_order_access_plan(order) != 'PER_USE':
+        flash('This per-use hosted access unlocks only after confirmed payment.', 'error')
         return redirect(url_for('digital_order_status', token=token))
     usage = DigitalUsagePass.query.filter_by(id=pass_id, order_id=order.id).first_or_404()
     now = utc_now()
@@ -10278,7 +10318,41 @@ def digital_chat_lite_hosted(access_token):
     order = usage.order
     if not order or order.payment_status != 'PAID':
         abort(403)
-    return render_template('digital/apps/chat_lite.html', usage_pass=usage, order=order)
+    return render_template('digital/apps/chat_lite.html', usage_pass=usage, order=order, access_mode='PER_USE')
+
+
+@app.route('/digital/order/<token>/launch-lifetime', methods=['POST'])
+def digital_launch_hosted_app_lifetime(token):
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    if not digital_paid_order(order) or not order.item or order.item.product_type != 'HOSTED_APP' or digital_order_access_plan(order) != 'LIFETIME':
+        flash('Lifetime Access unlocks only after its one-time payment is confirmed.', 'error')
+        return redirect(url_for('digital_order_status', token=token))
+    return redirect(url_for('digital_chat_lite_lifetime', token=order.tracking_token))
+
+
+@app.route('/digital/apps/chat-lite/lifetime/<string:token>')
+def digital_chat_lite_lifetime(token):
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    if not digital_paid_order(order) or not order.item or order.item.product_type != 'HOSTED_APP' or digital_order_access_plan(order) != 'LIFETIME':
+        abort(403)
+    return render_template('digital/apps/chat_lite.html', usage_pass=None, order=order, access_mode='LIFETIME')
+
+
+@app.route('/admin/chat-lite')
+@require_admin
+def admin_chat_lite():
+    # Owner/staff access is intentionally outside the paid entitlement system.
+    # The require_admin guard prevents customers from using this free route.
+    return render_template('digital/apps/chat_lite.html', usage_pass=None, order=None, access_mode='ADMIN')
+
+
+@app.route('/digital/apps/chat-lite/guest')
+def digital_chat_lite_guest():
+    # Invitees may join a specific live room, but cannot create a free room.
+    room = request.args.get('room', '').strip().upper()
+    if not re.fullmatch(r'CL-\d{4}', room):
+        abort(404)
+    return render_template('digital/apps/chat_lite.html', usage_pass=None, order=None, access_mode='GUEST')
 
 
 @app.route('/digital/apps/chat-lite/<string:access_token>/end', methods=['POST'])
@@ -10485,6 +10559,10 @@ def digital_item_save():
     if product_type not in {'DOWNLOAD', 'CUSTOM_SERVICE', 'SUBSCRIPTION', 'HOSTED_APP'}:
         flash('Choose a valid digital product type.', 'error'); return redirect(url_for('digital_admin'))
     item.product_type=product_type; item.price=price
+    item.lifetime_enabled = bool(request.form.get('lifetime_enabled')) if product_type == 'HOSTED_APP' else False
+    item.lifetime_price = max(0.0, parse_float(request.form.get('lifetime_price'), 0.0)) if product_type == 'HOSTED_APP' else 0.0
+    if item.lifetime_enabled and item.lifetime_price <= 0:
+        flash('Enter a Lifetime Access price greater than zero, or turn Lifetime Access off.', 'error'); return redirect(url_for('digital_admin'))
     item.cost=max(0,parse_float(request.form.get('cost'),0)); item.image_url=request.form.get('image_url','').strip() or CRAFT_DEFAULT_IMAGE
     item.sample_url=request.form.get('sample_url','').strip() or None; item.file_format=request.form.get('file_format','').strip()[:80] or None
     item.license_terms=request.form.get('license_terms','').strip()[:3000] or None

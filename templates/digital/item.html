@@ -6,21 +6,32 @@
     <img src="{{ item.image_url or '/static/logo.png' }}" alt="{{ item.name }}" style="width:100%;max-height:340px;object-fit:contain;border-radius:15px;background:#f0fdfa">
     <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:13px"><span class="badge">{{ item.category_name }}</span><span class="badge">{{ 'Hosted App' if item.product_type=='HOSTED_APP' else item.product_type.replace('_',' ').title() }}</span>{% if item.product_type=='HOSTED_APP' %}<span class="badge">⚡ Hosted access</span>{% elif item.asset_file_id %}<span class="badge">🔒 Protected download</span>{% endif %}</div>
     <h1>{{ item.name }}</h1><p style="white-space:pre-wrap;line-height:1.55">{{ item.description }}</p>
-    {% if item.product_type=='HOSTED_APP' %}<p><strong>Access:</strong> Hosted in Macleen’s Digital · <strong>Price:</strong> ₱{{ '%.2f'|format(item.price) }} per usage</p><p class="muted">Each quantity you buy creates one private usage pass. After confirmed QR PH or PayPal payment, launch the app from your private order page. CHAT Lite access remains hosted; no source file download is provided.</p>{% else %}<p><strong>Format:</strong> {{ item.file_format or 'As described' }} · <strong>Turnaround:</strong> {{ item.turnaround_days }} day(s)</p>{% if item.asset_file_id %}<p class="muted">A protected file is attached. It becomes downloadable only after confirmed payment; the customer uses a private order link plus an access code.</p>{% endif %}{% endif %}
+    {% if item.product_type=='HOSTED_APP' %}
+      <p><strong>Per Use:</strong> ₱{{ '%.2f'|format(item.price) }}{% if item.lifetime_enabled and item.lifetime_price > 0 %} · <strong>Lifetime Access:</strong> ₱{{ '%.2f'|format(item.lifetime_price) }} one time{% endif %}</p>
+      <p class="muted">Per-use purchases create private 6-hour usage passes. If Lifetime Access is selected, the buyer can reopen the hosted app again without buying another usage. CHAT Lite remains hosted; no source-file download is provided.</p>
+    {% else %}<p><strong>Format:</strong> {{ item.file_format or 'As described' }} · <strong>Turnaround:</strong> {{ item.turnaround_days }} day(s)</p>{% if item.asset_file_id %}<p class="muted">A protected file is attached. It becomes downloadable only after confirmed payment; the customer uses a private order link plus an access code.</p>{% endif %}{% endif %}
     <p class="muted">{{ item.license_terms or 'For the buyer’s permitted use; redistribution is not included unless stated.' }}</p>
     {% if item.sample_url %}<a class="btn btn-light" target="_blank" rel="noopener" href="{{ item.sample_url }}">View Sample</a>{% endif %}
   </section>
   <section class="card">
-    <h2>{{ 'Buy usage' if item.product_type=='HOSTED_APP' else 'Order' }} — ₱{{ '%.2f'|format(item.price) }}{% if item.product_type=='HOSTED_APP' %} / usage{% endif %}</h2>
+    <h2>{% if item.product_type=='HOSTED_APP' %}Choose CHAT Lite access{% else %}Order — ₱{{ '%.2f'|format(item.price) }}{% endif %}</h2>
     {% if payment_settings.paymongo_active or payment_settings.paypal_available %}
     <form method="post" data-no-live>
       <label>Name</label><input name="customer_name" required autocomplete="name">
       <label>Contact</label><input name="contact_number" required inputmode="tel" autocomplete="tel">
       <label>Delivery email</label><input type="email" name="email" required autocomplete="email">
-      <label>{{ 'Number of usages' if item.product_type=='HOSTED_APP' else 'Quantity' }}</label><input type="number" name="quantity" min="1" max="100" value="1">
+      {% if item.product_type=='HOSTED_APP' %}
+        <label>Access option</label>
+        <select name="access_plan" id="hostedAccessPlan">
+          <option value="PER_USE" data-price="{{ item.price }}">Per Use — ₱{{ '%.2f'|format(item.price) }} each</option>
+          {% if item.lifetime_enabled and item.lifetime_price > 0 %}<option value="LIFETIME" data-price="{{ item.lifetime_price }}">Lifetime Access — ₱{{ '%.2f'|format(item.lifetime_price) }} one time</option>{% endif %}
+        </select>
+        <div id="usageQuantityWrap"><label>Number of usages</label><input id="digitalQuantity" type="number" name="quantity" min="1" max="100" value="1"></div>
+        <div id="hostedPlanNote" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;padding:11px;margin:4px 0 12px"><strong id="hostedPlanTitle">Per Use</strong><p class="muted" id="hostedPlanText" style="margin:6px 0 0">Each quantity creates one private 6-hour usage pass. Closing or losing power does not create another charge while that pass is still active.</p></div>
+      {% else %}<label>Quantity</label><input type="number" name="quantity" min="1" max="100" value="1">{% endif %}
       <label>Payment</label><select name="payment_method" id="digitalPaymentMethod">{% if payment_settings.paymongo_active %}<option value="QRPH">QR PH</option>{% endif %}{% if payment_settings.paypal_available %}<option value="PAYPAL">PayPal</option>{% endif %}</select>
-      {% if payment_settings.paymongo_active %}<div id="secureCheckoutNotice" style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:11px;margin:4px 0 12px"><strong>QR PH</strong><p class="muted" style="margin:6px 0 0">Continue to QR PH. {{ 'Your usage pass unlocks' if item.product_type=='HOSTED_APP' else 'Your delivery unlocks' }} automatically after payment is confirmed.</p></div>{% endif %}
-      {% if payment_settings.paypal_available %}<div id="paypalCheckoutNotice" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px;margin:4px 0 12px"><strong>PayPal checkout</strong><p class="muted" style="margin:6px 0 0">Continue to PayPal to approve the exact PHP amount. {{ 'Your usage pass unlocks' if item.product_type=='HOSTED_APP' else 'Your delivery unlocks' }} automatically after confirmation.</p></div>{% endif %}
+      {% if payment_settings.paymongo_active %}<div id="secureCheckoutNotice" style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:11px;margin:4px 0 12px"><strong>QR PH</strong><p class="muted" style="margin:6px 0 0">Continue to QR PH. Your paid access unlocks automatically after payment is confirmed.</p></div>{% endif %}
+      {% if payment_settings.paypal_available %}<div id="paypalCheckoutNotice" style="display:none;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:11px;margin:4px 0 12px"><strong>PayPal checkout</strong><p class="muted" style="margin:6px 0 0">Continue to PayPal to approve the exact PHP amount. Your paid access unlocks automatically after confirmation.</p></div>{% endif %}
       {% if item.product_type!='HOSTED_APP' %}<label>Customization / requirements</label><textarea name="requirements" rows="5" maxlength="3000" placeholder="Tell us what you need, if this is a custom order."></textarea>{% endif %}
       <button class="btn" id="digitalCheckoutButton" type="submit">Continue to payment</button>
     </form>
@@ -28,5 +39,13 @@
     {% else %}<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:13px;padding:13px"><strong>Online payment is temporarily unavailable.</strong><p class="muted" style="margin:7px 0 0">Please try again later or use Chat with us for help.</p></div>{% endif %}
   </section>
 </div>
-<script>(()=>{const method=document.getElementById('digitalPaymentMethod'),secure=document.getElementById('secureCheckoutNotice'),paypal=document.getElementById('paypalCheckoutNotice'),button=document.getElementById('digitalCheckoutButton');if(!method)return;const update=()=>{const usingPayPal=method.value==='PAYPAL';if(secure)secure.style.display=usingPayPal?'none':'block';if(paypal)paypal.style.display=usingPayPal?'block':'none';if(button)button.textContent=usingPayPal?'Continue to PayPal':'Continue to QR PH';};method.addEventListener('change',update);update();})();</script>
+<script>
+(()=>{
+  const method=document.getElementById('digitalPaymentMethod'),secure=document.getElementById('secureCheckoutNotice'),paypal=document.getElementById('paypalCheckoutNotice'),button=document.getElementById('digitalCheckoutButton');
+  const plan=document.getElementById('hostedAccessPlan'),qtyWrap=document.getElementById('usageQuantityWrap'),qty=document.getElementById('digitalQuantity'),planTitle=document.getElementById('hostedPlanTitle'),planText=document.getElementById('hostedPlanText');
+  const updatePayment=()=>{if(!method)return;const usingPayPal=method.value==='PAYPAL';if(secure)secure.style.display=usingPayPal?'none':'block';if(paypal)paypal.style.display=usingPayPal?'block':'none';if(button)button.textContent=usingPayPal?'Continue to PayPal':'Continue to QR PH';};
+  const updatePlan=()=>{if(!plan)return;const lifetime=plan.value==='LIFETIME';if(qtyWrap)qtyWrap.style.display=lifetime?'none':'block';if(qty){qty.disabled=lifetime;if(lifetime)qty.value='1';}if(planTitle)planTitle.textContent=lifetime?'Lifetime Access':'Per Use';if(planText)planText.textContent=lifetime?'One successful payment unlocks repeated CHAT Lite launches for this purchase. Your rooms and messages are still ephemeral and are not saved after a session ends.':'Each quantity creates one private 6-hour usage pass. Closing, refreshing, losing internet, or losing power does not create another charge while that pass is still active.';};
+  method?.addEventListener('change',updatePayment);plan?.addEventListener('change',updatePlan);updatePayment();updatePlan();
+})();
+</script>
 {% endblock %}

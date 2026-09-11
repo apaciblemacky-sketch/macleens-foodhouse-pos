@@ -174,7 +174,7 @@
 <body>
 
 <div id="app">
-  <div class="paid-session-banner">⚡ Macleen’s Digital paid usage • ₱5/session • active until {{ usage_pass.expires_at|ph_datetime('%b %d, %Y %I:%M %p') }}</div>
+  {% if access_mode == 'PER_USE' %}<div class="paid-session-banner">⚡ Macleen’s Digital • Per-use access • active until {{ usage_pass.expires_at|ph_datetime('%b %d, %Y %I:%M %p') }}</div>{% elif access_mode == 'LIFETIME' %}<div class="paid-session-banner">♾️ Macleen’s Digital • Lifetime Access</div>{% elif access_mode == 'ADMIN' %}<div class="paid-session-banner">🛡️ Macleen’s Admin • Free unlimited owner access</div>{% else %}<div class="paid-session-banner">🔗 CHAT Lite • Invited guest</div>{% endif %}
   <div id="protocolAlert">
     ⚠️ <strong>HTTPS Required:</strong> WebRTC, Camera, and Microphone access will not function on <code>file:///</code> links.
   </div>
@@ -189,7 +189,7 @@
       </p>
 
       <input type="text" id="userInputName" class="lobby-input" placeholder="Your Display Name" maxlength="20">
-      <button class="lobby-btn" onclick="createRoom()">+ Create Instant Room</button>
+      {% if access_mode != 'GUEST' %}<button class="lobby-btn" onclick="createRoom()">+ Create Instant Room</button>{% else %}<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px;font-size:.8rem;color:#1e40af">You joined through an invite. Enter your display name, then join the room below.</div>{% endif %}
 
       <div style="font-size: 0.78rem; color: var(--text-muted); margin: 2px 0;">— OR ENTER ROOM ID —</div>
       <input type="text" id="userInputRoom" class="lobby-input" placeholder="Room ID (e.g. CL-8421)" style="text-transform: uppercase;">
@@ -244,12 +244,14 @@
 </div>
 
 <script>
-  const paidUsageEndUrl = {{ url_for('digital_chat_lite_end_usage', access_token=usage_pass.access_token)|tojson }};
-  let isPaidInviteGuest = false;
+  const accessMode = {{ access_mode|tojson }};
+  const paidUsageEndUrl = {% if access_mode == 'PER_USE' %}{{ url_for('digital_chat_lite_end_usage', access_token=usage_pass.access_token)|tojson }}{% else %}null{% endif %};
+  const guestInviteBase = {{ url_for('digital_chat_lite_guest')|tojson }};
+  const guestOnly = accessMode === 'GUEST';
   let paidUsageEnded = false;
 
   function endPaidUsageIfHost() {
-    if (paidUsageEnded || isPaidInviteGuest || !isRoomHost || !currentRoom) return;
+    if (accessMode !== 'PER_USE' || !paidUsageEndUrl || paidUsageEnded || !isRoomHost || !currentRoom) return;
     paidUsageEnded = true;
     try {
       if (navigator.sendBeacon) {
@@ -290,7 +292,6 @@
   window.addEventListener('load', () => {
     const p = new URLSearchParams(window.location.search);
     const r = p.get('room');
-    isPaidInviteGuest = p.get('guest') === '1';
     if (r) document.getElementById('userInputRoom').value = r.toUpperCase();
   });
 
@@ -298,6 +299,7 @@
 
   // 1. Room Creation & Initiation
   function createRoom() {
+    if (guestOnly) return alert('This invite can join the existing room only.');
     myName = document.getElementById('userInputName').value.trim() || "Host";
     myId = "CL-" + Math.floor(1000 + Math.random() * 9000);
     currentRoom = myId;
@@ -734,20 +736,22 @@
 
   // 6. Zero-Trace Wipe
   function leaveSession() {
+    // Only an intentional Leave action consumes a paid per-use pass. Browser
+    // refresh, crash, lost internet, or PC shutdown can resume until expiry.
     endPaidUsageIfHost();
     endCall();
     if (peer) peer.destroy();
     chatBody.innerHTML = '';
-    window.location.href = window.location.pathname; // Clears session parameters
+    window.location.href = window.location.pathname;
   }
 
   window.addEventListener('beforeunload', () => {
-    endPaidUsageIfHost();
     if (peer) peer.destroy();
   });
 
   function copyInviteLink() {
-    const url = `${window.location.origin}${window.location.pathname}?room=${currentRoom}&guest=1`;
+    if (!currentRoom) return alert('Create or join a room first.');
+    const url = `${window.location.origin}${guestInviteBase}?room=${encodeURIComponent(currentRoom)}`;
     navigator.clipboard.writeText(url).then(() => alert(`Room Invite Link Copied!\n${url}`));
   }
 

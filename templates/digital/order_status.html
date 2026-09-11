@@ -13,18 +13,26 @@
 
   {% if order.item.product_type == 'HOSTED_APP' %}
     {% if order.payment_status == 'PAID' %}
-    <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:15px;padding:14px;margin:13px 0">
-      <h2 style="margin-top:0">⚡ Your hosted usage access</h2>
-      <p class="muted">Each purchased quantity creates one usage. CHAT Lite stays hosted inside Macleen’s Digital; there is no downloadable source copy.</p>
-      <div style="display:grid;gap:9px">
-      {% for usage in usage_passes %}
-        <div style="background:#fff;border:1px solid #d1fae5;border-radius:12px;padding:11px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-          <div><strong>Usage {{ loop.index }}</strong><div class="muted">{% if usage.status=='UNUSED' %}Ready to start{% elif usage.status=='ACTIVE' %}Active until {{ usage.expires_at|ph_datetime('%b %d %I:%M %p') if usage.expires_at else 'session end' }}{% else %}Used / expired{% endif %}</div></div>
-          {% if usage.status in ['UNUSED','ACTIVE'] %}<form method="post" action="{{ url_for('digital_launch_hosted_app',token=order.tracking_token,pass_id=usage.id) }}"><button class="btn" type="submit">{{ 'Launch CHAT Lite' if usage.status=='UNUSED' else 'Continue CHAT Lite' }}</button></form>{% else %}<span class="badge">Expired</span>{% endif %}
-        </div>
-      {% else %}<div class="muted">Your usage passes are being prepared. Refresh this page once.</div>{% endfor %}
+      {% if access_plan == 'LIFETIME' %}
+      <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:15px;padding:14px;margin:13px 0">
+        <h2 style="margin-top:0">♾️ Lifetime CHAT Lite Access</h2>
+        <p class="muted">Your one-time Lifetime Access payment is confirmed. You can reopen CHAT Lite from this private order page without buying another usage. Rooms, messages, calls, and shared files remain ephemeral and are not stored after the room ends.</p>
+        <form method="post" action="{{ url_for('digital_launch_hosted_app_lifetime',token=order.tracking_token) }}"><button class="btn" type="submit">Launch CHAT Lite</button></form>
       </div>
-    </div>
+      {% else %}
+      <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:15px;padding:14px;margin:13px 0">
+        <h2 style="margin-top:0">⚡ Your hosted usage access</h2>
+        <p class="muted">Each purchased quantity creates one 6-hour usage. If the browser closes, internet drops, or the PC loses power, reopen the same active usage from this page before its expiry. CHAT Lite stays hosted inside Macleen’s Digital; there is no downloadable source copy.</p>
+        <div style="display:grid;gap:9px">
+        {% for usage in usage_passes %}
+          <div style="background:#fff;border:1px solid #d1fae5;border-radius:12px;padding:11px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+            <div><strong>Usage {{ loop.index }}</strong><div class="muted">{% if usage.status=='UNUSED' %}Ready to start{% elif usage.status=='ACTIVE' %}Active until {{ usage.expires_at|ph_datetime('%b %d %I:%M %p') if usage.expires_at else 'session end' }}{% else %}Used / expired{% endif %}</div></div>
+            {% if usage.status in ['UNUSED','ACTIVE'] %}<form method="post" action="{{ url_for('digital_launch_hosted_app',token=order.tracking_token,pass_id=usage.id) }}"><button class="btn" type="submit">{{ 'Launch CHAT Lite' if usage.status=='UNUSED' else 'Resume CHAT Lite' }}</button></form>{% else %}<span class="badge">Expired</span>{% endif %}
+          </div>
+        {% else %}<div class="muted">Your usage passes are being prepared. Refresh this page once.</div>{% endfor %}
+        </div>
+      </div>
+      {% endif %}
     {% else %}<div style="background:#fff7ed;border-radius:13px;padding:12px"><strong>Hosted access is locked until payment is confirmed.</strong></div>{% endif %}
   {% else %}
     {% if can_download %}
