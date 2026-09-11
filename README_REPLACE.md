@@ -1,37 +1,35 @@
-# Macleen's Payment Confirmation + Storefront Digital Nav Update
+# Macleen's Digital — Lifetime Ownership / My Apps Update
 
-Incremental replacement package for the latest Macleen's build.
+Incremental update for the latest Macleen's project.
 
-## What changed
+## What changes
+- Adds **Digital → My Apps** as the customer's permanent return page for paid Lifetime hosted apps.
+- Paid Lifetime apps show **Owned · Lifetime** in the Digital catalog instead of being offered for sale again.
+- Opening the product detail page also blocks duplicate checkout and shows **Open App** instead.
+- A paid Lifetime private order page automatically remembers the entitlement on that browser for 5 years.
+- If the purchase was made while logged in, ownership follows the customer's Rewards account across devices.
+- Guest Lifetime buyers can choose **Save Lifetime Access to My Account**. If they are not logged in, Macleen's sends them through login and automatically links the Lifetime order after successful login.
+- The original private order page remains usable as a backup recovery link.
+- No database migration/reset is required.
 
-1. **Fix PayMongo confirmation**
-   - Checkout creation remains on PayMongo's v2 create endpoint.
-   - Checkout-session verification now uses the current official retrieval endpoint:
-     `GET https://api.paymongo.com/v1/checkout_sessions/{id}`.
-   - The previous build used `/v2/checkout_sessions/{id}` for verification. Current PayMongo docs specify `/v1/checkout_sessions/{id}` for retrieval, which could leave completed QR PH orders stuck in PENDING.
-   - The fix applies to Digital, Food Storefront, Crafts, and Support QR PH checks.
-   - Existing fast polling / Back-to-Merchant confirmation behavior remains included.
+## Replace
+Extract this ZIP over the existing project and choose **Replace files in destination**.
 
-2. **Macleen's Digital added to the Food Storefront mobile bottom navigation**
-   - New `💻 Digital` tab appears beside the Food storefront navigation.
-   - Bottom navigation was tightened so Home, Menu, Digital, Community, Rewards, and Orders/Login fit on mobile.
-   - Because the storefront PWA has root scope, Digital opens from the installed Macleen's web app as well.
-
-## Files to replace
-
+Affected files only:
 - `app.py`
-- `templates/store_catalog.html`
+- `templates/digital/base.html`
+- `templates/digital/index.html`
+- `templates/digital/item.html`
 - `templates/digital/order_status.html`
+- `templates/digital/my_apps.html` (new)
 
-Extract into the existing project root and replace files when prompted.
-
-Then deploy:
-
+## Deploy
 ```bash
 git status
 git add .
-git commit -m "Fix PayMongo confirmation and add Digital to storefront nav"
+git commit -m "Add My Digital Apps and lifetime ownership recovery"
 git push origin main
 ```
 
-No database reset or migration is required for this update.
+## Important
+For a guest purchase, the browser-memory entitlement depends on the signed Macleen's cookie. If the buyer clears browser/site data or changes device before saving the Lifetime purchase to a customer account, they should use the original private order link to recover it and save it to their account.

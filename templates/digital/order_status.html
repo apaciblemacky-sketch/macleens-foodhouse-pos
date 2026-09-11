@@ -16,8 +16,12 @@
       {% if access_plan == 'LIFETIME' %}
       <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:15px;padding:14px;margin:13px 0">
         <h2 style="margin-top:0">♾️ Lifetime {{ order.item.name }} Access</h2>
-        <p class="muted">Your one-time Lifetime Access payment is confirmed. You can reopen this hosted app from this private order page without buying another usage. After launching, tap “Install Web App” to add it to your phone or computer. Rooms, messages, calls, and shared files remain ephemeral and are not stored after the room ends.</p>
-        <form method="post" action="{{ url_for('digital_launch_hosted_app_lifetime',token=order.tracking_token) }}"><button class="btn" type="submit">Launch {{ order.item.name }}</button></form>
+        <p class="muted">Your one-time Lifetime Access payment is confirmed. You never need to buy this app again. If you accidentally close it, return to <strong>Digital → My Apps</strong> and reopen it. After launching, tap “Install Web App” to add it to your phone or computer. Rooms, messages, calls, and shared files remain ephemeral and are not stored after the room ends.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <form method="post" action="{{ url_for('digital_launch_hosted_app_lifetime',token=order.tracking_token) }}"><button class="btn" type="submit">Launch {{ order.item.name }}</button></form>
+          <a class="btn btn-light" href="{{ url_for('digital_my_apps') }}">♾️ My Digital Apps</a>
+        </div>
+        {% if order.customer_id and session.get('customer_id') == order.customer_id %}<p style="margin:12px 0 0"><span class="badge">✓ Saved to your account</span> <span class="muted">You can use My Digital Apps on another device after signing in.</span></p>{% elif not order.customer_id %}<form method="post" action="{{ url_for('digital_save_lifetime_to_account',token=order.tracking_token) }}" style="margin-top:10px"><button class="btn btn-light" type="submit">Save Lifetime Access to My Account</button></form><p class="muted" style="margin:6px 0 0">Without an account, this browser still remembers the paid lifetime purchase. Saving it to your Rewards account makes recovery easier on another device.</p>{% endif %}
       </div>
       {% else %}
       <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:15px;padding:14px;margin:13px 0">
@@ -27,7 +31,7 @@
         {% for usage in usage_passes %}
           <div style="background:#fff;border:1px solid #d1fae5;border-radius:12px;padding:11px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
             <div><strong>Usage {{ loop.index }}</strong><div class="muted">{% if usage.status=='UNUSED' %}Ready to start{% elif usage.status=='ACTIVE' %}Active until {{ usage.expires_at|ph_datetime('%b %d %I:%M %p') if usage.expires_at else 'session end' }}{% else %}Used / expired{% endif %}</div></div>
-            {% if usage.status in ['UNUSED','ACTIVE'] %}<form method="post" action="{{ url_for('digital_launch_hosted_app',token=order.tracking_token,pass_id=usage.id) }}"><button class="btn" type="submit">{{ 'Launch {{ order.item.name }}' if usage.status=='UNUSED' else 'Resume {{ order.item.name }}' }}</button></form>{% else %}<span class="badge">Expired</span>{% endif %}
+            {% if usage.status in ['UNUSED','ACTIVE'] %}<form method="post" action="{{ url_for('digital_launch_hosted_app',token=order.tracking_token,pass_id=usage.id) }}"><button class="btn" type="submit">{{ ('Launch ' if usage.status=='UNUSED' else 'Resume ') ~ order.item.name }}</button></form>{% else %}<span class="badge">Expired</span>{% endif %}
           </div>
         {% else %}<div class="muted">Your usage passes are being prepared. Refresh this page once.</div>{% endfor %}
         </div>

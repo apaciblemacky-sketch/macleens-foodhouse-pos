@@ -4,10 +4,11 @@
 <div class="grid">
   <section class="card">
     <img src="{{ item.image_url or '/static/logo.png' }}" alt="{{ item.name }}" style="width:100%;max-height:340px;object-fit:contain;border-radius:15px;background:#f0fdfa">
-    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:13px"><span class="badge">{{ item.category_name }}</span><span class="badge">{{ 'Hosted App' if item.product_type=='HOSTED_APP' else item.product_type.replace('_',' ').title() }}</span>{% if item.product_type=='HOSTED_APP' %}<span class="badge">⚡ Hosted access</span>{% elif item.asset_file_id %}<span class="badge">🔒 Protected download</span>{% endif %}</div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:13px"><span class="badge">{{ item.category_name }}</span><span class="badge">{{ 'Hosted App' if item.product_type=='HOSTED_APP' else item.product_type.replace('_',' ').title() }}</span>{% if owned_lifetime_order %}<span class="badge" style="background:#dcfce7;color:#166534">♾️ Owned · Lifetime</span>{% elif item.product_type=='HOSTED_APP' %}<span class="badge">⚡ Hosted access</span>{% elif item.asset_file_id %}<span class="badge">🔒 Protected download</span>{% endif %}</div>
     <h1>{{ item.name }}</h1><p style="white-space:pre-wrap;line-height:1.55">{{ item.description }}</p>
     {% if item.product_type=='HOSTED_APP' %}
-      {% if hosted_access == 'FREE' %}<p><strong>Customer Access:</strong> Free</p>
+      {% if owned_lifetime_order %}<p><strong>Lifetime Access:</strong> Owned</p><p class="muted">No additional purchase is required on this account/browser.</p>
+      {% elif hosted_access == 'FREE' %}<p><strong>Customer Access:</strong> Free</p>
       {% elif hosted_access == 'LIFETIME' %}<p><strong>Lifetime Access:</strong> ₱{{ '%.2f'|format(item.lifetime_price) }} one time</p>
       {% elif hosted_access == 'BOTH' %}<p><strong>Per Use:</strong> ₱{{ '%.2f'|format(item.price) }} · <strong>Lifetime Access:</strong> ₱{{ '%.2f'|format(item.lifetime_price) }} one time</p>
       {% else %}<p><strong>Per Use:</strong> ₱{{ '%.2f'|format(item.price) }}</p>{% endif %}
@@ -17,7 +18,12 @@
     {% if item.sample_url %}<a class="btn btn-light" target="_blank" rel="noopener" href="{{ item.sample_url }}">View Sample</a>{% endif %}
   </section>
   <section class="card">
-    {% if item.product_type=='HOSTED_APP' and hosted_access=='FREE' and item.hosted_app_key=='UPLOADED' %}
+    {% if owned_lifetime_order %}
+      <h2>♾️ Already yours</h2>
+      <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:13px;padding:13px;margin-bottom:13px"><strong>Lifetime Access is active.</strong><p class="muted" style="margin:6px 0 0">This product is no longer offered for sale to you. If you accidentally close the app, return to Digital → My Apps and open it again.</p></div>
+      <a class="btn" href="{{ url_for('digital_my_apps_open',order_id=owned_lifetime_order.id) }}">Open {{ item.name }}</a>
+      <a class="btn btn-light" style="margin-left:6px" href="{{ url_for('digital_my_apps') }}">My Digital Apps</a>
+    {% elif item.product_type=='HOSTED_APP' and hosted_access=='FREE' and item.hosted_app_key=='UPLOADED' %}
       <h2>Free hosted access</h2>
       <p class="muted">No payment or account login is required for this app.</p>
       <a class="btn" href="{{ url_for('digital_hosted_app_free', item_id=item.id) }}">Launch {{ item.name }}</a>

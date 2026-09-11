@@ -79,7 +79,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.12-paymongo-retrieve-v1-digital-nav-v34'
+APP_RELEASE = '2026.09.12-digital-lifetime-library-v35'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -10392,6 +10392,106 @@ def digital_support_ai_reply(question, use_prepared_answer=True):
     return digital_support_fallback(question), 'smart-help'
 
 
+DIGITAL_LIFETIME_COOKIE_NAME = 'macleens_digital_lifetime'
+DIGITAL_LIFETIME_COOKIE_MAX_AGE = 60 * 60 * 24 * 365 * 5
+
+
+def digital_lifetime_cookie_order_ids():
+    """Return signed lifetime-order ids remembered on this browser."""
+    raw = (request.cookies.get(DIGITAL_LIFETIME_COOKIE_NAME) or '').strip()
+    if not raw:
+        return []
+    try:
+        padded = raw + ('=' * (-len(raw) % 4))
+        decoded = base64.urlsafe_b64decode(padded.encode('ascii')).decode('utf-8')
+        payload, signature = decoded.rsplit(':', 1)
+        secret = str(app.config.get('SECRET_KEY') or '').encode('utf-8')
+        expected = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()[:40]
+        if not hmac.compare_digest(signature, expected):
+            return []
+        ids = []
+        for value in payload.split(','):
+            order_id = parse_int(value, 0)
+            if order_id > 0 and order_id not in ids:
+                ids.append(order_id)
+        return ids[-40:]
+    except Exception:
+        return []
+
+
+def digital_lifetime_cookie_value(order_ids):
+    ids = []
+    for value in order_ids:
+        order_id = parse_int(value, 0)
+        if order_id > 0 and order_id not in ids:
+            ids.append(order_id)
+    payload = ','.join(str(value) for value in ids[-40:])
+    secret = str(app.config.get('SECRET_KEY') or '').encode('utf-8')
+    signature = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()[:40]
+    return base64.urlsafe_b64encode(f'{payload}:{signature}'.encode('utf-8')).decode('ascii').rstrip('=')
+
+
+def digital_is_valid_lifetime_order(order):
+    return bool(
+        order and digital_paid_order(order) and digital_order_access_plan(order) == 'LIFETIME' and
+        order.item and order.item.product_type == 'HOSTED_APP'
+    )
+
+
+def digital_remember_lifetime_order(response, order):
+    """Remember a paid lifetime order on the buyer's current browser."""
+    if not digital_is_valid_lifetime_order(order):
+        return response
+    ids = digital_lifetime_cookie_order_ids()
+    if order.id not in ids:
+        ids.append(order.id)
+    response.set_cookie(
+        DIGITAL_LIFETIME_COOKIE_NAME, digital_lifetime_cookie_value(ids),
+        max_age=DIGITAL_LIFETIME_COOKIE_MAX_AGE, httponly=True, samesite='Lax',
+        secure=bool(IS_PRODUCTION or request.is_secure), path='/digital',
+    )
+    return response
+
+
+def digital_lifetime_owned_orders():
+    """Lifetime hosted apps accessible to this account or remembered browser."""
+    customer_id = parse_int(session.get('customer_id'), 0)
+    browser_ids = digital_lifetime_cookie_order_ids()
+    access_filters = []
+    if customer_id:
+        access_filters.append(DigitalOrder.customer_id == customer_id)
+    if browser_ids:
+        access_filters.append(DigitalOrder.id.in_(browser_ids))
+    if not access_filters:
+        return []
+    rows = DigitalOrder.query.filter(
+        DigitalOrder.payment_status == 'PAID',
+        DigitalOrder.access_plan == 'LIFETIME',
+        or_(*access_filters),
+    ).order_by(DigitalOrder.completed_at.desc().nullslast(), DigitalOrder.id.desc()).all()
+    seen_items = set()
+    owned = []
+    for order in rows:
+        if not digital_is_valid_lifetime_order(order) or order.item_id in seen_items:
+            continue
+        seen_items.add(order.item_id)
+        owned.append(order)
+    return owned
+
+
+def digital_lifetime_owned_map():
+    return {order.item_id: order for order in digital_lifetime_owned_orders()}
+
+
+def digital_customer_can_open_lifetime_order(order):
+    if not digital_is_valid_lifetime_order(order):
+        return False
+    customer_id = parse_int(session.get('customer_id'), 0)
+    if customer_id and order.customer_id == customer_id:
+        return True
+    return order.id in digital_lifetime_cookie_order_ids()
+
+
 def digital_support_rate_allowed():
     now = int(datetime.now(timezone.utc).timestamp())
     history = [parse_int(value, 0) for value in (session.get('digital_support_bot_times') or [])]
@@ -10415,21 +10515,69 @@ def digital_store():
     if category:
         query = query.filter_by(category_name=category)
     featured = DigitalItem.query.filter_by(is_active=True, is_featured=True).order_by(DigitalItem.name.asc()).limit(12).all()
+    owned_lifetime = digital_lifetime_owned_map()
     return render_template('digital/index.html', items=query.order_by(DigitalItem.is_featured.desc(), DigitalItem.name.asc()).all(),
-                           featured=featured,
+                           featured=featured, owned_lifetime=owned_lifetime,
                            categories=DigitalCategory.query.filter(
                                DigitalCategory.is_active.is_(True),
                                db.func.lower(DigitalCategory.name) != 'school',
                            ).order_by(DigitalCategory.name).all(), selected_category=category,
                            payment_settings=digital_payment_settings(), announcement=portal_announcement('DIGITAL'))
 
+
+@app.route('/digital/my-apps')
+def digital_my_apps():
+    return render_template(
+        'digital/my_apps.html',
+        lifetime_orders=digital_lifetime_owned_orders(),
+        announcement=portal_announcement('DIGITAL'),
+    )
+
+
+@app.route('/digital/my-apps/open/<int:order_id>')
+def digital_my_apps_open(order_id):
+    order = db.session.get(DigitalOrder, order_id)
+    if not order or not digital_customer_can_open_lifetime_order(order):
+        abort(403)
+    if digital_is_uploaded_hosted_app(order.item):
+        return redirect(url_for('digital_hosted_app_lifetime', token=order.tracking_token))
+    if digital_is_chat_lite(order.item):
+        return redirect(url_for('digital_chat_lite_lifetime', token=order.tracking_token))
+    abort(404)
+
+
+@app.route('/digital/order/<token>/save-lifetime-to-account', methods=['POST'])
+def digital_save_lifetime_to_account(token):
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    if not digital_is_valid_lifetime_order(order):
+        flash('This order does not have active Lifetime Access.', 'error')
+        return redirect(url_for('digital_order_status', token=token))
+    customer_id = parse_int(session.get('customer_id'), 0)
+    if not customer_id:
+        session['digital_lifetime_claim_token'] = token
+        flash('Log in once and Macleen’s will save this Lifetime Access to your account automatically.', 'info')
+        return redirect(url_for('customer_login', src='digital', next='digital-lifetime'))
+    if order.customer_id and order.customer_id != customer_id:
+        flash('This lifetime purchase is already linked to another customer account.', 'error')
+        return redirect(url_for('digital_order_status', token=token))
+    order.customer_id = customer_id
+    db.session.commit()
+    flash('Lifetime Access saved to your account. You can now reopen it anytime from My Digital Apps.', 'success')
+    return redirect(url_for('digital_order_status', token=token))
+
+
 @app.route('/digital/item/<int:item_id>', methods=['GET', 'POST'])
 def digital_item_detail(item_id):
     item = DigitalItem.query.filter_by(id=item_id, is_active=True).first_or_404()
+    owned_lifetime_order = digital_lifetime_owned_map().get(item.id) if item.product_type == 'HOSTED_APP' else None
     if request.method == 'GET':
         item.views = parse_int(item.views, 0) + 1; db.session.commit()
         return render_template('digital/item.html', item=item, payment_settings=digital_payment_settings(),
-                               hosted_access=digital_hosted_customer_access(item) if item.product_type == 'HOSTED_APP' else None)
+                               hosted_access=digital_hosted_customer_access(item) if item.product_type == 'HOSTED_APP' else None,
+                               owned_lifetime_order=owned_lifetime_order)
+    if owned_lifetime_order:
+        flash('You already own Lifetime Access to this app. Open it from My Digital Apps instead of buying it again.', 'success')
+        return redirect(url_for('digital_my_apps'))
     name = request.form.get('customer_name', '').strip()[:100]
     contact = request.form.get('contact_number', '').strip()[:50]
     email = request.form.get('email', '').strip()[:120]
@@ -10508,14 +10656,15 @@ def digital_order_status(token):
     if order.payment_gateway in {'PAYMONGO', 'PAYPAL'}:
         db.session.commit()
     download_asset = digital_order_download_asset(order)
-    return render_template(
+    response = app.make_response(render_template(
         'digital/order_status.html', order=order, can_download=digital_order_can_download(order),
         can_open_external_delivery=digital_order_can_open_external_delivery(order), payment_settings=digital_payment_settings(),
         activation_codes=digital_active_activation_codes(order) if digital_paid_order(order) else [],
         download_asset=download_asset, current_asset_version=digital_order_asset_version(order),
         access_plan=digital_order_access_plan(order),
         usage_passes=digital_usage_passes(order, include_expired=True) if order.payment_status == 'PAID' else [],
-    )
+    ))
+    return digital_remember_lifetime_order(response, order)
 
 
 @app.route('/api/digital/order/<token>/payment-status')
@@ -17110,6 +17259,7 @@ def customer_login():
         next_section = request.form.get('next', '').strip() or next_section
         cust = get_customer_by_identifier(contact)
         if cust and check_password_hash(cust.pin_hash, pin):
+            lifetime_claim_token = session.get('digital_lifetime_claim_token')
             issue = customer_access_issue(cust)
             if issue:
                 if cust.card_expires_at and ph_today() > cust.card_expires_at and (cust.card_status or 'ACTIVE').upper() == 'ACTIVE':
@@ -17139,6 +17289,13 @@ def customer_login():
             cust.last_active_at = utc_now()
             track_portal_event('LOGIN', source=portal_source, customer_id=cust.id)
             db.session.commit()
+            if next_section == 'digital-lifetime' and lifetime_claim_token:
+                claim_order = DigitalOrder.query.filter_by(tracking_token=lifetime_claim_token).first()
+                if claim_order and digital_is_valid_lifetime_order(claim_order) and (not claim_order.customer_id or claim_order.customer_id == cust.id):
+                    claim_order.customer_id = cust.id
+                    db.session.commit()
+                    flash('Lifetime Access saved to your account. You can reopen it anytime from My Digital Apps.', 'success')
+                    return redirect(url_for('digital_order_status', token=lifetime_claim_token))
             if next_section == 'community':
                 return redirect(url_for('community_home'))
             target = url_for('customer_dashboard')
