@@ -1,24 +1,37 @@
-# Macleen's QR PH Fast Return Confirmation Update
+# Macleen's Payment Confirmation + Storefront Digital Nav Update
 
-Incremental update for the latest Macleen's package.
+Incremental replacement package for the latest Macleen's build.
 
-## Changes
-- Back to Merchant now performs several immediate server-to-server PayMongo checks during the short propagation window.
-- The private Digital order page starts checking immediately instead of waiting 5 seconds.
-- It checks about every 1.2 seconds at first, then backs off automatically.
-- A browser return alone still never unlocks an unpaid product; PayMongo confirmation is required.
-- Old "contact Macleen's Digital on Facebook" payment copy is replaced with the current Chat with us wording.
+## What changed
 
-## PayMongo setup for fastest confirmation
-Register this webhook once in PayMongo Dashboard -> Developer Tools -> Webhooks:
+1. **Fix PayMongo confirmation**
+   - Checkout creation remains on PayMongo's v2 create endpoint.
+   - Checkout-session verification now uses the current official retrieval endpoint:
+     `GET https://api.paymongo.com/v1/checkout_sessions/{id}`.
+   - The previous build used `/v2/checkout_sessions/{id}` for verification. Current PayMongo docs specify `/v1/checkout_sessions/{id}` for retrieval, which could leave completed QR PH orders stuck in PENDING.
+   - The fix applies to Digital, Food Storefront, Crafts, and Support QR PH checks.
+   - Existing fast polling / Back-to-Merchant confirmation behavior remains included.
 
-`https://macleens-foodhouse-pos.onrender.com/api/paymongo/webhook`
+2. **Macleen's Digital added to the Food Storefront mobile bottom navigation**
+   - New `💻 Digital` tab appears beside the Food storefront navigation.
+   - Bottom navigation was tightened so Home, Menu, Digital, Community, Rewards, and Orders/Login fit on mobile.
+   - Because the storefront PWA has root scope, Digital opens from the installed Macleen's web app as well.
 
-Subscribe to:
+## Files to replace
 
-`checkout_session.payment.paid`
+- `app.py`
+- `templates/store_catalog.html`
+- `templates/digital/order_status.html`
 
-The existing server can also recover by polling if the webhook is delayed or unavailable.
+Extract into the existing project root and replace files when prompted.
 
-## Install
-Extract this ZIP over the existing Macleen's project and replace files in destination, then deploy.
+Then deploy:
+
+```bash
+git status
+git add .
+git commit -m "Fix PayMongo confirmation and add Digital to storefront nav"
+git push origin main
+```
+
+No database reset or migration is required for this update.

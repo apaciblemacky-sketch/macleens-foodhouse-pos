@@ -79,7 +79,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.12-paymongo-fast-return-v33'
+APP_RELEASE = '2026.09.12-paymongo-retrieve-v1-digital-nav-v34'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -9001,7 +9001,7 @@ def storefront_check_paymongo_payment(order):
         return False
     try:
         response = requests.get(
-            f'https://api.paymongo.com/v2/checkout_sessions/{order.gateway_checkout_id}',
+            f'https://api.paymongo.com/v1/checkout_sessions/{order.gateway_checkout_id}',
             auth=(secret_key, ''), timeout=(4, 20),
         )
         body = response.json() if response.content else {}
@@ -9093,7 +9093,7 @@ def craft_check_paymongo_payment(craft_order):
         return False
     try:
         response = requests.get(
-            f'https://api.paymongo.com/v2/checkout_sessions/{craft_order.gateway_checkout_id}',
+            f'https://api.paymongo.com/v1/checkout_sessions/{craft_order.gateway_checkout_id}',
             auth=(secret_key, ''), timeout=(4, 20),
         )
         body = response.json() if response.content else {}
@@ -9303,7 +9303,7 @@ def support_check_paymongo_payment(contribution):
         return False
     try:
         response = requests.get(
-            f'https://api.paymongo.com/v2/checkout_sessions/{contribution.gateway_checkout_id}',
+            f'https://api.paymongo.com/v1/checkout_sessions/{contribution.gateway_checkout_id}',
             auth=(secret_key, ''), timeout=(4, 20),
         )
         body = response.json() if response.content else {}
@@ -10008,7 +10008,7 @@ def digital_check_paymongo_payment(order):
         return False
     try:
         response = requests.get(
-            f'https://api.paymongo.com/v2/checkout_sessions/{order.gateway_checkout_id}',
+            f'https://api.paymongo.com/v1/checkout_sessions/{order.gateway_checkout_id}',
             auth=(secret_key, ''), timeout=(4, 20),
         )
         body = response.json() if response.content else {}
