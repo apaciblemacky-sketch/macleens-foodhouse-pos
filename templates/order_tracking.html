@@ -34,18 +34,20 @@
       </div>
     {% endif %}
   </section>
+  {% if public_chat_channels_open %}
   <section class="card">
-    <div class="eyebrow">Live cashier chat</div>
+    <div class="eyebrow">Chat with us</div>
     {% if can_customer_chat and current_stage not in ['CANCELLED', 'FULFILLED'] %}
       <p class="muted" style="margin:5px 0 12px">Ask about this order and receive a live reply. Sound plays after the first tap on this page.</p>
       <div id="orderChatLog" class="chat-log"><div class="chat-msg system">Loading your temporary order chat…</div></div>
-      <div class="chat-send"><input id="orderChatInput" maxlength="500" placeholder="Message cashier" onkeydown="if(event.key==='Enter'){event.preventDefault();sendOrderChat()}"><button type="button" onclick="sendOrderChat()">Send</button></div>
+      <div class="chat-send"><input id="orderChatInput" maxlength="500" placeholder="Message us" onkeydown="if(event.key==='Enter'){event.preventDefault();sendOrderChat()}"><button type="button" onclick="sendOrderChat()">Send</button></div>
     {% elif can_customer_chat %}
       <div class="notice">This temporary order chat is automatically cleared after cancellation or completed handover to protect privacy and save storage.</div>
     {% else %}
-      <div class="notice">Log in to the customer account that placed this order to use live cashier chat.</div>
+      <div class="notice">Log in to the customer account that placed this order to use Chat with us.</div>
     {% endif %}
   </section>
+  {% endif %}
   <section class="card">
     <div class="eyebrow">Order summary</div>
     <div class="summary">
@@ -59,7 +61,7 @@
   </section>
   <div class="actions"><a class="btn primary" href="/">Order more</a>{% if session.get('customer_id') %}<a class="btn secondary" href="/portal/dashboard#orders">My orders</a>{% endif %}</div>
 </main>
-{% if can_customer_chat and current_stage not in ['CANCELLED', 'FULFILLED'] %}
+{% if public_chat_channels_open and can_customer_chat and current_stage not in ['CANCELLED', 'FULFILLED'] %}
 <script>
   const orderChatToken = {{ order.public_token|tojson }};
   let orderChatSeenRemote = new Set(), orderChatLoaded = false, orderChatAudio = null;

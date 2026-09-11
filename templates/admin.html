@@ -77,8 +77,23 @@
   </div>
 
   <div class="card" style="border-color:#93c5fd;background:#eff6ff;display:flex;gap:14px;align-items:end;justify-content:space-between;flex-wrap:wrap;">
-    <div><h3 style="color:#075985;margin-bottom:4px">📱 Storefront QR PH</h3><p style="font-size:.78rem;color:#075985">Food Store and Crafts use QR PH checkout only. PayMongo verifies the payment server-side, then the order moves to preparation automatically.</p></div>
+    <div><h3 style="color:#075985;margin-bottom:4px">📱 Storefront QR PH</h3><p style="font-size:.78rem;color:#075985">Food Store uses QR PH. Crafts uses QR PH or PayPal. Online providers are verified server-side before paid orders move forward.</p></div>
     <div style="font-size:.72rem;font-weight:850;color:{{ '#166534' if storefront_payment_settings.paymongo_ready else '#92400e' }}">{{ '✓ QR PH is ready' if storefront_payment_settings.paymongo_ready else '⚠ Add PAYMONGO_SECRET_KEY in Render first' }}</div>
+  </div>
+
+  <div class="card" style="border-color:#99f6e4;background:#f0fdfa;display:flex;gap:14px;align-items:end;justify-content:space-between;flex-wrap:wrap;">
+    <div><h3 style="color:#115e59;margin-bottom:4px">💬 Chat with us channels</h3><p style="font-size:.78rem;color:#475569">One master switch opens or closes customer chat on Storefront, Crafts, and Digital in one go. Digital and Crafts support guest chat without login.</p></div>
+    <form action="{{ url_for('admin_toggle_chat_channels') }}" method="POST"><button class="btn" type="submit" style="background:{{ '#dc2626' if chat_channels_open else '#059669' }};color:white">{{ 'Close all chat channels' if chat_channels_open else 'Open all chat channels' }}</button></form>
+  </div>
+
+  <div class="card" style="border-color:#f9a8d4;">
+    <h3 style="color:#9d174d;margin-bottom:5px">📣 Storefront announcement board</h3><p style="font-size:.75rem;color:#64748b;margin-bottom:9px">Show one announcement at the top of the Food storefront.</p>
+    <form action="{{ url_for('admin_save_portal_announcement',portal='STOREFRONT') }}" method="POST" class="form-row"><div class="form-group"><label>Title</label><input class="form-control" name="title" maxlength="100" value="{{ storefront_announcement.title if storefront_announcement else '' }}" placeholder="Delivery available today"></div><div class="form-group" style="flex:2"><label>Message</label><input class="form-control" name="body" maxlength="500" value="{{ storefront_announcement.body if storefront_announcement else '' }}" placeholder="Add your announcement here."></div><div class="form-group"><label>Optional link</label><input class="form-control" name="link_url" maxlength="500" value="{{ storefront_announcement.link_url if storefront_announcement else '' }}"></div><div class="form-group"><label>Link label</label><input class="form-control" name="link_label" maxlength="60" value="{{ storefront_announcement.link_label if storefront_announcement else 'Learn more' }}"></div><label style="font-size:.75rem;font-weight:800"><input style="width:auto" type="checkbox" name="enabled" value="1" {% if storefront_announcement %}checked{% endif %}> Show</label><button class="btn btn-pink" type="submit">Save announcement</button></form>
+  </div>
+
+  <div class="card" style="border-color:#bfdbfe;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px"><div><h3 style="color:#075985">📈 Website Views — Last 30 Days</h3><p style="font-size:.74rem;color:#64748b">Daily page views for Storefront, Crafts, and Digital.</p></div><div style="font-size:.7rem;color:#475569">Storefront · Crafts · Digital</div></div>
+    <div style="height:260px;position:relative"><canvas id="websiteViewsChart" style="width:100%;height:100%"></canvas></div>
   </div>
 
   <!-- 📊 COMPREHENSIVE FINANCIAL PERFORMANCE TABLE -->
@@ -1033,7 +1048,7 @@
                   🍲
                 {% endif %}
               </td>
-              <td><strong class="dish-name">{{ p.name }}</strong></td>
+              <td><input type="text" name="name_{{ p.id }}" value="{{ p.name }}" minlength="2" maxlength="120" class="form-control dish-name-input" style="padding:2px;min-width:135px;font-weight:800"></td>
               <td class="dish-cat">{{ p.category_name }}</td>
               <td><input type="text" name="description_{{ p.id }}" value="{{ p.description or '' }}" maxlength="500" placeholder="Short customer-facing description" class="form-control" style="padding:2px;min-width:175px;"></td>
               <td><input type="number" min="0.01" step="0.01" name="price_{{ p.id }}" value="{{ p.price }}" class="form-control" style="padding:2px;"></td>
@@ -1128,6 +1143,7 @@
         const id = row.getAttribute('data-id');
         if (!id) return;
         const field = name => form.elements.namedItem(`${name}_${id}`);
+        row.setAttribute('data-name', (field('name')?.value || '').toLowerCase());
         row.setAttribute('data-price', field('price')?.value || '0');
         row.setAttribute('data-active', field('is_active')?.checked ? 'true' : 'false');
         row.setAttribute('data-featured', field('is_featured')?.checked ? '1' : '0');
@@ -1304,6 +1320,26 @@
       builder.appendChild(row);
     }
     addBundleItemRow();
+
+    function drawWebsiteViewsChart() {
+      const canvas = document.getElementById('websiteViewsChart');
+      if (!canvas) return;
+      const data = {{ website_view_analytics|tojson }};
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(300, rect.width * dpr); canvas.height = Math.max(220, rect.height * dpr);
+      const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+      const w = rect.width, h = rect.height, pad = {l:38,r:12,t:14,b:32};
+      const all = [...data.storefront,...data.crafts,...data.digital]; const max = Math.max(1, ...all);
+      ctx.clearRect(0,0,w,h); ctx.font='11px system-ui'; ctx.fillStyle='#64748b'; ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=1;
+      for(let i=0;i<=4;i++){const y=pad.t+(h-pad.t-pad.b)*(i/4);ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();ctx.fillText(String(Math.round(max*(1-i/4))),4,y+4)}
+      const colors=['#db2777','#7c3aed','#0891b2']; const series=[data.storefront,data.crafts,data.digital];
+      series.forEach((values,si)=>{ctx.strokeStyle=colors[si];ctx.lineWidth=2.5;ctx.beginPath();values.forEach((v,i)=>{const x=pad.l+(w-pad.l-pad.r)*(i/Math.max(1,values.length-1));const y=pad.t+(h-pad.t-pad.b)*(1-v/max);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)});ctx.stroke()});
+      const step=Math.max(1,Math.ceil(data.labels.length/6));data.labels.forEach((label,i)=>{if(i%step&&i!==data.labels.length-1)return;const x=pad.l+(w-pad.l-pad.r)*(i/Math.max(1,data.labels.length-1));ctx.fillStyle='#64748b';ctx.fillText(label,x-12,h-10)});
+      [['Storefront',colors[0]],['Crafts',colors[1]],['Digital',colors[2]]].forEach((entry,i)=>{ctx.fillStyle=entry[1];ctx.fillRect(pad.l+i*92,2,10,10);ctx.fillStyle='#475569';ctx.fillText(entry[0],pad.l+14+i*92,11)});
+    }
+    window.addEventListener('resize', drawWebsiteViewsChart);
+    drawWebsiteViewsChart();
 
     initializeBulkCatalogDirtyTracking();
 

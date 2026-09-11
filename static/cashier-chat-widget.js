@@ -1,5 +1,5 @@
 /* Small reusable customer-to-cashier chat widget for the public portals.
- * Chat remains account-bound and temporary; the server enforces both rules.
+ * Storefront chat can remain account-bound; Crafts and Digital use temporary guest threads.
  */
 (function () {
   'use strict';
@@ -22,6 +22,8 @@
     let knownCashierMessages = new Set();
     let loaded = false;
     let loginRequired = false;
+    const portal = String(options.portal || '').trim().toUpperCase();
+    const portalQuery = portal ? ('?portal=' + encodeURIComponent(portal)) : '';
 
     function addBubble(kind, text) {
       const bubble = document.createElement('div');
@@ -35,11 +37,11 @@
     function showLoginPrompt(message) {
       loginRequired = true;
       log.innerHTML = '';
-      addBubble('system', message || 'Please log in first so the cashier can reply to you here.');
+      addBubble('system', message || 'Please log in first so we can reply to you here.');
       const link = document.createElement('a');
       link.href = '/portal/login';
       link.className = 'cashier-chat-login';
-      link.textContent = 'Log in to chat with cashier';
+      link.textContent = 'Log in to Chat with us';
       log.appendChild(link);
       input.disabled = true;
       send.disabled = true;
@@ -56,7 +58,7 @@
 
     async function loadMessages() {
       try {
-        const response = await fetch('/api/customer-chat/messages', {cache: 'no-store'});
+        const response = await fetch('/api/customer-chat/messages' + portalQuery, {cache: 'no-store'});
         const data = await response.json().catch(function () { return {}; });
         if (response.status === 401 || response.status === 403) {
           showLoginPrompt(data.message);
@@ -88,7 +90,7 @@
         const response = await fetch('/api/customer-chat/messages', {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({message: message})
+          body: JSON.stringify({message: message, portal: portal})
         });
         const data = await response.json().catch(function () { return {}; });
         if (response.status === 401 || response.status === 403) return showLoginPrompt(data.message);

@@ -1114,7 +1114,7 @@
         button.style.cssText = `display:block;width:100%;text-align:left;border:1px solid ${thread.thread_key === cashierChatCurrentKey ? '#2dd4bf' : '#334155'};background:${thread.thread_key === cashierChatCurrentKey ? '#134e4a' : '#1e293b'};color:#f8fafc;border-radius:7px;padding:8px;margin-bottom:6px;cursor:pointer`;
         button.onclick = () => { cashierChatCurrentKey = thread.thread_key; cashierChatSeenRemote = new Set(); cashierChatThreadLoaded = false; renderCashierChatThreads(threads); loadCashierChatThread(); };
         const title = document.createElement('div'); title.style.cssText = 'font-weight:900;font-size:.75rem;display:flex;justify-content:space-between;gap:6px';
-        title.textContent = thread.customer_name + (thread.order_id ? ` • #${thread.order_id}` : ' • Help');
+        title.textContent = thread.customer_name + ' • ' + (thread.thread_label || (thread.order_id ? `Order #${thread.order_id}` : 'Chat with us'));
         if (thread.unread_count) { const count=document.createElement('span'); count.textContent=thread.unread_count; count.style.cssText='background:#fbbf24;color:#422006;border-radius:10px;padding:1px 5px;font-size:.65rem'; title.appendChild(count); }
         const detail = document.createElement('div'); detail.textContent = thread.last_body || ''; detail.style.cssText = 'margin-top:3px;font-size:.66rem;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
         button.appendChild(title); button.appendChild(detail); box.appendChild(button);
@@ -1143,7 +1143,7 @@
         const response = await fetch('/api/cashier/customer-chats/' + encodeURIComponent(cashierChatCurrentKey), {cache:'no-store'});
         if (!response.ok) return;
         const data = await response.json(); if (!data.success) return;
-        document.getElementById('cashierChatTitle').textContent = `${data.customer_name || 'Customer'}${data.order_id ? ' • Order #' + data.order_id : ' • Storefront help'}`;
+        document.getElementById('cashierChatTitle').textContent = `${data.customer_name || 'Customer'} • ${data.thread_label || (data.order_id ? 'Order #' + data.order_id : 'Chat with us')}`;
         const box = document.getElementById('cashierChatMessages'); let newRemote = false; box.innerHTML = '';
         (data.messages || []).forEach(message => {
           const remote = message.sender_type === 'CUSTOMER';

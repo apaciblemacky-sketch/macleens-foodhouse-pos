@@ -409,6 +409,20 @@ class CustomerChatMessage(db.Model):
     customer = db.relationship('Customer', lazy=True)
     order = db.relationship('Order', lazy=True)
 
+class GuestChatMessage(db.Model):
+    """Short-lived no-login chat used only by public Crafts and Digital portals."""
+    __tablename__ = 'guest_chat_message'
+    id = db.Column(db.Integer, primary_key=True)
+    thread_token = db.Column(db.String(64), nullable=False, index=True)
+    portal = db.Column(db.String(20), nullable=False, index=True)  # CRAFT / DIGITAL
+    sender_type = db.Column(db.String(16), nullable=False)  # CUSTOMER, CASHIER, SYSTEM
+    sender_staff = db.Column(db.String(50), nullable=True)
+    body = db.Column(db.String(500), nullable=False)
+    is_read = db.Column(db.Boolean, default=False, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False, index=True)
+
+
 class Expense(db.Model):
     __tablename__ = 'expense'
     id = db.Column(db.Integer, primary_key=True)
@@ -1346,6 +1360,20 @@ class DigitalOrder(db.Model):
     asset_file = db.relationship('DigitalAssetFile', foreign_keys=[asset_file_id], lazy=True)
 
 
+class DigitalUsagePass(db.Model):
+    """One paid launch/session for a hosted Digital app such as CHAT Lite."""
+    __tablename__ = 'digital_usage_pass'
+    id = db.Column(db.Integer, primary_key=True)
+    order_id = db.Column(db.Integer, db.ForeignKey('digital_order.id', ondelete='CASCADE'), nullable=False, index=True)
+    access_token = db.Column(db.String(96), unique=True, nullable=False, index=True, default=lambda: secrets.token_urlsafe(32))
+    app_key = db.Column(db.String(50), nullable=False, default='CHAT_LITE')
+    status = db.Column(db.String(20), nullable=False, default='UNUSED')  # UNUSED / ACTIVE / EXPIRED
+    started_at = db.Column(db.DateTime, nullable=True)
+    expires_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    order = db.relationship('DigitalOrder', lazy=True, backref=db.backref('usage_passes', cascade='all, delete-orphan', lazy=True))
+
+
 class DigitalAppActivationCode(db.Model):
     """One device-bound activation code for an app that calls this portal's API."""
     __tablename__ = 'digital_app_activation_code'
@@ -1477,8 +1505,8 @@ class MessengerDelivery(db.Model):
     contact = db.relationship('MessengerContact', lazy=True)
 
 CRAFT_ORDER_STATUSES = ('PENDING', 'READY', 'COMPLETED', 'CANCELLED')
-CRAFT_PAYMENT_METHODS = ('CASH', 'GCASH')
-CRAFT_PUBLIC_PAYMENT_METHODS = ('QRPH',)
+CRAFT_PAYMENT_METHODS = ('QRPH', 'PAYPAL')
+CRAFT_PUBLIC_PAYMENT_METHODS = ('QRPH', 'PAYPAL')
 CRAFT_DEFAULT_IMAGE = '/static/craft/default-craft.png'
 
 # Catalog imported from the previous public Macleen's Crafts storefront.
@@ -2072,10 +2100,11 @@ def run_db_setup():
         if legacy_school:
             legacy_school.is_active = False
             DigitalItem.query.filter(db.func.lower(DigitalItem.category_name) == 'school').update({'category_name': 'Templates'}, synchronize_session=False)
-        for category_name in ('Templates', 'Internship & Work', 'Personal Finance', 'Small Business', 'Productivity', 'General'):
+        for category_name in ('Apps & Tools', 'Templates', 'Internship & Work', 'Personal Finance', 'Small Business', 'Productivity', 'General'):
             if not DigitalCategory.query.filter(db.func.lower(DigitalCategory.name) == category_name.lower()).first():
                 db.session.add(DigitalCategory(name=category_name, is_active=True))
         ensure_default_digital_support_faqs()
+        ensure_chat_lite_digital_product()
         # Keep the food catalog simple and consistent across Admin, POS, and
         # storefront filters without deleting any products or sales history.
         beverage_names = {'coffee-based', 'coffee based', 'drinks', 'drink', 'shake & dessert', 'shakes & dessert', 'softdrinks', 'soft drinks'}
@@ -3182,11 +3211,13 @@ CUSTOMER_CHAT_SUGGESTED_ANSWERS = {
 
 
 def clean_expired_customer_chats():
-    """Remove short support chats; completed order chats are cleared separately."""
-    return CustomerChatMessage.query.filter(
+    """Remove short account and guest support chats."""
+    account_deleted = CustomerChatMessage.query.filter(
         CustomerChatMessage.expires_at.isnot(None),
         CustomerChatMessage.expires_at <= utc_now(),
     ).delete(synchronize_session=False)
+    guest_deleted = GuestChatMessage.query.filter(GuestChatMessage.expires_at <= utc_now()).delete(synchronize_session=False)
+    return account_deleted + guest_deleted
 
 
 def clear_order_customer_chat(order_id):
@@ -3224,9 +3255,23 @@ def cashier_chat_thread_from_key(thread_key):
     return None, None
 
 
+def guest_chat_token():
+    token = str(session.get('guest_chat_token') or '').strip()
+    if len(token) < 20:
+        token = secrets.token_urlsafe(24)
+        session['guest_chat_token'] = token
+        session.modified = True
+    return token[:64]
+
+
+def guest_chat_portal(value):
+    portal = str(value or '').strip().upper()
+    return portal if portal in {'CRAFT', 'DIGITAL'} else ''
+
+
 def cashier_chat_threads(limit=80):
-    """Small list of active temporary conversations, newest message first."""
-    purged = clean_expired_customer_chats()
+    """Combined account/order chats plus no-login Crafts/Digital chats."""
+    clean_expired_customer_chats()
     messages = CustomerChatMessage.query.filter(
         or_(CustomerChatMessage.expires_at.is_(None), CustomerChatMessage.expires_at > utc_now())
     ).order_by(CustomerChatMessage.created_at.desc()).limit(max(20, min(300, limit * 5))).all()
@@ -3244,18 +3289,37 @@ def cashier_chat_threads(limit=80):
             customer_id=customer.id, order_id=message.order_id, sender_type='CUSTOMER', is_read=False
         ).count()
         rows.append({
-            'thread_key': key,
-            'customer_name': customer.name,
+            'thread_key': key, 'customer_name': customer.name,
             'order_id': order.id if order else None,
             'order_type': order.order_type if order else 'Storefront help',
+            'thread_label': (f'Order #{order.id}' if order else 'Storefront Chat with us'),
             'last_body': message.body,
             'last_at': message.created_at.isoformat() if message.created_at else None,
             'unread_count': unread,
+            '_sort_at': message.created_at or datetime.min,
         })
         seen.add(key)
-        if len(rows) >= limit:
-            break
-    return rows
+
+    guest_messages = GuestChatMessage.query.filter(GuestChatMessage.expires_at > utc_now()).order_by(GuestChatMessage.created_at.desc()).limit(max(20, min(300, limit * 5))).all()
+    guest_seen = set()
+    for message in guest_messages:
+        pair = (message.portal, message.thread_token)
+        if pair in guest_seen:
+            continue
+        unread = GuestChatMessage.query.filter_by(portal=message.portal, thread_token=message.thread_token, sender_type='CUSTOMER', is_read=False).count()
+        portal_label = 'Crafts' if message.portal == 'CRAFT' else 'Digital'
+        rows.append({
+            'thread_key': f'guest-{message.portal.lower()}-{message.thread_token}',
+            'customer_name': f'{portal_label} visitor', 'order_id': None,
+            'order_type': f'{portal_label} public chat', 'thread_label': f'{portal_label} Chat with us', 'last_body': message.body,
+            'last_at': message.created_at.isoformat() if message.created_at else None,
+            'unread_count': unread, '_sort_at': message.created_at or datetime.min,
+        })
+        guest_seen.add(pair)
+    rows.sort(key=lambda row: row['_sort_at'], reverse=True)
+    for row in rows:
+        row.pop('_sort_at', None)
+    return rows[:limit]
 
 def get_customer_by_identifier(identifier):
     value = (identifier or '').strip()
@@ -4707,6 +4771,40 @@ def track_portal_event(event_type, source=None, customer_id=None):
     except Exception:
         app.logger.exception('Could not queue portal event %s', event_type)
 
+def track_website_view(source):
+    """Record one public portal page view for the admin website-view line graph."""
+    source = str(source or '').strip().upper()
+    if source not in {'STOREFRONT', 'CRAFT', 'DIGITAL'}:
+        return
+    try:
+        db.session.add(PortalEvent(source=source, event_type='PAGE_VIEW'))
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception('Could not record %s website view', source)
+
+
+def build_website_view_analytics(days=30):
+    days = max(7, min(90, parse_int(days, 30)))
+    end_day = ph_today()
+    start_day = end_day - timedelta(days=days - 1)
+    rows = PortalEvent.query.filter(
+        PortalEvent.event_type == 'PAGE_VIEW',
+        PortalEvent.created_at >= datetime.combine(start_day - timedelta(days=1), time.min),
+        PortalEvent.source.in_(['STOREFRONT', 'CRAFT', 'DIGITAL']),
+    ).all()
+    labels = [(start_day + timedelta(days=i)).strftime('%b %d') for i in range(days)]
+    buckets = {key: [0] * days for key in ('STOREFRONT', 'CRAFT', 'DIGITAL')}
+    for row in rows:
+        local_dt = utc_naive_to_ph(row.created_at)
+        if not local_dt:
+            continue
+        index = (local_dt.date() - start_day).days
+        if 0 <= index < days and row.source in buckets:
+            buckets[row.source][index] += 1
+    return {'labels': labels, 'storefront': buckets['STOREFRONT'], 'crafts': buckets['CRAFT'], 'digital': buckets['DIGITAL']}
+
+
 def _parse_campaign_time(value):
     if not value:
         return None
@@ -5847,6 +5945,7 @@ def api_queue_counts():
 
 @app.route('/')
 def store_catalog():
+    track_website_view('STOREFRONT')
     try:
         ip = get_client_ip()
         v = SiteVisitor.query.filter_by(ip_address=ip).first()
@@ -5874,6 +5973,7 @@ def store_catalog():
     all_active_products = Product.query.filter_by(is_active=True).all()
 
     top_sellers = [p for p in all_active_products if p.is_top_seller]
+    featured_products = sorted([p for p in all_active_products if p.is_featured], key=lambda p: (p.name or '').casefold())[:12]
     products = sorted(all_active_products, key=lambda x: (-(x.total_likes or 0), x.id))
 
     # "Popular now" is based on real completed sales from the last 30 days.
@@ -5932,6 +6032,7 @@ def store_catalog():
     return render_template('store_catalog.html', 
                            categories=categories, 
                            top_sellers=top_sellers, 
+                           featured_products=featured_products,
                            products=products, 
                            liked_ids=liked_ids, 
                            delivery_zones=delivery_zones, 
@@ -5950,7 +6051,8 @@ def store_catalog():
                            reorder_cart=reorder_cart,
                            storefront_payment_settings=storefront_payment_settings(),
                            messenger_menu_url=(messenger_menu_start_url() if marketing_settings()['daily_menu_messenger_reply'] else ''),
-                           product_is_available_now=is_product_available_now)
+                           product_is_available_now=is_product_available_now,
+                           announcement=portal_announcement('STOREFRONT'))
 
 @app.route('/promo/burger-deal')
 def promo_burger_deal():
@@ -6328,70 +6430,75 @@ def order_tracking(token):
 
 @app.route('/api/customer-chat/messages', methods=['GET', 'POST'])
 def customer_chat_messages_api():
-    """Temporary account-bound live chat for the storefront and tracker."""
+    """Temporary chat: account-bound on Storefront, no-login on Crafts/Digital."""
+    portal = guest_chat_portal(request.values.get('portal') or ((request.get_json(silent=True) or {}).get('portal') if request.method == 'POST' else ''))
+    purged = clean_expired_customer_chats()
+    if portal:
+        token = guest_chat_token()
+        query = GuestChatMessage.query.filter_by(thread_token=token, portal=portal)
+        if request.method == 'POST':
+            if not chat_channels_are_open():
+                db.session.rollback(); return jsonify({'success': False, 'message': 'Chat is currently closed. Please check back later.'}), 503
+            payload = request.get_json(silent=True) or {}
+            body = str(payload.get('message', '')).strip()
+            if not body:
+                db.session.rollback(); return jsonify({'success': False, 'message': 'Write a message first.'}), 400
+            if len(body) > CUSTOMER_CHAT_MESSAGE_MAX:
+                db.session.rollback(); return jsonify({'success': False, 'message': f'Messages must be {CUSTOMER_CHAT_MESSAGE_MAX} characters or fewer.'}), 400
+            db.session.add(GuestChatMessage(
+                thread_token=token, portal=portal, sender_type='CUSTOMER', body=body,
+                expires_at=utc_now() + CUSTOMER_CHAT_SUPPORT_TTL,
+            ))
+            db.session.commit(); return jsonify({'success': True})
+        messages = query.order_by(GuestChatMessage.created_at.asc()).limit(100).all()
+        changed = False
+        for message in messages:
+            if message.sender_type in {'CASHIER', 'SYSTEM'} and not message.is_read:
+                message.is_read = True; changed = True
+        if changed or purged:
+            db.session.commit()
+        return jsonify({'success': True, 'guest': True, 'portal': portal, 'messages': [customer_chat_message_payload(message) for message in messages]})
+
     customer_id = session.get('customer_id')
     if not customer_id:
-        return jsonify({'success': False, 'message': 'Log in to use live cashier chat.'}), 401
+        return jsonify({'success': False, 'message': 'Log in to use Storefront chat.'}), 401
     customer = db.session.get(Customer, customer_id)
     issue = customer_access_issue(customer)
     if issue:
         return jsonify({'success': False, 'message': issue}), 403
-    purged = clean_expired_customer_chats()
     order_token = str(request.values.get('order_token', '')).strip()
     order = customer_chat_order_for_token(customer, order_token)
     if order_token and not order:
-        db.session.rollback()
-        return jsonify({'success': False, 'message': 'This order chat is not available to this account.'}), 404
+        db.session.rollback(); return jsonify({'success': False, 'message': 'This order chat is not available to this account.'}), 404
     query = CustomerChatMessage.query.filter_by(customer_id=customer.id, order_id=(order.id if order else None))
     if request.method == 'POST':
+        if not chat_channels_are_open():
+            db.session.rollback(); return jsonify({'success': False, 'message': 'Chat is currently closed. Please check back later.'}), 503
         payload = request.get_json(silent=True) or {}
         suggested_topic = str(payload.get('suggested_topic', '')).strip().lower()
         if suggested_topic:
             suggestion = CUSTOMER_CHAT_SUGGESTED_ANSWERS.get(suggested_topic)
             if not suggestion:
-                db.session.rollback()
-                return jsonify({'success': False, 'message': 'That suggested question is not available.'}), 400
+                db.session.rollback(); return jsonify({'success': False, 'message': 'That suggested question is not available.'}), 400
             expires_at = None if order else utc_now() + CUSTOMER_CHAT_SUPPORT_TTL
-            db.session.add(CustomerChatMessage(
-                customer_id=customer.id, order_id=(order.id if order else None),
-                sender_type='CUSTOMER', body=suggestion['question'], expires_at=expires_at,
-            ))
-            db.session.add(CustomerChatMessage(
-                customer_id=customer.id, order_id=(order.id if order else None),
-                sender_type='SYSTEM', body=suggestion['answer'], expires_at=expires_at,
-            ))
-            db.session.commit()
-            return jsonify({'success': True, 'suggested_topic': suggested_topic, 'answer': suggestion['answer']})
+            db.session.add(CustomerChatMessage(customer_id=customer.id, order_id=(order.id if order else None), sender_type='CUSTOMER', body=suggestion['question'], expires_at=expires_at))
+            db.session.add(CustomerChatMessage(customer_id=customer.id, order_id=(order.id if order else None), sender_type='SYSTEM', body=suggestion['answer'], expires_at=expires_at))
+            db.session.commit(); return jsonify({'success': True, 'suggested_topic': suggested_topic, 'answer': suggestion['answer']})
         body = str(payload.get('message', '')).strip()
         if not body:
-            db.session.rollback()
-            return jsonify({'success': False, 'message': 'Write a message first.'}), 400
+            db.session.rollback(); return jsonify({'success': False, 'message': 'Write a message first.'}), 400
         if len(body) > CUSTOMER_CHAT_MESSAGE_MAX:
-            db.session.rollback()
-            return jsonify({'success': False, 'message': f'Messages must be {CUSTOMER_CHAT_MESSAGE_MAX} characters or fewer.'}), 400
-        db.session.add(CustomerChatMessage(
-            customer_id=customer.id, order_id=(order.id if order else None),
-            sender_type='CUSTOMER', body=body,
-            expires_at=None if order else utc_now() + CUSTOMER_CHAT_SUPPORT_TTL,
-        ))
-        db.session.commit()
-        return jsonify({'success': True})
+            db.session.rollback(); return jsonify({'success': False, 'message': f'Messages must be {CUSTOMER_CHAT_MESSAGE_MAX} characters or fewer.'}), 400
+        db.session.add(CustomerChatMessage(customer_id=customer.id, order_id=(order.id if order else None), sender_type='CUSTOMER', body=body, expires_at=None if order else utc_now() + CUSTOMER_CHAT_SUPPORT_TTL))
+        db.session.commit(); return jsonify({'success': True})
     messages = query.order_by(CustomerChatMessage.created_at.asc()).limit(100).all()
     changed = False
     for message in messages:
         if message.sender_type in {'CASHIER', 'SYSTEM'} and not message.is_read:
-            message.is_read = True
-            changed = True
-    if changed:
+            message.is_read = True; changed = True
+    if changed or purged or db.session.dirty or db.session.deleted:
         db.session.commit()
-    elif purged or db.session.dirty or db.session.deleted:
-        db.session.commit()
-    return jsonify({
-        'success': True,
-        'order_id': order.id if order else None,
-        'messages': [customer_chat_message_payload(message) for message in messages],
-    })
-
+    return jsonify({'success': True, 'order_id': order.id if order else None, 'messages': [customer_chat_message_payload(message) for message in messages]})
 
 def current_app_notification_customer():
     customer_id = parse_int(session.get('customer_id'), 0)
@@ -6464,34 +6571,53 @@ def cashier_customer_chats_api():
 @app.route('/api/cashier/customer-chats/<string:thread_key>', methods=['GET', 'POST'])
 @require_cashier
 def cashier_customer_chat_thread_api(thread_key):
+    clean_expired_customer_chats()
+    if str(thread_key).startswith('guest-'):
+        match = re.match(r'^guest-(craft|digital)-(.+)$', str(thread_key), re.I)
+        if not match:
+            return jsonify({'success': False, 'message': 'Chat thread was not found.'}), 404
+        portal = match.group(1).upper(); token = match.group(2)
+        query = GuestChatMessage.query.filter_by(portal=portal, thread_token=token)
+        if not query.first():
+            return jsonify({'success': False, 'message': 'Chat thread was not found.'}), 404
+        if request.method == 'POST':
+            if not chat_channels_are_open():
+                return jsonify({'success': False, 'message': 'Chat channels are currently closed. Reopen them in admin settings to reply.'}), 503
+            payload = request.get_json(silent=True) or {}; body = str(payload.get('message', '')).strip()
+            if not body:
+                return jsonify({'success': False, 'message': 'Write a message first.'}), 400
+            if len(body) > CUSTOMER_CHAT_MESSAGE_MAX:
+                return jsonify({'success': False, 'message': f'Messages must be {CUSTOMER_CHAT_MESSAGE_MAX} characters or fewer.'}), 400
+            db.session.add(GuestChatMessage(thread_token=token, portal=portal, sender_type='CASHIER', sender_staff=active_cashier_username()[:50] or 'cashier', body=body, expires_at=utc_now() + CUSTOMER_CHAT_SUPPORT_TTL))
+            # Extend all messages in an active guest thread when staff replies.
+            query.update({'expires_at': utc_now() + CUSTOMER_CHAT_SUPPORT_TTL}, synchronize_session=False)
+            db.session.commit(); return jsonify({'success': True})
+        messages = query.order_by(GuestChatMessage.created_at.asc()).limit(100).all()
+        changed = False
+        for message in messages:
+            if message.sender_type == 'CUSTOMER' and not message.is_read:
+                message.is_read = True; changed = True
+        if changed: db.session.commit()
+        label = 'Crafts visitor' if portal == 'CRAFT' else 'Digital visitor'
+        return jsonify({'success': True, 'customer_name': label, 'order_id': None, 'thread_label': f'{portal.title()} public chat', 'messages': [customer_chat_message_payload(message) for message in messages]})
+
     customer, order = cashier_chat_thread_from_key(thread_key)
     if not customer:
         return jsonify({'success': False, 'message': 'Chat thread was not found.'}), 404
-    purged = clean_expired_customer_chats()
     order_id = order.id if order else None
     query = CustomerChatMessage.query.filter_by(customer_id=customer.id, order_id=order_id)
     if request.method == 'POST':
-        payload = request.get_json(silent=True) or {}
-        body = str(payload.get('message', '')).strip()
+        if not chat_channels_are_open():
+            db.session.rollback(); return jsonify({'success': False, 'message': 'Chat channels are currently closed. Reopen them in admin settings to reply.'}), 503
+        payload = request.get_json(silent=True) or {}; body = str(payload.get('message', '')).strip()
         if not body:
-            db.session.rollback()
-            return jsonify({'success': False, 'message': 'Write a message first.'}), 400
+            db.session.rollback(); return jsonify({'success': False, 'message': 'Write a message first.'}), 400
         if len(body) > CUSTOMER_CHAT_MESSAGE_MAX:
-            db.session.rollback()
-            return jsonify({'success': False, 'message': f'Messages must be {CUSTOMER_CHAT_MESSAGE_MAX} characters or fewer.'}), 400
-        db.session.add(CustomerChatMessage(
-            customer_id=customer.id, order_id=order_id, sender_type='CASHIER',
-            sender_staff=active_cashier_username()[:50] or 'cashier', body=body,
-            expires_at=None if order else utc_now() + CUSTOMER_CHAT_SUPPORT_TTL,
-        ))
+            db.session.rollback(); return jsonify({'success': False, 'message': f'Messages must be {CUSTOMER_CHAT_MESSAGE_MAX} characters or fewer.'}), 400
+        db.session.add(CustomerChatMessage(customer_id=customer.id, order_id=order_id, sender_type='CASHIER', sender_staff=active_cashier_username()[:50] or 'cashier', body=body, expires_at=None if order else utc_now() + CUSTOMER_CHAT_SUPPORT_TTL))
         db.session.commit()
-        # Background alert is optional and must never prevent a cashier reply.
         try:
-            send_customer_app_push(
-                "New message from Macleen’s", body,
-                url=(f'/order/track/{order.public_token}' if order and order.public_token else '/portal/dashboard'),
-                category='CASHIER_CHAT', customer_ids=[customer.id],
-            )
+            send_customer_app_push("New message from Macleen’s", body, url=(f'/order/track/{order.public_token}' if order and order.public_token else '/portal/dashboard'), category='CASHIER_CHAT', customer_ids=[customer.id])
         except Exception:
             app.logger.exception('Could not send optional cashier-chat app notification')
         return jsonify({'success': True})
@@ -6499,16 +6625,10 @@ def cashier_customer_chat_thread_api(thread_key):
     changed = False
     for message in messages:
         if message.sender_type == 'CUSTOMER' and not message.is_read:
-            message.is_read = True
-            changed = True
-    if changed or purged or db.session.dirty or db.session.deleted:
+            message.is_read = True; changed = True
+    if changed or db.session.dirty or db.session.deleted:
         db.session.commit()
-    return jsonify({
-        'success': True,
-        'customer_name': customer.name,
-        'order_id': order_id,
-        'messages': [customer_chat_message_payload(message) for message in messages],
-    })
+    return jsonify({'success': True, 'customer_name': customer.name, 'order_id': order_id, 'thread_label': (f'Order #{order_id}' if order_id else 'Storefront help'), 'messages': [customer_chat_message_payload(message) for message in messages]})
 
 
 @app.route('/portal/reorder/<int:order_id>', methods=['POST'])
@@ -8068,6 +8188,7 @@ def update_operating_hours():
 
 @app.route('/craft')
 def craft_store():
+    track_website_view('CRAFT')
     ip = get_client_ip()[:64]
     visitor = CraftSiteVisitor.query.filter_by(ip_address=ip).first()
     if visitor:
@@ -8104,6 +8225,7 @@ def craft_store():
         liked_ids=liked_ids,
         site_visits=unique_visitors,
         total_page_visits=total_page_visits,
+        announcement=portal_announcement('CRAFT'),
     )
 
 @app.route('/craft/item/<int:item_id>')
@@ -8171,9 +8293,11 @@ def craft_order_item(item_id):
         elif qty <= 0 or qty > 100:
             error = 'Quantity must be between 1 and 100.'
         elif payment_method not in CRAFT_PUBLIC_PAYMENT_METHODS:
-            error = 'QR PH is the only payment option for Craft Shop orders.'
-        elif not storefront_payment_settings()['paymongo_active']:
-            error = 'QR PH is temporarily unavailable. Please try again later.'
+            error = 'Choose QR PH or PayPal for Craft Shop orders.'
+        elif payment_method == 'QRPH' and not craft_payment_settings()['paymongo_active']:
+            error = 'QR PH is temporarily unavailable. Please choose PayPal or try again later.'
+        elif payment_method == 'PAYPAL' and not craft_payment_settings()['paypal_available']:
+            error = 'PayPal is temporarily unavailable. Please choose QR PH or try again later.'
         elif item.availability_type == 'IN_STOCK' and qty > parse_int(item.stock_quantity, 0):
             error = f'Sorry, only {item.stock_quantity} item(s) are currently in stock.'
         else:
@@ -8201,7 +8325,7 @@ def craft_order_item(item_id):
                 db.session.add(craft_order)
                 db.session.flush()
                 create_main_craft_order(craft_order)
-                checkout_url = craft_create_paymongo_checkout(craft_order)
+                checkout_url = craft_create_paypal_checkout(craft_order) if payment_method == 'PAYPAL' else craft_create_paymongo_checkout(craft_order)
                 item.orders_count = parse_int(item.orders_count, 0) + qty
                 db.session.commit()
                 return redirect(checkout_url)
@@ -8209,16 +8333,16 @@ def craft_order_item(item_id):
                 db.session.rollback()
                 app.logger.exception('Craft order creation failed')
                 error = 'We could not place the craft order. Please try again.'
-    return render_template('craft/order_form.html', item=item, error=error, cust=cust, payment_settings=storefront_payment_settings())
+    return render_template('craft/order_form.html', item=item, error=error, cust=cust, payment_settings=craft_payment_settings())
 
 
 @app.route('/craft/order/status/<token>')
 def craft_order_status(token):
     order = CraftOrder.query.filter_by(tracking_token=token).first_or_404()
-    if order.payment_gateway == 'PAYMONGO' and order.payment_status != 'PAID':
-        craft_check_paymongo_payment(order)
+    if order.payment_status != 'PAID':
+        craft_check_gateway_payment(order)
         db.session.commit()
-    return render_template('craft/order_success.html', order=order, item=order.craft_item, payment_settings=storefront_payment_settings())
+    return render_template('craft/order_success.html', order=order, item=order.craft_item, payment_settings=craft_payment_settings())
 
 
 @app.route('/craft/order/status/<token>/payment-return')
@@ -8230,6 +8354,20 @@ def craft_payment_return(token):
     else:
         db.session.commit()
         flash('QR PH is still confirming your payment. This page checks again automatically.', 'info')
+    return redirect(url_for('craft_order_status', token=order.tracking_token))
+
+
+@app.route('/craft/order/status/<token>/paypal-return')
+def craft_paypal_return(token):
+    """PayPal sends a browser here after approval; capture is still server-side."""
+    order = CraftOrder.query.filter_by(tracking_token=token).first_or_404()
+    paypal_order_id = request.args.get('token', '').strip()
+    if craft_capture_paypal_payment(order, paypal_order_id):
+        db.session.commit()
+        flash('PayPal payment confirmed. Your craft order is now being prepared.', 'success')
+    else:
+        db.session.commit()
+        flash('PayPal is still confirming this payment. Please wait a moment.', 'info')
     return redirect(url_for('craft_order_status', token=order.tracking_token))
 
 
@@ -8245,7 +8383,7 @@ def support_contribution():
     source = str(request.values.get('source', 'STOREFRONT')).strip().upper()
     if source not in allowed_sources:
         source = 'STOREFRONT'
-    settings = storefront_payment_settings()
+    settings = support_payment_settings()
     if request.method == 'GET':
         return render_template('support_contribution.html', source=source, payment_settings=settings)
     name = re.sub(r'\s+', ' ', (request.form.get('supporter_name') or '').strip())[:100]
@@ -8254,13 +8392,19 @@ def support_contribution():
     amount = round(parse_float(request.form.get('amount'), 0.0), 2)
     frequency = (request.form.get('frequency') or 'ONE_TIME').strip().upper()
     message = re.sub(r'\s+', ' ', (request.form.get('message') or '').strip())[:500] or None
+    payment_method = (request.form.get('payment_method') or 'QRPH').strip().upper()
     if not name or amount < 1 or amount > 100000:
         flash('Enter your name and a support amount from ₱1.00 to ₱100,000.00.', 'error')
         return redirect(url_for('support_contribution', source=source))
     if frequency not in {'ONE_TIME', 'MONTHLY_PLEDGE'}:
         frequency = 'ONE_TIME'
-    if not settings['paymongo_active']:
-        flash('QR PH is temporarily unavailable. Please try again later.', 'error')
+    if payment_method not in {'QRPH', 'PAYPAL'}:
+        payment_method = 'QRPH'
+    if payment_method == 'QRPH' and not settings['paymongo_active']:
+        flash('QR PH is temporarily unavailable. Please choose PayPal or try again later.', 'error')
+        return redirect(url_for('support_contribution', source=source))
+    if payment_method == 'PAYPAL' and not settings['paypal_available']:
+        flash('PayPal is temporarily unavailable. Please choose QR PH or try again later.', 'error')
         return redirect(url_for('support_contribution', source=source))
     contribution = SupportContribution(
         source=source, supporter_name=name, contact_number=contact, email=email,
@@ -8269,7 +8413,7 @@ def support_contribution():
     try:
         db.session.add(contribution)
         db.session.flush()
-        checkout_url = support_create_paymongo_checkout(contribution)
+        checkout_url = support_create_paypal_checkout(contribution) if payment_method == 'PAYPAL' else support_create_paymongo_checkout(contribution)
         db.session.commit()
         return redirect(checkout_url)
     except OrderValidationError as exc:
@@ -8278,15 +8422,18 @@ def support_contribution():
     except Exception:
         db.session.rollback()
         app.logger.exception('Support contribution checkout creation failed')
-        flash('Could not start QR PH. No contribution was recorded.', 'error')
+        flash(f"Could not start {'PayPal' if payment_method == 'PAYPAL' else 'QR PH'}. No contribution was recorded.", 'error')
     return redirect(url_for('support_contribution', source=source))
 
 
 @app.route('/support/status/<token>')
 def support_contribution_status(token):
     contribution = SupportContribution.query.filter_by(tracking_token=token).first_or_404()
-    if contribution.payment_gateway == 'PAYMONGO' and contribution.payment_status != 'PAID':
-        support_check_paymongo_payment(contribution)
+    if contribution.payment_status != 'PAID':
+        if contribution.payment_gateway == 'PAYMONGO':
+            support_check_paymongo_payment(contribution)
+        elif contribution.payment_gateway == 'PAYPAL':
+            support_check_paypal_payment(contribution)
         db.session.commit()
     return render_template('support_status.html', contribution=contribution)
 
@@ -8300,6 +8447,19 @@ def support_payment_return(token):
     else:
         db.session.commit()
         flash('QR PH is still confirming the contribution. This page checks again automatically.', 'info')
+    return redirect(url_for('support_contribution_status', token=contribution.tracking_token))
+
+
+@app.route('/support/status/<token>/paypal-return')
+def support_paypal_return(token):
+    contribution = SupportContribution.query.filter_by(tracking_token=token).first_or_404()
+    paypal_order_id = request.args.get('token', '').strip()
+    if support_capture_paypal_payment(contribution, paypal_order_id):
+        db.session.commit()
+        flash('Thank you! Your PayPal contribution is confirmed.', 'success')
+    else:
+        db.session.commit()
+        flash('PayPal is still confirming the contribution. This page will check again.', 'info')
     return redirect(url_for('support_contribution_status', token=contribution.tracking_token))
 
 @app.route('/admin/craft')
@@ -8331,7 +8491,41 @@ def craft_admin_dashboard():
         'low_stock': sum(1 for i in items if i.is_active and i.availability_type == 'IN_STOCK' and parse_int(i.stock_quantity, 0) <= 3),
         'out_of_stock': sum(1 for i in items if i.is_active and i.availability_type == 'IN_STOCK' and parse_int(i.stock_quantity, 0) == 0),
     }
-    return render_template('craft/admin.html', items=items, categories=categories, orders=orders, ledger=ledger, metrics=metrics)
+    return render_template('craft/admin.html', items=items, categories=categories, orders=orders, ledger=ledger, metrics=metrics, announcement=portal_announcement('CRAFT'))
+
+
+@app.route('/admin/chats/toggle', methods=['POST'])
+@require_admin
+def admin_toggle_chat_channels():
+    now_open = not chat_channels_are_open()
+    save_digital_setting('chat_channels_open', '1' if now_open else '0')
+    db.session.commit()
+    flash('All public “Chat with us” channels are now ' + ('OPEN' if now_open else 'CLOSED') + '.', 'success')
+    return redirect(url_for('admin_dashboard'))
+
+
+@app.route('/admin/portal-announcement/<string:portal>', methods=['POST'])
+@require_admin
+def admin_save_portal_announcement(portal):
+    portal = str(portal or '').strip().upper()
+    if portal not in {'STOREFRONT', 'CRAFT', 'DIGITAL'}:
+        abort(404)
+    title = re.sub(r'\s+', ' ', request.form.get('title', '').strip())[:100]
+    body = re.sub(r'\s+', ' ', request.form.get('body', '').strip())[:500]
+    link_url = request.form.get('link_url', '').strip()[:500]
+    link_label = re.sub(r'\s+', ' ', request.form.get('link_label', '').strip())[:60] or 'Learn more'
+    enabled = request.form.get('enabled') == '1'
+    prefix = f'announcement_{portal.lower()}_'
+    save_digital_setting(prefix + 'enabled', '1' if enabled else '0')
+    save_digital_setting(prefix + 'title', title)
+    save_digital_setting(prefix + 'body', body)
+    save_digital_setting(prefix + 'link_url', link_url)
+    save_digital_setting(prefix + 'link_label', link_label)
+    db.session.commit()
+    flash(f'{portal.title()} announcement board saved.', 'success')
+    destinations = {'STOREFRONT': 'admin_dashboard', 'CRAFT': 'craft_admin_dashboard', 'DIGITAL': 'digital_admin'}
+    return redirect(url_for(destinations[portal]))
+
 
 @app.route('/admin/craft/category/add', methods=['POST'])
 @require_admin
@@ -8484,13 +8678,13 @@ def craft_record_transaction():
     event_type = request.form.get('event_type', '').strip().upper()
     title = request.form.get('title', '').strip()[:150]
     amount = parse_float(request.form.get('amount'), 0.0)
-    payment_method = request.form.get('payment_method', 'CASH').strip().upper()
+    payment_method = request.form.get('payment_method', 'QRPH').strip().upper()
     notes = request.form.get('notes', '').strip()[:255] or None
     if event_type not in ('EXPENSE', 'OTHER_INCOME', 'REFUND') or not title or amount <= 0:
         flash('Choose Expense, Other Income, or Refund and enter a valid title and amount.', 'error')
         return redirect(url_for('craft_admin_dashboard'))
     if payment_method not in CRAFT_PAYMENT_METHODS:
-        payment_method = 'CASH'
+        payment_method = 'QRPH'
     try:
         creator = session.get('admin_user') or 'admin'
         main_order_id = expense_id = None
@@ -8554,6 +8748,25 @@ DIGITAL_SUPPORT_DEFAULT_FAQS = (
         'Yes. Choose a custom-service offer and describe what you need. The team will confirm the scope, price, and delivery schedule before the work starts.',
     ),
 )
+
+def chat_channels_are_open():
+    return digital_setting('chat_channels_open', '1') != '0'
+
+
+@app.context_processor
+def inject_public_chat_state():
+    # One master Admin switch controls all public "Chat with us" entry points.
+    # Also expose the active portal announcement on every Craft/Digital child page.
+    path = (request.path or '').lower()
+    portal_notice = None
+    if path.startswith('/craft'):
+        portal_notice = portal_announcement('CRAFT')
+    elif path.startswith('/digital'):
+        portal_notice = portal_announcement('DIGITAL')
+    return {
+        'public_chat_channels_open': chat_channels_are_open(),
+        'portal_announcement_global': portal_notice,
+    }
 
 
 def digital_setting(key, default=''):
@@ -8619,6 +8832,35 @@ def storefront_payment_settings():
         'paymongo_ready': paymongo_ready,
         'paymongo_active': paymongo_ready,
     }
+
+
+def craft_payment_settings():
+    paymongo = storefront_payment_settings()
+    paypal_ready = bool(os.environ.get('PAYPAL_CLIENT_ID', '').strip() and os.environ.get('PAYPAL_CLIENT_SECRET', '').strip())
+    return {
+        **paymongo,
+        'paypal_ready': paypal_ready,
+        'paypal_available': paypal_ready,
+    }
+
+
+def support_payment_settings():
+    return craft_payment_settings()
+
+
+def portal_announcement(portal):
+    portal = str(portal or '').strip().upper()
+    if portal not in {'STOREFRONT', 'CRAFT', 'DIGITAL'}:
+        return None
+    prefix = f'announcement_{portal.lower()}_'
+    enabled = digital_setting(prefix + 'enabled', '0').strip().lower() not in {'0', 'false', 'no', 'off', ''}
+    title = digital_setting(prefix + 'title', '').strip()
+    body = digital_setting(prefix + 'body', '').strip()
+    link_url = digital_setting(prefix + 'link_url', '').strip()
+    link_label = digital_setting(prefix + 'link_label', 'Learn more').strip() or 'Learn more'
+    if not enabled or not (title or body):
+        return None
+    return {'title': title, 'body': body, 'link_url': link_url, 'link_label': link_label}
 
 
 def storefront_public_base_url():
@@ -8841,6 +9083,146 @@ def craft_check_paymongo_payment(craft_order):
     craft_order.gateway_response = json.dumps({'checkout_verified': True, 'statuses': statuses[:8]}, separators=(',', ':'))
     return bool(paid and craft_confirm_gateway_payment(craft_order))
 
+def craft_create_paypal_checkout(craft_order):
+    """Create one PayPal order for a Craft purchase and return its approve URL."""
+    access_token = digital_paypal_access_token()
+    success_url = storefront_public_base_url() + url_for('craft_paypal_return', token=craft_order.tracking_token)
+    cancel_url = storefront_public_base_url() + url_for('craft_order_status', token=craft_order.tracking_token)
+    payload = {
+        'intent': 'CAPTURE',
+        'purchase_units': [{
+            'reference_id': f'MFH-CRAFT-{craft_order.id}',
+            'custom_id': str(craft_order.id),
+            'description': f"Macleen's Crafts Order #{craft_order.id}"[:127],
+            'amount': {'currency_code': 'PHP', 'value': f'{max(0.0, parse_float(craft_order.total_price, 0.0)):.2f}'},
+        }],
+        'application_context': {
+            'brand_name': "Macleen's Crafts",
+            'landing_page': 'LOGIN',
+            'user_action': 'PAY_NOW',
+            'return_url': success_url,
+            'cancel_url': cancel_url,
+        },
+    }
+    try:
+        response = requests.post(
+            digital_paypal_api_base() + '/v2/checkout/orders',
+            headers=digital_paypal_headers(access_token, f'mfh-craft-{craft_order.id}-{secrets.token_hex(8)}'),
+            json=payload, timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError) as exc:
+        raise OrderValidationError('Could not start the PayPal checkout. Please try again or contact Macleen’s Crafts.') from exc
+    links = body.get('links') if isinstance(body, dict) else []
+    approve_url = next((str(link.get('href') or '') for link in links if str(link.get('rel') or '').lower() in {'approve', 'payer-action'}), '')
+    parsed = urlparse(approve_url)
+    paypal_host = (parsed.hostname or '').lower()
+    if not response.ok or not isinstance(body, dict) or not body.get('id') or parsed.scheme != 'https' or not paypal_host.endswith('paypal.com'):
+        app.logger.warning('PayPal checkout creation failed for Craft order %s with status %s.', craft_order.id, getattr(response, 'status_code', 'unknown'))
+        raise OrderValidationError('PayPal did not return a secure checkout page. No payment was taken; please try again later.')
+    craft_order.payment_gateway = 'PAYPAL'
+    craft_order.gateway_checkout_id = str(body['id'])[:120]
+    craft_order.gateway_checkout_url = approve_url[:2000]
+    craft_order.gateway_checked_at = utc_now()
+    craft_order.gateway_response = json.dumps({'checkout_created': True, 'gateway': 'PAYPAL', 'status': body.get('status')}, separators=(',', ':'))
+    return approve_url
+
+
+def craft_paypal_order_matches_local(craft_order, payload):
+    """Confirm the merchant-fetched PayPal record belongs to this exact local order."""
+    if not craft_order or not isinstance(payload, dict):
+        return False
+    units = payload.get('purchase_units') or []
+    expected_value = f'{max(0.0, parse_float(craft_order.total_price, 0.0)):.2f}'
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        custom_id = str(unit.get('custom_id') or '')
+        reference_id = str(unit.get('reference_id') or '')
+        amount = unit.get('amount') or {}
+        currency = str(amount.get('currency_code') or '').upper()
+        value = str(amount.get('value') or '')
+        order_match = custom_id == str(craft_order.id) or reference_id == f'MFH-CRAFT-{craft_order.id}'
+        if order_match and currency == 'PHP' and value == expected_value:
+            return True
+    return False
+
+
+def craft_fetch_paypal_order(craft_order):
+    if not craft_order or not craft_order.gateway_checkout_id:
+        return None
+    access_token = digital_paypal_access_token()
+    try:
+        response = requests.get(
+            digital_paypal_api_base() + f'/v2/checkout/orders/{craft_order.gateway_checkout_id}',
+            headers=digital_paypal_headers(access_token), timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError):
+        app.logger.warning('Could not retrieve PayPal order for Craft order %s.', craft_order.id)
+        return None
+    craft_order.gateway_checked_at = utc_now()
+    if not response.ok or not isinstance(body, dict):
+        craft_order.gateway_response = json.dumps({'checkout_verified': False, 'gateway': 'PAYPAL', 'http_status': response.status_code}, separators=(',', ':'))
+        return None
+    return body
+
+
+def craft_capture_paypal_payment(craft_order, supplied_checkout_id=None):
+    """Capture only the stored PayPal order after its return; never trust URL data alone."""
+    if not craft_order or craft_order.payment_status == 'PAID' or craft_order.payment_gateway != 'PAYPAL':
+        return False
+    supplied = (supplied_checkout_id or '').strip()
+    if supplied and not hmac.compare_digest(supplied, craft_order.gateway_checkout_id or ''):
+        app.logger.warning('PayPal return checkout id did not match Craft order %s.', craft_order.id)
+        return False
+    body = craft_fetch_paypal_order(craft_order)
+    if not body or not craft_paypal_order_matches_local(craft_order, body):
+        return False
+    if digital_paypal_order_completed(body):
+        craft_order.gateway_response = json.dumps({'checkout_verified': True, 'gateway': 'PAYPAL', 'status': body.get('status')}, separators=(',', ':'))
+        return craft_confirm_gateway_payment(craft_order)
+    if str(body.get('status') or '').upper() != 'APPROVED':
+        craft_order.gateway_response = json.dumps({'checkout_verified': True, 'gateway': 'PAYPAL', 'status': body.get('status')}, separators=(',', ':'))
+        return False
+    try:
+        access_token = digital_paypal_access_token()
+        response = requests.post(
+            digital_paypal_api_base() + f'/v2/checkout/orders/{craft_order.gateway_checkout_id}/capture',
+            headers=digital_paypal_headers(access_token, f'mfh-craft-capture-{craft_order.id}-{secrets.token_hex(8)}'),
+            json={}, timeout=(4, 25),
+        )
+        captured = response.json() if response.content else {}
+    except (requests.RequestException, ValueError):
+        app.logger.warning('Could not capture PayPal payment for Craft order %s.', craft_order.id)
+        return False
+    craft_order.gateway_checked_at = utc_now()
+    if response.ok and craft_paypal_order_matches_local(craft_order, captured) and digital_paypal_order_completed(captured):
+        craft_order.gateway_response = json.dumps({'checkout_verified': True, 'gateway': 'PAYPAL', 'status': captured.get('status')}, separators=(',', ':'))
+        return craft_confirm_gateway_payment(craft_order)
+    verified = craft_fetch_paypal_order(craft_order)
+    if verified and craft_paypal_order_matches_local(craft_order, verified) and digital_paypal_order_completed(verified):
+        craft_order.gateway_response = json.dumps({'checkout_verified': True, 'gateway': 'PAYPAL', 'status': verified.get('status')}, separators=(',', ':'))
+        return craft_confirm_gateway_payment(craft_order)
+    craft_order.gateway_response = json.dumps({'checkout_verified': False, 'gateway': 'PAYPAL', 'http_status': getattr(response, 'status_code', 0)}, separators=(',', ':'))
+    return False
+
+
+def craft_check_paypal_payment(craft_order):
+    if not craft_order or craft_order.payment_gateway != 'PAYPAL' or craft_order.payment_status == 'PAID':
+        return False
+    return craft_capture_paypal_payment(craft_order)
+
+
+def craft_check_gateway_payment(craft_order):
+    if not craft_order:
+        return False
+    if craft_order.payment_gateway == 'PAYPAL':
+        return craft_check_paypal_payment(craft_order)
+    if craft_order.payment_gateway == 'PAYMONGO':
+        return craft_check_paymongo_payment(craft_order)
+    return False
+
 
 def support_create_paymongo_checkout(contribution):
     """Create a one-time QR PH request for a support contribution."""
@@ -8915,6 +9297,111 @@ def support_check_paymongo_payment(contribution):
     return False
 
 
+def support_create_paypal_checkout(contribution):
+    access_token = digital_paypal_access_token()
+    success_url = storefront_public_base_url() + url_for('support_paypal_return', token=contribution.tracking_token)
+    cancel_url = storefront_public_base_url() + url_for('support_contribution_status', token=contribution.tracking_token)
+    title = "Macleen's monthly support" if contribution.frequency == 'MONTHLY_PLEDGE' else "Macleen's support contribution"
+    payload = {
+        'intent': 'CAPTURE',
+        'purchase_units': [{
+            'reference_id': f'MFH-SUPPORT-{contribution.id}',
+            'description': title[:127],
+            'amount': {'currency_code': 'PHP', 'value': f'{max(1.0, parse_float(contribution.amount, 0.0)):.2f}'},
+        }],
+        'application_context': {'return_url': success_url, 'cancel_url': cancel_url, 'user_action': 'PAY_NOW'},
+    }
+    try:
+        response = requests.post(
+            digital_paypal_api_base() + '/v2/checkout/orders',
+            headers=digital_paypal_headers(access_token, f'mfh-support-{contribution.id}-{secrets.token_hex(8)}'),
+            json=payload, timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError) as exc:
+        raise OrderValidationError('Could not start PayPal. Please try again in a moment.') from exc
+    approve_url = ''
+    for link in body.get('links', []) if isinstance(body, dict) else []:
+        if link.get('rel') == 'approve':
+            approve_url = link.get('href') or ''
+            break
+    parsed = urlparse(approve_url)
+    if not response.ok or not body.get('id') or parsed.scheme != 'https' or not (parsed.hostname or '').lower().endswith('paypal.com'):
+        raise OrderValidationError('PayPal did not return a secure checkout page. No payment was taken.')
+    contribution.payment_gateway = 'PAYPAL'
+    contribution.gateway_checkout_id = str(body['id'])[:120]
+    contribution.gateway_checkout_url = approve_url[:2000]
+    contribution.gateway_checked_at = utc_now()
+    contribution.gateway_response = json.dumps({'checkout_created': True, 'gateway': 'PAYPAL'}, separators=(',', ':'))
+    return approve_url
+
+
+def support_fetch_paypal_order(contribution):
+    if not contribution or contribution.payment_gateway != 'PAYPAL' or not contribution.gateway_checkout_id:
+        return None
+    try:
+        access_token = digital_paypal_access_token()
+        response = requests.get(
+            digital_paypal_api_base() + f'/v2/checkout/orders/{contribution.gateway_checkout_id}',
+            headers=digital_paypal_headers(access_token), timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError, OrderValidationError):
+        return None
+    contribution.gateway_checked_at = utc_now()
+    if not response.ok or not isinstance(body, dict):
+        return None
+    return body
+
+
+def support_paypal_order_matches_local(contribution, payload):
+    if not contribution or not isinstance(payload, dict) or payload.get('id') != contribution.gateway_checkout_id:
+        return False
+    units = payload.get('purchase_units') or []
+    if not units:
+        return False
+    amount = ((units[0].get('amount') or {}).get('value'))
+    currency = ((units[0].get('amount') or {}).get('currency_code') or '').upper()
+    return currency == 'PHP' and math.isclose(parse_float(amount, -1), parse_float(contribution.amount, 0), abs_tol=0.01)
+
+
+def support_capture_paypal_payment(contribution, supplied_checkout_id=None):
+    if not contribution or contribution.payment_status == 'PAID':
+        return bool(contribution and contribution.payment_status == 'PAID')
+    if contribution.payment_gateway != 'PAYPAL' or not contribution.gateway_checkout_id:
+        return False
+    if supplied_checkout_id and not hmac.compare_digest(str(supplied_checkout_id), str(contribution.gateway_checkout_id)):
+        return False
+    current = support_fetch_paypal_order(contribution)
+    if not support_paypal_order_matches_local(contribution, current):
+        return False
+    if str(current.get('status', '')).upper() == 'COMPLETED':
+        contribution.payment_status = 'PAID'; contribution.paid_at = utc_now(); return True
+    try:
+        access_token = digital_paypal_access_token()
+        response = requests.post(
+            digital_paypal_api_base() + f'/v2/checkout/orders/{contribution.gateway_checkout_id}/capture',
+            headers=digital_paypal_headers(access_token, f'mfh-support-capture-{contribution.id}-{secrets.token_hex(8)}'),
+            json={}, timeout=(4, 25),
+        )
+        body = response.json() if response.content else {}
+    except (requests.RequestException, ValueError, OrderValidationError):
+        return False
+    contribution.gateway_checked_at = utc_now()
+    if response.ok and str(body.get('status', '')).upper() == 'COMPLETED' and support_paypal_order_matches_local(contribution, body):
+        contribution.payment_status = 'PAID'; contribution.paid_at = utc_now(); return True
+    return False
+
+
+def support_check_paypal_payment(contribution):
+    if not contribution or contribution.payment_status == 'PAID':
+        return bool(contribution and contribution.payment_status == 'PAID')
+    current = support_fetch_paypal_order(contribution)
+    if support_paypal_order_matches_local(contribution, current) and str(current.get('status', '')).upper() == 'COMPLETED':
+        contribution.payment_status = 'PAID'; contribution.paid_at = utc_now(); return True
+    return False
+
+
 def digital_access_code():
     return 'MFH-' + secrets.token_urlsafe(7).replace('-', '').replace('_', '').upper()[:10]
 
@@ -8979,6 +9466,56 @@ def ensure_default_digital_support_faqs():
     for faq in existing:
         if faq.question == 'How do I buy a digital product?' and faq.answer == old_payment_copy and new_payment_copy:
             faq.answer = new_payment_copy
+
+
+def ensure_chat_lite_digital_product():
+    item = DigitalItem.query.filter(db.func.lower(DigitalItem.name) == 'chat lite ephemeral').first()
+    if not item:
+        item = DigitalItem.query.filter(
+            DigitalItem.product_type == 'HOSTED_APP',
+            DigitalItem.delivery_instructions.ilike('%Launch CHAT Lite%'),
+        ).first()
+    if not item:
+        db.session.add(DigitalItem(
+            name='CHAT Lite Ephemeral',
+            description='Private, zero-trace peer-to-peer room with group chat, video calling, screen sharing, and direct file sharing. ₱5 buys one hosted room usage/session.',
+            category_name='Apps & Tools', product_type='HOSTED_APP', price=5.0, cost=0.0,
+            image_url='/static/logo.png', file_format='Hosted web app',
+            license_terms='One paid purchase creates one hosted room usage. Do not resell or redistribute the hosted application.',
+            delivery_instructions='After payment, open your private order page and tap Launch CHAT Lite. One quantity equals one room usage/session.',
+            turnaround_days=0, is_active=True, is_featured=True,
+        ))
+        return
+    # Keep the requested hosted-app pricing authoritative without altering admin-written copy.
+    item.product_type = 'HOSTED_APP'
+    item.price = 5.0
+    item.category_name = item.category_name or 'Apps & Tools'
+    item.is_active = True
+
+
+def digital_usage_passes(order, include_expired=False):
+    if not order:
+        return []
+    now = utc_now()
+    rows = DigitalUsagePass.query.filter_by(order_id=order.id).order_by(DigitalUsagePass.id.asc()).all()
+    changed = False
+    for entry in rows:
+        if entry.status == 'ACTIVE' and entry.expires_at and entry.expires_at <= now:
+            entry.status = 'EXPIRED'; changed = True
+    if changed:
+        db.session.flush()
+    return rows if include_expired else [entry for entry in rows if entry.status != 'EXPIRED']
+
+
+def ensure_digital_usage_passes(order):
+    if not order or not order.item or order.item.product_type != 'HOSTED_APP':
+        return []
+    target = max(1, min(100, parse_int(order.quantity, 1)))
+    existing = DigitalUsagePass.query.filter_by(order_id=order.id).order_by(DigitalUsagePass.id.asc()).all()
+    for _ in range(len(existing), target):
+        db.session.add(DigitalUsagePass(order_id=order.id, app_key='CHAT_LITE', status='UNUSED'))
+    db.session.flush()
+    return DigitalUsagePass.query.filter_by(order_id=order.id).order_by(DigitalUsagePass.id.asc()).all()
 
 
 def digital_support_prepared_answer(question):
@@ -9056,6 +9593,9 @@ def digital_mark_order_paid(order, payment_gateway=None):
         order.status = 'READY'
     elif order.item and order.item.product_type == 'CUSTOM_SERVICE':
         order.status = 'IN_PROGRESS'
+    elif order.item and order.item.product_type == 'HOSTED_APP':
+        ensure_digital_usage_passes(order)
+        order.status = 'READY'
     else:
         order.status = 'PAID'
     if 1 <= parse_int(order.activation_device_limit, 0) <= 3:
@@ -9513,18 +10053,21 @@ def digital_support_rate_allowed():
 
 @app.route('/digital')
 def digital_store():
+    track_website_view('DIGITAL')
     category = request.args.get('category', '').strip()
     if category.casefold() == 'school':
         category = ''
     query = DigitalItem.query.filter_by(is_active=True)
     if category:
         query = query.filter_by(category_name=category)
+    featured = DigitalItem.query.filter_by(is_active=True, is_featured=True).order_by(DigitalItem.name.asc()).limit(12).all()
     return render_template('digital/index.html', items=query.order_by(DigitalItem.is_featured.desc(), DigitalItem.name.asc()).all(),
+                           featured=featured,
                            categories=DigitalCategory.query.filter(
                                DigitalCategory.is_active.is_(True),
                                db.func.lower(DigitalCategory.name) != 'school',
                            ).order_by(DigitalCategory.name).all(), selected_category=category,
-                           payment_settings=digital_payment_settings())
+                           payment_settings=digital_payment_settings(), announcement=portal_announcement('DIGITAL'))
 
 @app.route('/digital/item/<int:item_id>', methods=['GET', 'POST'])
 def digital_item_detail(item_id):
@@ -9588,6 +10131,7 @@ def digital_order_status(token):
         can_open_external_delivery=digital_order_can_open_external_delivery(order), payment_settings=digital_payment_settings(),
         activation_codes=digital_active_activation_codes(order) if digital_paid_order(order) else [],
         download_asset=download_asset, current_asset_version=digital_order_asset_version(order),
+        usage_passes=digital_usage_passes(order, include_expired=True) if order.payment_status == 'PAID' else [],
     )
 
 
@@ -9700,6 +10244,52 @@ def paypal_webhook():
     if processed:
         db.session.commit()
     return jsonify({'received': True, 'processed': processed}), 200
+
+
+@app.route('/digital/order/<token>/launch/<int:pass_id>', methods=['POST'])
+def digital_launch_hosted_app(token, pass_id):
+    order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
+    if not digital_paid_order(order) or not order.item or order.item.product_type != 'HOSTED_APP':
+        flash('This hosted app unlocks only after confirmed payment.', 'error')
+        return redirect(url_for('digital_order_status', token=token))
+    usage = DigitalUsagePass.query.filter_by(id=pass_id, order_id=order.id).first_or_404()
+    now = utc_now()
+    if usage.status == 'ACTIVE' and usage.expires_at and usage.expires_at <= now:
+        usage.status = 'EXPIRED'
+    if usage.status == 'EXPIRED':
+        db.session.commit()
+        flash('That CHAT Lite usage has ended. Buy another ₱5 usage to start a new room.', 'info')
+        return redirect(url_for('digital_order_status', token=token))
+    if usage.status == 'UNUSED':
+        usage.status = 'ACTIVE'
+        usage.started_at = now
+        usage.expires_at = now + timedelta(hours=6)
+        db.session.commit()
+    return redirect(url_for('digital_chat_lite_hosted', access_token=usage.access_token))
+
+
+@app.route('/digital/apps/chat-lite/<string:access_token>')
+def digital_chat_lite_hosted(access_token):
+    usage = DigitalUsagePass.query.filter_by(access_token=access_token, app_key='CHAT_LITE').first_or_404()
+    if usage.status != 'ACTIVE' or not usage.expires_at or usage.expires_at <= utc_now():
+        if usage.status == 'ACTIVE':
+            usage.status = 'EXPIRED'; db.session.commit()
+        return render_template('digital/chat_lite_expired.html'), 403
+    order = usage.order
+    if not order or order.payment_status != 'PAID':
+        abort(403)
+    return render_template('digital/apps/chat_lite.html', usage_pass=usage, order=order)
+
+
+@app.route('/digital/apps/chat-lite/<string:access_token>/end', methods=['POST'])
+def digital_chat_lite_end_usage(access_token):
+    usage = DigitalUsagePass.query.filter_by(access_token=access_token, app_key='CHAT_LITE').first_or_404()
+    if usage.status == 'ACTIVE':
+        usage.status = 'EXPIRED'
+        if not usage.expires_at or usage.expires_at > utc_now():
+            usage.expires_at = utc_now()
+        db.session.commit()
+    return ('', 204)
 
 
 @app.route('/digital/order/<token>/download', methods=['POST'])
@@ -9854,7 +10444,8 @@ def digital_admin():
         payment_settings=digital_payment_settings(), support_faqs=DigitalSupportFAQ.query.order_by(DigitalSupportFAQ.sort_order.asc(), DigitalSupportFAQ.id.asc()).all(),
         activation_codes_by_order=activation_codes_by_order,
         order_assets={order.id: digital_order_download_asset(order) for order in orders},
-        order_asset_versions={order.id: digital_order_asset_version(order) for order in orders})
+        order_asset_versions={order.id: digital_order_asset_version(order) for order in orders},
+        announcement=portal_announcement('DIGITAL'))
 
 @app.route('/admin/digital/category/add', methods=['POST'])
 @require_admin
@@ -9891,7 +10482,7 @@ def digital_item_save():
     item.name=request.form['name'].strip()[:120]; item.description=request.form.get('description','').strip()[:5000]
     item.category_name=request.form.get('category_name','General').strip()[:80] or 'General'
     product_type = request.form.get('product_type','DOWNLOAD').upper()
-    if product_type not in {'DOWNLOAD', 'CUSTOM_SERVICE', 'SUBSCRIPTION'}:
+    if product_type not in {'DOWNLOAD', 'CUSTOM_SERVICE', 'SUBSCRIPTION', 'HOSTED_APP'}:
         flash('Choose a valid digital product type.', 'error'); return redirect(url_for('digital_admin'))
     item.product_type=product_type; item.price=price
     item.cost=max(0,parse_float(request.form.get('cost'),0)); item.image_url=request.form.get('image_url','').strip() or CRAFT_DEFAULT_IMAGE
@@ -12590,6 +13181,8 @@ def admin_dashboard():
         'referral_rewards': ReferralReward.query.count(),
     }
 
+    website_view_analytics = build_website_view_analytics(30)
+
     return render_template('admin.html', 
                            products=products, 
                            categories=categories, 
@@ -12607,12 +13200,15 @@ def admin_dashboard():
         hidden_prize_placement_slot=hidden_prize_placement_slot,
         hidden_prize_placement_label=hidden_prize_placement_label,
         hidden_prize_display_size=hidden_prize_display_size,
-                           product_sales_stats=product_sales_stats, 
+                           product_sales_stats=product_sales_stats,
+                           chat_channels_open=chat_channels_are_open(),
                            food_revenue_total=food_revenue_total, 
                            service_revenue_total=service_revenue_total, 
                            craft_revenue_total=craft_revenue_total, 
                            unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits, 
+                           website_view_analytics=website_view_analytics,
+                           storefront_announcement=portal_announcement('STOREFRONT'),
                            fin_daily=fin_daily, 
                            fin_weekly=fin_weekly, 
                            fin_monthly=fin_monthly, 
@@ -13383,6 +13979,9 @@ def admin_batch_update_products():
             current_product_name = prod.name
 
             save_stage = 'validating the edited fields'
+            name = re.sub(r'\s+', ' ', request.form.get(f'name_{pid}', '').strip())[:120]
+            if len(name) < 2:
+                raise OrderValidationError(f'Enter a valid product name for {current_product_name}.')
             price = required_float(f'price_{pid}', f'Price for {prod.name}')
             cost = required_float(f'cost_{pid}', f'Cost for {prod.name}')
             stock = required_int(f'stock_{pid}', f'Stock for {prod.name}')
@@ -13422,6 +14021,7 @@ def admin_batch_update_products():
 
             save_stage = 'preparing the database update'
             changed = any((
+                name != (prod.name or ''),
                 abs(price - parse_float(prod.price, 0.0)) > 0.000001,
                 abs(cost - parse_float(prod.cost, 0.0)) > 0.000001,
                 allow_custom_amount != bool(prod.allow_custom_amount),
@@ -13444,6 +14044,7 @@ def admin_batch_update_products():
             if not changed:
                 continue
 
+            prod.name = name
             prod.price = price
             prod.cost = cost
             prod.allow_custom_amount = allow_custom_amount
