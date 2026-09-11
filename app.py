@@ -13,6 +13,7 @@ import re
 import secrets
 import mimetypes
 import zipfile
+import time as time_module
 from datetime import datetime, date, timedelta, time, timezone
 from functools import wraps
 from urllib.parse import parse_qs, unquote_plus, urljoin, urlparse
@@ -78,7 +79,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.12-chat-camera-pwa-v32'
+APP_RELEASE = '2026.09.12-paymongo-fast-return-v33'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -10248,6 +10249,31 @@ def digital_check_gateway_payment(order):
     return False
 
 
+def digital_wait_for_paymongo_return(order):
+    """Give QR PH a short propagation window after Back to Merchant.
+
+    PayMongo redirects the browser to success_url after the checkout flow, but
+    the redirect itself is not proof of payment.  The provider's checkout
+    record can take a few seconds to expose the resulting paid payment.  Do a
+    handful of server-to-server checks here so a normal successful return feels
+    immediate, while still requiring provider-confirmed payment before access
+    is released.  Slow confirmations fall back to the private page's live poll.
+    """
+    if not order or order.payment_gateway != 'PAYMONGO':
+        return digital_check_gateway_payment(order) if order else False
+    if order.payment_status == 'PAID':
+        return True
+    delays = (0.0, 0.65, 1.0, 1.35)
+    for index, delay_seconds in enumerate(delays):
+        if delay_seconds:
+            time_module.sleep(delay_seconds)
+        if digital_check_paymongo_payment(order):
+            return True
+        if order.payment_status == 'PAID':
+            return True
+    return False
+
+
 def digital_verify_paypal_webhook(payload):
     """Verify the webhook signature with PayPal before touching any order."""
     webhook_id = os.environ.get('PAYPAL_WEBHOOK_ID', '').strip()
@@ -10519,12 +10545,12 @@ def digital_payment_status(token):
 @app.route('/digital/order/<token>/payment-return')
 def digital_payment_return(token):
     order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
-    if digital_check_gateway_payment(order):
-        db.session.commit()
-        flash('Payment confirmed. Your download is ready when an uploaded asset is attached to this product.', 'success')
+    confirmed = digital_wait_for_paymongo_return(order) if order.payment_gateway == 'PAYMONGO' else digital_check_gateway_payment(order)
+    db.session.commit()
+    if confirmed or order.payment_status == 'PAID':
+        flash('Payment confirmed. Your paid access is ready.', 'success')
     else:
-        db.session.commit()
-        flash('Payment is still awaiting confirmation. You can check again shortly or message Macleen’s Digital on Facebook.', 'info')
+        flash('Payment was completed and is still syncing with QR PH. Keep this page open—access will unlock automatically as soon as PayMongo confirms it.', 'info')
     return redirect(url_for('digital_order_status', token=order.tracking_token))
 
 
@@ -10550,7 +10576,7 @@ def digital_check_payment(token):
         flash('Payment confirmed. Your protected download is ready.', 'success')
     else:
         db.session.commit()
-        flash('Payment is not confirmed yet. Please wait a moment, then try again or contact Macleen’s Digital on Facebook.', 'info')
+        flash('Payment is not confirmed yet. Keep this page open; it will continue checking automatically. You can also use Chat with us if you need help.', 'info')
     return redirect(url_for('digital_order_status', token=order.tracking_token))
 
 
