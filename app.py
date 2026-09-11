@@ -79,7 +79,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.12-separate-digital-crafts-pwa-v36'
+APP_RELEASE = '2026.09.12-hosted-app-install-scope-fix-v37'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -11104,12 +11104,10 @@ def digital_hosted_app_per_use(access_token):
     order = usage.order
     if not digital_paid_order(order) or not digital_is_uploaded_hosted_app(order.item):
         abort(403)
-    content_url = url_for('digital_hosted_content_per_use', access_token=access_token, asset_path=order.item.hosted_app_entrypoint)
-    return render_template('digital/apps/hosted_app_viewer.html', item=order.item, access_mode='PER_USE', content_url=content_url,
-                           end_url=url_for('digital_hosted_end_usage', access_token=access_token), usage_pass=usage,
-                           manifest_url=digital_pwa_manifest_url('uploaded', 'per-use', access_token, item=order.item),
-                           pwa_service_worker_url=url_for('digital_uploaded_pwa_service_worker', item_id=order.item.id),
-                           pwa_scope=digital_uploaded_pwa_scope(order.item.id))
+    # Always enter uploaded hosted apps through their dedicated PWA scope.
+    # This lets Chromium associate the current document, manifest, and service
+    # worker with the same installable app instead of offering only a bookmark.
+    return redirect(url_for('digital_uploaded_pwa_launch', item_id=order.item.id, mode='per-use', key=access_token))
 
 
 @app.route('/digital/apps/hosted/<string:access_token>/content/', defaults={'asset_path': None})
@@ -11139,11 +11137,7 @@ def digital_hosted_app_lifetime(token):
     order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
     if not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME' or not digital_is_uploaded_hosted_app(order.item):
         abort(403)
-    content_url = url_for('digital_hosted_content_lifetime', token=token, asset_path=order.item.hosted_app_entrypoint)
-    return render_template('digital/apps/hosted_app_viewer.html', item=order.item, access_mode='LIFETIME', content_url=content_url, end_url=None, usage_pass=None,
-                           manifest_url=digital_pwa_manifest_url('uploaded', 'lifetime', token, item=order.item),
-                           pwa_service_worker_url=url_for('digital_uploaded_pwa_service_worker', item_id=order.item.id),
-                           pwa_scope=digital_uploaded_pwa_scope(order.item.id))
+    return redirect(url_for('digital_uploaded_pwa_launch', item_id=order.item.id, mode='lifetime', key=token))
 
 
 @app.route('/digital/apps/hosted/lifetime/<string:token>/content/', defaults={'asset_path': None})
@@ -11160,11 +11154,7 @@ def digital_hosted_app_free(item_id):
     item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP', is_active=True).first_or_404()
     if not digital_hosted_is_free(item) or not digital_is_uploaded_hosted_app(item):
         abort(403)
-    content_url = url_for('digital_hosted_content_free', item_id=item.id, asset_path=item.hosted_app_entrypoint)
-    return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='FREE', content_url=content_url, end_url=None, usage_pass=None,
-                           manifest_url=digital_pwa_manifest_url('uploaded', 'free', str(item.id), item=item),
-                           pwa_service_worker_url=url_for('digital_uploaded_pwa_service_worker', item_id=item.id),
-                           pwa_scope=digital_uploaded_pwa_scope(item.id))
+    return redirect(url_for('digital_uploaded_pwa_launch', item_id=item.id, mode='free', key=str(item.id)))
 
 
 @app.route('/digital/apps/free/<int:item_id>/content/', defaults={'asset_path': None})
@@ -11184,12 +11174,7 @@ def admin_digital_hosted_app(item_id):
         return redirect(url_for('admin_chat_lite'))
     if not digital_is_uploaded_hosted_app(item):
         abort(404)
-    content_token = digital_admin_hosted_token(item.id)
-    content_url = url_for('admin_digital_hosted_content', content_token=content_token, asset_path=item.hosted_app_entrypoint)
-    return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='ADMIN', content_url=content_url, end_url=None, usage_pass=None,
-                           manifest_url=digital_pwa_manifest_url('uploaded', 'admin', str(item.id), item=item),
-                           pwa_service_worker_url=url_for('digital_uploaded_pwa_service_worker', item_id=item.id),
-                           pwa_scope=digital_uploaded_pwa_scope(item.id))
+    return redirect(url_for('digital_uploaded_pwa_launch', item_id=item.id, mode='admin', key=str(item.id)))
 
 
 @app.route('/admin/digital/hosted-content/<string:content_token>/', defaults={'asset_path': None})
