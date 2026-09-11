@@ -78,7 +78,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.12-digital-hosted-app-uploader-v31'
+APP_RELEASE = '2026.09.12-chat-camera-pwa-v32'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -9674,6 +9674,124 @@ def digital_admin_hosted_token_item(token):
         return None
 
 
+def digital_pwa_resolve(app_type, mode, key):
+    """Resolve one installable hosted-app entitlement without weakening access.
+
+    The installed PWA is only a shortcut/wrapper around the same protected
+    hosted URL. No uploaded source package is cached or exported to customers.
+    """
+    app_type = (app_type or '').strip().lower()
+    mode = (mode or '').strip().lower()
+    key = (key or '').strip()
+    now = utc_now()
+
+    if app_type == 'chat-lite':
+        if mode == 'per-use':
+            usage = DigitalUsagePass.query.filter_by(access_token=key, app_key='CHAT_LITE').first_or_404()
+            if usage.status == 'ACTIVE' and usage.expires_at and usage.expires_at <= now:
+                usage.status = 'EXPIRED'; db.session.commit()
+            order = usage.order
+            if usage.status != 'ACTIVE' or not usage.expires_at or usage.expires_at <= now or not digital_paid_order(order) or not digital_is_chat_lite(order.item):
+                abort(403)
+            return order.item.name, url_for('digital_chat_lite_hosted', access_token=key)
+        if mode == 'lifetime':
+            order = DigitalOrder.query.filter_by(tracking_token=key).first_or_404()
+            if not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME' or not digital_is_chat_lite(order.item):
+                abort(403)
+            return order.item.name, url_for('digital_chat_lite_lifetime', token=key)
+        abort(404)
+
+    if app_type == 'uploaded':
+        if mode == 'per-use':
+            usage = DigitalUsagePass.query.filter_by(access_token=key).first_or_404()
+            if usage.status == 'ACTIVE' and usage.expires_at and usage.expires_at <= now:
+                usage.status = 'EXPIRED'; db.session.commit()
+            order = usage.order
+            if usage.status != 'ACTIVE' or not usage.expires_at or usage.expires_at <= now or not digital_paid_order(order) or not digital_is_uploaded_hosted_app(order.item):
+                abort(403)
+            return order.item.name, url_for('digital_hosted_app_per_use', access_token=key)
+        if mode == 'lifetime':
+            order = DigitalOrder.query.filter_by(tracking_token=key).first_or_404()
+            if not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME' or not digital_is_uploaded_hosted_app(order.item):
+                abort(403)
+            return order.item.name, url_for('digital_hosted_app_lifetime', token=key)
+        if mode == 'free':
+            try:
+                item_id = int(key)
+            except (TypeError, ValueError):
+                abort(404)
+            item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP', is_active=True).first_or_404()
+            if not digital_hosted_is_free(item) or not digital_is_uploaded_hosted_app(item):
+                abort(403)
+            return item.name, url_for('digital_hosted_app_free', item_id=item.id)
+        abort(404)
+
+    abort(404)
+
+
+def digital_pwa_manifest_url(app_type, mode, key):
+    return url_for('digital_hosted_pwa_manifest', app_type=app_type, mode=mode, key=key)
+
+
+@app.route('/digital/apps/install/<string:app_type>/<string:mode>/<string:key>.webmanifest')
+def digital_hosted_pwa_manifest(app_type, mode, key):
+    app_name, start_url = digital_pwa_resolve(app_type, mode, key)
+    short_name = re.sub(r'\\s+', ' ', app_name).strip()[:30] or 'Macleen App'
+    manifest = {
+        'name': app_name,
+        'short_name': short_name,
+        'id': start_url,
+        'start_url': start_url,
+        'scope': '/digital/apps/',
+        'display': 'standalone',
+        'display_override': ['standalone', 'minimal-ui'],
+        'background_color': '#ffffff',
+        'theme_color': '#0084ff',
+        'description': f'{app_name} hosted securely by Macleen\'s Digital.',
+        'icons': [
+            {'src': url_for('digital_hosted_pwa_icon', size=192), 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any maskable'},
+            {'src': url_for('digital_hosted_pwa_icon', size=512), 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any maskable'},
+        ],
+    }
+    response = Response(json.dumps(manifest, ensure_ascii=False), content_type='application/manifest+json; charset=utf-8')
+    response.headers['Cache-Control'] = 'private, no-store, max-age=0'
+    return response
+
+
+@app.route('/digital/apps/pwa-icon-<int:size>.png')
+def digital_hosted_pwa_icon(size):
+    if size not in {192, 512}:
+        abort(404)
+    image = Image.new('RGB', (size, size), (0, 132, 255))
+    draw = ImageDraw.Draw(image)
+    pad = max(10, int(size * 0.08))
+    draw.rounded_rectangle((pad, pad, size - pad, size - pad), radius=int(size * 0.18), fill=(0, 115, 230))
+    try:
+        font = ImageFont.truetype('DejaVuSans-Bold.ttf', int(size * 0.46))
+    except Exception:
+        font = ImageFont.load_default()
+    text_value = 'M'
+    bbox = draw.textbbox((0, 0), text_value, font=font)
+    x = (size - (bbox[2] - bbox[0])) / 2 - bbox[0]
+    y = (size - (bbox[3] - bbox[1])) / 2 - bbox[1] - size * 0.02
+    draw.text((x, y), text_value, fill='white', font=font)
+    output = io.BytesIO(); image.save(output, format='PNG', optimize=True)
+    response = Response(output.getvalue(), content_type='image/png')
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
+
+
+@app.route('/digital/apps/pwa-sw.js')
+def digital_hosted_pwa_service_worker():
+    # Deliberately no fetch/cache handler: paid app files must keep using the
+    # live entitlement checks and must never remain available after expiry.
+    script = """self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});"""
+    response = Response(script, content_type='application/javascript; charset=utf-8')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Service-Worker-Allowed'] = '/digital/apps/'
+    return response
+
+
 def ensure_chat_lite_digital_product():
     item = DigitalItem.query.filter(db.func.lower(DigitalItem.name) == 'chat lite ephemeral').first()
     if not item:
@@ -10519,7 +10637,7 @@ def digital_chat_lite_hosted(access_token):
     order = usage.order
     if not order or order.payment_status != 'PAID':
         abort(403)
-    return render_template('digital/apps/chat_lite.html', usage_pass=usage, order=order, access_mode='PER_USE')
+    return render_template('digital/apps/chat_lite.html', usage_pass=usage, order=order, access_mode='PER_USE', manifest_url=digital_pwa_manifest_url('chat-lite', 'per-use', access_token))
 
 
 @app.route('/digital/order/<token>/launch-lifetime', methods=['POST'])
@@ -10538,7 +10656,7 @@ def digital_chat_lite_lifetime(token):
     order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
     if not digital_paid_order(order) or not order.item or order.item.product_type != 'HOSTED_APP' or digital_order_access_plan(order) != 'LIFETIME':
         abort(403)
-    return render_template('digital/apps/chat_lite.html', usage_pass=None, order=order, access_mode='LIFETIME')
+    return render_template('digital/apps/chat_lite.html', usage_pass=None, order=order, access_mode='LIFETIME', manifest_url=digital_pwa_manifest_url('chat-lite', 'lifetime', token))
 
 
 @app.route('/digital/apps/hosted/<string:access_token>')
@@ -10554,7 +10672,8 @@ def digital_hosted_app_per_use(access_token):
         abort(403)
     content_url = url_for('digital_hosted_content_per_use', access_token=access_token, asset_path=order.item.hosted_app_entrypoint)
     return render_template('digital/apps/hosted_app_viewer.html', item=order.item, access_mode='PER_USE', content_url=content_url,
-                           end_url=url_for('digital_hosted_end_usage', access_token=access_token), usage_pass=usage)
+                           end_url=url_for('digital_hosted_end_usage', access_token=access_token), usage_pass=usage,
+                           manifest_url=digital_pwa_manifest_url('uploaded', 'per-use', access_token))
 
 
 @app.route('/digital/apps/hosted/<string:access_token>/content/', defaults={'asset_path': None})
@@ -10585,7 +10704,7 @@ def digital_hosted_app_lifetime(token):
     if not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME' or not digital_is_uploaded_hosted_app(order.item):
         abort(403)
     content_url = url_for('digital_hosted_content_lifetime', token=token, asset_path=order.item.hosted_app_entrypoint)
-    return render_template('digital/apps/hosted_app_viewer.html', item=order.item, access_mode='LIFETIME', content_url=content_url, end_url=None, usage_pass=None)
+    return render_template('digital/apps/hosted_app_viewer.html', item=order.item, access_mode='LIFETIME', content_url=content_url, end_url=None, usage_pass=None, manifest_url=digital_pwa_manifest_url('uploaded', 'lifetime', token))
 
 
 @app.route('/digital/apps/hosted/lifetime/<string:token>/content/', defaults={'asset_path': None})
@@ -10603,7 +10722,7 @@ def digital_hosted_app_free(item_id):
     if not digital_hosted_is_free(item) or not digital_is_uploaded_hosted_app(item):
         abort(403)
     content_url = url_for('digital_hosted_content_free', item_id=item.id, asset_path=item.hosted_app_entrypoint)
-    return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='FREE', content_url=content_url, end_url=None, usage_pass=None)
+    return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='FREE', content_url=content_url, end_url=None, usage_pass=None, manifest_url=digital_pwa_manifest_url('uploaded', 'free', str(item.id)))
 
 
 @app.route('/digital/apps/free/<int:item_id>/content/', defaults={'asset_path': None})

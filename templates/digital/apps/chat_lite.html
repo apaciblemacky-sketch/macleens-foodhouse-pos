@@ -8,6 +8,8 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#0084ff">
+  <meta name="apple-mobile-web-app-title" content="CHAT Lite">
+  {% if manifest_url %}<link rel="manifest" href="{{ manifest_url }}">{% endif %}
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
@@ -30,7 +32,9 @@
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     html, body { width: 100%; height: 100%; overflow: hidden; background: var(--ms-sub); }
 
-    .paid-session-banner{background:#ecfdf5;color:#065f46;border-bottom:1px solid #a7f3d0;padding:7px 12px;text-align:center;font-size:.72rem;font-weight:800;flex-shrink:0}
+    .paid-session-banner{background:#ecfdf5;color:#065f46;border-bottom:1px solid #a7f3d0;padding:7px 12px;text-align:center;font-size:.72rem;font-weight:800;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}
+    .install-app-btn{border:1px solid #6ee7b7;background:#fff;color:#065f46;border-radius:999px;padding:5px 9px;font-size:.68rem;font-weight:900;cursor:pointer}
+    .install-app-btn:disabled{opacity:.65;cursor:default}
 
     #app {
       display: flex; flex-direction: column; width: 100%; height: 100%; max-width: 960px;
@@ -174,7 +178,7 @@
 <body>
 
 <div id="app">
-  {% if access_mode == 'PER_USE' %}<div class="paid-session-banner">⚡ Macleen’s Digital • Per-use access • active until {{ usage_pass.expires_at|ph_datetime('%b %d, %Y %I:%M %p') }}</div>{% elif access_mode == 'LIFETIME' %}<div class="paid-session-banner">♾️ Macleen’s Digital • Lifetime Access</div>{% elif access_mode == 'ADMIN' %}<div class="paid-session-banner">🛡️ Macleen’s Admin • Free unlimited owner access</div>{% else %}<div class="paid-session-banner">🔗 CHAT Lite • Invited guest</div>{% endif %}
+  {% if access_mode == 'PER_USE' %}<div class="paid-session-banner"><span>⚡ Macleen’s Digital • Per-use access • active until {{ usage_pass.expires_at|ph_datetime('%b %d, %Y %I:%M %p') }}</span>{% if manifest_url %}<button type="button" class="install-app-btn" data-install-app>📲 Install Web App</button>{% endif %}</div>{% elif access_mode == 'LIFETIME' %}<div class="paid-session-banner"><span>♾️ Macleen’s Digital • Lifetime Access</span>{% if manifest_url %}<button type="button" class="install-app-btn" data-install-app>📲 Install Web App</button>{% endif %}</div>{% elif access_mode == 'ADMIN' %}<div class="paid-session-banner">🛡️ Macleen’s Admin • Free unlimited owner access</div>{% else %}<div class="paid-session-banner">🔗 CHAT Lite • Invited guest</div>{% endif %}
   <div id="protocolAlert">
     ⚠️ <strong>HTTPS Required:</strong> WebRTC, Camera, and Microphone access will not function on <code>file:///</code> links.
   </div>
@@ -249,6 +253,50 @@
   const guestInviteBase = {{ url_for('digital_chat_lite_guest')|tojson }};
   const guestOnly = accessMode === 'GUEST';
   let paidUsageEnded = false;
+
+  {% if manifest_url %}
+  let deferredInstallPrompt = null;
+  const installButtons = () => Array.from(document.querySelectorAll('[data-install-app]'));
+  const setInstallButtonText = (text) => installButtons().forEach(button => { button.textContent = text; });
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    deferredInstallPrompt = event;
+    setInstallButtonText('📲 Install Web App');
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    installButtons().forEach(button => { button.textContent = '✓ App Installed'; button.disabled = true; });
+  });
+  async function installWebApp() {
+    if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
+      alert('CHAT Lite is already running as an installed web app.');
+      return;
+    }
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      try { await deferredInstallPrompt.userChoice; } catch (_) {}
+      deferredInstallPrompt = null;
+      return;
+    }
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/i.test(ua)) {
+      alert('To install CHAT Lite on iPhone/iPad: tap Share, then choose Add to Home Screen.');
+    } else if (/SamsungBrowser/i.test(ua)) {
+      alert('To install CHAT Lite in Samsung Internet: open the browser menu, then choose Add page to > Home screen or Install app.');
+    } else {
+      alert('Open your browser menu and choose Install app or Add to Home screen. If the option is not shown yet, reload this page once and try again.');
+    }
+  }
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-install-app]');
+    if (button) installWebApp();
+  });
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register({{ url_for('digital_hosted_pwa_service_worker')|tojson }}, { scope: '/digital/apps/' }).catch(() => {});
+    });
+  }
+  {% endif %}
 
   function endPaidUsageIfHost() {
     if (accessMode !== 'PER_USE' || !paidUsageEndUrl || paidUsageEnded || !isRoomHost || !currentRoom) return;
@@ -604,40 +652,111 @@
   }
 
   // Camera Flip Engine (Android/iOS)
+  // Some Android/Samsung devices cannot open the second camera while the
+  // first camera track still owns the hardware. Release the old video track
+  // first, then request the target camera and hot-swap it into the call.
+  let cameraSwitching = false;
+
+  async function requestCameraTrack(targetFacing, oldDeviceId, knownCameras) {
+    const common = { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { max: 24 } };
+    const labels = targetFacing === 'environment'
+      ? /back|rear|environment|world/i
+      : /front|user|self|face/i;
+    const different = (knownCameras || []).filter(d => d.deviceId && d.deviceId !== oldDeviceId);
+    const preferred = different.find(d => labels.test(d.label || '')) || different[0];
+    const attempts = [];
+    if (preferred) attempts.push({ ...common, deviceId: { exact: preferred.deviceId } });
+    attempts.push({ ...common, facingMode: { exact: targetFacing } });
+    attempts.push({ ...common, facingMode: { ideal: targetFacing } });
+    for (const constraints of attempts) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: constraints, audio: false });
+        const track = stream.getVideoTracks()[0];
+        if (track) return { stream, track };
+        stream.getTracks().forEach(t => t.stop());
+      } catch (_) {}
+    }
+    throw new Error('No alternate camera could be started on this device.');
+  }
+
   async function flipCamera() {
-    if (!localStream) return;
-    currentCameraFacing = (currentCameraFacing === "user") ? "environment" : "user";
+    if (!localStream || cameraSwitching || !navigator.mediaDevices?.getUserMedia) return;
+    const oldTrack = localStream.getVideoTracks()[0];
+    if (!oldTrack) return alert('No active camera is available to switch.');
+
+    const flipBtn = document.getElementById('flipBtn');
+    const oldFacing = currentCameraFacing;
+    const targetFacing = oldFacing === 'user' ? 'environment' : 'user';
+    const oldSettings = oldTrack.getSettings ? oldTrack.getSettings() : {};
+    const oldDeviceId = oldSettings.deviceId || '';
+    const oldEnabled = oldTrack.enabled;
+    let knownCameras = [];
+    cameraSwitching = true;
+    if (flipBtn) { flipBtn.disabled = true; flipBtn.textContent = '🔄 Switching…'; }
 
     try {
-      const newStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: currentCameraFacing }, width: { ideal: 640 }, height: { ideal: 480 } },
-        audio: false
-      }).catch(() => {
-        return navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: currentCameraFacing } },
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        knownCameras = devices.filter(device => device.kind === 'videoinput');
+      } catch (_) {}
+
+      // Releasing the current track before requesting the next one fixes the
+      // common Android "Could not start video source" / NotReadableError.
+      oldTrack.stop();
+      try { localStream.removeTrack(oldTrack); } catch (_) {}
+      await new Promise(resolve => setTimeout(resolve, 180));
+
+      const { stream: newCameraStream, track: newTrack } = await requestCameraTrack(targetFacing, oldDeviceId, knownCameras);
+      newTrack.enabled = oldEnabled;
+      localStream.addTrack(newTrack);
+      currentCameraFacing = targetFacing;
+
+      // If screen sharing is active, keep sending the screen. The new camera
+      // becomes the track that will be restored when screen sharing ends.
+      if (!screenStream) {
+        await Promise.all(Object.values(activeCalls).map(async call => {
+          try {
+            const sender = call.peerConnection?.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (sender) await sender.replaceTrack(newTrack);
+          } catch (_) {}
+        }));
+        const selfVid = document.querySelector('#video-self video');
+        if (selfVid) selfVid.srcObject = localStream;
+      }
+
+      // Stop only any extra tracks in the temporary stream; newTrack now
+      // belongs to localStream and must remain alive.
+      newCameraStream.getTracks().forEach(track => { if (track !== newTrack) track.stop(); });
+    } catch (switchError) {
+      currentCameraFacing = oldFacing;
+      // Best-effort recovery of the previous camera so a failed flip does not
+      // leave the user with audio only.
+      try {
+        const restored = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: oldFacing }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { max: 24 } },
           audio: false
         });
-      });
-
-      const newTrack = newStream.getVideoTracks()[0];
-      const oldTrack = localStream.getVideoTracks()[0];
-
-      if (oldTrack) {
-        oldTrack.stop();
-        localStream.removeTrack(oldTrack);
-      }
-      localStream.addTrack(newTrack);
-
-      // Hot swap video track on all peer connections
-      Object.values(activeCalls).forEach(call => {
-        const sender = call.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
-        if (sender) sender.replaceTrack(newTrack);
-      });
-
-      const selfVid = document.querySelector('#video-self video');
-      if (selfVid) selfVid.srcObject = localStream;
-    } catch (e) {
-      alert("Cannot switch camera: " + e.message);
+        const restoredTrack = restored.getVideoTracks()[0];
+        if (restoredTrack) {
+          restoredTrack.enabled = oldEnabled;
+          localStream.addTrack(restoredTrack);
+          if (!screenStream) {
+            await Promise.all(Object.values(activeCalls).map(async call => {
+              try {
+                const sender = call.peerConnection?.getSenders().find(s => s.track && s.track.kind === 'video');
+                if (sender) await sender.replaceTrack(restoredTrack);
+              } catch (_) {}
+            }));
+            const selfVid = document.querySelector('#video-self video');
+            if (selfVid) selfVid.srcObject = localStream;
+          }
+        }
+      } catch (_) {}
+      alert('Could not switch to the other camera. Your current camera was restored when possible. Please close any other app using the camera and try again.');
+      console.warn('CHAT Lite camera switch failed:', switchError);
+    } finally {
+      cameraSwitching = false;
+      if (flipBtn) { flipBtn.disabled = false; flipBtn.textContent = '🔄 Flip Cam'; }
     }
   }
 

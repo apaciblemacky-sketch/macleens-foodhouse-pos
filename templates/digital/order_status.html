@@ -16,13 +16,13 @@
       {% if access_plan == 'LIFETIME' %}
       <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:15px;padding:14px;margin:13px 0">
         <h2 style="margin-top:0">♾️ Lifetime {{ order.item.name }} Access</h2>
-        <p class="muted">Your one-time Lifetime Access payment is confirmed. You can reopen this hosted app from this private order page without buying another usage. Rooms, messages, calls, and shared files remain ephemeral and are not stored after the room ends.</p>
+        <p class="muted">Your one-time Lifetime Access payment is confirmed. You can reopen this hosted app from this private order page without buying another usage. After launching, tap “Install Web App” to add it to your phone or computer. Rooms, messages, calls, and shared files remain ephemeral and are not stored after the room ends.</p>
         <form method="post" action="{{ url_for('digital_launch_hosted_app_lifetime',token=order.tracking_token) }}"><button class="btn" type="submit">Launch {{ order.item.name }}</button></form>
       </div>
       {% else %}
       <div style="background:#ecfdf5;border:1px solid #86efac;border-radius:15px;padding:14px;margin:13px 0">
         <h2 style="margin-top:0">⚡ Your hosted usage access</h2>
-        <p class="muted">Each purchased quantity creates one 6-hour usage. If the browser closes, internet drops, or the PC loses power, reopen the same active usage from this page before its expiry. {{ order.item.name }} stays hosted inside Macleen’s Digital; there is no downloadable source copy.</p>
+        <p class="muted">Each purchased quantity creates one 6-hour usage. If the browser closes, internet drops, or the PC loses power, reopen the same active usage from this page before its expiry. After launching, tap “Install Web App” to add a web-app shortcut to your phone or computer. The installed app still follows the same paid access expiry; the source package is not downloaded.</p>
         <div style="display:grid;gap:9px">
         {% for usage in usage_passes %}
           <div style="background:#fff;border:1px solid #d1fae5;border-radius:12px;padding:11px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">

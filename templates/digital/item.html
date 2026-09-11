@@ -11,7 +11,7 @@
       {% elif hosted_access == 'LIFETIME' %}<p><strong>Lifetime Access:</strong> ₱{{ '%.2f'|format(item.lifetime_price) }} one time</p>
       {% elif hosted_access == 'BOTH' %}<p><strong>Per Use:</strong> ₱{{ '%.2f'|format(item.price) }} · <strong>Lifetime Access:</strong> ₱{{ '%.2f'|format(item.lifetime_price) }} one time</p>
       {% else %}<p><strong>Per Use:</strong> ₱{{ '%.2f'|format(item.price) }}</p>{% endif %}
-      <p class="muted">Hosted apps run inside Macleen’s Digital instead of being delivered as source files. Per-use purchases create a private 6-hour access pass; Lifetime Access can be reopened from the same private order page. Admin access is always free.</p>
+      <p class="muted">Hosted apps run inside Macleen’s Digital instead of being delivered as source files. After launch, customers can tap “Install Web App” to add the hosted app to their phone or computer. Per-use installs still follow the active 6-hour pass; Lifetime Access can be reopened indefinitely from the same private order page. Admin access is always free.</p>
     {% else %}<p><strong>Format:</strong> {{ item.file_format or 'As described' }} · <strong>Turnaround:</strong> {{ item.turnaround_days }} day(s)</p>{% if item.asset_file_id %}<p class="muted">A protected file is attached. It becomes downloadable only after confirmed payment; the customer uses a private order link plus an access code.</p>{% endif %}{% endif %}
     <p class="muted">{{ item.license_terms or 'For the buyer’s permitted use; redistribution is not included unless stated.' }}</p>
     {% if item.sample_url %}<a class="btn btn-light" target="_blank" rel="noopener" href="{{ item.sample_url }}">View Sample</a>{% endif %}
