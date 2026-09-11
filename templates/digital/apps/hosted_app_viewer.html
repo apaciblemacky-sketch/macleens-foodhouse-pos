@@ -20,7 +20,7 @@
     <div class="name"><strong>{{ item.name }}</strong><small>{% if access_mode=='ADMIN' %}Admin Free Access{% elif access_mode=='LIFETIME' %}Lifetime Access{% elif access_mode=='PER_USE' %}Paid 6-hour usage{% else %}Free Access{% endif %}</small></div>
     <div class="notice">Hosted in a protected static-app viewer. The uploaded app cannot use Macleen’s admin session.</div>
     <div class="actions">
-      {% if manifest_url %}<button class="btn install" type="button" data-install-app>📲 Install Web App</button>{% endif %}
+      {% if manifest_url %}<button class="btn install" type="button" data-install-app>📲 Install {{ item.name }}</button>{% endif %}
       {% if access_mode=='ADMIN' %}<a class="btn" href="{{ url_for('digital_admin') }}">Digital Admin</a>{% endif %}
       {% if end_url %}<form method="post" action="{{ end_url }}" onsubmit="return confirm('End this paid usage now? You can otherwise keep reopening it until its 6-hour expiry.');"><button class="btn end" type="submit">End Usage</button></form>{% endif %}
     </div>
@@ -34,7 +34,7 @@
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();
     deferredInstallPrompt = event;
-    if (installButton) installButton.textContent = '📲 Install Web App';
+    if (installButton) installButton.textContent = {{ ('📲 Install ' ~ item.name)|tojson }};
   });
   window.addEventListener('appinstalled', () => {
     deferredInstallPrompt = null;
@@ -63,7 +63,7 @@
   installButton?.addEventListener('click', installHostedApp);
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register({{ url_for('digital_hosted_pwa_service_worker')|tojson }}, { scope: '/digital/apps/' }).catch(() => {});
+      navigator.serviceWorker.register({{ (pwa_service_worker_url or url_for('digital_hosted_pwa_service_worker'))|tojson }}, { scope: {{ (pwa_scope or '/digital/apps/')|tojson }} }).catch(() => {});
     });
   }
 </script>

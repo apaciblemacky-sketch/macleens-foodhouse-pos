@@ -79,7 +79,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.12-digital-lifetime-library-v35'
+APP_RELEASE = '2026.09.12-separate-digital-crafts-pwa-v36'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 _DB_INITIALIZED = False
@@ -1297,6 +1297,13 @@ class DigitalItem(db.Model):
     hosted_app_key = db.Column(db.String(40), nullable=True)
     hosted_app_entrypoint = db.Column(db.String(255), nullable=True)
     hosted_customer_access = db.Column(db.String(20), nullable=True)
+    # Every uploaded hosted app can expose its own installable PWA identity.
+    # These settings are admin-editable while the app package itself remains
+    # protected behind the existing access/entitlement checks.
+    hosted_pwa_enabled = db.Column(db.Boolean, default=True, nullable=False)
+    hosted_pwa_short_name = db.Column(db.String(40), nullable=True)
+    hosted_pwa_theme_color = db.Column(db.String(20), default='#0084ff', nullable=True)
+    hosted_pwa_display = db.Column(db.String(20), default='standalone', nullable=True)
     cost = db.Column(db.Float, default=0.0)
     image_url = db.Column(db.Text, nullable=True)
     sample_url = db.Column(db.Text, nullable=True)
@@ -1776,6 +1783,114 @@ def serve_sw():
     response.headers['Cache-Control'] = 'no-store, max-age=0'
     return response
 
+# ==================== PORTAL-SPECIFIC PWA ROUTES ====================
+# These are intentionally separate from the root Food/Storefront manifest and
+# from individual paid Hosted App manifests. Unique manifest ids let customers
+# install Food, Digital, and Crafts side-by-side on the same phone/PC.
+
+def _portal_pwa_icon_response(letter, size, bg_rgb, inner_rgb):
+    if size not in {192, 512}:
+        abort(404)
+    image = Image.new('RGB', (size, size), bg_rgb)
+    draw = ImageDraw.Draw(image)
+    pad = max(10, int(size * 0.07))
+    draw.rounded_rectangle(
+        (pad, pad, size - pad, size - pad),
+        radius=int(size * 0.22),
+        fill=inner_rgb,
+    )
+    try:
+        font = ImageFont.truetype('DejaVuSans-Bold.ttf', int(size * 0.44))
+    except Exception:
+        font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), letter, font=font)
+    x = (size - (bbox[2] - bbox[0])) / 2 - bbox[0]
+    y = (size - (bbox[3] - bbox[1])) / 2 - bbox[1] - size * 0.015
+    draw.text((x, y), letter, fill='white', font=font)
+    output = io.BytesIO()
+    image.save(output, format='PNG', optimize=True)
+    response = Response(output.getvalue(), content_type='image/png')
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
+
+
+@app.route('/digital/manifest.json')
+def digital_portal_manifest():
+    manifest = {
+        'name': "Macleen's Digital",
+        'short_name': 'Macleen Digital',
+        'id': '/digital/',
+        'start_url': '/digital/?pwa=1',
+        'scope': '/digital/',
+        'display': 'standalone',
+        'display_override': ['standalone', 'minimal-ui'],
+        'background_color': '#f0fdfa',
+        'theme_color': '#0f766e',
+        'description': "Macleen's Digital catalog, owned apps, hosted tools, and digital purchases.",
+        'icons': [
+            {'src': url_for('digital_portal_icon', size=192), 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any maskable'},
+            {'src': url_for('digital_portal_icon', size=512), 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any maskable'},
+        ],
+    }
+    response = Response(json.dumps(manifest, ensure_ascii=False), content_type='application/manifest+json; charset=utf-8')
+    response.headers['Cache-Control'] = 'no-cache, max-age=0'
+    return response
+
+
+@app.route('/digital/pwa-icon-<int:size>.png')
+def digital_portal_icon(size):
+    return _portal_pwa_icon_response('D', size, (240, 253, 250), (15, 118, 110))
+
+
+@app.route('/digital/portal-sw.js')
+def digital_portal_sw():
+    # No source caching here: purchases and ownership must continue using live
+    # server entitlement checks. This worker exists to give Digital its own PWA
+    # identity/scope without taking over the Food or Crafts apps.
+    script = """self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});"""
+    response = Response(script, content_type='application/javascript; charset=utf-8')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Service-Worker-Allowed'] = '/digital/'
+    return response
+
+
+@app.route('/craft/manifest.json')
+def craft_portal_manifest():
+    manifest = {
+        'name': "Macleen's Crafts",
+        'short_name': 'Macleen Crafts',
+        'id': '/craft/',
+        'start_url': '/craft/?pwa=1',
+        'scope': '/craft/',
+        'display': 'standalone',
+        'display_override': ['standalone', 'minimal-ui'],
+        'background_color': '#fff5f7',
+        'theme_color': '#ec4899',
+        'description': "Macleen's Crafts catalog, custom orders, and craft order tracking.",
+        'icons': [
+            {'src': url_for('craft_portal_icon', size=192), 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any maskable'},
+            {'src': url_for('craft_portal_icon', size=512), 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any maskable'},
+        ],
+    }
+    response = Response(json.dumps(manifest, ensure_ascii=False), content_type='application/manifest+json; charset=utf-8')
+    response.headers['Cache-Control'] = 'no-cache, max-age=0'
+    return response
+
+
+@app.route('/craft/pwa-icon-<int:size>.png')
+def craft_portal_icon(size):
+    return _portal_pwa_icon_response('C', size, (255, 245, 247), (236, 72, 153))
+
+
+@app.route('/craft/portal-sw.js')
+def craft_portal_sw():
+    script = """self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});"""
+    response = Response(script, content_type='application/javascript; charset=utf-8')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Service-Worker-Allowed'] = '/craft/'
+    return response
+
+
 # ==================== SAFE MIGRATION & RUN HOOKS ====================
 
 def _ensure_column(table_name, column_name, ddl_type):
@@ -1944,6 +2059,10 @@ def run_schema_migrations():
             ('hosted_app_key', 'VARCHAR(40)'),
             ('hosted_app_entrypoint', 'VARCHAR(255)'),
             ('hosted_customer_access', 'VARCHAR(20)'),
+            ('hosted_pwa_enabled', 'BOOLEAN DEFAULT TRUE'),
+            ('hosted_pwa_short_name', 'VARCHAR(40)'),
+            ('hosted_pwa_theme_color', "VARCHAR(20) DEFAULT '#0084ff'"),
+            ('hosted_pwa_display', "VARCHAR(20) DEFAULT 'standalone'"),
             ('delivery_instructions', 'TEXT'),
             ('app_device_limit', 'INTEGER DEFAULT 0'),
             ('asset_version', 'INTEGER DEFAULT 1'),
@@ -8213,6 +8332,7 @@ def update_operating_hours():
 # ==================== INTEGRATED CRAFT SHOP ROUTES ====================
 
 @app.route('/craft')
+@app.route('/craft/')
 def craft_store():
     track_website_view('CRAFT')
     ip = get_client_ip()[:64]
@@ -9678,8 +9798,8 @@ def digital_admin_hosted_token_item(token):
 def digital_pwa_resolve(app_type, mode, key):
     """Resolve one installable hosted-app entitlement without weakening access.
 
-    The installed PWA is only a shortcut/wrapper around the same protected
-    hosted URL. No uploaded source package is cached or exported to customers.
+    The installed PWA is only a protected launcher around the same hosted app.
+    Uploaded source packages are never exposed or cached for offline extraction.
     """
     app_type = (app_type or '').strip().lower()
     mode = (mode or '').strip().lower()
@@ -9694,12 +9814,12 @@ def digital_pwa_resolve(app_type, mode, key):
             order = usage.order
             if usage.status != 'ACTIVE' or not usage.expires_at or usage.expires_at <= now or not digital_paid_order(order) or not digital_is_chat_lite(order.item):
                 abort(403)
-            return order.item.name, url_for('digital_chat_lite_hosted', access_token=key)
+            return order.item, url_for('digital_chat_lite_hosted', access_token=key)
         if mode == 'lifetime':
             order = DigitalOrder.query.filter_by(tracking_token=key).first_or_404()
             if not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME' or not digital_is_chat_lite(order.item):
                 abort(403)
-            return order.item.name, url_for('digital_chat_lite_lifetime', token=key)
+            return order.item, url_for('digital_chat_lite_lifetime', token=key)
         abort(404)
 
     if app_type == 'uploaded':
@@ -9710,12 +9830,12 @@ def digital_pwa_resolve(app_type, mode, key):
             order = usage.order
             if usage.status != 'ACTIVE' or not usage.expires_at or usage.expires_at <= now or not digital_paid_order(order) or not digital_is_uploaded_hosted_app(order.item):
                 abort(403)
-            return order.item.name, url_for('digital_hosted_app_per_use', access_token=key)
+            return order.item, url_for('digital_hosted_app_per_use', access_token=key)
         if mode == 'lifetime':
             order = DigitalOrder.query.filter_by(tracking_token=key).first_or_404()
             if not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME' or not digital_is_uploaded_hosted_app(order.item):
                 abort(403)
-            return order.item.name, url_for('digital_hosted_app_lifetime', token=key)
+            return order.item, url_for('digital_hosted_app_lifetime', token=key)
         if mode == 'free':
             try:
                 item_id = int(key)
@@ -9724,34 +9844,93 @@ def digital_pwa_resolve(app_type, mode, key):
             item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP', is_active=True).first_or_404()
             if not digital_hosted_is_free(item) or not digital_is_uploaded_hosted_app(item):
                 abort(403)
-            return item.name, url_for('digital_hosted_app_free', item_id=item.id)
+            return item, url_for('digital_hosted_app_free', item_id=item.id)
+        if mode == 'admin':
+            if not session.get('admin_user') or not staff_session_valid():
+                abort(403)
+            try:
+                item_id = int(key)
+            except (TypeError, ValueError):
+                abort(404)
+            item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP').first_or_404()
+            if not digital_is_uploaded_hosted_app(item):
+                abort(404)
+            return item, url_for('admin_digital_hosted_app', item_id=item.id)
         abort(404)
 
     abort(404)
 
 
-def digital_pwa_manifest_url(app_type, mode, key):
+def digital_pwa_color(value, fallback='#0084ff'):
+    value = (value or '').strip()
+    return value.lower() if re.fullmatch(r'#[0-9a-fA-F]{6}', value) else fallback
+
+
+def digital_hosted_pwa_settings(item):
+    display = (getattr(item, 'hosted_pwa_display', None) or 'standalone').strip().lower()
+    if display not in {'standalone', 'fullscreen', 'minimal-ui'}:
+        display = 'standalone'
+    short_name = re.sub(r'\s+', ' ', (getattr(item, 'hosted_pwa_short_name', None) or item.name or 'Macleen App')).strip()[:40] or 'Macleen App'
+    return {
+        'enabled': getattr(item, 'hosted_pwa_enabled', True) is not False,
+        'short_name': short_name,
+        'theme_color': digital_pwa_color(getattr(item, 'hosted_pwa_theme_color', None), '#0084ff'),
+        'display': display,
+    }
+
+
+def digital_uploaded_pwa_scope(item_id):
+    return f'/digital/apps/pwa/{int(item_id)}/'
+
+
+def digital_pwa_manifest_url(app_type, mode, key, item=None):
+    if (app_type or '').strip().lower() == 'uploaded' and item is not None:
+        if not digital_hosted_pwa_settings(item)['enabled']:
+            return None
     return url_for('digital_hosted_pwa_manifest', app_type=app_type, mode=mode, key=key)
 
 
 @app.route('/digital/apps/install/<string:app_type>/<string:mode>/<string:key>.webmanifest')
 def digital_hosted_pwa_manifest(app_type, mode, key):
-    app_name, start_url = digital_pwa_resolve(app_type, mode, key)
-    short_name = re.sub(r'\\s+', ' ', app_name).strip()[:30] or 'Macleen App'
+    item, legacy_start_url = digital_pwa_resolve(app_type, mode, key)
+    settings = digital_hosted_pwa_settings(item)
+    is_uploaded = (app_type or '').strip().lower() == 'uploaded'
+    if is_uploaded and not settings['enabled']:
+        abort(404)
+
+    if is_uploaded:
+        scope = digital_uploaded_pwa_scope(item.id)
+        start_url = url_for('digital_uploaded_pwa_launch', item_id=item.id, mode=(mode or '').strip().lower(), key=key)
+        manifest_id = scope
+        icon_192 = url_for('digital_uploaded_pwa_icon', item_id=item.id, size=192)
+        icon_512 = url_for('digital_uploaded_pwa_icon', item_id=item.id, size=512)
+        short_name = settings['short_name']
+        theme_color = settings['theme_color']
+        display = settings['display']
+    else:
+        scope = '/digital/apps/'
+        start_url = legacy_start_url
+        manifest_id = f'/digital/apps/chat-lite/'
+        icon_192 = url_for('digital_hosted_pwa_icon', size=192)
+        icon_512 = url_for('digital_hosted_pwa_icon', size=512)
+        short_name = re.sub(r'\s+', ' ', item.name).strip()[:30] or 'Macleen App'
+        theme_color = '#0084ff'
+        display = 'standalone'
+
     manifest = {
-        'name': app_name,
+        'name': item.name,
         'short_name': short_name,
-        'id': start_url,
+        'id': manifest_id,
         'start_url': start_url,
-        'scope': '/digital/apps/',
-        'display': 'standalone',
-        'display_override': ['standalone', 'minimal-ui'],
+        'scope': scope,
+        'display': display,
+        'display_override': [display, 'standalone', 'minimal-ui'],
         'background_color': '#ffffff',
-        'theme_color': '#0084ff',
-        'description': f'{app_name} hosted securely by Macleen\'s Digital.',
+        'theme_color': theme_color,
+        'description': f'{item.name} hosted securely by Macleen\'s Digital.',
         'icons': [
-            {'src': url_for('digital_hosted_pwa_icon', size=192), 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any maskable'},
-            {'src': url_for('digital_hosted_pwa_icon', size=512), 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any maskable'},
+            {'src': icon_192, 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any maskable'},
+            {'src': icon_512, 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any maskable'},
         ],
     }
     response = Response(json.dumps(manifest, ensure_ascii=False), content_type='application/manifest+json; charset=utf-8')
@@ -9771,27 +9950,106 @@ def digital_hosted_pwa_icon(size):
         font = ImageFont.truetype('DejaVuSans-Bold.ttf', int(size * 0.46))
     except Exception:
         font = ImageFont.load_default()
-    text_value = 'M'
-    bbox = draw.textbbox((0, 0), text_value, font=font)
+    bbox = draw.textbbox((0, 0), 'M', font=font)
     x = (size - (bbox[2] - bbox[0])) / 2 - bbox[0]
     y = (size - (bbox[3] - bbox[1])) / 2 - bbox[1] - size * 0.02
-    draw.text((x, y), text_value, fill='white', font=font)
+    draw.text((x, y), 'M', fill='white', font=font)
     output = io.BytesIO(); image.save(output, format='PNG', optimize=True)
     response = Response(output.getvalue(), content_type='image/png')
     response.headers['Cache-Control'] = 'public, max-age=86400'
     return response
 
 
+@app.route('/digital/apps/pwa/<int:item_id>/icon-<int:size>.png')
+def digital_uploaded_pwa_icon(item_id, size):
+    if size not in {192, 512}:
+        abort(404)
+    item = DigitalItem.query.get_or_404(item_id)
+    if not digital_is_uploaded_hosted_app(item):
+        abort(404)
+    settings = digital_hosted_pwa_settings(item)
+    color = settings['theme_color'].lstrip('#')
+    rgb = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+    inner = tuple(max(0, min(255, int(channel * 0.86))) for channel in rgb)
+    image = Image.new('RGB', (size, size), rgb)
+    draw = ImageDraw.Draw(image)
+    pad = max(10, int(size * 0.075))
+    draw.rounded_rectangle((pad, pad, size - pad, size - pad), radius=int(size * 0.20), fill=inner)
+    words = re.findall(r'[A-Za-z0-9]+', item.name or '')
+    initials = ''.join(word[0] for word in words[:2]).upper() or 'M'
+    try:
+        font = ImageFont.truetype('DejaVuSans-Bold.ttf', int(size * (0.34 if len(initials) > 1 else 0.46)))
+    except Exception:
+        font = ImageFont.load_default()
+    bbox = draw.textbbox((0, 0), initials, font=font)
+    x = (size - (bbox[2] - bbox[0])) / 2 - bbox[0]
+    y = (size - (bbox[3] - bbox[1])) / 2 - bbox[1] - size * 0.02
+    draw.text((x, y), initials, fill='white', font=font)
+    output = io.BytesIO(); image.save(output, format='PNG', optimize=True)
+    response = Response(output.getvalue(), content_type='image/png')
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
+
+
+@app.route('/digital/apps/pwa/<int:item_id>/sw.js')
+def digital_uploaded_pwa_service_worker(item_id):
+    item = DigitalItem.query.get_or_404(item_id)
+    if not digital_is_uploaded_hosted_app(item) or not digital_hosted_pwa_settings(item)['enabled']:
+        abort(404)
+    # No fetch/cache handler: paid source files must always pass live entitlement
+    # checks and must never remain available after a per-use entitlement expires.
+    script = """self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});"""
+    response = Response(script, content_type='application/javascript; charset=utf-8')
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Service-Worker-Allowed'] = digital_uploaded_pwa_scope(item.id)
+    return response
+
+
+@app.route('/digital/apps/pwa/<int:item_id>/<string:mode>/<string:key>')
+def digital_uploaded_pwa_launch(item_id, mode, key):
+    item, _ = digital_pwa_resolve('uploaded', mode, key)
+    if item.id != item_id or not digital_hosted_pwa_settings(item)['enabled']:
+        abort(404)
+    mode = (mode or '').strip().lower()
+    scope = digital_uploaded_pwa_scope(item.id)
+    sw_url = url_for('digital_uploaded_pwa_service_worker', item_id=item.id)
+    manifest_url = digital_pwa_manifest_url('uploaded', mode, key, item=item)
+
+    if mode == 'per-use':
+        usage = DigitalUsagePass.query.filter_by(access_token=key).first_or_404()
+        order = usage.order
+        content_url = url_for('digital_hosted_content_per_use', access_token=key, asset_path=item.hosted_app_entrypoint)
+        return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='PER_USE', content_url=content_url,
+                               end_url=url_for('digital_hosted_end_usage', access_token=key), usage_pass=usage,
+                               manifest_url=manifest_url, pwa_service_worker_url=sw_url, pwa_scope=scope)
+    if mode == 'lifetime':
+        order = DigitalOrder.query.filter_by(tracking_token=key).first_or_404()
+        content_url = url_for('digital_hosted_content_lifetime', token=key, asset_path=item.hosted_app_entrypoint)
+        return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='LIFETIME', content_url=content_url,
+                               end_url=None, usage_pass=None, manifest_url=manifest_url,
+                               pwa_service_worker_url=sw_url, pwa_scope=scope)
+    if mode == 'free':
+        content_url = url_for('digital_hosted_content_free', item_id=item.id, asset_path=item.hosted_app_entrypoint)
+        return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='FREE', content_url=content_url,
+                               end_url=None, usage_pass=None, manifest_url=manifest_url,
+                               pwa_service_worker_url=sw_url, pwa_scope=scope)
+    if mode == 'admin':
+        content_token = digital_admin_hosted_token(item.id)
+        content_url = url_for('admin_digital_hosted_content', content_token=content_token, asset_path=item.hosted_app_entrypoint)
+        return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='ADMIN', content_url=content_url,
+                               end_url=None, usage_pass=None, manifest_url=manifest_url,
+                               pwa_service_worker_url=sw_url, pwa_scope=scope)
+    abort(404)
+
+
 @app.route('/digital/apps/pwa-sw.js')
 def digital_hosted_pwa_service_worker():
-    # Deliberately no fetch/cache handler: paid app files must keep using the
-    # live entitlement checks and must never remain available after expiry.
+    # Legacy/shared worker retained for CHAT Lite and previously installed builds.
     script = """self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});"""
     response = Response(script, content_type='application/javascript; charset=utf-8')
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Service-Worker-Allowed'] = '/digital/apps/'
     return response
-
 
 def ensure_chat_lite_digital_product():
     item = DigitalItem.query.filter(db.func.lower(DigitalItem.name) == 'chat lite ephemeral').first()
@@ -10506,6 +10764,7 @@ def digital_support_rate_allowed():
     return True
 
 @app.route('/digital')
+@app.route('/digital/')
 def digital_store():
     track_website_view('DIGITAL')
     category = request.args.get('category', '').strip()
@@ -10848,7 +11107,9 @@ def digital_hosted_app_per_use(access_token):
     content_url = url_for('digital_hosted_content_per_use', access_token=access_token, asset_path=order.item.hosted_app_entrypoint)
     return render_template('digital/apps/hosted_app_viewer.html', item=order.item, access_mode='PER_USE', content_url=content_url,
                            end_url=url_for('digital_hosted_end_usage', access_token=access_token), usage_pass=usage,
-                           manifest_url=digital_pwa_manifest_url('uploaded', 'per-use', access_token))
+                           manifest_url=digital_pwa_manifest_url('uploaded', 'per-use', access_token, item=order.item),
+                           pwa_service_worker_url=url_for('digital_uploaded_pwa_service_worker', item_id=order.item.id),
+                           pwa_scope=digital_uploaded_pwa_scope(order.item.id))
 
 
 @app.route('/digital/apps/hosted/<string:access_token>/content/', defaults={'asset_path': None})
@@ -10879,7 +11140,10 @@ def digital_hosted_app_lifetime(token):
     if not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME' or not digital_is_uploaded_hosted_app(order.item):
         abort(403)
     content_url = url_for('digital_hosted_content_lifetime', token=token, asset_path=order.item.hosted_app_entrypoint)
-    return render_template('digital/apps/hosted_app_viewer.html', item=order.item, access_mode='LIFETIME', content_url=content_url, end_url=None, usage_pass=None, manifest_url=digital_pwa_manifest_url('uploaded', 'lifetime', token))
+    return render_template('digital/apps/hosted_app_viewer.html', item=order.item, access_mode='LIFETIME', content_url=content_url, end_url=None, usage_pass=None,
+                           manifest_url=digital_pwa_manifest_url('uploaded', 'lifetime', token, item=order.item),
+                           pwa_service_worker_url=url_for('digital_uploaded_pwa_service_worker', item_id=order.item.id),
+                           pwa_scope=digital_uploaded_pwa_scope(order.item.id))
 
 
 @app.route('/digital/apps/hosted/lifetime/<string:token>/content/', defaults={'asset_path': None})
@@ -10897,7 +11161,10 @@ def digital_hosted_app_free(item_id):
     if not digital_hosted_is_free(item) or not digital_is_uploaded_hosted_app(item):
         abort(403)
     content_url = url_for('digital_hosted_content_free', item_id=item.id, asset_path=item.hosted_app_entrypoint)
-    return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='FREE', content_url=content_url, end_url=None, usage_pass=None, manifest_url=digital_pwa_manifest_url('uploaded', 'free', str(item.id)))
+    return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='FREE', content_url=content_url, end_url=None, usage_pass=None,
+                           manifest_url=digital_pwa_manifest_url('uploaded', 'free', str(item.id), item=item),
+                           pwa_service_worker_url=url_for('digital_uploaded_pwa_service_worker', item_id=item.id),
+                           pwa_scope=digital_uploaded_pwa_scope(item.id))
 
 
 @app.route('/digital/apps/free/<int:item_id>/content/', defaults={'asset_path': None})
@@ -10919,7 +11186,10 @@ def admin_digital_hosted_app(item_id):
         abort(404)
     content_token = digital_admin_hosted_token(item.id)
     content_url = url_for('admin_digital_hosted_content', content_token=content_token, asset_path=item.hosted_app_entrypoint)
-    return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='ADMIN', content_url=content_url, end_url=None, usage_pass=None)
+    return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='ADMIN', content_url=content_url, end_url=None, usage_pass=None,
+                           manifest_url=digital_pwa_manifest_url('uploaded', 'admin', str(item.id), item=item),
+                           pwa_service_worker_url=url_for('digital_uploaded_pwa_service_worker', item_id=item.id),
+                           pwa_scope=digital_uploaded_pwa_scope(item.id))
 
 
 @app.route('/admin/digital/hosted-content/<string:content_token>/', defaults={'asset_path': None})
@@ -11180,6 +11450,11 @@ def digital_hosted_app_save():
         item.product_type = 'HOSTED_APP'
         item.hosted_app_key = 'UPLOADED'
         item.hosted_customer_access = access
+        item.hosted_pwa_enabled = request.form.get('hosted_pwa_enabled') == '1'
+        item.hosted_pwa_short_name = re.sub(r'\s+', ' ', request.form.get('hosted_pwa_short_name', '').strip())[:40] or name[:40]
+        item.hosted_pwa_theme_color = digital_pwa_color(request.form.get('hosted_pwa_theme_color'), '#0084ff')
+        pwa_display = request.form.get('hosted_pwa_display', 'standalone').strip().lower()
+        item.hosted_pwa_display = pwa_display if pwa_display in {'standalone', 'fullscreen', 'minimal-ui'} else 'standalone'
         item.price = per_use_price if access in {'PER_USE', 'BOTH'} else 0.0
         item.lifetime_enabled = access in {'LIFETIME', 'BOTH'}
         item.lifetime_price = lifetime_price if item.lifetime_enabled else 0.0
@@ -11196,7 +11471,8 @@ def digital_hosted_app_save():
         if not item_id:
             db.session.add(item)
         db.session.commit()
-        flash(f'{item.name} hosted app saved. Admin Free Access is always available from Digital Admin.', 'success')
+        install_note = ' A separate installable web app was created automatically.' if item.hosted_pwa_enabled else ''
+        flash(f'{item.name} hosted app saved.{install_note} Admin Free Access is always available from Digital Admin.', 'success')
     except OrderValidationError as exc:
         db.session.rollback(); flash(str(exc), 'error')
     except Exception:

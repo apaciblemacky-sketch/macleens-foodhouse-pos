@@ -84,6 +84,14 @@
         <label>HTML app package *</label><input type="file" name="hosted_app_file" accept=".html,.htm,.zip,text/html,application/zip" required><small class="muted">ZIP packages must contain <code>index.html</code>. Maximum upload follows your Digital asset limit ({{ payment_settings.asset_max_mb }} MB).</small>
         <label>Description</label><textarea name="description" rows="4" maxlength="5000" placeholder="What does this app do?"></textarea>
         <label>Preview image URL</label><input name="image_url" placeholder="/static/logo.png or https://...">
+        <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:12px;padding:10px;margin-top:10px">
+          <strong>📲 Separate Web App</strong>
+          <label><input style="width:auto" type="checkbox" name="hosted_pwa_enabled" value="1" checked> Automatically make this uploaded app independently installable</label>
+          <label>Installed app short name</label><input name="hosted_pwa_short_name" maxlength="40" placeholder="Defaults to the app name">
+          <label>Theme color</label><input name="hosted_pwa_theme_color" value="#0084ff" pattern="#[0-9A-Fa-f]{6}" placeholder="#0084ff">
+          <label>Installed display</label><select name="hosted_pwa_display"><option value="standalone">Standalone</option><option value="fullscreen">Fullscreen</option><option value="minimal-ui">Minimal UI</option></select>
+          <small class="muted">Each uploaded app gets its own stable app identity and install scope. Customers install only this app, not the whole Macleen’s Digital portal.</small>
+        </div>
         <label>License / usage terms</label><textarea name="license_terms" rows="2" maxlength="3000"></textarea>
         <label>Release notes</label><textarea name="asset_release_notes" rows="2" maxlength="3000" placeholder="First release"></textarea>
         <label><input style="width:auto" type="checkbox" name="is_featured" value="1"> Featured</label>
@@ -98,6 +106,7 @@
     {% for h in hosted_items %}
     <section class="card" id="hosted-app-{{ h.id }}" style="margin:0;background:#fbfffe">
       <span class="badge">{{ (h.hosted_customer_access or 'PER_USE').replace('_',' ').title() }}</span>
+      {% if h.hosted_pwa_enabled is not sameas false %}<span class="badge">📲 Separate PWA</span>{% endif %}
       <h3>{{ h.name }}</h3>
       <p class="muted">{{ h.asset_file.original_filename if h.asset_file else 'No package' }} · entry: <code>{{ h.hosted_app_entrypoint or 'index.html' }}</code> · v{{ h.asset_version or 1 }}</p>
       <p><a class="btn" target="_blank" rel="noopener" href="{{ url_for('admin_digital_hosted_app', item_id=h.id) }}">⚡ Launch Free as Admin</a> <a class="btn btn-light" target="_blank" rel="noopener" href="{{ url_for('digital_item_detail', item_id=h.id) }}">Public Product</a></p>
@@ -113,6 +122,14 @@
           <label>Replace app package</label><input type="file" name="hosted_app_file" accept=".html,.htm,.zip,text/html,application/zip"><small class="muted">Leave blank to keep the current app. Uploading a replacement creates a new hosted version while existing paid/lifetime buyers continue using their existing private access.</small>
           <label>Description</label><textarea name="description" rows="3" maxlength="5000">{{ h.description or '' }}</textarea>
           <label>Preview image URL</label><input name="image_url" value="{{ h.image_url or '' }}">
+          <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:12px;padding:10px;margin-top:10px">
+            <strong>📲 Separate Web App</strong>
+            <label><input style="width:auto" type="checkbox" name="hosted_pwa_enabled" value="1" {% if h.hosted_pwa_enabled is not sameas false %}checked{% endif %}> Independently installable</label>
+            <label>Installed app short name</label><input name="hosted_pwa_short_name" maxlength="40" value="{{ h.hosted_pwa_short_name or h.name }}">
+            <label>Theme color</label><input name="hosted_pwa_theme_color" value="{{ h.hosted_pwa_theme_color or '#0084ff' }}" pattern="#[0-9A-Fa-f]{6}">
+            <label>Installed display</label><select name="hosted_pwa_display">{% for mode,label in [('standalone','Standalone'),('fullscreen','Fullscreen'),('minimal-ui','Minimal UI')] %}<option value="{{ mode }}" {% if (h.hosted_pwa_display or 'standalone')==mode %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+            <small class="muted">Changing these settings updates this app’s own manifest; it does not affect your other hosted apps.</small>
+          </div>
           <label>License / usage terms</label><textarea name="license_terms" rows="2" maxlength="3000">{{ h.license_terms or '' }}</textarea>
           <label>Release notes</label><textarea name="asset_release_notes" rows="2" maxlength="3000">{{ h.asset_release_notes or '' }}</textarea>
           <label><input style="width:auto" type="checkbox" name="is_featured" value="1" {% if h.is_featured %}checked{% endif %}> Featured</label>

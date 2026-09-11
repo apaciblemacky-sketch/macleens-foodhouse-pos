@@ -1,35 +1,54 @@
-# Macleen's Digital — Lifetime Ownership / My Apps Update
+# Macleen's Digital — Automatic Separate PWA Per Uploaded HTML App
 
-Incremental update for the latest Macleen's project.
+This is an incremental update for the current Macleen's project.
+
+## Replace these files
+- `app.py`
+- `templates/digital/admin.html`
+- `templates/digital/apps/hosted_app_viewer.html`
+
+Do not delete the database, `.env`, uploads, or unrelated project files.
 
 ## What changes
-- Adds **Digital → My Apps** as the customer's permanent return page for paid Lifetime hosted apps.
-- Paid Lifetime apps show **Owned · Lifetime** in the Digital catalog instead of being offered for sale again.
-- Opening the product detail page also blocks duplicate checkout and shows **Open App** instead.
-- A paid Lifetime private order page automatically remembers the entitlement on that browser for 5 years.
-- If the purchase was made while logged in, ownership follows the customer's Rewards account across devices.
-- Guest Lifetime buyers can choose **Save Lifetime Access to My Account**. If they are not logged in, Macleen's sends them through login and automatically links the Lifetime order after successful login.
-- The original private order page remains usable as a backup recovery link.
-- No database migration/reset is required.
+Every HTML/ZIP app uploaded through **Digital Admin → Hosted HTML Apps** can now automatically become its own independently installable web app/PWA.
 
-## Replace
-Extract this ZIP over the existing project and choose **Replace files in destination**.
+Each uploaded app gets:
+- a stable app identity based on its Digital product id
+- its own PWA scope under `/digital/apps/pwa/<product-id>/`
+- its own manifest
+- its own generated icon/initials
+- its own app name / short name
+- its own theme color
+- its own display mode (`standalone`, `fullscreen`, or `minimal-ui`)
+- a customer **Install <App Name>** button after valid access
+- Admin Free launch/install support
 
-Affected files only:
-- `app.py`
-- `templates/digital/base.html`
-- `templates/digital/index.html`
-- `templates/digital/item.html`
-- `templates/digital/order_status.html`
-- `templates/digital/my_apps.html` (new)
+## Access remains protected
+- **FREE**: can be opened/installed without payment.
+- **PER USE**: still requires an active paid usage pass. Installation does not bypass expiry.
+- **LIFETIME**: the owner can reopen/install indefinitely through existing Lifetime ownership/My Apps rules.
+- **ADMIN**: authenticated Macleen's Admin can launch/install for free.
+
+The service worker deliberately does not cache the protected uploaded source package, so a paid app does not become a downloadable/offline source copy.
+
+## Admin settings
+When uploading or editing a Hosted HTML App you can now set:
+- `Automatically make this uploaded app independently installable` (ON by default for new uploads)
+- Installed app short name
+- Theme color
+- Display mode
+
+Turning installability off hides the PWA install option for that app without removing the hosted product itself.
+
+## Future workflow
+After deploying this platform update once, a new compatible `.html` or `.zip` upload can create its own web app without another Git/Render deployment.
 
 ## Deploy
 ```bash
 git status
 git add .
-git commit -m "Add My Digital Apps and lifetime ownership recovery"
+git commit -m "Add automatic separate PWA for every hosted HTML app"
 git push origin main
 ```
 
-## Important
-For a guest purchase, the browser-memory entitlement depends on the signed Macleen's cookie. If the buyer clears browser/site data or changes device before saving the Lifetime purchase to a customer account, they should use the original private order link to recover it and save it to their account.
+No database reset is required. The startup compatibility migration adds the new PWA settings columns to `digital_item`.
