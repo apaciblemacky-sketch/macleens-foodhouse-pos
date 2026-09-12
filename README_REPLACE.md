@@ -1,44 +1,41 @@
-# Macleen's Hosted App Install + Logo + Per-Use Hours Update
+# Macleen's Security + Auto-Hosted HTML + Android Screen Share Handling Update
 
-Incremental update for the latest Macleen's hosted-app/PWA build.
+Incremental update for the current Macleen's project. Extract into the project root and replace existing files. No database reset is required.
 
-## What changed
+## 1. Protected HTML upload -> Hosted App automatically
+- A single `.html` / `.htm` file uploaded through **Digital Admin -> Add digital offer + protected file** is automatically promoted to a Hosted App.
+- A `.zip` containing `index.html` is also automatically promoted.
+- The app receives its separate PWA identity, current per-use hours, optional Lifetime price, and uploaded web-app icon.
+- **Admin Free Launch** is automatically available for these promoted apps.
+- Non-HTML files stay normal protected downloads.
 
-1. **Web app logo/icon upload**
-   - Digital Admin > Hosted HTML Apps now accepts a PNG/JPG/WebP app logo.
-   - Existing uploaded apps can replace/remove the custom logo.
-   - CHAT Lite and other manually managed hosted products can also upload a web app logo from Catalog & protected assets > Edit.
-   - Macleen's generates safe 192x192 and 512x512 install icons automatically.
+## 2. CHAT Lite screen sharing on Android
+- Current Android/iOS mobile browsers generally do not expose the web `getDisplayMedia()` Screen Capture API.
+- The button now detects unsupported mobile browsers and explains that screen sharing requires a supported desktop browser instead of silently failing.
+- Desktop screen sharing remains enabled, and the server sends a `Permissions-Policy` allowing `display-capture` for the same origin.
+- Camera, microphone, chat, files, and video calls remain available on supported mobile browsers.
 
-2. **Editable per-use access duration**
-   - Each hosted app now has `Per-use access duration (hours)` in Digital Admin.
-   - Allowed range: 1 to 168 hours.
-   - Default remains 6 hours.
-   - The selected duration is applied when an UNUSED paid pass is launched. Already-active passes keep the expiry time they already received.
+## 3. Staff security hardening
+New/changed staff credentials:
+- Username: 8-20 alphanumeric characters.
+- Password: 8-20 alphanumeric characters, with at least one uppercase, one lowercase, and one number.
+- Common, repeated, and obvious sequential passwords are blocked.
+- Existing legacy credentials are not erased. After a valid login, a legacy short/non-compliant account is forced through a secure credential upgrade before privileged access continues.
 
-3. **Install Web App behavior improved**
-   - Replaces the immediate browser alert with a real install-preparation state.
-   - Service workers now use a network-only fetch handler: no protected source is cached, while Chromium gets a full PWA worker.
-   - On first install attempt the page may reload once so the service worker can control it.
-   - The button changes automatically when `beforeinstallprompt` becomes available.
-   - Chrome may intentionally delay its native install prompt until the user has interacted with and viewed the page for a short time. This cannot be bypassed by site JavaScript.
+Additional controls:
+- Memory-hard scrypt password hashing for new/changed staff passwords.
+- Old password hashes automatically rehash after a successful compliant login.
+- Persistent login throttling by privacy-preserving client-IP hash.
+- Progressive temporary blocks after repeated failures.
+- Generic login failure messages to reduce username discovery.
+- Small randomized failed-login delay against rapid guessing.
+- CSRF protection for staff login and credential changes.
+- Admin must re-enter their current Admin password before changing any staff credentials.
+- Staff sessions remain non-persistent and retain the existing inactivity timeout.
+- Staff sessions are bound to the browser User-Agent fingerprint.
+- Admin/staff pages are marked no-store/no-cache.
+- Security headers: HSTS in production, nosniff, same-origin framing, strict referrer policy, and browser Permissions Policy.
+- New production databases no longer silently create predictable `1234` / `1111` bootstrap PINs. Configure `DEFAULT_ADMIN_PASSWORD` and `DEFAULT_CASHIER_PASSWORD` if a production database has no staff accounts yet.
 
-## Files to replace
-
-- `app.py`
-- `templates/digital/admin.html`
-- `templates/digital/apps/chat_lite.html`
-- `templates/digital/apps/hosted_app_viewer.html`
-
-No database reset is required. Two Digital Item columns are added automatically by the existing lightweight schema upgrader:
-- `hosted_pwa_icon_file_id`
-- `hosted_per_use_hours`
-
-## Deploy
-
-```bash
-git status
-git add .
-git commit -m "Improve hosted app install logo and per-use hours"
-git push origin main
-```
+## Important security note
+The requested 8-20 alphanumeric-only password policy is implemented exactly, but OWASP currently recommends allowing longer passwords/passphrases and a much higher maximum length. The added hashing, throttling, CSRF, re-authentication, session, and header protections substantially harden the system, but no web application can be guaranteed "unhackable."

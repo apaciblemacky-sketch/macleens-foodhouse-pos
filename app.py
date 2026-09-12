@@ -79,9 +79,12 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.12-hosted-app-install-scope-fix-v37'
+APP_RELEASE = '2026.09.12-security-auto-host-mobile-share-v38'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
+STAFF_CREDENTIAL_MIN_LEN = 8
+STAFF_CREDENTIAL_MAX_LEN = 20
+STAFF_PASSWORD_HASH_METHOD = 'scrypt:65536:8:1'
 _DB_INITIALIZED = False
 
 def utc_now():
@@ -152,6 +155,16 @@ class Staff(db.Model):
     pin_hash = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False)
     active = db.Column(db.Boolean, default=True)
+
+class StaffLoginThrottle(db.Model):
+    """Persistent, privacy-preserving staff login throttling by client IP."""
+    __tablename__ = 'staff_login_throttle'
+    id = db.Column(db.Integer, primary_key=True)
+    key_hash = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    failures = db.Column(db.Integer, nullable=False, default=0)
+    window_started_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    locked_until = db.Column(db.DateTime, nullable=True)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
 class Customer(db.Model):
     __tablename__ = 'customer'
@@ -2228,22 +2241,34 @@ def run_db_setup():
         run_schema_migrations()
         ensure_loyalty_and_delivery_upgrade_defaults()
 
-        # Create bootstrap accounts only when they do not already exist. Never reset an existing PIN on restart.
+        # Create bootstrap accounts only when they do not already exist. Production never
+        # falls back to weak, predictable PINs. Existing accounts are preserved and are
+        # forced through the credential-upgrade flow on their next login if non-compliant.
         default_roles = [
-            ('admin', os.environ.get('DEFAULT_ADMIN_PIN') or '1234', 'ADMIN'),
-            ('cashier1', os.environ.get('DEFAULT_CASHIER_PIN') or '1111', 'CASHIER'),
+            ('admin', os.environ.get('DEFAULT_ADMIN_PASSWORD') or os.environ.get('DEFAULT_ADMIN_PIN'), 'ADMIN'),
+            ('cashier1', os.environ.get('DEFAULT_CASHIER_PASSWORD') or os.environ.get('DEFAULT_CASHIER_PIN'), 'CASHIER'),
         ]
-        for username, pin, role in default_roles:
+        for username, bootstrap_password, role in default_roles:
             existing = Staff.query.filter(db.func.lower(Staff.username) == username.lower()).first()
             if not existing:
+                if IS_PRODUCTION and not bootstrap_password:
+                    raise RuntimeError(
+                        f'First-run {role} account needs a strong Render environment credential. '
+                        f'Set DEFAULT_{role}_PASSWORD to an 8-20 character alphanumeric password '
+                        f'with uppercase, lowercase, and a number.'
+                    )
+                bootstrap_password = bootstrap_password or secrets.token_urlsafe(12).replace('-', 'A').replace('_', '7')[:16]
+                if IS_PRODUCTION and staff_password_error(bootstrap_password, username):
+                    raise RuntimeError(
+                        f'DEFAULT_{role}_PASSWORD does not meet the staff password policy. '
+                        f'Use 8-20 alphanumeric characters with uppercase, lowercase, and a number.'
+                    )
                 db.session.add(Staff(
                     username=username,
-                    pin_hash=generate_password_hash(pin),
+                    pin_hash=generate_password_hash(bootstrap_password, method=STAFF_PASSWORD_HASH_METHOD),
                     role=role,
                     active=True,
                 ))
-                if not os.environ.get('DEFAULT_ADMIN_PIN' if role == 'ADMIN' else 'DEFAULT_CASHIER_PIN'):
-                    app.logger.warning('Created bootstrap %s account %r using the built-in first-run PIN. Change it in Admin immediately.', role, username)
         if not CraftCategory.query.filter(db.func.lower(CraftCategory.name) == 'general').first():
             db.session.add(CraftCategory(name='General', image_url=CRAFT_DEFAULT_IMAGE, is_active=True))
         if not CraftCategory.query.filter(db.func.lower(CraftCategory.name) == 'sticker').first():
@@ -2341,6 +2366,20 @@ def add_live_ui_progressive_enhancement(response):
             response.set_data(html)
     except Exception:
         app.logger.exception('Could not attach progressive live UI script')
+    return response
+
+@app.after_request
+def add_security_headers(response):
+    """Baseline browser hardening that does not break the existing inline UI."""
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('X-Frame-Options', 'SAMEORIGIN')
+    response.headers.setdefault('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self), geolocation=()')
+    if IS_PRODUCTION:
+        response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    if request.path.startswith(('/admin', '/staff', '/pos/cashier')):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
     return response
 
 # ==================== HELPERS & GUARDS ====================
@@ -4798,6 +4837,150 @@ def reserve_cart_stock(lines):
 def cart_subtotal(lines):
     return sum(line['subtotal'] for line in lines)
 
+def staff_username_valid(value):
+    value = str(value or '').strip()
+    return bool(re.fullmatch(r'[A-Za-z0-9]{8,20}', value))
+
+
+def staff_password_error(password, username=''):
+    """Return a user-safe reason when a requested staff password is too weak."""
+    password = str(password or '')
+    username = str(username or '')
+    if not re.fullmatch(r'[A-Za-z0-9]{8,20}', password):
+        return 'Password must be 8 to 20 characters and use letters and numbers only.'
+    if not re.search(r'[A-Z]', password) or not re.search(r'[a-z]', password) or not re.search(r'[0-9]', password):
+        return 'Password must include at least one uppercase letter, one lowercase letter, and one number.'
+    lowered = password.casefold()
+    common = {
+        'password1', 'password123', 'admin1234', 'administrator1', 'cashier123',
+        'cashier1234', 'staff1234', 'macleens123', 'macleens2026', 'qwerty123',
+        'abcdefgh1', 'abc12345', '12345678', '123456789', 'welcome123',
+    }
+    if lowered in common:
+        return 'Choose a less predictable password. Common passwords are blocked.'
+    if username and lowered == username.casefold():
+        return 'Password cannot be the same as the username.'
+    if username and len(username) >= 5 and username.casefold() in lowered:
+        return 'Password cannot contain the username.'
+    if re.search(r'(.)\1{3,}', password, re.I):
+        return 'Password cannot contain long repeated-character patterns.'
+    sequences = ('0123456789', '9876543210', 'abcdefghijklmnopqrstuvwxyz', 'zyxwvutsrqponmlkjihgfedcba', 'qwertyuiop', 'poiuytrewq')
+    if any(lowered in seq or (len(lowered) >= 8 and seq in lowered) for seq in sequences):
+        return 'Choose a less predictable password sequence.'
+    return None
+
+
+def staff_credentials_compliant(username, password):
+    return staff_username_valid(username) and not staff_password_error(password, username)
+
+
+def staff_hash_password(password):
+    return generate_password_hash(str(password), method=STAFF_PASSWORD_HASH_METHOD)
+
+
+def staff_hash_needs_upgrade(stored_hash):
+    return not str(stored_hash or '').startswith(STAFF_PASSWORD_HASH_METHOD + '$')
+
+
+def staff_csrf_token():
+    token = str(session.get('_staff_csrf_token') or '')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['_staff_csrf_token'] = token
+        session.modified = True
+    return token
+
+
+def validate_staff_csrf():
+    supplied = str(request.form.get('csrf_token') or request.headers.get('X-CSRF-Token') or '')
+    expected = str(session.get('_staff_csrf_token') or '')
+    return bool(supplied and expected and hmac.compare_digest(supplied, expected))
+
+
+@app.context_processor
+def inject_staff_security_helpers():
+    return {'staff_csrf_token': staff_csrf_token}
+
+
+def staff_client_ip_key():
+    raw = (request.remote_addr or 'unknown').strip()
+    try:
+        raw = str(ipaddress.ip_address(raw))
+    except ValueError:
+        raw = raw[:100]
+    secret = str(app.config.get('SECRET_KEY') or '').encode('utf-8')
+    return hmac.new(secret, ('staff-login|' + raw).encode('utf-8'), hashlib.sha256).hexdigest()
+
+
+def staff_login_throttle_status():
+    now = utc_now()
+    row = StaffLoginThrottle.query.filter_by(key_hash=staff_client_ip_key()).first()
+    if not row:
+        return True, 0
+    if row.window_started_at and now - row.window_started_at > timedelta(hours=24):
+        db.session.delete(row)
+        db.session.commit()
+        return True, 0
+    if row.locked_until and row.locked_until > now:
+        return False, max(1, int((row.locked_until - now).total_seconds()))
+    return True, 0
+
+
+def staff_record_login_failure(username=''):
+    now = utc_now()
+    key = staff_client_ip_key()
+    row = StaffLoginThrottle.query.filter_by(key_hash=key).first()
+    if not row:
+        row = StaffLoginThrottle(key_hash=key, failures=0, window_started_at=now, updated_at=now)
+        db.session.add(row)
+    if not row.window_started_at or now - row.window_started_at > timedelta(hours=24):
+        row.failures = 0
+        row.window_started_at = now
+        row.locked_until = None
+    row.failures = max(0, int(row.failures or 0)) + 1
+    row.updated_at = now
+    lock_seconds = 0
+    if row.failures >= 12:
+        lock_seconds = 3600
+    elif row.failures >= 10:
+        lock_seconds = 900
+    elif row.failures >= 8:
+        lock_seconds = 300
+    elif row.failures >= 5:
+        lock_seconds = 60
+    if lock_seconds:
+        row.locked_until = now + timedelta(seconds=lock_seconds)
+    db.session.commit()
+    app.logger.warning('SECURITY staff login failure user=%r throttle_failures=%s ip_key=%s', str(username or '')[:20], row.failures, key[:12])
+    return lock_seconds
+
+
+def staff_clear_login_throttle():
+    row = StaffLoginThrottle.query.filter_by(key_hash=staff_client_ip_key()).first()
+    if row:
+        db.session.delete(row)
+        db.session.commit()
+
+
+def staff_user_agent_fingerprint():
+    ua = str(request.headers.get('User-Agent') or '')[:500]
+    return hashlib.sha256(ua.encode('utf-8')).hexdigest()
+
+
+def establish_staff_session(staff):
+    session.clear()
+    session.permanent = False
+    session['_staff_last_activity'] = utc_now().isoformat()
+    session['_staff_ua_hash'] = staff_user_agent_fingerprint()
+    session['_staff_csrf_token'] = secrets.token_urlsafe(32)
+    if staff.role == 'ADMIN':
+        session['admin_id'] = staff.id
+        session['admin_user'] = staff.username
+    elif staff.role == 'CASHIER':
+        session['cashier_id'] = staff.id
+        session['cashier_user'] = staff.username
+
+
 def staff_session_valid():
     raw = session.get('_staff_last_activity')
     if not raw:
@@ -4809,11 +4992,14 @@ def staff_session_valid():
     now = utc_now()
     if now - last > STAFF_SESSION_TIMEOUT:
         return False
+    expected_ua = str(session.get('_staff_ua_hash') or '')
+    if not expected_ua or not hmac.compare_digest(expected_ua, staff_user_agent_fingerprint()):
+        return False
     session['_staff_last_activity'] = now.isoformat()
     return True
 
 def clear_staff_session():
-    for key in ('admin_id', 'admin_user', 'cashier_id', 'cashier_user', '_staff_last_activity'):
+    for key in ('admin_id', 'admin_user', 'cashier_id', 'cashier_user', '_staff_last_activity', '_staff_ua_hash', '_staff_csrf_token', 'staff_upgrade_id', 'staff_upgrade_started_at'):
         session.pop(key, None)
 
 def get_store_settings():
@@ -9677,6 +9863,41 @@ def digital_usage_app_key(item):
     return f'DIGITAL_ITEM_{getattr(item, "id", 0)}'[:50]
 
 
+def digital_upload_is_hosted_candidate(upload):
+    """Detect static HTML apps before deciding whether an upload is a download or hosted app."""
+    if not upload or not (upload.filename or '').strip():
+        return False
+    filename = secure_filename(upload.filename or '').casefold()
+    if filename.endswith(('.html', '.htm')):
+        return True
+    if not filename.endswith('.zip'):
+        return False
+    stream = getattr(upload, 'stream', upload)
+    try:
+        pos = stream.tell()
+    except Exception:
+        pos = 0
+    try:
+        raw = upload.read((DIGITAL_ASSET_MAX_MB + 1) * 1024 * 1024)
+        with zipfile.ZipFile(io.BytesIO(raw)) as bundle:
+            return any(
+                not entry.is_dir()
+                and '..' not in [p for p in entry.filename.replace('\\', '/').lstrip('/').split('/') if p]
+                and entry.filename.replace('\\', '/').rstrip('/').split('/')[-1].casefold() == 'index.html'
+                for entry in bundle.infolist()
+            )
+    except (zipfile.BadZipFile, OSError):
+        return False
+    finally:
+        try:
+            stream.seek(pos)
+        except Exception:
+            try:
+                stream.seek(0)
+            except Exception:
+                pass
+
+
 def digital_hosted_app_upload(upload):
     """Validate one static HTML app and persist the exact upload in the DB.
 
@@ -11585,24 +11806,47 @@ def digital_item_save():
                 item.hosted_pwa_icon_file_id = icon_asset.id
             elif request.form.get('clear_hosted_pwa_icon') == '1':
                 item.hosted_pwa_icon_file_id = None
+        auto_hosted_upload = False
         if upload and (upload.filename or '').strip():
             replacing_existing_asset = bool(item_id and item.asset_file_id)
-            asset = digital_asset_from_upload(upload)
+            auto_hosted_upload = digital_upload_is_hosted_candidate(upload)
+            if auto_hosted_upload:
+                asset, entrypoint = digital_hosted_app_upload(upload)
+            else:
+                asset = digital_asset_from_upload(upload)
+                entrypoint = None
             db.session.add(asset); db.session.flush()
             item.asset_file_id = asset.id
             item.asset_updated_at = utc_now()
             item.asset_release_notes = release_notes
             if replacing_existing_asset:
                 item.asset_version = max(1, parse_int(item.asset_version, 1)) + 1
-                # This grants existing paid buyers a fresh download allowance
-                # for the new version while preserving their claim codes and
-                # the exact same activation/device limit records.
                 for prior_order in DigitalOrder.query.filter_by(item_id=item.id, payment_status='PAID').all():
                     prior_order.download_count = 0
                     prior_order.last_download_at = None
             else:
                 item.asset_version = max(1, parse_int(item.asset_version, 1))
-            if not item.file_format:
+            if auto_hosted_upload:
+                item.product_type = 'HOSTED_APP'
+                item.hosted_app_key = 'UPLOADED'
+                item.hosted_app_entrypoint = entrypoint
+                requested_lifetime_price = max(0.0, parse_float(request.form.get('lifetime_price'), 0.0))
+                item.lifetime_enabled = bool(request.form.get('lifetime_enabled')) and requested_lifetime_price > 0
+                item.lifetime_price = requested_lifetime_price if item.lifetime_enabled else 0.0
+                item.hosted_customer_access = 'BOTH' if item.lifetime_enabled else 'PER_USE'
+                item.hosted_pwa_enabled = True
+                item.hosted_pwa_short_name = re.sub(r'\s+', ' ', item.name or '')[:40] or 'Macleens App'
+                item.hosted_pwa_theme_color = digital_pwa_color(getattr(item, 'hosted_pwa_theme_color', None), '#0084ff')
+                item.hosted_pwa_display = getattr(item, 'hosted_pwa_display', None) or 'standalone'
+                item.hosted_per_use_hours = max(1, min(168, parse_int(request.form.get('hosted_per_use_hours'), 6)))
+                if pwa_icon_upload and (pwa_icon_upload.filename or '').strip():
+                    icon_asset = digital_pwa_icon_upload(pwa_icon_upload)
+                    db.session.add(icon_asset); db.session.flush()
+                    item.hosted_pwa_icon_file_id = icon_asset.id
+                item.file_format = 'Hosted HTML app'
+                item.delivery_instructions = 'Launch this app from your paid/private Digital order page. The hosted source package is not delivered as a customer download.'
+                item.app_device_limit = 0
+            elif not item.file_format:
                 item.file_format = os.path.splitext(asset.download_filename)[1].lstrip('.').upper() or 'Digital download'
         elif request.form.get('clear_asset'):
             item.asset_file_id = None
@@ -11612,7 +11856,9 @@ def digital_item_save():
             item.asset_release_notes = release_notes
         if not item_id: db.session.add(item)
         db.session.commit()
-        if upload and (upload.filename or '').strip() and item_id and replacing_existing_asset:
+        if upload and (upload.filename or '').strip() and auto_hosted_upload:
+            flash(f'{item.name} was recognized as an HTML app and automatically promoted to Hosted Apps. Admin Free Launch and its separate web app are ready.', 'success')
+        elif upload and (upload.filename or '').strip() and item_id and replacing_existing_asset:
             flash(f'Digital offer updated to file version {item.asset_version}. Paid buyers keep their same claim code and device limit, with a refreshed download allowance.', 'success')
         else:
             flash('Digital offer saved. Attached files are protected until payment is confirmed.', 'success')
@@ -15291,17 +15537,53 @@ def admin_reset_customer_pin(cust_id):
         flash(f"PIN for customer '{cust.name}' was reset successfully.", 'success')
     return redirect(url_for('admin_dashboard'))
 
+@app.route('/admin/update-staff-credentials/<int:staff_id>', methods=['POST'])
+@require_admin
+def admin_update_staff_credentials(staff_id):
+    if not validate_staff_csrf():
+        abort(400, description='Invalid security token. Reload Admin and try again.')
+    staff = Staff.query.get_or_404(staff_id)
+    current_admin = db.session.get(Staff, parse_int(session.get('admin_id'), 0))
+    admin_password = request.form.get('admin_password', '')
+    if not current_admin or not check_password_hash(current_admin.pin_hash, admin_password):
+        app.logger.warning('SECURITY rejected staff credential change target_id=%s actor=%r', staff_id, session.get('admin_user'))
+        flash('Your current Admin password is required to change staff credentials.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    new_username = request.form.get('new_username', '').strip()
+    new_password = request.form.get('new_password', '')
+    confirm_password = request.form.get('confirm_password', '')
+    if not staff_username_valid(new_username):
+        flash('Staff username must be 8 to 20 alphanumeric characters.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    duplicate = Staff.query.filter(db.func.lower(Staff.username) == new_username.lower(), Staff.id != staff.id).first()
+    if duplicate:
+        flash('That staff username is already in use.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    password_error = staff_password_error(new_password, new_username)
+    if password_error:
+        flash(password_error, 'error')
+        return redirect(url_for('admin_dashboard'))
+    if new_password != confirm_password:
+        flash('New password and confirmation do not match.', 'error')
+        return redirect(url_for('admin_dashboard'))
+    old_username = staff.username
+    staff.username = new_username
+    staff.pin_hash = staff_hash_password(new_password)
+    db.session.commit()
+    app.logger.warning('SECURITY staff credentials changed target_id=%s old_user=%r new_user=%r actor=%r', staff.id, old_username, new_username, session.get('admin_user'))
+    if current_admin.id == staff.id:
+        clear_staff_session()
+        flash('Your Admin credentials were updated. Sign in again with the new credentials.', 'success')
+        return redirect(url_for('staff_login'))
+    flash(f"Credentials for '{new_username}' were updated securely.", 'success')
+    return redirect(url_for('admin_dashboard'))
+
+
 @app.route('/admin/reset-staff-pin/<int:staff_id>', methods=['POST'])
 @require_admin
 def admin_reset_staff_pin(staff_id):
-    staff = Staff.query.get_or_404(staff_id)
-    new_pin = request.form.get('new_pin', '').strip()
-    if not new_pin.isdigit() or not (4 <= len(new_pin) <= 8):
-        flash('Staff PIN must contain 4 to 8 digits.', 'error')
-        return redirect(url_for('admin_dashboard'))
-    staff.pin_hash = generate_password_hash(new_pin)
-    db.session.commit()
-    flash(f"PIN for staff account '{staff.username}' was changed.", 'success')
+    # Compatibility endpoint for old cached Admin pages. It no longer accepts weak PINs.
+    flash('Staff security was upgraded. Reload Admin and use Update Credentials.', 'info')
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin/update-promo-financials/<int:promo_id>', methods=['POST'])
@@ -17990,24 +18272,92 @@ def update_profile_pic():
 def staff_login():
     target = request.args.get('target', '').lower()
     if request.method == 'POST':
-        user = request.form.get('username', '').strip().lower()
-        pin = request.form.get('pin', '').strip()
-        staff = Staff.query.filter(db.func.lower(Staff.username) == user).first()
+        if not validate_staff_csrf():
+            abort(400, description='Invalid security token. Reload the login page and try again.')
+        allowed, retry_after = staff_login_throttle_status()
+        if not allowed:
+            response = render_template('staff_login.html', target=target, login_wait_seconds=retry_after)
+            return response, 429, {'Retry-After': str(retry_after), 'Cache-Control': 'no-store'}
+        user = request.form.get('username', '').strip()[:50]
+        password = request.form.get('pin', '')[:128]
+        staff = Staff.query.filter(db.func.lower(Staff.username) == user.lower()).first()
+        valid = bool(staff and staff.active and check_password_hash(staff.pin_hash, password))
 
-        if staff and staff.active and check_password_hash(staff.pin_hash, pin):
-            session.clear()
-            session.permanent = False
-            session['_staff_last_activity'] = utc_now().isoformat()
+        if valid:
+            staff_clear_login_throttle()
+            if not staff_credentials_compliant(staff.username, password):
+                session.clear()
+                session.permanent = False
+                session['staff_upgrade_id'] = staff.id
+                session['staff_upgrade_started_at'] = utc_now().isoformat()
+                session['_staff_ua_hash'] = staff_user_agent_fingerprint()
+                session['_staff_csrf_token'] = secrets.token_urlsafe(32)
+                flash('For security, this legacy staff account must be upgraded before access continues.', 'info')
+                return redirect(url_for('staff_upgrade_credentials'))
+            if staff_hash_needs_upgrade(staff.pin_hash):
+                staff.pin_hash = staff_hash_password(password)
+                db.session.commit()
+            establish_staff_session(staff)
+            app.logger.info('SECURITY staff login success user=%r role=%s', staff.username, staff.role)
             if staff.role == 'ADMIN':
-                session['admin_id'] = staff.id
-                session['admin_user'] = staff.username
                 return redirect(url_for('admin_dashboard'))
             if staff.role == 'CASHIER':
-                session['cashier_id'] = staff.id
-                session['cashier_user'] = staff.username
                 return redirect(url_for('cashier_terminal'))
-        flash('Invalid Username or PIN.', 'error')
-    return render_template('staff_login.html', target=target)
+
+        staff_record_login_failure(user)
+        time_module.sleep(0.18 + secrets.randbelow(180) / 1000.0)
+        flash('Invalid staff credentials or temporarily restricted login.', 'error')
+    return render_template('staff_login.html', target=target, login_wait_seconds=0)
+
+
+@app.route('/staff/upgrade-credentials', methods=['GET', 'POST'])
+def staff_upgrade_credentials():
+    staff_id = parse_int(session.get('staff_upgrade_id'), 0)
+    started_raw = session.get('staff_upgrade_started_at')
+    if not staff_id or not started_raw:
+        return redirect(url_for('staff_login'))
+    try:
+        started = datetime.fromisoformat(started_raw)
+    except (TypeError, ValueError):
+        clear_staff_session()
+        return redirect(url_for('staff_login'))
+    if utc_now() - started > timedelta(minutes=10) or session.get('_staff_ua_hash') != staff_user_agent_fingerprint():
+        clear_staff_session()
+        flash('Credential-upgrade session expired. Sign in again.', 'error')
+        return redirect(url_for('staff_login'))
+    staff = db.session.get(Staff, staff_id)
+    if not staff or not staff.active:
+        clear_staff_session()
+        return redirect(url_for('staff_login'))
+    if request.method == 'POST':
+        if not validate_staff_csrf():
+            abort(400, description='Invalid security token. Reload and try again.')
+        new_username = request.form.get('new_username', '').strip()
+        new_password = request.form.get('new_password', '')
+        confirm_password = request.form.get('confirm_password', '')
+        if not staff_username_valid(new_username):
+            flash('Username must be 8 to 20 alphanumeric characters.', 'error')
+            return render_template('staff_upgrade_credentials.html', staff=staff)
+        duplicate = Staff.query.filter(db.func.lower(Staff.username) == new_username.lower(), Staff.id != staff.id).first()
+        if duplicate:
+            flash('That username is already in use.', 'error')
+            return render_template('staff_upgrade_credentials.html', staff=staff)
+        error = staff_password_error(new_password, new_username)
+        if error:
+            flash(error, 'error')
+            return render_template('staff_upgrade_credentials.html', staff=staff)
+        if new_password != confirm_password:
+            flash('New password and confirmation do not match.', 'error')
+            return render_template('staff_upgrade_credentials.html', staff=staff)
+        staff.username = new_username
+        staff.pin_hash = staff_hash_password(new_password)
+        db.session.commit()
+        establish_staff_session(staff)
+        flash('Staff credentials upgraded securely.', 'success')
+        if staff.role == 'ADMIN':
+            return redirect(url_for('admin_dashboard'))
+        return redirect(url_for('cashier_terminal'))
+    return render_template('staff_upgrade_credentials.html', staff=staff)
 
 @app.route('/staff/logout')
 def staff_logout():

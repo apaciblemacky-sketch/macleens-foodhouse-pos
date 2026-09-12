@@ -650,26 +650,35 @@
 
   <!-- 🔐 STAFF SECURITY -->
   <div class="card" style="border: 1.5px solid #334155;">
-    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:1rem;">🔐 Staff Security & PIN Management</h3>
-    <p style="font-size:0.75rem; color:#64748b; margin-bottom:8px;">Bootstrap PINs are created only on the first database setup and are never reset during redeploys. Change them here.</p>
-    <table>
-      <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Change PIN</th></tr></thead>
-      <tbody>
-        {% for st in staff_members %}
-        <tr>
-          <td><strong>{{ st.username }}</strong></td>
-          <td>{{ st.role }}</td>
-          <td>{{ 'Active' if st.active else 'Inactive' }}</td>
-          <td>
-            <form action="/admin/reset-staff-pin/{{ st.id }}" method="POST" style="display:flex; gap:4px;">
-              <input type="password" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" name="new_pin" placeholder="4-8 digits" required style="width:90px; padding:3px; border:1px solid #cbd5e1; border-radius:4px; font-size:0.72rem;">
-              <button type="submit" class="btn btn-dark" style="padding:3px 7px; font-size:0.7rem;">Change</button>
-            </form>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <h3 style="color:var(--hk-dark); margin-bottom:10px; font-size:1rem;">🔐 Staff Security & Credential Management</h3>
+    <p style="font-size:0.75rem; color:#64748b; margin-bottom:8px; line-height:1.45;">
+      New/changed staff credentials use an <strong>8–20 character alphanumeric username</strong> and an <strong>8–20 character password</strong> with uppercase, lowercase, and a number. Legacy short credentials are forced to upgrade on their next login. Changing any staff account also requires your current Admin password.
+    </p>
+    <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th>Current account</th><th>Role</th><th>Status</th><th>Secure credential update</th></tr></thead>
+        <tbody>
+          {% for st in staff_members %}
+          <tr>
+            <td><strong>{{ st.username }}</strong>{% if st.username|length < 8 %}<br><small style="color:#b45309;font-weight:800;">Legacy username — upgrade required at next login</small>{% endif %}</td>
+            <td>{{ st.role }}</td>
+            <td>{{ 'Active' if st.active else 'Inactive' }}</td>
+            <td>
+              <form action="{{ url_for('admin_update_staff_credentials', staff_id=st.id) }}" method="POST" style="display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:6px;min-width:430px;">
+                <input type="hidden" name="csrf_token" value="{{ staff_csrf_token() }}">
+                <input type="text" name="new_username" value="{{ st.username }}" minlength="8" maxlength="20" pattern="[A-Za-z0-9]{8,20}" autocomplete="off" placeholder="New username" required style="padding:7px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.75rem;">
+                <input type="password" name="new_password" minlength="8" maxlength="20" pattern="(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])[A-Za-z0-9]{8,20}" autocomplete="new-password" placeholder="New password" required style="padding:7px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.75rem;">
+                <input type="password" name="confirm_password" minlength="8" maxlength="20" autocomplete="new-password" placeholder="Confirm new password" required style="padding:7px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.75rem;">
+                <input type="password" name="admin_password" maxlength="128" autocomplete="current-password" placeholder="Your current Admin password" required style="padding:7px;border:1px solid #cbd5e1;border-radius:6px;font-size:0.75rem;">
+                <button type="submit" class="btn btn-dark" style="grid-column:1/-1;padding:7px 10px;font-size:0.72rem;" onclick="return confirm('Update this staff username/password? The old credentials will stop working immediately.');">🔒 Update Credentials</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:0.7rem;color:#64748b;margin-top:8px;">Security controls include memory-hard password hashing, login throttling, CSRF protection for credential changes, non-persistent staff sessions, inactivity timeout, browser-session binding, secure cookies, and no-cache admin responses.</p>
   </div>
 
   <!-- 👥 REGISTERED CUSTOMER MANAGEMENT & PIN RESET -->

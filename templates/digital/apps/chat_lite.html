@@ -214,7 +214,7 @@
     </div>
     <div class="header-actions">
       <button class="action-btn" id="startCallBtn" onclick="toggleConference()" title="Start Group Video Call">📹</button>
-      <button class="action-btn" id="startScreenBtn" onclick="toggleScreenShare()" title="Share Screen">🖥️</button>
+      <button class="action-btn" id="startScreenBtn" onclick="toggleScreenShare()" title="Share Screen (desktop browsers; mobile support varies)">🖥️</button>
       <button class="action-btn" onclick="copyInviteLink()" title="Copy Invite Link">🔗</button>
       <button class="action-btn danger" onclick="leaveSession()" title="Leave & Erase All Data">🚪</button>
     </div>
@@ -826,22 +826,54 @@
       return;
     }
 
-    try {
-      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-      const screenTrack = screenStream.getVideoTracks()[0];
-      document.getElementById('startScreenBtn').classList.add('active-glow');
+    const shareBtn = document.getElementById('startScreenBtn');
+    const isAndroid = /Android/i.test(navigator.userAgent || '');
+    const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent || '');
+    const canCaptureDisplay = !!(navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function');
 
-      Object.values(activeCalls).forEach(call => {
-        const sender = call.peerConnection.getSenders().find(s => s.track && s.track.kind === 'video');
-        if (sender) sender.replaceTrack(screenTrack);
-      });
+    // As of current mobile browser support, Android/iOS browsers commonly do
+    // not expose getDisplayMedia(). A PWA cannot bypass that browser/OS limit.
+    if (!canCaptureDisplay) {
+      const deviceNote = (isAndroid || isIOS)
+        ? 'Screen sharing is not supported by this mobile browser. Use CHAT Lite on desktop Chrome, Edge, Firefox, or Safari to share a screen. Chat, camera, microphone, and file sharing still work on this phone.'
+        : 'This browser does not support web screen sharing. Try an up-to-date desktop Chrome, Edge, Firefox, or Safari.';
+      alert(deviceNote);
+      return;
+    }
+
+    if (shareBtn) {
+      shareBtn.disabled = true;
+      shareBtn.textContent = '⏳';
+    }
+    try {
+      screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const screenTrack = screenStream.getVideoTracks()[0];
+      if (!screenTrack) throw new Error('No screen video track was provided by the browser.');
+      if (shareBtn) shareBtn.classList.add('active-glow');
+
+      await Promise.all(Object.values(activeCalls).map(async call => {
+        try {
+          const sender = call.peerConnection?.getSenders().find(s => s.track && s.track.kind === 'video');
+          if (sender) await sender.replaceTrack(screenTrack);
+        } catch (err) {
+          console.warn('Could not replace a peer video track for screen sharing:', err);
+        }
+      }));
 
       const selfVid = document.querySelector('#video-self video');
       if (selfVid) selfVid.srcObject = screenStream;
-
       screenTrack.onended = () => stopScreenShare();
     } catch (e) {
-      console.log("Screen share cancelled.");
+      screenStream = null;
+      console.warn('Screen share did not start:', e);
+      if (e && e.name && !['NotAllowedError', 'AbortError'].includes(e.name)) {
+        alert('Screen sharing could not start in this browser/device. Try desktop Chrome or Edge, and make sure the page is open over HTTPS.');
+      }
+    } finally {
+      if (shareBtn) {
+        shareBtn.disabled = false;
+        shareBtn.textContent = '🖥️';
+      }
     }
   }
 
