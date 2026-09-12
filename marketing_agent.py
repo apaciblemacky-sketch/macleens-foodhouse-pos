@@ -520,3 +520,88 @@ def extract_peso_amounts(text: str):
         except ValueError:
             pass
     return amounts
+
+
+def _template_website_analytics_analysis(payload: dict, fallback_note: str = ""):
+    portals = payload.get("portals") or {}
+    labels = {"STOREFRONT": "Food Storefront", "CRAFT": "Crafts", "DIGITAL": "Digital"}
+    rows = []
+    for key in ("STOREFRONT", "CRAFT", "DIGITAL"):
+        summary = (portals.get(key) or {}).get("summary") or {}
+        visits = int(summary.get("visits") or 0)
+        uniques = int(summary.get("unique_daily_sum") or 0)
+        trend = float(summary.get("trend_percent") or 0.0)
+        peak = summary.get("peak_date") or "—"
+        rows.append((key, visits, uniques, trend, peak))
+    strongest = max(rows, key=lambda row: row[1]) if rows else ("STOREFRONT", 0, 0, 0, "—")
+    weakest = min(rows, key=lambda row: row[1]) if rows else strongest
+    improving = [row for row in rows if row[3] > 5]
+    declining = [row for row in rows if row[3] < -5]
+    parts = [
+        f"Traffic summary: {labels.get(strongest[0], strongest[0])} has the most visits in this period ({strongest[1]:,}). "
+        f"{labels.get(weakest[0], weakest[0])} has the fewest ({weakest[1]:,}).",
+        "Unique visitors: " + "; ".join(f"{labels[k]} {u:,} daily uniques / {v:,} visits" for k,v,u,_,_ in rows) + ".",
+    ]
+    if improving:
+        parts.append("Positive movement: " + ", ".join(f"{labels[k]} {trend:+.1f}%" for k,_,_,trend,_ in improving) + ".")
+    if declining:
+        parts.append("Needs attention: " + ", ".join(f"{labels[k]} {trend:+.1f}%" for k,_,_,trend,_ in declining) + ".")
+    parts.append(
+        "Suggested action: promote one clear product or offer from the weakest portal using a direct link, then compare visits and daily uniques over the next 7 days. "
+        "For the strongest portal, keep the current traffic source but test a stronger call-to-action that moves visitors toward checkout or My Apps rather than chasing page views alone."
+    )
+    if fallback_note:
+        parts.append(f"AI note: {fallback_note}.")
+    return {"model": "smart-template:website-analytics", "analysis": "\n\n".join(parts)}
+
+
+def analyze_website_analytics(payload: dict, provider: str = "AUTO"):
+    """Analyze aggregate portal traffic only; no raw IP, customer, or personal data is sent."""
+    provider = (provider or "AUTO").upper()
+    prompt = (
+        "You are a practical web analytics adviser for Macleen's Food House, Crafts, and Digital in the Philippines. "
+        "Analyze only the supplied aggregate daily visits and unique-visitor counts. Do not invent causes, revenue, demographics, or conversions. "
+        "Return concise plain text with: Traffic Summary, What Changed, What to Test Next, and One Priority Action. "
+        "Mention exact numbers where useful and distinguish visits from unique visitors.\n\nDATA:\n"
+        + json.dumps(payload, ensure_ascii=False)
+    )
+    attempts = []
+    if provider in ("GEMINI", "AUTO") and gemini_configured():
+        try:
+            api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+            model = os.environ.get("GEMINI_MARKETING_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
+            response = requests.post(
+                GEMINI_INTERACTIONS_URL,
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json={"model": model, "input": prompt, "response_format": {"type": "text"}},
+                timeout=55,
+            )
+            body = response.json() if response.content else {}
+            if not response.ok:
+                raise RuntimeError(((body.get("error") or {}).get("message") if isinstance(body, dict) else None) or response.text)
+            analysis = _extract_gemini_output_text(body)
+            if not analysis:
+                raise RuntimeError("Gemini returned no website analytics analysis.")
+            return {"model": f"gemini:{model}", "analysis": analysis[:5000]}
+        except Exception as exc:
+            attempts.append(f"Gemini unavailable ({type(exc).__name__})")
+    if provider in ("OPENAI", "AUTO") and openai_configured():
+        try:
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            model = os.environ.get("OPENAI_MARKETING_MODEL", "gpt-5.5").strip() or "gpt-5.5"
+            response = requests.post(
+                OPENAI_RESPONSES_URL,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, "instructions": "Analyze aggregate website analytics accurately and concisely.", "input": prompt, "max_output_tokens": 900},
+                timeout=50,
+            )
+            body = response.json() if response.content else {}
+            if not response.ok:
+                raise RuntimeError(((body.get("error") or {}).get("message") if isinstance(body, dict) else None) or response.text)
+            analysis = _extract_openai_output_text(body)
+            if not analysis:
+                raise RuntimeError("OpenAI returned no website analytics analysis.")
+            return {"model": f"openai:{model}", "analysis": analysis[:5000]}
+        except Exception as exc:
+            attempts.append(f"OpenAI unavailable ({type(exc).__name__})")
+    return _template_website_analytics_analysis(payload, "; ".join(attempts))

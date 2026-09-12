@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-cd /d "%~dp0"
+cd /d "%~dp0.."
 title Deploy Macleen's Food House to Render
 set "PYTHONUTF8=1"
 set "DEPLOY_BRANCH=main"
@@ -10,10 +10,11 @@ echo   MACLEEN'S FOOD HOUSE - GITHUB TO RENDER DEPLOYMENT
 echo ============================================================
 echo.
 echo This script will:
-echo   1. Run the project safety checks.
-echo   2. Stage and commit the current project changes.
-echo   3. Push the main branch to GitHub.
-echo   4. Let the connected Render service deploy that push.
+echo   1. Back up the local SQLite database outside this Git project.
+echo   2. Run the project safety checks and smoke tests.
+echo   3. Stage and commit the current project changes.
+echo   4. Push the main branch to GitHub.
+echo   5. Let the connected Render service deploy that push.
 echo.
 
 where git >nul 2>&1
@@ -103,11 +104,33 @@ if not defined DEPLOY_CHECK_CMD (
   exit /b 1
 )
 
+echo Creating a safe local database backup before checks...
+if exist "scripts\backup_database.py" (
+  %DEPLOY_CHECK_CMD% scripts\backup_database.py
+  if errorlevel 1 (
+    echo.
+    echo DEPLOYMENT STOPPED: Database backup failed.
+    pause
+    exit /b 1
+  )
+) else (
+  echo WARNING: scripts\backup_database.py was not found. No local SQLite backup was made.
+)
+
 echo Running pre-deployment safety checks...
 %DEPLOY_CHECK_CMD% scripts\predeploy_check.py
 if errorlevel 1 (
   echo.
   echo DEPLOYMENT STOPPED: Fix the reported check before pushing.
+  pause
+  exit /b 1
+)
+
+echo Running current business, finance, analytics, and social-upgrade checks...
+%DEPLOY_CHECK_CMD% scripts\v39_business_upgrade_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Current upgrade checks failed.
   pause
   exit /b 1
 )
@@ -121,6 +144,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running installed-app notification checks...
+%DEPLOY_CHECK_CMD% scripts\customer_app_notifications_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Installed-app notification checks failed.
+  pause
+  exit /b 1
+)
+
 echo Running Financial Statements and Bundle Deals behavior checks...
 %DEPLOY_CHECK_CMD% scripts\financial_bundle_smoke_check.py
 if errorlevel 1 (
@@ -130,11 +162,11 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Running Digital Assets, manual GCash, PayPal, Gemini Help Bot, and app activation checks...
+echo Running Digital Assets, QR PH, PayPal, protected delivery, and app activation checks...
 %DEPLOY_CHECK_CMD% scripts\digital_assets_gateway_smoke_check.py
 if errorlevel 1 (
   echo.
-  echo DEPLOYMENT STOPPED: Digital Assets, payment delivery, Help Bot, or app activation checks failed.
+  echo DEPLOYMENT STOPPED: Digital Assets, payment delivery, or app activation checks failed.
   pause
   exit /b 1
 )
@@ -166,6 +198,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running Cashier Android/tablet layout and Tablet removal checks...
+%DEPLOY_CHECK_CMD% scripts\cashier_tablet_layout_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Cashier layout or Tablet-removal checks failed.
+  pause
+  exit /b 1
+)
+
 echo.
 echo GitHub remote:
 echo %DEPLOY_REMOTE%
@@ -190,8 +231,18 @@ if /i not "%DEPLOY_CONFIRM%"=="DEPLOY" (
 )
 
 set "DEPLOY_MESSAGE="
-set /p "DEPLOY_MESSAGE=Commit message [Update Macleen's Food House system]: "
-if not defined DEPLOY_MESSAGE set "DEPLOY_MESSAGE=Update Macleen's Food House system"
+set /p "DEPLOY_MESSAGE=Commit message [Improve sales records, analytics, portals, and automation]: "
+if not defined DEPLOY_MESSAGE set "DEPLOY_MESSAGE=Improve sales records, analytics, portals, and automation"
+if /i "%DEPLOY_MESSAGE%"=="New Update" (
+  echo Please use a descriptive commit message instead of "New Update".
+  pause
+  exit /b 1
+)
+if /i "%DEPLOY_MESSAGE%"=="Update" (
+  echo Please describe what changed in the commit message.
+  pause
+  exit /b 1
+)
 
 echo.
 echo Staging project changes...
@@ -238,11 +289,11 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.07-hidden-treat-v18
-echo Then test one product link, both role-locked Community dashboards,
-echo 25-person @mentions, cover photos, no-refresh comments, project workspaces,
-echo Financial Statements, one bundle checkout, one protected digital download,
-echo the Digital Help Bot, manual GCash verification, and (after credentials are added) one PayPal Digital checkout.
+echo Expected release after Render finishes: 2026.09.12-daily-sales-finance-analytics-social-v39
+echo Then test one Food product link and one Digital product link thumbnail,
+echo Daily Sales Record, Financial Statements Products ^& Cost, Vault Drop settings,
+echo Storefront/Crafts/Digital About + announcements + analytics AI suggestion,
+echo one QR PH and one PayPal checkout, one Hosted App launch, and Facebook automation settings.
 echo.
 start "" "https://dashboard.render.com/"
 start "" "https://macleens-foodhouse-pos.onrender.com/healthz"

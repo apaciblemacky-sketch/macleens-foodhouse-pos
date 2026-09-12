@@ -1,41 +1,121 @@
-# Macleen's Security + Auto-Hosted HTML + Android Screen Share Handling Update
+# Macleen's Business / Finance / Analytics / Social Update v39
 
-Incremental update for the current Macleen's project. Extract into the project root and replace existing files. No database reset is required.
+This package is an **incremental replacement update for release v38** (`2026.09.12-security-auto-host-mobile-share-v38`).
+Extract it into the existing Macleen's project root and choose **Replace files in destination**.
 
-## 1. Protected HTML upload -> Hosted App automatically
-- A single `.html` / `.htm` file uploaded through **Digital Admin -> Add digital offer + protected file** is automatically promoted to a Hosted App.
-- A `.zip` containing `index.html` is also automatically promoted.
-- The app receives its separate PWA identity, current per-use hours, optional Lifetime price, and uploaded web-app icon.
-- **Admin Free Launch** is automatically available for these promoted apps.
-- Non-HTML files stay normal protected downloads.
+**No database reset is required.** New tables/columns are additive and are created/migrated at startup.
 
-## 2. CHAT Lite screen sharing on Android
-- Current Android/iOS mobile browsers generally do not expose the web `getDisplayMedia()` Screen Capture API.
-- The button now detects unsupported mobile browsers and explains that screen sharing requires a supported desktop browser instead of silently failing.
-- Desktop screen sharing remains enabled, and the server sends a `Permissions-Policy` allowing `display-capture` for the same origin.
-- Camera, microphone, chat, files, and video calls remain available on supported mobile browsers.
+## What changed
 
-## 3. Staff security hardening
-New/changed staff credentials:
-- Username: 8-20 alphanumeric characters.
-- Password: 8-20 alphanumeric characters, with at least one uppercase, one lowercase, and one number.
-- Common, repeated, and obvious sequential passwords are blocked.
-- Existing legacy credentials are not erased. After a valid login, a legacy short/non-compliant account is forced through a secure credential upgrade before privileged access continues.
+### Digital product sharing
+- Digital product links now have Storefront-style Facebook/Open Graph/Twitter thumbnails.
+- Each Digital product gets a 1200x630 social preview image and a Share Product action.
 
-Additional controls:
-- Memory-hard scrypt password hashing for new/changed staff passwords.
-- Old password hashes automatically rehash after a successful compliant login.
-- Persistent login throttling by privacy-preserving client-IP hash.
-- Progressive temporary blocks after repeated failures.
-- Generic login failure messages to reduce username discovery.
-- Small randomized failed-login delay against rapid guessing.
-- CSRF protection for staff login and credential changes.
-- Admin must re-enter their current Admin password before changing any staff credentials.
-- Staff sessions remain non-persistent and retain the existing inactivity timeout.
-- Staff sessions are bound to the browser User-Agent fingerprint.
-- Admin/staff pages are marked no-store/no-cache.
-- Security headers: HSTS in production, nosniff, same-origin framing, strict referrer policy, and browser Permissions Policy.
-- New production databases no longer silently create predictable `1234` / `1111` bootstrap PINs. Configure `DEFAULT_ADMIN_PASSWORD` and `DEFAULT_CASHIER_PASSWORD` if a production database has no staff accounts yet.
+### Internal Daily Sales Record
+- System sales are shown as **one consolidated row per Philippine calendar day**, not one row per transaction.
+- A separate **Blank / Manual Daily Sales Record** lets Admin enter a date, receipt/reference number, specific sales amount, notes, and whether to include that figure in Financial Statements.
+- Manual figures are kept separate from system-computed daily totals to reduce accidental double counting.
 
-## Important security note
-The requested 8-20 alphanumeric-only password policy is implemented exactly, but OWASP currently recommends allowing longer passwords/passphrases and a much higher maximum length. The added hashing, throttling, CSRF, re-authentication, session, and header protections substantially harden the system, but no web application can be guaranteed "unhackable."
+### Financial Statements
+- Added/checkable expense accounts: Payroll & Labor, Rent, Electricity, Water, Internet & Communications, Taxes & Permits, Payment & Bank Fees, Insurance, Marketing, Supplies & Ingredients, Transport, Repairs & Maintenance, General & Miscellaneous, Depreciation, and legacy Rent & Utilities.
+- Added **Products & Cost** tab for Food, Crafts, and Digital products.
+- Product rows show Selling Price, Cost, units sold, period sales, Sales %, Cost %, and gross-margin %.
+- Admin can edit Selling Price and Cost from the Financial Statements page.
+- Added independent **Vault Drop Sales %** and **Vault Drop Cost %** settings.
+
+### Cashier POS
+- Removed the Burger/Nachos promotion shortcut buttons from the top of Cashier POS.
+- Existing historical promo records/routes are retained for compatibility.
+
+### Portal About / Announcements
+- Food/Storefront, Crafts, and Digital each have their own separately editable **About** section.
+- Existing separate announcement boards remain available per portal.
+- Crafts public heading now says pickup **and delivery** are available instead of pickup-only wording.
+- Public Crafts visitor/unique-view counters are removed.
+
+### Website analytics
+- Storefront, Crafts, and Digital now record daily Visits + privacy-conscious Unique Visitors.
+- Interactive Admin graph supports 7 / 30 / 90 / 365 days, Visits vs Unique Visitors, portal toggles, and hover/tap details.
+- **AI Suggestion** analyzes aggregate traffic only. If a configured AI provider is unavailable, the system returns a local rule-based suggestion instead.
+- Unique-visitor history begins after this upgrade; old anonymous unique-visitor history cannot be reconstructed safely.
+
+### Facebook automation preparation
+Page posting and Group posting are deliberately separate:
+
+**Facebook Page**
+- `META_PAGE_ID`
+- `META_PAGE_ACCESS_TOKEN`
+- optional `META_GRAPH_VERSION`
+
+**Facebook Group automation bridge**
+- `FB_GROUP_POSTING_WEBHOOK_URL`
+- optional `FB_GROUP_POSTING_WEBHOOK_TOKEN`
+
+This keeps the Page account/token separate from the Group automation account/provider. See `FB_AUTOMATION_SETUP.md`.
+
+### Support page
+- Keeps QR PH support payments.
+- Adds PayPal support payments.
+- Adds **Invest** action linking to the existing Investor area.
+
+### Project maintenance / Claude findings
+- Added shared `static/macleens-shared.css` and connected it to high-traffic pages as the first stage of reducing inline-style duplication.
+- Added `.gitignore` protection for SQLite DBs, DB sidecars, backups, ZIPs, `.env`, virtual environments, and Python cache files.
+- Added `scripts/backup_database.py` which puts local SQLite backups **outside the Git project** and verifies SQLite integrity.
+- Added `PROJECT_MAINTENANCE_GUIDE.md` with a safe gradual plan for splitting the very large `app.py` later. This release does **not** attempt a risky full refactor.
+- Updated `scripts/predeploy_check.py` for the current QR PH/PayPal/chat/hosted-app schema.
+- Added `scripts/v39_business_upgrade_smoke_check.py`.
+- Updated `DEPLOY_TO_RENDER.bat` to back up the DB, run checks, require a descriptive commit message, then push to GitHub/Render.
+
+## Recommended deployment
+
+1. Back up your current project folder.
+2. Extract this ZIP into the existing project root.
+3. Choose **Replace files in destination**.
+4. Do not delete `.env`, production environment variables, uploaded assets, or your database.
+5. Preferred: run `DEPLOY_TO_RENDER.bat` from the project root.
+
+The deployment script will:
+1. back up the local SQLite database outside the repository;
+2. run pre-deploy checks and smoke tests;
+3. show changed Git files;
+4. ask you to type `DEPLOY`;
+5. ask for a descriptive commit message;
+6. push `main` to GitHub so Render can deploy.
+
+Suggested commit message:
+
+`Improve daily sales, financials, analytics, portals, and social automation`
+
+Manual Git alternative:
+
+```bash
+git status
+python scripts/predeploy_check.py
+python scripts/v39_business_upgrade_smoke_check.py
+git add .
+git commit -m "Improve daily sales, financials, analytics, portals, and social automation"
+git push origin main
+```
+
+## Post-deploy checks
+
+- Open `/healthz` and confirm release: `2026.09.12-daily-sales-finance-analytics-social-v39`.
+- Share one Food product and one Digital product link to verify thumbnails.
+- Open **Daily Sales Record** and add one test manual daily row (delete it after testing if needed).
+- Open Financial Statements → **Products & Cost** and verify product prices/costs.
+- Test Vault Drop Sales % / Cost % settings.
+- Check Food, Crafts, and Digital About + Announcement sections.
+- Open analytics and try 7/30/90-day views plus AI Suggestion.
+- Confirm Crafts no longer shows public visitor counters or pickup-only wording.
+- Verify Cashier POS no longer has top Burger/Nachos promo buttons.
+- Verify Facebook Page and Group automation settings remain separate.
+
+## Verification completed while packaging
+
+- `app.py` and `marketing_agent.py` Python compilation: PASS
+- `scripts/predeploy_check.py`: PASS
+- `scripts/v39_business_upgrade_smoke_check.py`: PASS
+- SQLite backup utility + integrity check: PASS
+
+The container used to build this package does not have Flask/Werkzeug installed, so the older runtime smoke scripts that import the live Flask app could not be executed here. `DEPLOY_TO_RENDER.bat` runs those scripts in your normal project Python environment before it pushes.

@@ -302,12 +302,12 @@
     <a href="/portal/logout" class="btn btn-outline" style="margin-top:7px;">Log Out</a>
   </div>
 </div>
-{% if public_chat_channels_open %}<button type="button" class="portal-chat-toggle" id="portalCashierChatToggle" onclick="togglePortalCashierChat()">💬 Chat with us</button>
+<button type="button" class="portal-chat-toggle" id="portalCashierChatToggle" onclick="togglePortalCashierChat()">💬 Cashier chat</button>
 <aside class="portal-chat-panel" id="portalCashierChatPanel" aria-live="polite" aria-label="Chat with us">
-  <div class="portal-chat-head"><strong>💬 Chat with us</strong><button type="button" onclick="togglePortalCashierChat(false)" style="border:0;background:transparent;color:white;font-size:1.2rem;cursor:pointer;line-height:1;">×</button></div>
+  <div class="portal-chat-head"><strong>💬 Cashier chat</strong><button type="button" onclick="togglePortalCashierChat(false)" style="border:0;background:transparent;color:white;font-size:1.2rem;cursor:pointer;line-height:1;">×</button></div>
   <div id="portalCashierChatLog" class="portal-chat-log"><div class="portal-chat-msg system">Your order chat appears here. Please standby while the cashier reviews your order.</div></div>
   <div class="portal-chat-compose"><input id="portalCashierChatInput" maxlength="500" placeholder="Message the cashier" onkeydown="if(event.key==='Enter'){event.preventDefault();sendPortalCashierChat();}"><button type="button" onclick="sendPortalCashierChat()">Send</button></div>
-</aside>{% endif %}
+</aside>
 <nav class="bottom-nav"><a href="/"><span>⌂</span>Home</a><a href="/#menu"><span>🍽</span>Menu</a><a href="/community"><span>🌐</span>Community</a><a class="active" href="#rewards"><span>★</span>Rewards</a><a href="#account"><span>◉</span>Account</a></nav>
 <script>
   const appPushPublicKey = {{ vapid_public_key|tojson }};

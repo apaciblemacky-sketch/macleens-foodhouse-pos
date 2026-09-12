@@ -34,7 +34,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 from marketing_agent import (
     analyze_marketing_insights, extract_peso_amounts, generate_ai_marketing_decision,
-    gemini_configured, openai_configured, _extract_gemini_output_text,
+    gemini_configured, openai_configured, _extract_gemini_output_text, analyze_website_analytics,
 )
 
 logging.basicConfig(
@@ -79,7 +79,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.12-security-auto-host-mobile-share-v38'
+APP_RELEASE = '2026.09.12-daily-sales-finance-analytics-social-v39'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 STAFF_CREDENTIAL_MIN_LEN = 8
@@ -512,6 +512,20 @@ class FinancialJournalEntry(db.Model):
     created_by = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
 
+
+class ManualDailySalesRecord(db.Model):
+    """Owner-entered daily sales figure kept separate from transaction-level orders."""
+    __tablename__ = 'manual_daily_sales_record'
+    id = db.Column(db.Integer, primary_key=True)
+    sales_date = db.Column(db.Date, nullable=False, index=True)
+    receipt_number = db.Column(db.String(80), nullable=False, unique=True, index=True)
+    amount = db.Column(db.Float, nullable=False, default=0.0)
+    notes = db.Column(db.String(500), nullable=True)
+    include_in_financials = db.Column(db.Boolean, nullable=False, default=False)
+    created_by = db.Column(db.String(50), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
 class VaultDrop(db.Model):
     __tablename__ = 'vault_drop'
     id = db.Column(db.Integer, primary_key=True)
@@ -654,6 +668,20 @@ class PortalEvent(db.Model):
     event_type = db.Column(db.String(50), nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
+
+
+class WebsiteVisitDaily(db.Model):
+    """Privacy-conscious daily portal traffic used by the interactive analytics dashboard."""
+    __tablename__ = 'website_visit_daily'
+    __table_args__ = (UniqueConstraint('source', 'visit_date', 'visitor_hash', name='uq_website_visit_daily'),)
+    id = db.Column(db.Integer, primary_key=True)
+    source = db.Column(db.String(20), nullable=False, index=True)
+    visit_date = db.Column(db.Date, nullable=False, index=True)
+    visitor_hash = db.Column(db.String(64), nullable=False, index=True)
+    visit_count = db.Column(db.Integer, nullable=False, default=1)
+    first_seen_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+    last_seen_at = db.Column(db.DateTime, nullable=False, default=utc_now)
+
 
 class MobileLoyaltyScan(db.Model):
     """A short-lived staff-only handoff from a phone scanner to Cashier POS.
@@ -3255,6 +3283,76 @@ def cached_product_social_preview(prod):
         _PRODUCT_SHARE_CACHE[cache_key] = payload
     return payload
 
+DIGITAL_SHARE_STYLE_VERSION = 'digital-link-card-v1'
+_DIGITAL_SHARE_CACHE = {}
+
+
+def digital_share_version(item):
+    visible_state = json.dumps([
+        DIGITAL_SHARE_STYLE_VERSION, getattr(item, 'id', None), getattr(item, 'name', ''),
+        getattr(item, 'category_name', ''), getattr(item, 'product_type', ''),
+        round(parse_float(getattr(item, 'price', 0.0), 0.0), 2),
+        round(parse_float(getattr(item, 'lifetime_price', 0.0), 0.0), 2),
+        bool(getattr(item, 'lifetime_enabled', False)), getattr(item, 'image_url', '') or '',
+        parse_int(getattr(item, 'asset_version', 1), 1), bool(getattr(item, 'is_active', True)),
+    ], ensure_ascii=False, separators=(',', ':'))
+    return hashlib.sha256(visible_state.encode('utf-8')).hexdigest()[:12]
+
+
+def render_digital_social_preview(item):
+    width, height = PRODUCT_SHARE_IMAGE_SIZE
+    photo = _original_product_photo(_product_preview_photo(item))
+    background = Image.new('RGBA', (width, height), '#f0fdfa')
+    draw = ImageDraw.Draw(background)
+    for x in range(width):
+        blend = x / max(1, width - 1)
+        color = (int(240*(1-blend)+253*blend), int(253*(1-blend)+242*blend), int(250*(1-blend)+248*blend), 255)
+        draw.line((x,0,x,height), fill=color)
+    draw.ellipse((-160,-220,430,360), fill=(153,246,228,150))
+    draw.ellipse((950,350,1390,800), fill=(251,207,232,140))
+    draw.rounded_rectangle((38,38,714,584), radius=34, fill='white', outline='#5eead4', width=4)
+    draw.rounded_rectangle((740,38,1168,584), radius=34, fill='white', outline='#99f6e4', width=4)
+    contained=ImageOps.contain(photo,(626,494),method=Image.Resampling.LANCZOS)
+    background.paste(contained.convert('RGBA'),(62+(626-contained.width)//2,64+(494-contained.height)//2))
+    try:
+        with Image.open(os.path.join(app.static_folder,'logo.png')) as logo_source:
+            logo=ImageOps.fit(ImageOps.exif_transpose(logo_source).convert('RGBA'),(70,70),method=Image.Resampling.LANCZOS)
+        mask=Image.new('L',(70,70),0); ImageDraw.Draw(mask).ellipse((0,0,69,69),fill=255)
+        background.paste(logo,(772,68),mask)
+    except (OSError,UnidentifiedImageError):
+        pass
+    draw.text((858,72),"MACLEEN'S",font=_preview_font(28),fill='#115e59')
+    draw.text((858,108),'DIGITAL',font=_preview_font(21),fill='#0d9488')
+    category=(getattr(item,'category_name','') or 'DIGITAL PRODUCT').upper()
+    cf=_preview_font(17); cw=min(345,draw.textbbox((0,0),category,font=cf)[2]+34)
+    draw.rounded_rectangle((772,165,772+cw,203),radius=19,fill='#0f766e'); draw.text((789,173),category,font=cf,fill='white')
+    name=(getattr(item,'name','') or 'Digital Product').strip(); nf=_preview_font(48)
+    lines=_wrap_preview_text(draw,name,nf,340,max_lines=3)
+    if len(lines)>2: nf=_preview_font(41); lines=_wrap_preview_text(draw,name,nf,340,max_lines=3)
+    draw.multiline_text((772,220),'\n'.join(lines),font=nf,fill='#172033',spacing=3)
+    product_type=(getattr(item,'product_type','') or 'DIGITAL').replace('_',' ').title()
+    if getattr(item,'lifetime_enabled',False) and parse_float(getattr(item,'lifetime_price',0),0)>0:
+        price=f"From ₱{min([x for x in [parse_float(getattr(item,'price',0),0),parse_float(getattr(item,'lifetime_price',0),0)] if x>0] or [0]):,.2f}"
+    else:
+        price=f"₱{parse_float(getattr(item,'price',0),0):,.2f}"
+    draw.text((772,414),price,font=_preview_font(46),fill='#db2777')
+    draw.text((774,468),f'{product_type} • Secure access',font=_preview_font(17),fill='#475569')
+    draw.rounded_rectangle((772,512,1135,560),radius=24,fill='#0f766e')
+    draw.text((807,524),'CLICK TO VIEW PRODUCT',font=_preview_font(19),fill='white')
+    output=io.BytesIO(); background.convert('RGB').save(output,format='JPEG',quality=90,optimize=True,progressive=True,subsampling=0)
+    return output.getvalue()
+
+
+def cached_digital_social_preview(item):
+    key=f"{getattr(item,'id','new')}:{digital_share_version(item)}"
+    payload=_DIGITAL_SHARE_CACHE.get(key)
+    if payload is None:
+        payload=render_digital_social_preview(item)
+        if len(_DIGITAL_SHARE_CACHE)>=PRODUCT_SHARE_CACHE_LIMIT:
+            _DIGITAL_SHARE_CACHE.pop(next(iter(_DIGITAL_SHARE_CACHE)),None)
+        _DIGITAL_SHARE_CACHE[key]=payload
+    return payload
+
 
 def product_price_for_options(prod, selected_options):
     """Resolve the authoritative regular selling price after a priced Size choice."""
@@ -5110,38 +5208,133 @@ def track_portal_event(event_type, source=None, customer_id=None):
     except Exception:
         app.logger.exception('Could not queue portal event %s', event_type)
 
+def _website_visitor_hash(source):
+    """Return a non-reversible visitor key; raw IP addresses are not stored here."""
+    ip = get_client_ip()[:80]
+    user_agent = (request.headers.get('User-Agent') or '')[:250] if has_request_context() else ''
+    secret = str(app.config.get('SECRET_KEY') or 'macleens')
+    message = f'{source}|{ip}|{user_agent}'.encode('utf-8', 'ignore')
+    return hmac.new(secret.encode('utf-8'), message, hashlib.sha256).hexdigest()
+
+
 def track_website_view(source):
-    """Record one public portal page view for the admin website-view line graph."""
+    """Record a page view plus daily unique visitor for the three public portals."""
     source = str(source or '').strip().upper()
     if source not in {'STOREFRONT', 'CRAFT', 'DIGITAL'}:
         return
     try:
         db.session.add(PortalEvent(source=source, event_type='PAGE_VIEW'))
+        visit_day = ph_today()
+        visitor_hash = _website_visitor_hash(source)
+        row = WebsiteVisitDaily.query.filter_by(source=source, visit_date=visit_day, visitor_hash=visitor_hash).first()
+        if row:
+            row.visit_count = max(0, parse_int(row.visit_count, 0)) + 1
+            row.last_seen_at = utc_now()
+        else:
+            db.session.add(WebsiteVisitDaily(
+                source=source, visit_date=visit_day, visitor_hash=visitor_hash,
+                visit_count=1, first_seen_at=utc_now(), last_seen_at=utc_now(),
+            ))
         db.session.commit()
     except Exception:
         db.session.rollback()
         app.logger.exception('Could not record %s website view', source)
 
 
-def build_website_view_analytics(days=30):
-    days = max(7, min(90, parse_int(days, 30)))
+def build_website_view_analytics(days=30, portal='ALL'):
+    days = max(7, min(365, parse_int(days, 30)))
+    portal = str(portal or 'ALL').strip().upper()
+    sources = ['STOREFRONT', 'CRAFT', 'DIGITAL'] if portal == 'ALL' else ([portal] if portal in {'STOREFRONT','CRAFT','DIGITAL'} else ['STOREFRONT','CRAFT','DIGITAL'])
     end_day = ph_today()
     start_day = end_day - timedelta(days=days - 1)
-    rows = PortalEvent.query.filter(
+    labels = [(start_day + timedelta(days=i)).strftime('%b %d') for i in range(days)]
+    dates = [(start_day + timedelta(days=i)).isoformat() for i in range(days)]
+    visits = {key: [0] * days for key in ('STOREFRONT', 'CRAFT', 'DIGITAL')}
+    uniques = {key: [0] * days for key in ('STOREFRONT', 'CRAFT', 'DIGITAL')}
+
+    daily_rows = WebsiteVisitDaily.query.filter(
+        WebsiteVisitDaily.visit_date >= start_day,
+        WebsiteVisitDaily.visit_date <= end_day,
+        WebsiteVisitDaily.source.in_(sources),
+    ).all()
+    for row in daily_rows:
+        index = (row.visit_date - start_day).days
+        if 0 <= index < days and row.source in visits:
+            visits[row.source][index] += max(0, parse_int(row.visit_count, 0))
+            uniques[row.source][index] += 1
+
+    # Preserve pre-upgrade visit history from PortalEvent. Daily uniques begin only
+    # after this version because older rows did not store an anonymous visitor key.
+    old_rows = PortalEvent.query.filter(
         PortalEvent.event_type == 'PAGE_VIEW',
         PortalEvent.created_at >= datetime.combine(start_day - timedelta(days=1), time.min),
-        PortalEvent.source.in_(['STOREFRONT', 'CRAFT', 'DIGITAL']),
+        PortalEvent.source.in_(sources),
     ).all()
-    labels = [(start_day + timedelta(days=i)).strftime('%b %d') for i in range(days)]
-    buckets = {key: [0] * days for key in ('STOREFRONT', 'CRAFT', 'DIGITAL')}
-    for row in rows:
+    legacy = {key: [0] * days for key in visits}
+    for row in old_rows:
         local_dt = utc_naive_to_ph(row.created_at)
-        if not local_dt:
+        if not local_dt or row.source not in legacy:
             continue
         index = (local_dt.date() - start_day).days
-        if 0 <= index < days and row.source in buckets:
-            buckets[row.source][index] += 1
-    return {'labels': labels, 'storefront': buckets['STOREFRONT'], 'crafts': buckets['CRAFT'], 'digital': buckets['DIGITAL']}
+        if 0 <= index < days:
+            legacy[row.source][index] += 1
+    for source in sources:
+        for i in range(days):
+            # PortalEvent remains the all-time visit source; WebsiteVisitDaily is
+            # used for uniques. Avoid double counting by taking the larger count.
+            visits[source][i] = max(visits[source][i], legacy[source][i])
+
+    def portal_summary(source):
+        v = visits[source]
+        u = uniques[source]
+        total = sum(v)
+        unique_total = sum(u)
+        first = sum(v[:max(1, len(v)//2)])
+        last = sum(v[max(1, len(v)//2):])
+        trend = ((last-first)/first*100.0) if first else (100.0 if last else 0.0)
+        peak_index = max(range(len(v)), key=lambda i: v[i]) if v else 0
+        return {
+            'visits': total, 'unique_daily_sum': unique_total,
+            'avg_daily_visits': total / max(1, days),
+            'trend_percent': trend,
+            'peak_date': dates[peak_index] if dates else '',
+            'peak_visits': v[peak_index] if v else 0,
+            'returning_estimate': max(0, total - unique_total),
+        }
+
+    payload = {
+        'days': days, 'start': start_day.isoformat(), 'end': end_day.isoformat(),
+        'labels': labels, 'dates': dates,
+        'portals': {
+            'STOREFRONT': {'visits': visits['STOREFRONT'], 'unique': uniques['STOREFRONT'], 'summary': portal_summary('STOREFRONT')},
+            'CRAFT': {'visits': visits['CRAFT'], 'unique': uniques['CRAFT'], 'summary': portal_summary('CRAFT')},
+            'DIGITAL': {'visits': visits['DIGITAL'], 'unique': uniques['DIGITAL'], 'summary': portal_summary('DIGITAL')},
+        },
+        'unique_history_note': 'Daily unique visitor history starts from the analytics upgrade date; older page-view totals remain available.',
+    }
+    return payload
+
+
+@app.route('/admin/api/website-analytics')
+@require_admin
+def admin_website_analytics_api():
+    days = max(7, min(365, parse_int(request.args.get('days'), 30)))
+    portal = request.args.get('portal', 'ALL').strip().upper()
+    return jsonify(build_website_view_analytics(days, portal))
+
+
+@app.route('/admin/api/website-analytics/ai-suggestion', methods=['POST'])
+@require_admin
+def admin_website_analytics_ai_suggestion():
+    if not validate_staff_csrf():
+        return jsonify({'success': False, 'error': 'Security token expired. Reload Admin and try again.'}), 400
+    payload = request.get_json(silent=True) or {}
+    days = max(7, min(365, parse_int(payload.get('days'), 30)))
+    portal = str(payload.get('portal') or 'ALL').strip().upper()
+    analytics = build_website_view_analytics(days, portal)
+    provider = marketing_settings().get('ai_provider', 'AUTO') if 'marketing_settings' in globals() else 'AUTO'
+    result = analyze_website_analytics(analytics, provider=provider)
+    return jsonify({'success': True, 'suggestion': result.get('analysis',''), 'model': result.get('model','smart-template:analytics')})
 
 
 def _parse_campaign_time(value):
@@ -5686,6 +5879,9 @@ def marketing_settings():
         'daily_menu_auto_page_post': marketing_setting('fb_daily_menu_auto_page_post', 'false') == 'true',
         'daily_menu_messenger_reply': marketing_setting('fb_daily_menu_messenger_reply', 'true') == 'true',
         'daily_menu_provider_enabled': marketing_setting('fb_daily_menu_provider_enabled', 'false') == 'true',
+        'daily_menu_group_bridge_enabled': marketing_setting('fb_daily_menu_group_bridge_enabled', 'false') == 'true',
+        'facebook_group_name': marketing_setting('fb_group_automation_name', '').strip(),
+        'facebook_group_url': marketing_setting('fb_group_automation_url', '').strip(),
         'daily_menu_intro': marketing_setting('fb_daily_menu_intro', 'Affordable meals and snacks available today!').strip(),
         'daily_menu_page_username': marketing_setting('fb_daily_menu_page_username', '').strip(),
     }
@@ -5718,6 +5914,12 @@ def messenger_webhook_ready():
 
 def marketing_provider_ready():
     url = os.environ.get('META_MARKETING_PROVIDER_WEBHOOK_URL', '').strip()
+    return bool(url and url.startswith('https://'))
+
+
+def facebook_group_bridge_ready():
+    """Separate HTTPS bridge for Facebook Group automation; never reuses Page credentials."""
+    url = os.environ.get('FB_GROUP_POSTING_WEBHOOK_URL', '').strip()
     return bool(url and url.startswith('https://'))
 
 
@@ -5883,11 +6085,66 @@ def send_daily_menu_to_provider(caption=None, triggered_by='scheduler'):
         raise OrderValidationError(f'Messenger provider could not accept the campaign: {exc}')
 
 
+def send_daily_menu_to_group_bridge(caption=None, triggered_by='scheduler'):
+    """Hand today's menu to a separately configured Facebook Group automation bridge.
+
+    Meta retired official Groups publishing permissions, so this deliberately does
+    not use META_PAGE_ACCESS_TOKEN. Configure an approved external bridge/provider
+    with FB_GROUP_POSTING_WEBHOOK_URL and optional FB_GROUP_POSTING_WEBHOOK_TOKEN.
+    """
+    caption = (caption or '').strip() or build_daily_menu_caption(compact=True)
+    run = _daily_menu_run('GROUP_BRIDGE', caption[:12000], triggered_by)
+    if run.status == 'SENT':
+        return {'sent': False, 'status': 'already_sent', 'message': "Today's Facebook Group menu was already handed to the Group bridge.", 'run_id': run.id}
+    cfg = marketing_settings()
+    webhook_url = os.environ.get('FB_GROUP_POSTING_WEBHOOK_URL', '').strip()
+    if not webhook_url.startswith('https://'):
+        run.status = 'BLOCKED'
+        run.error_message = 'An HTTPS FB_GROUP_POSTING_WEBHOOK_URL is not configured.'
+        db.session.commit()
+        raise OrderValidationError(run.error_message)
+    headers = {'Content-Type': 'application/json'}
+    token = os.environ.get('FB_GROUP_POSTING_WEBHOOK_TOKEN', '').strip()
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    try:
+        response = requests.post(webhook_url, json={
+            'event': 'macleens_facebook_group_daily_menu',
+            'menu_date': ph_today().isoformat(),
+            'group_name': cfg.get('facebook_group_name', ''),
+            'group_url': cfg.get('facebook_group_url', ''),
+            'message': run.caption,
+            'order_url': _marketing_public_base_url() + '/',
+            'source': 'MACLEENS_GROUP_BRIDGE',
+        }, headers=headers, timeout=20)
+        payload = response.json() if response.content and 'json' in (response.headers.get('content-type') or '').lower() else {}
+        if not response.ok:
+            msg = payload.get('message') if isinstance(payload, dict) else ''
+            raise RuntimeError(str(msg or f'Group bridge returned HTTP {response.status_code}'))
+        run.status = 'SENT'
+        run.external_id = str((payload or {}).get('id') or (payload or {}).get('external_id') or '')[:180] or None
+        run.error_message = None
+        run.sent_at = utc_now()
+        db.session.commit()
+        return {'sent': True, 'status': 'sent', 'message': "Today's menu was handed to the separate Facebook Group automation bridge.", 'run_id': run.id, 'external_id': run.external_id}
+    except Exception as exc:
+        db.session.rollback()
+        run = db.session.get(FacebookMenuRun, run.id)
+        run.status = 'FAILED'
+        run.error_message = str(exc)[:1000]
+        db.session.commit()
+        app.logger.exception('Facebook Group bridge publishing failed')
+        raise OrderValidationError(f'Facebook Group bridge could not accept the menu: {exc}')
+
+
 def create_daily_menu_drafts(triggered_by='admin'):
     caption = build_daily_menu_caption()
+    cfg = marketing_settings()
     channels = ['PAGE_POST']
-    if marketing_settings()['daily_menu_provider_enabled']:
+    if cfg['daily_menu_provider_enabled']:
         channels.append('PROVIDER_CAMPAIGN')
+    if cfg['daily_menu_group_bridge_enabled']:
+        channels.append('GROUP_BRIDGE')
     runs = [_daily_menu_run(channel, caption, triggered_by) for channel in channels]
     return runs
 
@@ -5920,6 +6177,11 @@ def run_daily_menu_automation_once(force_due=False, triggered_by='scheduler'):
             results['PROVIDER_CAMPAIGN'] = send_daily_menu_to_provider(caption, triggered_by)
         except OrderValidationError as exc:
             results['PROVIDER_CAMPAIGN'] = {'status': 'failed', 'message': str(exc)}
+    if cfg['daily_menu_group_bridge_enabled']:
+        try:
+            results['GROUP_BRIDGE'] = send_daily_menu_to_group_bridge(caption, triggered_by)
+        except OrderValidationError as exc:
+            results['GROUP_BRIDGE'] = {'status': 'failed', 'message': str(exc)}
     if not results:
         return {'ran': False, 'message': 'Daily menu is enabled, but no automatic publishing channel is enabled.', 'channels': {}}
     return {'ran': True, 'message': 'Daily menu automation check completed.', 'channels': results}
@@ -6391,7 +6653,8 @@ def store_catalog():
                            storefront_payment_settings=storefront_payment_settings(),
                            messenger_menu_url=(messenger_menu_start_url() if marketing_settings()['daily_menu_messenger_reply'] else ''),
                            product_is_available_now=is_product_available_now,
-                           announcement=portal_announcement('STOREFRONT'))
+                           announcement=portal_announcement('STOREFRONT'),
+                           about=portal_about('STOREFRONT'))
 
 @app.route('/promo/burger-deal')
 def promo_burger_deal():
@@ -8530,17 +8793,6 @@ def update_operating_hours():
 def craft_store():
     track_website_view('CRAFT')
     ip = get_client_ip()[:64]
-    visitor = CraftSiteVisitor.query.filter_by(ip_address=ip).first()
-    if visitor:
-        visitor.visit_count = parse_int(visitor.visit_count, 0) + 1
-        visitor.last_seen_at = utc_now()
-    else:
-        db.session.add(CraftSiteVisitor(ip_address=ip, visit_count=1))
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        app.logger.exception('Could not update Craft Shop visitor tracking for %s', ip)
 
     selected_category = request.args.get('category', '').strip()
     query = CraftItem.query.filter_by(is_active=True)
@@ -8552,8 +8804,6 @@ def craft_store():
     top_sellers = CraftItem.query.filter_by(is_active=True, is_top_seller=True).order_by(CraftItem.orders_count.desc(), CraftItem.name.asc()).limit(12).all()
     cust = db.session.get(Customer, session.get('customer_id')) if session.get('customer_id') else None
     liked_ids = {x.item_id for x in CraftItemLike.query.filter_by(ip_address=ip).all()}
-    unique_visitors = CraftSiteVisitor.query.count()
-    total_page_visits = db.session.query(db.func.coalesce(db.func.sum(CraftSiteVisitor.visit_count), 0)).scalar() or 0
     return render_template(
         'craft/index.html',
         items=items,
@@ -8563,9 +8813,8 @@ def craft_store():
         top_sellers=top_sellers,
         cust=cust,
         liked_ids=liked_ids,
-        site_visits=unique_visitors,
-        total_page_visits=total_page_visits,
         announcement=portal_announcement('CRAFT'),
+        about=portal_about('CRAFT'),
     )
 
 @app.route('/craft/item/<int:item_id>')
@@ -8815,8 +9064,6 @@ def craft_admin_dashboard():
     manual_income = sum(max(0.0, parse_float(x.amount, 0.0)) for x in ledger if x.event_type == 'OTHER_INCOME')
     expense_total = sum(max(0.0, parse_float(x.amount, 0.0)) for x in ledger if x.event_type in ('EXPENSE', 'REFUND'))
     metrics = {
-        'site_unique_visitors': CraftSiteVisitor.query.count(),
-        'site_total_visits': db.session.query(db.func.coalesce(db.func.sum(CraftSiteVisitor.visit_count), 0)).scalar() or 0,
         'product_unique_views': sum(parse_int(i.views, 0) for i in items),
         'total_likes': sum(parse_int(i.likes, 0) for i in items),
         'total_comments': CraftComment.query.count(),
@@ -8831,7 +9078,33 @@ def craft_admin_dashboard():
         'low_stock': sum(1 for i in items if i.is_active and i.availability_type == 'IN_STOCK' and parse_int(i.stock_quantity, 0) <= 3),
         'out_of_stock': sum(1 for i in items if i.is_active and i.availability_type == 'IN_STOCK' and parse_int(i.stock_quantity, 0) == 0),
     }
-    return render_template('craft/admin.html', items=items, categories=categories, orders=orders, ledger=ledger, metrics=metrics, announcement=portal_announcement('CRAFT'))
+    return render_template('craft/admin.html', items=items, categories=categories, orders=orders, ledger=ledger, metrics=metrics, announcement=portal_announcement('CRAFT'), about=portal_about('CRAFT'), website_view_analytics=build_website_view_analytics(30, 'CRAFT'))
+
+
+@app.route('/admin/portal-about/<string:portal>', methods=['POST'])
+@require_admin
+def admin_save_portal_about(portal):
+    portal = str(portal or '').strip().upper()
+    if portal not in {'STOREFRONT', 'CRAFT', 'DIGITAL'}:
+        abort(404)
+    title = re.sub(r'\s+', ' ', request.form.get('title', '').strip())[:100] or 'About us'
+    body = request.form.get('body', '').strip()[:3000]
+    link_url = request.form.get('link_url', '').strip()[:500]
+    link_label = re.sub(r'\s+', ' ', request.form.get('link_label', '').strip())[:60] or 'Learn more'
+    enabled = request.form.get('enabled') == '1'
+    prefix = f'about_{portal.lower()}_'
+    save_digital_setting(prefix + 'enabled', '1' if enabled else '0')
+    save_digital_setting(prefix + 'title', title)
+    save_digital_setting(prefix + 'body', body)
+    save_digital_setting(prefix + 'link_url', link_url)
+    save_digital_setting(prefix + 'link_label', link_label)
+    db.session.commit()
+    flash(f'{portal.title()} About section saved.', 'success')
+    if portal == 'CRAFT':
+        return redirect(url_for('craft_admin_dashboard'))
+    if portal == 'DIGITAL':
+        return redirect(url_for('digital_admin'))
+    return redirect(url_for('admin_dashboard'))
 
 
 @app.route('/admin/chats/toggle', methods=['POST'])
@@ -9103,9 +9376,15 @@ def inject_public_chat_state():
         portal_notice = portal_announcement('CRAFT')
     elif path.startswith('/digital'):
         portal_notice = portal_announcement('DIGITAL')
+    portal_about_notice = None
+    if path.startswith('/craft'):
+        portal_about_notice = portal_about('CRAFT')
+    elif path.startswith('/digital'):
+        portal_about_notice = portal_about('DIGITAL')
     return {
         'public_chat_channels_open': chat_channels_are_open(),
         'portal_announcement_global': portal_notice,
+        'portal_about_global': portal_about_notice,
     }
 
 
@@ -9199,6 +9478,22 @@ def portal_announcement(portal):
     link_url = digital_setting(prefix + 'link_url', '').strip()
     link_label = digital_setting(prefix + 'link_label', 'Learn more').strip() or 'Learn more'
     if not enabled or not (title or body):
+        return None
+    return {'title': title, 'body': body, 'link_url': link_url, 'link_label': link_label}
+
+
+
+def portal_about(portal):
+    portal = str(portal or '').strip().upper()
+    if portal not in {'STOREFRONT', 'CRAFT', 'DIGITAL'}:
+        return None
+    prefix = f'about_{portal.lower()}_'
+    enabled = digital_setting(prefix + 'enabled', '1').strip().lower() not in {'0', 'false', 'no', 'off'}
+    title = digital_setting(prefix + 'title', 'About us').strip() or 'About us'
+    body = digital_setting(prefix + 'body', '').strip()
+    link_url = digital_setting(prefix + 'link_url', '').strip()
+    link_label = digital_setting(prefix + 'link_label', 'Learn more').strip() or 'Learn more'
+    if not enabled or not body:
         return None
     return {'title': title, 'body': body, 'link_url': link_url, 'link_label': link_label}
 
@@ -11075,7 +11370,7 @@ def digital_store():
                                DigitalCategory.is_active.is_(True),
                                db.func.lower(DigitalCategory.name) != 'school',
                            ).order_by(DigitalCategory.name).all(), selected_category=category,
-                           payment_settings=digital_payment_settings(), announcement=portal_announcement('DIGITAL'))
+                           payment_settings=digital_payment_settings(), announcement=portal_announcement('DIGITAL'), about=portal_about('DIGITAL'))
 
 
 @app.route('/digital/my-apps')
@@ -11119,15 +11414,37 @@ def digital_save_lifetime_to_account(token):
     return redirect(url_for('digital_order_status', token=token))
 
 
+@app.route('/social/digital/<int:item_id>/<version>.jpg')
+def digital_social_preview(item_id, version):
+    item = DigitalItem.query.get_or_404(item_id)
+    current_version = digital_share_version(item)
+    payload = cached_digital_social_preview(item)
+    response = Response(payload, mimetype='image/jpeg')
+    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable' if version == current_version else 'public, max-age=3600'
+    response.headers['Content-Disposition'] = f'inline; filename="macleens-digital-{item_id}-{current_version}.jpg"'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Content-Length'] = str(len(payload))
+    return response
+
+
 @app.route('/digital/item/<int:item_id>', methods=['GET', 'POST'])
 def digital_item_detail(item_id):
     item = DigitalItem.query.filter_by(id=item_id, is_active=True).first_or_404()
     owned_lifetime_order = digital_lifetime_owned_map().get(item.id) if item.product_type == 'HOSTED_APP' else None
     if request.method == 'GET':
         item.views = parse_int(item.views, 0) + 1; db.session.commit()
+        share_version = digital_share_version(item)
+        crawler_agent = (request.headers.get('User-Agent') or '').casefold()
+        if any(bot in crawler_agent for bot in ('facebookexternalhit', 'facebot', 'twitterbot', 'linkedinbot')):
+            try:
+                cached_digital_social_preview(item)
+            except Exception:
+                app.logger.exception('Could not warm digital preview %s for social crawler', item.id)
         return render_template('digital/item.html', item=item, payment_settings=digital_payment_settings(),
                                hosted_access=digital_hosted_customer_access(item) if item.product_type == 'HOSTED_APP' else None,
-                               owned_lifetime_order=owned_lifetime_order)
+                               owned_lifetime_order=owned_lifetime_order,
+                               digital_share_image=url_for('digital_social_preview', item_id=item.id, version=share_version, _external=True),
+                               digital_share_page_url=url_for('digital_item_detail', item_id=item.id, pv=share_version, _external=True))
     if owned_lifetime_order:
         flash('You already own Lifetime Access to this app. Open it from My Digital Apps instead of buying it again.', 'success')
         return redirect(url_for('digital_my_apps'))
@@ -11599,7 +11916,7 @@ def digital_support_bot():
         return jsonify({'success': False, 'message': 'Please wait a few minutes before asking more questions.', 'support_url': digital_payment_settings()['support_url']}), 429
     answer, model = digital_support_ai_reply(question)
     support_url = digital_payment_settings()['support_url']
-    handoff = ' For payment, order-specific, or detailed project concerns, message Macleen’s Digital on Facebook.'
+    handoff = ' For payment, order-specific, or detailed project concerns, use Chat with us.'
     if 'facebook' not in answer.casefold():
         answer = answer.rstrip() + handoff
     return jsonify({'success': True, 'answer': answer[:1700], 'model': model, 'support_url': support_url})
@@ -11665,7 +11982,7 @@ def digital_admin():
         order_assets={order.id: (digital_order_download_asset(order) if order.item and order.item.product_type == 'DOWNLOAD' else None) for order in orders},
         order_asset_versions={order.id: digital_order_asset_version(order) for order in orders},
         hosted_items=DigitalItem.query.filter(DigitalItem.product_type == 'HOSTED_APP', DigitalItem.hosted_app_key == 'UPLOADED').order_by(DigitalItem.name.asc()).all(),
-        announcement=portal_announcement('DIGITAL'))
+        announcement=portal_announcement('DIGITAL'), about=portal_about('DIGITAL'), website_view_analytics=build_website_view_analytics(30, 'DIGITAL'))
 
 @app.route('/admin/digital/category/add', methods=['POST'])
 @require_admin
@@ -12059,7 +12376,14 @@ FINANCIAL_ACCOUNT_META = {
     'Other Income': ('INCOME', 'Other Income'),
     'Cost of Goods Sold': ('EXPENSE', 'Cost of Goods Sold'),
     'Payroll & Labor': ('EXPENSE', 'Payroll & Labor'),
-    'Rent & Utilities': ('EXPENSE', 'Rent & Utilities'),
+    'Rent': ('EXPENSE', 'Rent'),
+    'Electricity': ('EXPENSE', 'Electricity'),
+    'Water': ('EXPENSE', 'Water'),
+    'Internet & Communications': ('EXPENSE', 'Internet & Communications'),
+    'Taxes & Permits': ('EXPENSE', 'Taxes & Permits'),
+    'Payment & Bank Fees': ('EXPENSE', 'Payment & Bank Fees'),
+    'Insurance': ('EXPENSE', 'Insurance'),
+    'Rent & Utilities': ('EXPENSE', 'Rent & Utilities (legacy)'),
     'Marketing': ('EXPENSE', 'Marketing'),
     'Supplies & Ingredients': ('EXPENSE', 'Supplies & Ingredients'),
     'Transport': ('EXPENSE', 'Transport'),
@@ -12069,6 +12393,21 @@ FINANCIAL_ACCOUNT_META = {
 }
 FINANCIAL_ACCOUNT_OPTIONS = tuple(FINANCIAL_ACCOUNT_META)
 FINANCIAL_SOURCE_KINDS = {'CASHFLOW_PLAN'}
+FINANCIAL_OPTIONAL_EXPENSE_ACCOUNTS = (
+    'Payroll & Labor', 'Rent', 'Electricity', 'Water', 'Internet & Communications',
+    'Taxes & Permits', 'Payment & Bank Fees', 'Insurance', 'Marketing',
+    'Supplies & Ingredients', 'Transport', 'Repairs & Maintenance',
+    'General & Miscellaneous', 'Depreciation', 'Rent & Utilities',
+)
+
+def financial_account_setting_key(account):
+    return 'financial_include_expense_' + re.sub(r'[^a-z0-9]+', '_', account.casefold()).strip('_')
+
+def financial_expense_account_enabled(account):
+    if account not in FINANCIAL_OPTIONAL_EXPENSE_ACCOUNTS:
+        return True
+    return financial_setting(financial_account_setting_key(account), '1').strip().lower() not in {'0','false','no','off'}
+
 
 
 def financial_setting(key, default=''):
@@ -12093,6 +12432,13 @@ def financial_settings():
         'fallback_cost_percent': max(0.0, min(100.0, parse_float(
             financial_setting('financial_fallback_cost_percent', '60'), 60.0
         ))),
+        'vault_drop_sales_percent': max(0.0, min(100.0, parse_float(
+            financial_setting('financial_vault_drop_sales_percent', '100'), 100.0
+        ))),
+        'vault_drop_cost_percent': max(0.0, min(100.0, parse_float(
+            financial_setting('financial_vault_drop_cost_percent', '60'), 60.0
+        ))),
+        'expense_inclusion': {account: financial_expense_account_enabled(account) for account in FINANCIAL_OPTIONAL_EXPENSE_ACCOUNTS},
     }
 
 
@@ -12104,8 +12450,20 @@ def financial_expense_account(category, title=''):
     haystack = f'{category or ""} {title or ""}'.casefold()
     if any(term in haystack for term in ('payroll', 'salary', 'wage', 'labor', 'allowance')):
         return 'Payroll & Labor'
-    if any(term in haystack for term in ('rent', 'utility', 'electric', 'water', 'internet', 'wifi')):
-        return 'Rent & Utilities'
+    if 'rent' in haystack or 'lease' in haystack:
+        return 'Rent'
+    if any(term in haystack for term in ('electric', 'electricity', 'power bill')):
+        return 'Electricity'
+    if any(term in haystack for term in ('water', 'water bill')):
+        return 'Water'
+    if any(term in haystack for term in ('internet', 'wifi', 'load', 'phone', 'mobile', 'communication')):
+        return 'Internet & Communications'
+    if any(term in haystack for term in ('tax', 'bir', 'permit', 'license', 'barangay clearance')):
+        return 'Taxes & Permits'
+    if any(term in haystack for term in ('bank fee', 'payment fee', 'gateway fee', 'transaction fee', 'service fee')):
+        return 'Payment & Bank Fees'
+    if 'insurance' in haystack:
+        return 'Insurance'
     if any(term in haystack for term in ('market', 'advert', 'boost', 'promo', 'facebook')):
         return 'Marketing'
     if any(term in haystack for term in ('ingredient', 'supply', 'packaging', 'material', 'raw')):
@@ -12190,6 +12548,9 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
     """Create a non-destructive, on-demand general journal from existing system records."""
     exclusions = exclusions if exclusions is not None else financial_exclusion_map()
     utc_start, utc_end = cashflow_utc_bounds(period_start, period_end + timedelta(days=1))
+    settings = financial_settings()
+    vault_sales_rate = settings['vault_drop_sales_percent'] / 100.0
+    vault_cost_rate = settings['vault_drop_cost_percent'] / 100.0
     lines, controls, control_index = [], [], {}
 
     def source_control(source_kind, source_key, entry_date, title, direction, amount, detail=''):
@@ -12256,19 +12617,20 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
     ).order_by(VaultDrop.created_at.asc(), VaultDrop.id.asc()).all()
     for drop in vault_drops:
         transaction_day = utc_naive_to_ph(drop.created_at).date()
-        amount = max(0.0, parse_float(drop.amount, 0.0))
+        gross_amount = max(0.0, parse_float(drop.amount, 0.0))
+        amount = gross_amount * vault_sales_rate
         hidden = source_control('VAULT_DROP', drop.id, transaction_day, f'Vault Drop #{drop.drop_number}', 'Income', amount, drop.notes or 'Direct cash sale')
         if hidden or amount <= 0:
             continue
         financial_add_entry(lines, transaction_day, f'VAULT-{drop.id}-REVENUE', f'Vault Drop #{drop.drop_number}', 'VAULT_DROP', drop.id, [
             ('Cash & Digital Collections', amount, 0.0), ('Food & Beverage Sales', 0.0, amount),
-        ])
-        cogs = amount * (fallback_cost_percent / 100.0)
+        ], note=f'Included {settings["vault_drop_sales_percent"]:.2f}% of ₱{gross_amount:,.2f} vault drop in Financial Statements.')
+        cogs = amount * vault_cost_rate
         if cogs:
             financial_add_entry(
                 lines, transaction_day, f'VAULT-{drop.id}-COGS', f'Estimated cost for Vault Drop #{drop.drop_number}', 'VAULT_DROP', drop.id,
                 [('Cost of Goods Sold', cogs, 0.0), ('Inventory', 0.0, cogs)],
-                is_estimated=True, note='Vault drops do not have item-level product costs, so the saved Cost % fallback is used.',
+                is_estimated=True, note=f'Vault Drop Cost % setting: {settings["vault_drop_cost_percent"]:.2f}% of the included vault sales amount.',
             )
 
     expenses = Expense.query.filter(
@@ -12280,9 +12642,11 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
         hidden = source_control('EXPENSE', expense.id, transaction_day, expense.title, 'Expense', amount, expense.category or 'General')
         if hidden or amount <= 0:
             continue
+        expense_account = financial_expense_account(expense.category, expense.title)
+        if not financial_expense_account_enabled(expense_account):
+            continue
         financial_add_entry(lines, transaction_day, f'EXPENSE-{expense.id}', expense.title, 'EXPENSE', expense.id, [
-            (financial_expense_account(expense.category, expense.title), amount, 0.0),
-            ('Cash & Digital Collections', 0.0, amount),
+            (expense_account, amount, 0.0), ('Cash & Digital Collections', 0.0, amount),
         ], note=expense.category or '')
 
     # Paid plan expenses are actual cash movements.  They remain separate from
@@ -12304,10 +12668,12 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
         )
         if plan_hidden or amount <= 0:
             continue
+        expense_account = financial_expense_account(plan.category, plan.title)
+        if not financial_expense_account_enabled(expense_account):
+            continue
         paid_occurrences.add((plan.id, payment.occurrence_date))
         financial_add_entry(lines, transaction_day, f'PLAN-PAYMENT-{payment.id}', f'Paid plan expense — {plan.title}', 'CASHFLOW_PAYMENT', payment.id, [
-            (financial_expense_account(plan.category, plan.title), amount, 0.0),
-            ('Cash & Digital Collections', 0.0, amount),
+            (expense_account, amount, 0.0), ('Cash & Digital Collections', 0.0, amount),
         ], note=payment.reference or plan.category or '')
 
     if include_scheduled:
@@ -12336,9 +12702,11 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
                     )
                     if hidden:
                         continue
+                    expense_account = financial_expense_account(plan.category, plan.title)
+                    if not financial_expense_account_enabled(expense_account):
+                        continue
                     financial_add_entry(lines, occurrence, f'PLAN-{plan.id}-{occurrence.isoformat()}', f'Payable plan expense — {plan.title}', 'CASHFLOW_PLAN', plan.id, [
-                        (financial_expense_account(plan.category, plan.title), amount, 0.0),
-                        ('Accounts Payable', 0.0, amount),
+                        (expense_account, amount, 0.0), ('Accounts Payable', 0.0, amount),
                     ], note='Scheduled / unpaid cash-flow item; it is included as a payable until marked paid.')
                 elif plan.entry_type == 'INCOME':
                     hidden = source_control(
@@ -12352,6 +12720,24 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
                     ], note='Scheduled cash-flow income; confirm or exclude it if it should not appear in the report.')
 
     if include_manual:
+        daily_sales_rows = ManualDailySalesRecord.query.filter(
+            ManualDailySalesRecord.sales_date >= period_start,
+            ManualDailySalesRecord.sales_date <= period_end,
+            ManualDailySalesRecord.include_in_financials.is_(True),
+        ).order_by(ManualDailySalesRecord.sales_date.asc(), ManualDailySalesRecord.id.asc()).all()
+        for sale in daily_sales_rows:
+            amount = max(0.0, parse_float(sale.amount, 0.0))
+            if amount <= 0:
+                continue
+            financial_add_entry(lines, sale.sales_date, f'MANUAL-DAILY-SALE-{sale.id}', f'Manual daily sales — {sale.receipt_number}', 'MANUAL_DAILY_SALES', sale.id, [
+                ('Cash & Digital Collections', amount, 0.0), ('Food & Beverage Sales', 0.0, amount),
+            ], is_auto=False, note=sale.notes or 'Owner-entered Daily Sales Record figure.')
+            cogs = amount * (fallback_cost_percent / 100.0)
+            if cogs > 0:
+                financial_add_entry(lines, sale.sales_date, f'MANUAL-DAILY-SALE-{sale.id}-COGS', f'Estimated cost — {sale.receipt_number}', 'MANUAL_DAILY_SALES', sale.id, [
+                    ('Cost of Goods Sold', cogs, 0.0), ('Inventory', 0.0, cogs),
+                ], is_auto=False, is_estimated=True, note='Uses Financial Statements fallback Cost % because this daily figure has no item-level cost detail.')
+
         manual_rows = FinancialJournalEntry.query.filter(
             FinancialJournalEntry.entry_date >= period_start,
             FinancialJournalEntry.entry_date <= period_end,
@@ -12501,6 +12887,42 @@ def financial_balance_sheet(cumulative_lines):
     }
 
 
+def financial_product_catalog(period_start, period_end):
+    utc_start, utc_end = cashflow_utc_bounds(period_start, period_end + timedelta(days=1))
+    food_revenue = {}
+    food_units = {}
+    food_rows = db.session.query(OrderItem).join(Order, Order.id == OrderItem.order_id).filter(
+        Order.status == 'COMPLETED', Order.created_at >= utc_start, Order.created_at < utc_end,
+    ).all()
+    for row in food_rows:
+        if row.product_id:
+            food_revenue[row.product_id] = food_revenue.get(row.product_id, 0.0) + max(0.0, parse_float(row.subtotal, 0.0))
+            food_units[row.product_id] = food_units.get(row.product_id, 0) + max(0, parse_int(row.quantity, 0))
+    craft_revenue, craft_units = {}, {}
+    for row in CraftOrder.query.filter(CraftOrder.status == 'COMPLETED', CraftOrder.created_at >= utc_start, CraftOrder.created_at < utc_end).all():
+        craft_revenue[row.item_id] = craft_revenue.get(row.item_id, 0.0) + max(0.0, parse_float(row.total_price, 0.0))
+        craft_units[row.item_id] = craft_units.get(row.item_id, 0) + max(0, parse_int(row.quantity, 0))
+    digital_revenue, digital_units = {}, {}
+    for row in DigitalOrder.query.filter(DigitalOrder.payment_status == 'PAID', DigitalOrder.created_at >= utc_start, DigitalOrder.created_at < utc_end).all():
+        digital_revenue[row.item_id] = digital_revenue.get(row.item_id, 0.0) + max(0.0, parse_float(row.total_price, 0.0))
+        digital_units[row.item_id] = digital_units.get(row.item_id, 0) + max(0, parse_int(row.quantity, 0))
+    total_revenue = sum(food_revenue.values()) + sum(craft_revenue.values()) + sum(digital_revenue.values())
+    rows=[]
+    def add(kind, obj, revenue, units):
+        price=max(0.0, parse_float(obj.price,0.0)); cost=max(0.0, parse_float(obj.cost,0.0))
+        rows.append({
+            'kind': kind, 'id': obj.id, 'name': obj.name, 'price': price, 'cost': cost,
+            'cost_percent': (cost/price*100.0) if price else 0.0,
+            'gross_margin_percent': ((price-cost)/price*100.0) if price else 0.0,
+            'period_revenue': revenue, 'units_sold': units,
+            'sales_percent': (revenue/total_revenue*100.0) if total_revenue else 0.0,
+        })
+    for obj in Product.query.order_by(Product.name.asc()).all(): add('FOOD',obj,food_revenue.get(obj.id,0.0),food_units.get(obj.id,0))
+    for obj in CraftItem.query.order_by(CraftItem.name.asc()).all(): add('CRAFT',obj,craft_revenue.get(obj.id,0.0),craft_units.get(obj.id,0))
+    for obj in DigitalItem.query.order_by(DigitalItem.name.asc()).all(): add('DIGITAL',obj,digital_revenue.get(obj.id,0.0),digital_units.get(obj.id,0))
+    return rows
+
+
 @app.route('/admin/financial-statements')
 @app.route('/admin/financials')
 @require_admin
@@ -12528,6 +12950,8 @@ def financial_statements_portal():
         source_controls=source_controls, income_statement=financial_income_statement(period_lines),
         cash_flow=financial_cash_flows(period_lines), balance_sheet=financial_balance_sheet(cumulative_lines),
         manual_entries=manual_entries, financial_accounts=FINANCIAL_ACCOUNT_OPTIONS,
+        optional_expense_accounts=FINANCIAL_OPTIONAL_EXPENSE_ACCOUNTS,
+        product_catalog=financial_product_catalog(period_start, period_end),
         generated_at=ph_now(),
     )
 
@@ -12545,56 +12969,154 @@ def financial_portal_redirect():
 # licensed accountant's filing work.
 
 def bir_sales_record_orders(period_start, period_end):
-    utc_start, utc_end = ph_day_utc_bounds(period_start)
-    _, end_utc = ph_day_utc_bounds(period_end + timedelta(days=1))
+    """Completed, payment-verified Food/POS orders used by the internal sales record."""
+    utc_start, _ = ph_day_utc_bounds(period_start)
+    _, utc_end = ph_day_utc_bounds(period_end)
+    # ph_day_utc_bounds(period_end) returns that day's end as the second value.
     return Order.query.filter(
         Order.status == 'COMPLETED',
         Order.payment_verified.is_(True),
         Order.created_at >= utc_start,
-        Order.created_at < end_utc,
+        Order.created_at < utc_end,
     ).order_by(Order.created_at.asc(), Order.id.asc()).all()
+
+
+def bir_daily_sales_summary(period_start, period_end):
+    """Aggregate verified system sales into one row per Philippine calendar day."""
+    buckets = {}
+    for order in bir_sales_record_orders(period_start, period_end):
+        local_dt = utc_naive_to_ph(order.created_at)
+        day = local_dt.date() if local_dt else period_start
+        row = buckets.setdefault(day, {
+            'sales_date': day,
+            'transaction_count': 0,
+            'subtotal': 0.0,
+            'delivery_fee': 0.0,
+            'discount': 0.0,
+            'amount_received': 0.0,
+        })
+        row['transaction_count'] += 1
+        row['subtotal'] += parse_float(order.subtotal, 0.0)
+        row['delivery_fee'] += parse_float(order.delivery_fee, 0.0)
+        row['discount'] += parse_float(order.points_discount, 0.0)
+        row['amount_received'] += parse_float(order.total_amount, 0.0)
+    rows = list(buckets.values())
+    rows.sort(key=lambda row: row['sales_date'])
+    return rows
+
+
+def bir_manual_daily_sales_rows(period_start, period_end):
+    return ManualDailySalesRecord.query.filter(
+        ManualDailySalesRecord.sales_date >= period_start,
+        ManualDailySalesRecord.sales_date <= period_end,
+    ).order_by(ManualDailySalesRecord.sales_date.asc(), ManualDailySalesRecord.id.asc()).all()
+
+
+def _clean_daily_sales_receipt(value):
+    receipt_number = re.sub(r'\s+', '', (value or '').strip()).upper()
+    if not receipt_number or not re.fullmatch(r'[A-Z0-9][A-Z0-9._/-]{0,79}', receipt_number):
+        raise OrderValidationError('Receipt/reference number is required and may use letters, numbers, dots, dashes, underscores, or slashes only.')
+    return receipt_number
 
 
 @app.route('/admin/bir-sales-record')
 @require_admin
 def bir_sales_record():
     period_start, period_end = financial_period_from_request()
-    orders = bir_sales_record_orders(period_start, period_end)
-    total_subtotal = sum(parse_float(order.subtotal, 0.0) for order in orders)
-    total_delivery = sum(parse_float(order.delivery_fee, 0.0) for order in orders)
-    total_discount = sum(parse_float(order.points_discount, 0.0) for order in orders)
-    total_received = sum(parse_float(order.total_amount, 0.0) for order in orders)
+    daily_rows = bir_daily_sales_summary(period_start, period_end)
+    manual_rows = bir_manual_daily_sales_rows(period_start, period_end)
+    totals = {
+        'days': len(daily_rows),
+        'transactions': sum(row['transaction_count'] for row in daily_rows),
+        'subtotal': sum(row['subtotal'] for row in daily_rows),
+        'delivery': sum(row['delivery_fee'] for row in daily_rows),
+        'discount': sum(row['discount'] for row in daily_rows),
+        'received': sum(row['amount_received'] for row in daily_rows),
+        'manual': sum(parse_float(row.amount, 0.0) for row in manual_rows),
+    }
     if request.args.get('format', '').casefold() == 'csv':
         output = io.StringIO()
         writer = csv.writer(output)
         writer.writerow([
-            'Receipt Number', 'System Order #', 'Date / Time (PH)', 'Customer',
-            'Order Type', 'Payment Method', 'Merchandise Subtotal',
-            'Delivery Fee', 'Points Discount', 'Amount Received',
+            'Record Type', 'Date (PH)', 'Receipt / Reference', 'Transactions',
+            'Merchandise Subtotal', 'Delivery Fee', 'Discount', 'Daily Sales Amount',
+            'Included in Financial Statements', 'Notes',
         ])
-        for order in orders:
+        for row in daily_rows:
             writer.writerow([
-                order.receipt_number or '', order.id,
-                ph_datetime_filter(order.created_at), order.customer_name or '',
-                order.order_type or '', order.payment_method or '',
-                f'{parse_float(order.subtotal, 0.0):.2f}',
-                f'{parse_float(order.delivery_fee, 0.0):.2f}',
-                f'{parse_float(order.points_discount, 0.0):.2f}',
-                f'{parse_float(order.total_amount, 0.0):.2f}',
+                'SYSTEM DAILY TOTAL', row['sales_date'].isoformat(), '', row['transaction_count'],
+                f"{row['subtotal']:.2f}", f"{row['delivery_fee']:.2f}", f"{row['discount']:.2f}",
+                f"{row['amount_received']:.2f}", 'Yes', 'Aggregated from completed, payment-verified system orders.',
+            ])
+        for row in manual_rows:
+            writer.writerow([
+                'MANUAL DAILY RECORD', row.sales_date.isoformat(), row.receipt_number, '', '', '', '',
+                f'{parse_float(row.amount, 0.0):.2f}', 'Yes' if row.include_in_financials else 'No', row.notes or '',
             ])
         response = Response(output.getvalue(), mimetype='text/csv; charset=utf-8')
         response.headers['Content-Disposition'] = (
-            f'attachment; filename="macleens-sales-record-{period_start.isoformat()}-to-{period_end.isoformat()}.csv"'
+            f'attachment; filename="macleens-daily-sales-record-{period_start.isoformat()}-to-{period_end.isoformat()}.csv"'
         )
         return response
     return render_template(
-        'bir_sales_record.html', orders=orders, period_start=period_start,
-        period_end=period_end, total_subtotal=total_subtotal,
-        total_delivery=total_delivery, total_discount=total_discount,
-        total_received=total_received,
+        'bir_sales_record.html', daily_rows=daily_rows, manual_rows=manual_rows,
+        period_start=period_start, period_end=period_end, totals=totals,
     )
 
 
+@app.route('/admin/bir-sales-record/manual', methods=['POST'])
+@require_admin
+def bir_sales_record_manual_save():
+    period_start = request.form.get('start', '').strip()
+    period_end = request.form.get('end', '').strip()
+    record_id = parse_int(request.form.get('record_id'), 0)
+    try:
+        sales_date = datetime.strptime(request.form.get('sales_date', '').strip(), '%Y-%m-%d').date()
+        amount = parse_float(request.form.get('amount'), -1)
+        if amount < 0:
+            raise OrderValidationError('Daily sales amount must be zero or greater.')
+        receipt_number = _clean_daily_sales_receipt(request.form.get('receipt_number'))
+        notes = request.form.get('notes', '').strip()[:500]
+        duplicate = ManualDailySalesRecord.query.filter(
+            ManualDailySalesRecord.receipt_number == receipt_number,
+            ManualDailySalesRecord.id != record_id,
+        ).first()
+        if duplicate:
+            raise OrderValidationError(f'Receipt/reference {receipt_number} is already used on another manual daily record.')
+        order_duplicate = Order.query.filter(Order.receipt_number == receipt_number).first()
+        if order_duplicate:
+            raise OrderValidationError(f'Receipt/reference {receipt_number} is already used on system order #{order_duplicate.id}.')
+        row = db.session.get(ManualDailySalesRecord, record_id) if record_id else ManualDailySalesRecord()
+        if record_id and not row:
+            raise OrderValidationError('That manual daily sales record no longer exists.')
+        row.sales_date = sales_date
+        row.receipt_number = receipt_number
+        row.amount = round(amount, 2)
+        row.notes = notes or None
+        row.include_in_financials = bool(request.form.get('include_in_financials'))
+        row.created_by = row.created_by or session.get('admin_user') or 'admin'
+        db.session.add(row)
+        db.session.commit()
+        flash('Manual daily sales record saved.', 'success')
+    except (ValueError, OrderValidationError) as exc:
+        db.session.rollback()
+        flash(str(exc), 'error')
+    return redirect(url_for('bir_sales_record', start=period_start, end=period_end))
+
+
+@app.route('/admin/bir-sales-record/manual/<int:record_id>/delete', methods=['POST'])
+@require_admin
+def bir_sales_record_manual_delete(record_id):
+    row = ManualDailySalesRecord.query.get_or_404(record_id)
+    label = row.receipt_number
+    db.session.delete(row)
+    db.session.commit()
+    flash(f'Manual daily record {label} deleted.', 'info')
+    return redirect(url_for('bir_sales_record', start=request.form.get('start', ''), end=request.form.get('end', '')))
+
+
+# Legacy receipt editor retained for old bookmarks/API compatibility. The current
+# Internal Sales Record intentionally displays daily totals rather than one row per order.
 @app.route('/admin/bir-sales-record/<int:order_id>/receipt', methods=['POST'])
 @require_admin
 def bir_sales_record_save_receipt(order_id):
@@ -12607,12 +13129,10 @@ def bir_sales_record_save_receipt(order_id):
         flash('Receipt numbers may use letters, numbers, dots, dashes, underscores, or slashes only.', 'error')
         return redirect(url_for('bir_sales_record', start=request.form.get('start'), end=request.form.get('end')))
     if receipt_number:
-        duplicate = Order.query.filter(
-            Order.receipt_number == receipt_number,
-            Order.id != order.id,
-        ).first()
-        if duplicate:
-            flash(f'Receipt number {receipt_number} is already saved on system order #{duplicate.id}.', 'error')
+        duplicate = Order.query.filter(Order.receipt_number == receipt_number, Order.id != order.id).first()
+        manual_duplicate = ManualDailySalesRecord.query.filter_by(receipt_number=receipt_number).first()
+        if duplicate or manual_duplicate:
+            flash(f'Receipt number {receipt_number} is already in use.', 'error')
             return redirect(url_for('bir_sales_record', start=request.form.get('start'), end=request.form.get('end')))
     order.receipt_number = receipt_number or None
     db.session.commit()
@@ -12625,13 +13145,41 @@ def bir_sales_record_save_receipt(order_id):
 def financial_save_settings():
     target_margin = parse_float(request.form.get('target_profit_margin_percent'), -1)
     fallback_cost = parse_float(request.form.get('fallback_cost_percent'), -1)
-    if not (0 <= target_margin <= 100 and 0 <= fallback_cost <= 100):
-        flash('Profit Margin % and Cost % must both be between 0 and 100.', 'error')
+    vault_sales = parse_float(request.form.get('vault_drop_sales_percent'), -1)
+    vault_cost = parse_float(request.form.get('vault_drop_cost_percent'), -1)
+    if not all(0 <= value <= 100 for value in (target_margin, fallback_cost, vault_sales, vault_cost)):
+        flash('Profit, Cost, and Vault Drop percentages must all be between 0 and 100.', 'error')
         return financial_portal_redirect()
     save_financial_setting('financial_target_profit_margin_percent', f'{target_margin:.2f}')
     save_financial_setting('financial_fallback_cost_percent', f'{fallback_cost:.2f}')
+    save_financial_setting('financial_vault_drop_sales_percent', f'{vault_sales:.2f}')
+    save_financial_setting('financial_vault_drop_cost_percent', f'{vault_cost:.2f}')
+    for account in FINANCIAL_OPTIONAL_EXPENSE_ACCOUNTS:
+        save_financial_setting(financial_account_setting_key(account), '1' if account in request.form.getlist('included_expense_accounts') else '0')
     db.session.commit()
-    flash('Financial report settings saved. Cost % is only used where a completed sale has no recorded cost.', 'success')
+    flash('Financial report settings saved, including expense checklist and Vault Drop percentages.', 'success')
+    return financial_portal_redirect()
+
+
+@app.route('/admin/financial-statements/product-pricing', methods=['POST'])
+@require_admin
+def financial_product_pricing_save():
+    kind = request.form.get('kind','').strip().upper()
+    item_id = parse_int(request.form.get('item_id'), 0)
+    price = parse_float(request.form.get('selling_price'), -1)
+    cost = parse_float(request.form.get('cost'), -1)
+    model = {'FOOD': Product, 'CRAFT': CraftItem, 'DIGITAL': DigitalItem}.get(kind)
+    if not model or item_id <= 0 or price < 0 or cost < 0:
+        flash('Choose a valid product and non-negative Selling Price and Cost.', 'error')
+        return financial_portal_redirect()
+    item = db.session.get(model, item_id)
+    if not item:
+        flash('That product no longer exists.', 'error')
+        return financial_portal_redirect()
+    item.price = round(price, 2)
+    item.cost = round(cost, 2)
+    db.session.commit()
+    flash(f'{item.name} selling price and cost saved.', 'success')
     return financial_portal_redirect()
 
 
@@ -13217,6 +13765,7 @@ def marketing_admin():
         page_api_ready=facebook_page_api_ready(),
         webhook_ready=messenger_webhook_ready(),
         provider_ready=marketing_provider_ready(),
+        group_bridge_ready=facebook_group_bridge_ready(),
         messenger_start_url=messenger_menu_start_url(),
         messenger_webhook_url=url_for('meta_messenger_webhook', _external=True),
     )
@@ -13278,6 +13827,13 @@ def marketing_save_daily_menu_settings():
     save_marketing_setting('fb_daily_menu_auto_page_post', 'true' if request.form.get('auto_page_post') else 'false')
     save_marketing_setting('fb_daily_menu_messenger_reply', 'true' if request.form.get('messenger_reply') else 'false')
     save_marketing_setting('fb_daily_menu_provider_enabled', 'true' if request.form.get('provider_enabled') else 'false')
+    save_marketing_setting('fb_daily_menu_group_bridge_enabled', 'true' if request.form.get('group_bridge_enabled') else 'false')
+    save_marketing_setting('fb_group_automation_name', request.form.get('group_name', '').strip()[:150])
+    group_url = request.form.get('group_url', '').strip()[:500]
+    if group_url and not group_url.startswith(('https://facebook.com/', 'https://www.facebook.com/', 'https://m.facebook.com/')):
+        flash('Facebook Group URL must start with https://www.facebook.com/.', 'error')
+        return redirect(url_for('marketing_admin') + '#daily-menu-automation')
+    save_marketing_setting('fb_group_automation_url', group_url)
     save_marketing_setting('fb_daily_menu_intro', request.form.get('daily_menu_intro', '').strip()[:240])
     save_marketing_setting('fb_daily_menu_page_username', page_username)
     db.session.commit()
@@ -13288,7 +13844,9 @@ def marketing_save_daily_menu_settings():
     if request.form.get('messenger_reply') and not messenger_webhook_ready():
         missing.append('Messenger webhook credentials')
     if request.form.get('provider_enabled') and not marketing_provider_ready():
-        missing.append('approved provider webhook')
+        missing.append('approved Messenger provider webhook')
+    if request.form.get('group_bridge_enabled') and not facebook_group_bridge_ready():
+        missing.append('separate Facebook Group bridge webhook')
     if missing:
         flash('Settings saved. Before those channels can send, configure: ' + ', '.join(missing) + '.', 'info')
     else:
@@ -13323,6 +13881,17 @@ def marketing_publish_daily_menu():
 def marketing_send_daily_menu_provider():
     try:
         result = send_daily_menu_to_provider(request.form.get('caption'), session.get('admin_user') or 'admin')
+        flash(result['message'], 'success' if result.get('sent') else 'info')
+    except OrderValidationError as exc:
+        flash(str(exc), 'error')
+    return redirect(url_for('marketing_admin') + '#daily-menu-automation')
+
+
+@app.route('/admin/marketing/daily-menu/group-bridge-send', methods=['POST'])
+@require_admin
+def marketing_send_daily_menu_group_bridge():
+    try:
+        result = send_daily_menu_to_group_bridge(request.form.get('caption'), session.get('admin_user') or 'admin')
         flash(result['message'], 'success' if result.get('sent') else 'info')
     except OrderValidationError as exc:
         flash(str(exc), 'error')
@@ -14544,6 +15113,7 @@ def admin_dashboard():
                            unique_visitors=unique_visitors, 
                            total_accumulated_visits=total_accumulated_visits, 
                            website_view_analytics=website_view_analytics,
+                           storefront_about=portal_about('STOREFRONT'),
                            storefront_announcement=portal_announcement('STOREFRONT'),
                            fin_daily=fin_daily, 
                            fin_weekly=fin_weekly, 

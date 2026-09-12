@@ -104,6 +104,7 @@
       <div class="metric"><span class="muted">Page Publishing</span><strong>{{ 'AUTO' if settings.daily_menu_auto_page_post else 'MANUAL' }}</strong><span class="status {{ 'ok' if page_api_ready else 'warn' }}">{{ 'Credentials ready' if page_api_ready else 'Needs META_PAGE_ID + token' }}</span></div>
       <div class="metric"><span class="muted">Messenger Activity</span><strong>{{ messenger_metrics.sent }} SENT</strong><span class="status info">{{ messenger_metrics.delivered }} delivered · {{ messenger_metrics.read }} read · {{ messenger_metrics.clicked }} clicked</span></div>
       <div class="metric"><span class="muted">Paid Opt-in Provider</span><strong>{{ 'READY' if provider_ready else 'NOT CONNECTED' }}</strong><span class="status {{ 'ok' if provider_ready else 'warn' }}">Approved provider required</span></div>
+      <div class="metric"><span class="muted">Facebook Group Bridge</span><strong>{{ 'READY' if group_bridge_ready else 'NOT CONNECTED' }}</strong><span class="status {{ 'ok' if group_bridge_ready else 'warn' }}">Separate account/API bridge</span></div>
     </div>
 
     <form action="{{ url_for('marketing_save_daily_menu_settings') }}" method="post">
@@ -114,7 +115,10 @@
         <div class="checkline"><input type="checkbox" id="autoPagePost" name="auto_page_post" {% if settings.daily_menu_auto_page_post %}checked{% endif %}><label for="autoPagePost" style="margin:0">Automatically publish Page menu</label></div>
         <div class="checkline"><input type="checkbox" id="messengerReply" name="messenger_reply" {% if settings.daily_menu_messenger_reply %}checked{% endif %}><label for="messengerReply" style="margin:0">Reply when customer sends MENU</label></div>
         <div class="checkline"><input type="checkbox" id="providerEnabled" name="provider_enabled" {% if settings.daily_menu_provider_enabled %}checked{% endif %}><label for="providerEnabled" style="margin:0">Send opted-in paid provider campaign</label></div>
+        <div class="checkline"><input type="checkbox" id="groupBridgeEnabled" name="group_bridge_enabled" {% if settings.daily_menu_group_bridge_enabled %}checked{% endif %}><label for="groupBridgeEnabled" style="margin:0">Send to separate Facebook Group automation bridge</label></div>
         <div><label>Facebook Page Username</label><input name="page_username" value="{{ settings.daily_menu_page_username }}" placeholder="Example: macleens"></div>
+        <div><label>Automation Group Name</label><input name="group_name" value="{{ settings.facebook_group_name }}" placeholder="Binalbagan Buy & Sell"></div>
+        <div><label>Automation Group URL</label><input name="group_url" value="{{ settings.facebook_group_url }}" placeholder="https://www.facebook.com/groups/..."></div>
         <div style="grid-column:1/-1"><label>Short Menu Introduction</label><input maxlength="240" name="daily_menu_intro" value="{{ settings.daily_menu_intro }}" placeholder="Affordable meals and snacks available today!"></div>
       </div>
       <div class="actions" style="margin-top:10px">
@@ -133,6 +137,7 @@
           <div class="actions" style="margin-top:8px">
             <button class="btn btn-green" type="submit" {% if not page_api_ready %}title="Add Meta Page credentials in Render first"{% endif %}>Publish to Facebook Page Now</button>
             {% if settings.daily_menu_provider_enabled %}<button class="btn btn-blue" type="submit" formaction="{{ url_for('marketing_send_daily_menu_provider') }}">Send Through Approved Provider</button>{% endif %}
+            {% if settings.daily_menu_group_bridge_enabled %}<button class="btn btn-light" type="submit" formaction="{{ url_for('marketing_send_daily_menu_group_bridge') }}">Send to Group Bridge</button>{% endif %}
           </div>
         </form>
         {% endif %}
@@ -143,6 +148,7 @@
         <div class="group-row"><strong>2. Messenger webhook</strong><p class="muted">Callback URL:</p><div class="code">{{ messenger_webhook_url }}</div><p class="muted">Render environment: META_WEBHOOK_VERIFY_TOKEN and META_APP_SECRET. Subscribe the Meta app to Page messaging events.</p></div>
         <div class="group-row"><strong>3. Daily scheduler</strong><p class="muted">Call this protected endpoint hourly. It sends only after your selected PH time and blocks duplicate daily sends.</p><div class="code">{{ url_for('facebook_menu_cron_run', _external=True) }}?token=YOUR_MARKETING_CRON_TOKEN</div></div>
         <div class="group-row"><strong>4. Proactive daily Messenger updates</strong><p class="muted">Optional and paid. Connect only an eligible Meta technology provider using META_MARKETING_PROVIDER_WEBHOOK_URL and, when required, META_MARKETING_PROVIDER_TOKEN. The provider—not this customer database—must manage valid subscriber opt-ins.</p></div>
+        <div class="group-row"><strong>5. Facebook Group automation — separate account</strong><p class="muted">Facebook Page credentials are never reused for Group posting. Configure <code>FB_GROUP_POSTING_WEBHOOK_URL</code> and optional <code>FB_GROUP_POSTING_WEBHOOK_TOKEN</code> for your approved external Group-posting bridge/provider. Meta's old official Groups publishing API is no longer used.</p></div>
       </div>
     </div>
 

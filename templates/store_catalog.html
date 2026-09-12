@@ -21,6 +21,7 @@
   <meta name="twitter:description" content="Fresh meals, drinks, snacks, rewards, and convenient ordering.">
   <meta name="twitter:image" content="{{ url_for('static', filename='social/foodhouse-share-header.png', _external=True) }}">
   <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="{{ url_for('static', filename='macleens-shared.css') }}?v=39">
   <meta name="theme-color" content="#ff69b4">
   <script src="{{ url_for('static', filename='share-helper.js') }}?v=6"></script>
 <script>
@@ -319,6 +320,7 @@
       <div class="empty-search" id="emptySearch">No menu item matches that search or budget filter. Try another filter.</div>
     </div>
 
+    {% include '_portal_about.html' %}
   </div>
 
   <div class="floating-bar">

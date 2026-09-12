@@ -41,6 +41,7 @@
     .bulk-save-status.pending { color:#92400e; background:#fffbeb; border:1px solid #fde68a; }
     .product-row.bulk-dirty td { background:#fffbeb; }
   </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='macleens-shared.css') }}?v=39">
 </head>
 <body>
 
@@ -55,7 +56,7 @@
     <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
       <a href="/pos/cashier" class="btn btn-pink">🛒 POS Terminal</a>
       <a href="{{ url_for('financial_statements_portal') }}" class="btn" style="background:#e0f2fe; color:#075985;">📒 Financial Statements</a>
-      <a href="{{ url_for('bir_sales_record') }}" class="btn" style="background:#fef3c7; color:#92400e;">🧾 Sales Record</a>
+      <a href="{{ url_for('bir_sales_record') }}" class="btn" style="background:#fef3c7; color:#92400e;">🧾 Daily Sales Record</a>
       <a href="{{ url_for('cash_flow_portal') }}" class="btn" style="background:#dcfce7; color:#166534;">💵 Cash Flow Manager</a>
       <a href="{{ url_for('cashflow_payables') }}" class="btn" style="background:#fef3c7; color:#92400e;">🧾 Expense Payables</a>
       <a href="{{ url_for('marketing_admin') }}" class="btn" style="background:#dbeafe; color:#1d4ed8;">📣 AI Marketing</a>
@@ -90,21 +91,23 @@
     <h3 style="color:#9d174d;margin-bottom:5px">📣 Storefront announcement board</h3><p style="font-size:.75rem;color:#64748b;margin-bottom:9px">Show one announcement at the top of the Food storefront.</p>
     <form action="{{ url_for('admin_save_portal_announcement',portal='STOREFRONT') }}" method="POST" class="form-row"><div class="form-group"><label>Title</label><input class="form-control" name="title" maxlength="100" value="{{ storefront_announcement.title if storefront_announcement else '' }}" placeholder="Delivery available today"></div><div class="form-group" style="flex:2"><label>Message</label><input class="form-control" name="body" maxlength="500" value="{{ storefront_announcement.body if storefront_announcement else '' }}" placeholder="Add your announcement here."></div><div class="form-group"><label>Optional link</label><input class="form-control" name="link_url" maxlength="500" value="{{ storefront_announcement.link_url if storefront_announcement else '' }}"></div><div class="form-group"><label>Link label</label><input class="form-control" name="link_label" maxlength="60" value="{{ storefront_announcement.link_label if storefront_announcement else 'Learn more' }}"></div><label style="font-size:.75rem;font-weight:800"><input style="width:auto" type="checkbox" name="enabled" value="1" {% if storefront_announcement %}checked{% endif %}> Show</label><button class="btn btn-pink" type="submit">Save announcement</button></form>
   </div>
-
-  <div class="card" style="border-color:#bfdbfe;">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px"><div><h3 style="color:#075985">📈 Website Views — Last 30 Days</h3><p style="font-size:.74rem;color:#64748b">Daily page views for Storefront, Crafts, and Digital.</p></div><div style="font-size:.7rem;color:#475569">Storefront · Crafts · Digital</div></div>
-    <div style="height:260px;position:relative"><canvas id="websiteViewsChart" style="width:100%;height:100%"></canvas></div>
+  <div class="card" style="border-color:#99f6e4;">
+    <h3 style="color:#115e59;margin-bottom:5px">ℹ️ Storefront About section</h3><p style="font-size:.75rem;color:#64748b;margin-bottom:9px">This About content is separate from Crafts and Digital.</p>
+    <form action="{{ url_for('admin_save_portal_about',portal='STOREFRONT') }}" method="POST" class="form-row"><div class="form-group"><label>Heading</label><input class="form-control" name="title" maxlength="100" value="{{ storefront_about.title if storefront_about else 'About Macleen’s Food House' }}"></div><div class="form-group" style="flex:2"><label>About text</label><textarea class="form-control" name="body" maxlength="3000" rows="3">{{ storefront_about.body if storefront_about else '' }}</textarea></div><div class="form-group"><label>Optional link</label><input class="form-control" name="link_url" maxlength="500" value="{{ storefront_about.link_url if storefront_about else '' }}"></div><div class="form-group"><label>Link label</label><input class="form-control" name="link_label" maxlength="60" value="{{ storefront_about.link_label if storefront_about else 'Learn more' }}"></div><label style="font-size:.75rem;font-weight:800"><input style="width:auto" type="checkbox" name="enabled" value="1" {% if storefront_about %}checked{% endif %}> Show About</label><button class="btn" style="background:#0f766e;color:white" type="submit">Save About</button></form>
   </div>
+
+
+  {% with analytics_portal='ALL' %}{% include '_website_analytics_panel.html' %}{% endwith %}
 
   <!-- 📊 COMPREHENSIVE FINANCIAL PERFORMANCE TABLE -->
   <div class="card" style="border: 2px solid var(--hk-pink);">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
       <div>
         <h3 style="color:var(--hk-dark); font-size:1.1rem;">📊 Sales, Expenses & Net Earnings Breakdown</h3>
-        <p style="font-size:0.75rem; color:#64748b;">Includes POS orders + Safe Vault Drops as direct Ulam Sales.</p>
+        <p style="font-size:0.75rem; color:#64748b;">Operational summary. Financial Statements use your separate Vault Drop sales/cost percentage settings.</p>
       </div>
-      <div style="font-size:0.78rem; background:#fdf2f8; padding:6px 12px; border-radius:8px; border:1px solid var(--hk-border);">
-        <strong>Traffic:</strong> {{ unique_visitors }} Unique Visitors | {{ total_accumulated_visits }} Total Visits
+      <div style="font-size:0.78rem; background:#eff6ff; padding:6px 12px; border-radius:8px; border:1px solid #bfdbfe; color:#075985;">
+        <strong>Traffic:</strong> Use the interactive Visits &amp; Unique Visitors panel above for portal analytics.
       </div>
     </div>
 
@@ -1329,26 +1332,6 @@
       builder.appendChild(row);
     }
     addBundleItemRow();
-
-    function drawWebsiteViewsChart() {
-      const canvas = document.getElementById('websiteViewsChart');
-      if (!canvas) return;
-      const data = {{ website_view_analytics|tojson }};
-      const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.max(300, rect.width * dpr); canvas.height = Math.max(220, rect.height * dpr);
-      const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
-      const w = rect.width, h = rect.height, pad = {l:38,r:12,t:14,b:32};
-      const all = [...data.storefront,...data.crafts,...data.digital]; const max = Math.max(1, ...all);
-      ctx.clearRect(0,0,w,h); ctx.font='11px system-ui'; ctx.fillStyle='#64748b'; ctx.strokeStyle='#e2e8f0'; ctx.lineWidth=1;
-      for(let i=0;i<=4;i++){const y=pad.t+(h-pad.t-pad.b)*(i/4);ctx.beginPath();ctx.moveTo(pad.l,y);ctx.lineTo(w-pad.r,y);ctx.stroke();ctx.fillText(String(Math.round(max*(1-i/4))),4,y+4)}
-      const colors=['#db2777','#7c3aed','#0891b2']; const series=[data.storefront,data.crafts,data.digital];
-      series.forEach((values,si)=>{ctx.strokeStyle=colors[si];ctx.lineWidth=2.5;ctx.beginPath();values.forEach((v,i)=>{const x=pad.l+(w-pad.l-pad.r)*(i/Math.max(1,values.length-1));const y=pad.t+(h-pad.t-pad.b)*(1-v/max);if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y)});ctx.stroke()});
-      const step=Math.max(1,Math.ceil(data.labels.length/6));data.labels.forEach((label,i)=>{if(i%step&&i!==data.labels.length-1)return;const x=pad.l+(w-pad.l-pad.r)*(i/Math.max(1,data.labels.length-1));ctx.fillStyle='#64748b';ctx.fillText(label,x-12,h-10)});
-      [['Storefront',colors[0]],['Crafts',colors[1]],['Digital',colors[2]]].forEach((entry,i)=>{ctx.fillStyle=entry[1];ctx.fillRect(pad.l+i*92,2,10,10);ctx.fillStyle='#475569';ctx.fillText(entry[0],pad.l+14+i*92,11)});
-    }
-    window.addEventListener('resize', drawWebsiteViewsChart);
-    drawWebsiteViewsChart();
 
     initializeBulkCatalogDirtyTracking();
 

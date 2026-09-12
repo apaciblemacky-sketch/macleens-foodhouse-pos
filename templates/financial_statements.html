@@ -61,6 +61,8 @@
     <button class="tab" data-tab="position" type="button">Balance Sheet</button>
     <button class="tab" data-tab="cash" type="button">Cash Flows</button>
     <button class="tab" data-tab="journal" type="button">Journal & Adjustments</button>
+    <button class="tab" data-tab="products" type="button">Products & Cost</button>
+    <button class="tab" data-tab="settings" type="button">Report Settings</button>
     <button class="tab" data-tab="sources" type="button">Recurring Plans</button>
   </nav>
 
@@ -145,9 +147,28 @@
     </div>
   </section>
 
+  <section class="panel tab-panel" data-panel="products">
+    <div class="report-head"><div><h2>Product Selling Price, Cost & Sales Mix</h2><p>One control table for Food, Crafts, and Digital. Sales % is each product's share of recorded product revenue in the selected period. Cost % is recorded unit cost divided by selling price.</p></div><span class="badge auto">PRODUCT MASTER</span></div>
+    <div class="note info" style="margin-bottom:10px;"><strong>Why this matters:</strong> Product-level cost improves gross-profit reporting. If a completed sale has no saved item cost, the Financial Statements still use the fallback Cost % shown under Report Settings.</div>
+    <div class="scroll" style="max-height:650px"><table><thead><tr><th>Portal</th><th>Product</th><th class="num">Units sold</th><th class="num">Period sales</th><th class="num">Sales %</th><th class="num">Selling Price</th><th class="num">Cost</th><th class="num">Cost %</th><th class="num">Gross Margin %</th><th>Save</th></tr></thead><tbody>
+      {% for row in product_catalog %}<tr><td><span class="badge {{ 'manual' if row.kind=='CRAFT' else 'auto' }}">{{ row.kind }}</span></td><td><strong>{{ row.name }}</strong></td><td class="num">{{ row.units_sold }}</td><td class="num">₱{{ "{:,.2f}".format(row.period_revenue) }}</td><td class="num">{{ "{:.1f}".format(row.sales_percent) }}%</td><td class="num"><input form="product-price-{{ loop.index }}" style="width:100px;text-align:right" type="number" min="0" step=".01" name="selling_price" value="{{ '%.2f'|format(row.price) }}" required></td><td class="num"><input form="product-price-{{ loop.index }}" style="width:100px;text-align:right" type="number" min="0" step=".01" name="cost" value="{{ '%.2f'|format(row.cost) }}" required></td><td class="num">{{ "{:.1f}".format(row.cost_percent) }}%</td><td class="num {{ 'positive' if row.gross_margin_percent >= 0 else 'negative' }}">{{ "{:.1f}".format(row.gross_margin_percent) }}%</td><td><form id="product-price-{{ loop.index }}" method="post" action="{{ url_for('financial_product_pricing_save') }}"><input type="hidden" name="kind" value="{{ row.kind }}"><input type="hidden" name="item_id" value="{{ row.id }}"><input type="hidden" name="period_start" value="{{ period_start.isoformat() }}"><input type="hidden" name="period_end" value="{{ period_end.isoformat() }}"><input type="hidden" name="include_scheduled" value="{{ '1' if include_scheduled else '0' }}"><button class="btn btn-teal" type="submit" style="padding:6px 9px">Save</button></form></td></tr>{% endfor %}
+      {% if not product_catalog %}<tr><td colspan="10" class="empty">No products found.</td></tr>{% endif %}
+    </tbody></table></div>
+  </section>
+
+  <section class="panel tab-panel" data-panel="settings">
+    <div class="report-head"><div><h2>Report Settings & Expense Checklist</h2><p>Control estimates, Vault Drop percentages, and whether common operating-expense accounts are included in Financial Statements.</p></div><span class="badge manual">ACCOUNTING CONTROLS</span></div>
+    <form class="settings-box" action="{{ url_for('financial_save_settings') }}" method="POST">
+      <div class="mini-grid"><div class="field"><label>Target Profit Margin %</label><input type="number" min="0" max="100" step=".01" name="target_profit_margin_percent" value="{{ settings.target_profit_margin_percent }}"></div><div class="field"><label>Fallback Cost %</label><input type="number" min="0" max="100" step=".01" name="fallback_cost_percent" value="{{ settings.fallback_cost_percent }}"></div><div class="field"><label>Vault Drop — Sales %</label><input type="number" min="0" max="100" step=".01" name="vault_drop_sales_percent" value="{{ settings.vault_drop_sales_percent }}"><span class="line-muted">Percentage of each Vault Drop treated as sales revenue.</span></div><div class="field"><label>Vault Drop — Cost %</label><input type="number" min="0" max="100" step=".01" name="vault_drop_cost_percent" value="{{ settings.vault_drop_cost_percent }}"><span class="line-muted">Estimated cost applied to the included Vault Drop sales amount.</span></div></div>
+      <div style="margin-top:14px;border-top:1px solid #dbe7e4;padding-top:12px"><h3 style="font-size:.9rem">Expense accounts to include</h3><p class="line-muted" style="margin-top:3px">Uncheck an account when you want its direct/scheduled expenses omitted from this report. You can turn it back on anytime.</p><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:6px;margin-top:8px">{% for account in optional_expense_accounts %}<label class="check" style="border:1px solid #e2e8f0;border-radius:9px;padding:8px;background:#fff"><input type="checkbox" name="included_expense_accounts" value="{{ account }}" {% if settings.expense_inclusion.get(account, True) %}checked{% endif %}> {{ account }}</label>{% endfor %}</div></div>
+      <div class="note warn" style="margin-top:12px"><strong>Use carefully:</strong> Excluding Rent, Electricity, Water, or another operating expense changes Net Income for the report period. The source record is not deleted; this only controls whether it appears in Financial Statements.</div>
+      <input type="hidden" name="period_start" value="{{ period_start.isoformat() }}"><input type="hidden" name="period_end" value="{{ period_end.isoformat() }}"><input type="hidden" name="include_scheduled" value="{{ '1' if include_scheduled else '0' }}"><button class="btn btn-blue" type="submit" style="margin-top:10px">Save report settings</button>
+    </form>
+  </section>
+
   <section class="panel tab-panel" data-panel="sources">
     <div class="report-head"><div><h2>Cash Flow Manager Recurring Plans</h2><p>Only whole recurring plans created in Cash Flow Manager can be excluded. One choice applies to every paid, unpaid, and scheduled occurrence of that plan in the Financial Statements.</p></div><span class="badge manual">REPORT CONTROL</span></div>
-    <div class="note info" style="margin-bottom:10px;"><strong>Always included:</strong> completed cashier/POS orders, vault drops, and direct expenses. They have no exclusion buttons, so the report retains its day-to-day operating record. Use this control only for recurring personal or non-business items entered through Cash Flow Manager.</div>
+    <div class="note info" style="margin-bottom:10px;"><strong>Source controls:</strong> completed cashier/POS sales and Vault Drops remain system-generated. Direct and scheduled operating expenses follow your Expense Checklist under Report Settings. This Recurring Plans tab is only for excluding a whole Cash Flow Manager series.</div>
     <div class="control-list">
       {% for source in source_controls %}
       <div class="source-row {% if source.is_excluded %}excluded{% endif %}">
@@ -170,7 +191,7 @@
     const compact=document.getElementById('compactJournal'), expanded=document.getElementById('expandedJournal');
     document.getElementById('compactJournalBtn')?.addEventListener('click',()=>{compact.classList.remove('hidden');expanded.classList.add('hidden');});
     document.getElementById('expandJournalBtn')?.addEventListener('click',()=>{compact.classList.add('hidden');expanded.classList.remove('hidden');});
-    if(location.hash==='#journal') showTab('journal');
+    const requested=(location.hash||'').replace('#',''); if(['journal','products','settings','sources','cash','position','income'].includes(requested)) showTab(requested);
   })();
 </script>
 </body>

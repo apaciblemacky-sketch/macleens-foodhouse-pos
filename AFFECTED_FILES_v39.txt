@@ -1,0 +1,46 @@
+Macleen's v39 affected/replacement files only
+
+Root:
+- .gitignore
+- DEPLOY_TO_RENDER.bat
+- FB_AUTOMATION_SETUP.md
+- PROJECT_MAINTENANCE_GUIDE.md
+- README_REPLACE.md
+- app.py
+- marketing_agent.py
+
+scripts/:
+- DEPLOY_TO_RENDER.bat
+- backup_database.py
+- predeploy_check.py
+- v39_business_upgrade_smoke_check.py
+
+static/:
+- macleens-shared.css
+
+templates/:
+- _portal_about.html
+- _website_analytics_panel.html
+- admin.html
+- bir_sales_record.html
+- cashier_pos.html
+- customer_dashboard.html
+- financial_statements.html
+- marketing_admin.html
+- store_catalog.html
+- support_contribution.html
+
+templates/craft/:
+- admin.html
+- base.html
+- index.html
+
+templates/digital/:
+- admin.html
+- base.html
+- chat_lite_expired.html
+- index.html
+- item.html
+
+This ZIP intentionally contains no SQLite database, .env, virtual environment,
+Python cache, upload archive, or old duplicate backup folder.

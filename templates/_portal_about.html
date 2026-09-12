@@ -1,0 +1,1 @@
+{% if about %}<section class="mcl-about" id="about-macleens"><div class="mcl-about__eyebrow">About</div><h2>{{ about.title or 'About Macleen’s' }}</h2>{% if about.body %}<p>{{ about.body }}</p>{% endif %}{% if about.link_url %}<a href="{{ about.link_url }}">{{ about.link_label or 'Learn more' }} →</a>{% endif %}</section>{% endif %}

@@ -5,6 +5,19 @@ __pycache__/
 .venv/
 .venv_macleens/
 venv/
+# Never commit live customer/accounting databases or SQLite sidecars.
 instance/*.db
+instance/*.sqlite
+instance/*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+# Backups belong outside the Git project by default.
+backups/
+*_backups/
+*.bak
+*.backup
+# Generated deployment/package artifacts.
 *.zip
+*.patch
 .DS_Store

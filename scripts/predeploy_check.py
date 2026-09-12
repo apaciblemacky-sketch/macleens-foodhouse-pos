@@ -55,7 +55,7 @@ REQUIRED_DB_COLUMNS = {
     "hidden_prize_hunt": {"id", "title", "location", "location_product_id", "placement_slot", "display_size_px", "display_image_data", "prize_type", "points_amount", "voucher_discount_percent", "voucher_min_order", "prize_product_id", "max_winners", "starts_at", "ends_at", "reward_expires_at", "is_active", "created_at"},
     "hidden_prize_claim": {"id", "hunt_id", "customer_id", "claim_code", "status", "stock_reserved", "expires_at", "claimed_at"},
     "digital_asset_file": {"id", "original_filename", "download_filename", "content_type", "file_size", "sha256", "file_data", "uploaded_by", "created_at"},
-    "digital_item": {"id", "name", "product_type", "price", "asset_file_id", "asset_version", "asset_updated_at", "asset_release_notes", "delivery_instructions", "app_device_limit", "is_active", "created_at"},
+    "digital_item": {"id", "name", "product_type", "price", "cost", "asset_file_id", "asset_version", "asset_updated_at", "asset_release_notes", "delivery_instructions", "app_device_limit", "lifetime_enabled", "lifetime_price", "hosted_app_key", "hosted_app_entrypoint", "hosted_customer_access", "hosted_pwa_enabled", "hosted_pwa_short_name", "hosted_pwa_theme_color", "hosted_pwa_display", "hosted_pwa_icon_file_id", "hosted_per_use_hours", "is_active", "created_at"},
     "digital_order": {"id", "item_id", "payment_status", "asset_file_id", "delivery_access_code", "download_count", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "activation_device_limit"},
     "craft_order": {"id", "item_id", "payment_method", "payment_status", "status", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "tracking_token"},
     "digital_support_faq": {"id", "question", "answer", "is_active", "sort_order", "created_at", "updated_at"},
@@ -69,6 +69,11 @@ REQUIRED_DB_COLUMNS = {
     "bonus_campaign_claim": {"id", "campaign_id", "customer_id", "order_id", "points_awarded"},
     "referral_reward": {"id", "referrer_customer_id", "referred_customer_id", "first_order_id"},
     "portal_event": {"id", "source", "event_type", "customer_id", "created_at"},
+    "website_visit_daily": {"id", "source", "visit_date", "visitor_hash", "visit_count", "first_seen_at", "last_seen_at"},
+    "manual_daily_sales_record": {"id", "sales_date", "receipt_number", "amount", "notes", "include_in_financials", "created_by", "created_at", "updated_at"},
+    "staff_login_throttle": {"id", "key_hash", "failures", "window_started_at", "locked_until", "updated_at"},
+    "guest_chat_message": {"id", "thread_token", "portal", "sender_type", "sender_staff", "body", "is_read", "expires_at", "created_at"},
+    "digital_usage_pass": {"id", "order_id", "access_token", "app_key", "status", "started_at", "expires_at", "created_at"},
     "marketing_post": {
         "id", "status", "caption", "insight_reach", "insight_impressions",
         "insight_reactions", "insight_comments", "insight_shares", "insight_saves",
@@ -153,7 +158,7 @@ MIGRATABLE_DB_COLUMNS = {
     "product": {"description"},
     "order": {"base_points_earned", "hidden_prize_discount", "receipt_number", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response"},
     "delivery_zone": {"requires_detailed_address"},
-    "digital_item": {"asset_version", "asset_updated_at", "asset_release_notes"},
+    "digital_item": {"asset_version", "asset_updated_at", "asset_release_notes", "lifetime_enabled", "lifetime_price", "hosted_app_key", "hosted_app_entrypoint", "hosted_customer_access", "hosted_pwa_enabled", "hosted_pwa_short_name", "hosted_pwa_theme_color", "hosted_pwa_display", "hosted_pwa_icon_file_id", "hosted_per_use_hours", "delivery_instructions", "app_device_limit"},
     "community_push_subscription": {"notification_preferences"},
     "craft_order": {"payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "tracking_token"},
     "hidden_prize_hunt": {"placement_slot", "display_size_px", "display_image_data"},
@@ -163,7 +168,8 @@ MIGRATABLE_DB_COLUMNS = {
 # startup. They are safe to be absent from an older bundled SQLite database.
 CREATE_ON_START_TABLES = {
     "customer_app_announcement", "hidden_prize_hunt", "hidden_prize_claim",
-    "support_contribution",
+    "support_contribution", "website_visit_daily", "manual_daily_sales_record",
+    "staff_login_throttle", "guest_chat_message", "digital_usage_pass",
 }
 
 
@@ -338,7 +344,7 @@ def main() -> int:
         if not (TEMPLATES / name).exists():
             fail(f"Digital Business template is missing: {name}")
     digital_template_text = "\n".join((TEMPLATES / name).read_text(encoding="utf-8") for name in ["digital/base.html", "digital/item.html", "digital/order_status.html", "digital/admin.html"])
-    for marker in ["protected digital asset", "Download access code", "One-time app codes", "Message Macleen’s Digital on Facebook", "QR PH status", "QR PH is the local Digital payment option", "Offer PayPal checkout for Digital products", "Continue to QR PH", "Continue to PayPal", "Checking automatically every 5 seconds", "Chat with cashier"]:
+    for marker in ["Protected digital asset", "Download access code", "One-time app codes", "Chat with us", "QR PH status", "QR PH is the local Digital payment option", "Offer PayPal checkout for Digital products", "Continue to QR PH", "Continue to PayPal", "Checking now", "My Apps"]:
         if marker not in digital_template_text:
             fail(f"Digital asset/payment/support UI marker is missing: {marker}")
     digital_smoke = ROOT / "scripts" / "digital_assets_gateway_smoke_check.py"
@@ -369,7 +375,7 @@ def main() -> int:
     for marker in ["Phone Scanner", "applyMobileLoyaltyScan", "pollMobileLoyaltyScanner", "/api/mobile-scanner/pending"]:
         if marker not in (TEMPLATES / "cashier_pos.html").read_text(encoding="utf-8"):
             fail(f"cashier phone-scanner integration marker is missing: {marker}")
-    ok("Digital Business QR PH, PayPal, automatic release, cashier chat, app activation, and loyalty checks are present")
+    ok("Digital Business QR PH, PayPal, automatic release, Chat with us, hosted apps, app activation, and loyalty checks are present")
 
     student_markers = [
         "@app.route('/api/favorite/<int:product_id>'", "@app.route('/portal/reorder/<int:order_id>'",
@@ -461,7 +467,7 @@ def main() -> int:
     ok("modern storefront, loyalty safeguard, digital update downloads, BIR sales record, favorites, reorder, and tracking are present")
 
     for marker in [
-        "class SupportContribution(db.Model):", "CRAFT_PUBLIC_PAYMENT_METHODS = ('QRPH',)",
+        "class SupportContribution(db.Model):", "CRAFT_PUBLIC_PAYMENT_METHODS = ('QRPH', 'PAYPAL')",
         "craft_create_paymongo_checkout", "craft_check_paymongo_payment",
         "support_create_paymongo_checkout", "community_admin_create_app_announcement",
         "'CATALOG': 'New items and store adjustments'", "'sound': category in app_notification_sound_categories()",
@@ -476,7 +482,7 @@ def main() -> int:
         fail("public storefront still exposes retired all-menu or manual payment options")
     if "Sticker" not in source or "Send installed-app update" not in (admin_text + digital_template_text + (TEMPLATES / "craft/admin.html").read_text(encoding="utf-8")):
         fail("Craft sticker category or installed-app announcement controls are missing")
-    ok("QR PH Crafts, support contributions, delivery-zone controls, and installed-app announcements are present")
+    ok("QR PH + PayPal Crafts, support contributions, delivery-zone controls, and installed-app announcements are present")
 
     community_markers = [
         "class CommunityProfile(db.Model):", "class CommunityPost(db.Model):",
