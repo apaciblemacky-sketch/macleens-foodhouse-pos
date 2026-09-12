@@ -11,18 +11,18 @@
   {% if manifest_url %}<link rel="manifest" href="{{ manifest_url }}">{% endif %}
   <title>{{ item.name }} | Macleen's Digital</title>
   <style>
-    *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#0f172a;color:#fff}.shell{height:100%;display:flex;flex-direction:column}.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;min-height:56px}.name{min-width:0}.name strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name small{color:#cbd5e1}.actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.btn{border:0;border-radius:10px;padding:8px 11px;font-weight:800;cursor:pointer;text-decoration:none;background:#fff;color:#0f172a;font-size:.78rem}.btn.install{background:#dbeafe;color:#1e3a8a}.btn.end{background:#fee2e2;color:#991b1b}.btn:disabled{opacity:.65;cursor:default}.frame{border:0;width:100%;flex:1;background:#fff}.notice{font-size:.68rem;color:#94a3b8;max-width:520px}@media(max-width:620px){.bar{align-items:flex-start;flex-wrap:wrap}.notice{display:none}.actions{margin-left:auto}}
+    *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#0f172a;color:#fff}.shell{height:100%;display:flex;flex-direction:column}.bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 12px;background:#0f172a;border-bottom:1px solid #334155;min-height:56px}.name{min-width:0}.name strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.name small{color:#cbd5e1}.actions{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.btn{border:0;border-radius:10px;padding:8px 11px;font-weight:800;cursor:pointer;text-decoration:none;background:#fff;color:#0f172a;font-size:.78rem}.btn.install{background:#dbeafe;color:#1e3a8a}.btn.end{background:#fee2e2;color:#991b1b}.btn:disabled{opacity:.65;cursor:default}.install-status{font-size:.68rem;color:#bfdbfe;max-width:220px;line-height:1.25}.frame{border:0;width:100%;flex:1;background:#fff}.notice{font-size:.68rem;color:#94a3b8;max-width:520px}@media(max-width:620px){.bar{align-items:flex-start;flex-wrap:wrap}.notice{display:none}.actions{margin-left:auto}}
   </style>
 </head>
 <body>
 <div class="shell">
   <div class="bar">
-    <div class="name"><strong>{{ item.name }}</strong><small>{% if access_mode=='ADMIN' %}Admin Free Access{% elif access_mode=='LIFETIME' %}Lifetime Access{% elif access_mode=='PER_USE' %}Paid 6-hour usage{% else %}Free Access{% endif %}</small></div>
+    <div class="name"><strong>{{ item.name }}</strong><small>{% if access_mode=='ADMIN' %}Admin Free Access{% elif access_mode=='LIFETIME' %}Lifetime Access{% elif access_mode=='PER_USE' %}Paid {{ item.hosted_per_use_hours or 6 }}-hour usage{% else %}Free Access{% endif %}</small></div>
     <div class="notice">Hosted in a protected static-app viewer. The uploaded app cannot use Macleen’s admin session.</div>
     <div class="actions">
-      {% if manifest_url %}<button class="btn install" type="button" data-install-app>📲 Install {{ item.name }}</button>{% endif %}
+      {% if manifest_url %}<button class="btn install" type="button" data-install-app>📲 Install {{ item.name }}</button><span class="install-status" data-install-status aria-live="polite"></span>{% endif %}
       {% if access_mode=='ADMIN' %}<a class="btn" href="{{ url_for('digital_admin') }}">Digital Admin</a>{% endif %}
-      {% if end_url %}<form method="post" action="{{ end_url }}" onsubmit="return confirm('End this paid usage now? You can otherwise keep reopening it until its 6-hour expiry.');"><button class="btn end" type="submit">End Usage</button></form>{% endif %}
+      {% if end_url %}<form method="post" action="{{ end_url }}" onsubmit="return confirm('End this paid usage now? You can otherwise keep reopening it until its {{ item.hosted_per_use_hours or 6 }}-hour expiry.');"><button class="btn end" type="submit">End Usage</button></form>{% endif %}
     </div>
   </div>
   <iframe class="frame" src="{{ content_url }}" title="{{ item.name }}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock" allow="camera; microphone; display-capture; clipboard-read; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
@@ -31,18 +31,61 @@
 <script>
   let deferredInstallPrompt = null;
   const installButton = document.querySelector('[data-install-app]');
+  const installStatus = document.querySelector('[data-install-status]');
+  const installReloadKey = 'macleens-pwa-ready:' + {{ manifest_url|tojson }};
+
+  function setInstallStatus(message) {
+    if (installStatus) installStatus.textContent = message || '';
+  }
+  function setInstallReady() {
+    if (!installButton) return;
+    installButton.disabled = false;
+    installButton.textContent = {{ ('📲 Install ' ~ item.name)|tojson }};
+    setInstallStatus('Ready to install as its own app.');
+  }
   window.addEventListener('beforeinstallprompt', event => {
     event.preventDefault();
     deferredInstallPrompt = event;
-    if (installButton) installButton.textContent = {{ ('📲 Install ' ~ item.name)|tojson }};
+    setInstallReady();
   });
   window.addEventListener('appinstalled', () => {
     deferredInstallPrompt = null;
+    sessionStorage.removeItem(installReloadKey);
     if (installButton) { installButton.textContent = '✓ App Installed'; installButton.disabled = true; }
+    setInstallStatus('Installed successfully.');
   });
+
+  async function prepareInstallWorker() {
+    if (!('serviceWorker' in navigator)) return false;
+    try {
+      await navigator.serviceWorker.register({{ (pwa_service_worker_url or url_for('digital_hosted_pwa_service_worker'))|tojson }}, { scope: {{ (pwa_scope or '/digital/apps/')|tojson }} });
+      await navigator.serviceWorker.ready;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+  const installWorkerReady = prepareInstallWorker();
+
+  function waitForInstallPrompt(timeoutMs = 3500) {
+    if (deferredInstallPrompt) return Promise.resolve(true);
+    return new Promise(resolve => {
+      const started = Date.now();
+      const timer = setInterval(() => {
+        if (deferredInstallPrompt) { clearInterval(timer); resolve(true); return; }
+        if (Date.now() - started >= timeoutMs) { clearInterval(timer); resolve(false); }
+      }, 100);
+    });
+  }
+
   async function installHostedApp() {
     if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
-      alert({{ (item.name ~ ' is already running as an installed web app.')|tojson }});
+      setInstallStatus({{ (item.name ~ ' is already installed and running as an app.')|tojson }});
+      return;
+    }
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/i.test(ua)) {
+      setInstallStatus('On iPhone/iPad: open this page in Safari, tap Share, then Add to Home Screen.');
       return;
     }
     if (deferredInstallPrompt) {
@@ -51,21 +94,43 @@
       deferredInstallPrompt = null;
       return;
     }
-    const ua = navigator.userAgent || '';
-    if (/iPad|iPhone|iPod/i.test(ua)) {
-      alert('To install this web app on iPhone/iPad: tap Share, then choose Add to Home Screen.');
-    } else if (/SamsungBrowser/i.test(ua)) {
-      alert('To install this web app in Samsung Internet: open the browser menu, then choose Add page to > Home screen or Install app.');
+
+    installButton.disabled = true;
+    installButton.textContent = 'Preparing install…';
+    setInstallStatus('Preparing the secure web-app installer…');
+    const workerOK = await installWorkerReady;
+    if (!workerOK) {
+      installButton.disabled = false;
+      installButton.textContent = '📲 Install App';
+      setInstallStatus('The browser could not prepare installation. Check HTTPS/browser permissions, then reload.');
+      return;
+    }
+
+    if (!navigator.serviceWorker.controller && !sessionStorage.getItem(installReloadKey)) {
+      sessionStorage.setItem(installReloadKey, '1');
+      setInstallStatus('Finishing app setup… this page will reload once.');
+      setTimeout(() => location.reload(), 500);
+      return;
+    }
+
+    const ready = await waitForInstallPrompt();
+    installButton.disabled = false;
+    if (ready && deferredInstallPrompt) {
+      setInstallReady();
+      deferredInstallPrompt.prompt();
+      try { await deferredInstallPrompt.userChoice; } catch (_) {}
+      deferredInstallPrompt = null;
+      return;
+    }
+
+    installButton.textContent = '↻ Check Install';
+    if (/SamsungBrowser/i.test(ua)) {
+      setInstallStatus('Samsung Internet: menu → Add page to → Home screen / Install app.');
     } else {
-      alert('Open your browser menu and choose Install app or Add to Home screen. If the option is not shown yet, reload this page once and try again.');
+      setInstallStatus('Chrome may wait until you have interacted with and viewed the app for a short time before enabling its native Install prompt. Keep this app open; this button will change automatically when ready.');
     }
   }
   installButton?.addEventListener('click', installHostedApp);
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register({{ (pwa_service_worker_url or url_for('digital_hosted_pwa_service_worker'))|tojson }}, { scope: {{ (pwa_scope or '/digital/apps/')|tojson }} }).catch(() => {});
-    });
-  }
 </script>
 {% endif %}
 </body>

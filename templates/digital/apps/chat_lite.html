@@ -34,7 +34,7 @@
 
     .paid-session-banner{background:#ecfdf5;color:#065f46;border-bottom:1px solid #a7f3d0;padding:7px 12px;text-align:center;font-size:.72rem;font-weight:800;flex-shrink:0;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}
     .install-app-btn{border:1px solid #6ee7b7;background:#fff;color:#065f46;border-radius:999px;padding:5px 9px;font-size:.68rem;font-weight:900;cursor:pointer}
-    .install-app-btn:disabled{opacity:.65;cursor:default}
+    .install-app-btn:disabled{opacity:.65;cursor:default}.install-app-status{font-size:.66rem;color:#047857;font-weight:700;max-width:320px}
 
     #app {
       display: flex; flex-direction: column; width: 100%; height: 100%; max-width: 960px;
@@ -178,7 +178,7 @@
 <body>
 
 <div id="app">
-  {% if access_mode == 'PER_USE' %}<div class="paid-session-banner"><span>⚡ Macleen’s Digital • Per-use access • active until {{ usage_pass.expires_at|ph_datetime('%b %d, %Y %I:%M %p') }}</span>{% if manifest_url %}<button type="button" class="install-app-btn" data-install-app>📲 Install Web App</button>{% endif %}</div>{% elif access_mode == 'LIFETIME' %}<div class="paid-session-banner"><span>♾️ Macleen’s Digital • Lifetime Access</span>{% if manifest_url %}<button type="button" class="install-app-btn" data-install-app>📲 Install Web App</button>{% endif %}</div>{% elif access_mode == 'ADMIN' %}<div class="paid-session-banner">🛡️ Macleen’s Admin • Free unlimited owner access</div>{% else %}<div class="paid-session-banner">🔗 CHAT Lite • Invited guest</div>{% endif %}
+  {% if access_mode == 'PER_USE' %}<div class="paid-session-banner"><span>⚡ Macleen’s Digital • Per-use access • active until {{ usage_pass.expires_at|ph_datetime('%b %d, %Y %I:%M %p') }}</span>{% if manifest_url %}<button type="button" class="install-app-btn" data-install-app>📲 Install Web App</button><span class="install-app-status" data-install-status aria-live="polite"></span>{% endif %}</div>{% elif access_mode == 'LIFETIME' %}<div class="paid-session-banner"><span>♾️ Macleen’s Digital • Lifetime Access</span>{% if manifest_url %}<button type="button" class="install-app-btn" data-install-app>📲 Install Web App</button><span class="install-app-status" data-install-status aria-live="polite"></span>{% endif %}</div>{% elif access_mode == 'ADMIN' %}<div class="paid-session-banner">🛡️ Macleen’s Admin • Free unlimited owner access</div>{% else %}<div class="paid-session-banner">🔗 CHAT Lite • Invited guest</div>{% endif %}
   <div id="protocolAlert">
     ⚠️ <strong>HTTPS Required:</strong> WebRTC, Camera, and Microphone access will not function on <code>file:///</code> links.
   </div>
@@ -257,19 +257,55 @@
   {% if manifest_url %}
   let deferredInstallPrompt = null;
   const installButtons = () => Array.from(document.querySelectorAll('[data-install-app]'));
+  const installStatuses = () => Array.from(document.querySelectorAll('[data-install-status]'));
+  const installReloadKey = 'macleens-chat-lite-pwa:' + {{ manifest_url|tojson }};
   const setInstallButtonText = (text) => installButtons().forEach(button => { button.textContent = text; });
+  const setInstallStatus = (text) => installStatuses().forEach(el => { el.textContent = text || ''; });
+
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
     deferredInstallPrompt = event;
     setInstallButtonText('📲 Install Web App');
+    setInstallStatus('Ready to install.');
   });
   window.addEventListener('appinstalled', () => {
     deferredInstallPrompt = null;
+    sessionStorage.removeItem(installReloadKey);
     installButtons().forEach(button => { button.textContent = '✓ App Installed'; button.disabled = true; });
+    setInstallStatus('Installed successfully.');
   });
+
+  async function prepareInstallWorker() {
+    if (!('serviceWorker' in navigator)) return false;
+    try {
+      await navigator.serviceWorker.register({{ url_for('digital_hosted_pwa_service_worker')|tojson }}, { scope: '/digital/apps/' });
+      await navigator.serviceWorker.ready;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+  const installWorkerReady = prepareInstallWorker();
+
+  function waitForInstallPrompt(timeoutMs = 3500) {
+    if (deferredInstallPrompt) return Promise.resolve(true);
+    return new Promise(resolve => {
+      const started = Date.now();
+      const timer = setInterval(() => {
+        if (deferredInstallPrompt) { clearInterval(timer); resolve(true); return; }
+        if (Date.now() - started >= timeoutMs) { clearInterval(timer); resolve(false); }
+      }, 100);
+    });
+  }
+
   async function installWebApp() {
     if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) {
-      alert('CHAT Lite is already running as an installed web app.');
+      setInstallStatus('CHAT Lite is already installed and running as an app.');
+      return;
+    }
+    const ua = navigator.userAgent || '';
+    if (/iPad|iPhone|iPod/i.test(ua)) {
+      setInstallStatus('On iPhone/iPad: open CHAT Lite in Safari, tap Share, then Add to Home Screen.');
       return;
     }
     if (deferredInstallPrompt) {
@@ -278,24 +314,47 @@
       deferredInstallPrompt = null;
       return;
     }
-    const ua = navigator.userAgent || '';
-    if (/iPad|iPhone|iPod/i.test(ua)) {
-      alert('To install CHAT Lite on iPhone/iPad: tap Share, then choose Add to Home Screen.');
-    } else if (/SamsungBrowser/i.test(ua)) {
-      alert('To install CHAT Lite in Samsung Internet: open the browser menu, then choose Add page to > Home screen or Install app.');
+
+    installButtons().forEach(button => { button.disabled = true; });
+    setInstallButtonText('Preparing install…');
+    setInstallStatus('Preparing the secure web-app installer…');
+    const workerOK = await installWorkerReady;
+    if (!workerOK) {
+      installButtons().forEach(button => { button.disabled = false; });
+      setInstallButtonText('📲 Install Web App');
+      setInstallStatus('The browser could not prepare installation. Check HTTPS/browser permissions, then reload.');
+      return;
+    }
+
+    if (!navigator.serviceWorker.controller && !sessionStorage.getItem(installReloadKey)) {
+      sessionStorage.setItem(installReloadKey, '1');
+      setInstallStatus('Finishing app setup… this page will reload once.');
+      setTimeout(() => location.reload(), 500);
+      return;
+    }
+
+    const ready = await waitForInstallPrompt();
+    installButtons().forEach(button => { button.disabled = false; });
+    if (ready && deferredInstallPrompt) {
+      setInstallButtonText('📲 Install Web App');
+      setInstallStatus('Ready to install.');
+      deferredInstallPrompt.prompt();
+      try { await deferredInstallPrompt.userChoice; } catch (_) {}
+      deferredInstallPrompt = null;
+      return;
+    }
+
+    setInstallButtonText('↻ Check Install');
+    if (/SamsungBrowser/i.test(ua)) {
+      setInstallStatus('Samsung Internet: menu → Add page to → Home screen / Install app.');
     } else {
-      alert('Open your browser menu and choose Install app or Add to Home screen. If the option is not shown yet, reload this page once and try again.');
+      setInstallStatus('Chrome may wait until you have interacted with and viewed CHAT Lite for a short time before enabling its native Install prompt. Keep it open; this button will change automatically when ready.');
     }
   }
   document.addEventListener('click', (event) => {
     const button = event.target.closest('[data-install-app]');
     if (button) installWebApp();
   });
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register({{ url_for('digital_hosted_pwa_service_worker')|tojson }}, { scope: '/digital/apps/' }).catch(() => {});
-    });
-  }
   {% endif %}
 
   function endPaidUsageIfHost() {

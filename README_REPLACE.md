@@ -1,20 +1,44 @@
-# Macleen's Hosted App — Real Install App Fix
+# Macleen's Hosted App Install + Logo + Per-Use Hours Update
 
-Incremental update on top of **Macleens_Auto_Separate_PWA_Per_Hosted_App_Update.zip**.
+Incremental update for the latest Macleen's hosted-app/PWA build.
 
-## Why Chrome showed Bookmark / Create shortcut
-The hosted app viewer could be opened on `/digital/apps/hosted/...`, while that individual app's service worker is scoped to `/digital/apps/pwa/<app-id>/`. Chromium may therefore treat the visible page as a normal webpage instead of the app's installable scope.
+## What changed
 
-## Fix
-All uploaded Hosted HTML Apps now enter through their dedicated PWA scope before rendering:
+1. **Web app logo/icon upload**
+   - Digital Admin > Hosted HTML Apps now accepts a PNG/JPG/WebP app logo.
+   - Existing uploaded apps can replace/remove the custom logo.
+   - CHAT Lite and other manually managed hosted products can also upload a web app logo from Catalog & protected assets > Edit.
+   - Macleen's generates safe 192x192 and 512x512 install icons automatically.
 
-`/digital/apps/pwa/<app-id>/<access-mode>/<access-key>`
+2. **Editable per-use access duration**
+   - Each hosted app now has `Per-use access duration (hours)` in Digital Admin.
+   - Allowed range: 1 to 168 hours.
+   - Default remains 6 hours.
+   - The selected duration is applied when an UNUSED paid pass is launched. Already-active passes keep the expiry time they already received.
 
-This keeps the current document, manifest, start URL, and service worker under the same app identity/scope, allowing Chromium to offer **Install app** instead of only Bookmark/Create shortcut when the browser supports installation.
+3. **Install Web App behavior improved**
+   - Replaces the immediate browser alert with a real install-preparation state.
+   - Service workers now use a network-only fetch handler: no protected source is cached, while Chromium gets a full PWA worker.
+   - On first install attempt the page may reload once so the service worker can control it.
+   - The button changes automatically when `beforeinstallprompt` becomes available.
+   - Chrome may intentionally delay its native install prompt until the user has interacted with and viewed the page for a short time. This cannot be bypassed by site JavaScript.
 
-Access protection remains unchanged for Free, Per Use, Lifetime, and Admin Free access.
+## Files to replace
 
-## Replace
 - `app.py`
+- `templates/digital/admin.html`
+- `templates/digital/apps/chat_lite.html`
+- `templates/digital/apps/hosted_app_viewer.html`
 
-No database reset required.
+No database reset is required. Two Digital Item columns are added automatically by the existing lightweight schema upgrader:
+- `hosted_pwa_icon_file_id`
+- `hosted_per_use_hours`
+
+## Deploy
+
+```bash
+git status
+git add .
+git commit -m "Improve hosted app install logo and per-use hours"
+git push origin main
+```

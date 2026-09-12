@@ -1304,6 +1304,11 @@ class DigitalItem(db.Model):
     hosted_pwa_short_name = db.Column(db.String(40), nullable=True)
     hosted_pwa_theme_color = db.Column(db.String(20), default='#0084ff', nullable=True)
     hosted_pwa_display = db.Column(db.String(20), default='standalone', nullable=True)
+    # Admin-controlled install icon and per-use access duration. The icon is
+    # stored as a protected DigitalAssetFile, then rendered into safe square
+    # PWA icons. Existing products default to the original 6-hour behavior.
+    hosted_pwa_icon_file_id = db.Column(db.Integer, db.ForeignKey('digital_asset_file.id', ondelete='SET NULL'), nullable=True)
+    hosted_per_use_hours = db.Column(db.Integer, default=6, nullable=False)
     cost = db.Column(db.Float, default=0.0)
     image_url = db.Column(db.Text, nullable=True)
     sample_url = db.Column(db.Text, nullable=True)
@@ -1327,6 +1332,7 @@ class DigitalItem(db.Model):
     orders_count = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime, default=utc_now)
     asset_file = db.relationship('DigitalAssetFile', foreign_keys=[asset_file_id], lazy=True)
+    hosted_pwa_icon_file = db.relationship('DigitalAssetFile', foreign_keys=[hosted_pwa_icon_file_id], lazy=True)
 
 
 class DigitalSupportFAQ(db.Model):
@@ -2063,6 +2069,8 @@ def run_schema_migrations():
             ('hosted_pwa_short_name', 'VARCHAR(40)'),
             ('hosted_pwa_theme_color', "VARCHAR(20) DEFAULT '#0084ff'"),
             ('hosted_pwa_display', "VARCHAR(20) DEFAULT 'standalone'"),
+            ('hosted_pwa_icon_file_id', 'INTEGER'),
+            ('hosted_per_use_hours', 'INTEGER DEFAULT 6'),
             ('delivery_instructions', 'TEXT'),
             ('app_device_limit', 'INTEGER DEFAULT 0'),
             ('asset_version', 'INTEGER DEFAULT 1'),
@@ -9866,6 +9874,76 @@ def digital_pwa_color(value, fallback='#0084ff'):
     return value.lower() if re.fullmatch(r'#[0-9a-fA-F]{6}', value) else fallback
 
 
+def digital_hosted_per_use_hours(item):
+    """Return the admin-selected paid per-use window, safely bounded."""
+    try:
+        hours = int(getattr(item, 'hosted_per_use_hours', 6) or 6)
+    except (TypeError, ValueError):
+        hours = 6
+    return max(1, min(168, hours))
+
+
+def digital_pwa_icon_upload(upload):
+    """Validate and persist a customer-visible PWA logo without exposing source files."""
+    asset = digital_asset_from_upload(upload)
+    if asset.file_size > 5 * 1024 * 1024:
+        raise OrderValidationError('Web app logos must be 5 MB or smaller.')
+    try:
+        with Image.open(io.BytesIO(asset.file_data)) as source:
+            source.verify()
+        with Image.open(io.BytesIO(asset.file_data)) as source:
+            width, height = source.size
+            if width < 96 or height < 96:
+                raise OrderValidationError('Web app logos should be at least 96 × 96 pixels.')
+            if (source.format or '').upper() not in {'PNG', 'JPEG', 'JPG', 'WEBP'}:
+                raise OrderValidationError('Use a PNG, JPG, JPEG, or WebP image for the web app logo.')
+    except OrderValidationError:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise OrderValidationError('That web app logo is not a valid PNG, JPG, JPEG, or WebP image.')
+    asset.content_type = (getattr(upload, 'mimetype', '') or mimetypes.guess_type(asset.original_filename)[0] or 'image/png')[:150]
+    return asset
+
+
+def digital_item_pwa_icon_response(item, size):
+    """Render a square/maskable-safe PWA icon using the admin logo when available."""
+    settings = digital_hosted_pwa_settings(item)
+    color = settings['theme_color'].lstrip('#')
+    rgb = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
+    canvas = Image.new('RGBA', (size, size), rgb + (255,))
+    logo_asset = getattr(item, 'hosted_pwa_icon_file', None)
+    if logo_asset and getattr(logo_asset, 'file_data', None):
+        try:
+            with Image.open(io.BytesIO(logo_asset.file_data)) as source:
+                logo = ImageOps.exif_transpose(source).convert('RGBA')
+                box = max(48, int(size * 0.78))
+                logo = ImageOps.contain(logo, (box, box), method=Image.Resampling.LANCZOS)
+                x = (size - logo.width) // 2
+                y = (size - logo.height) // 2
+                canvas.alpha_composite(logo, (x, y))
+        except Exception:
+            logo_asset = None
+    if not logo_asset:
+        draw = ImageDraw.Draw(canvas)
+        inner = tuple(max(0, min(255, int(channel * 0.86))) for channel in rgb)
+        pad = max(10, int(size * 0.075))
+        draw.rounded_rectangle((pad, pad, size - pad, size - pad), radius=int(size * 0.20), fill=inner + (255,))
+        words = re.findall(r'[A-Za-z0-9]+', getattr(item, 'name', '') or '')
+        initials = ''.join(word[0] for word in words[:2]).upper() or 'M'
+        try:
+            font = ImageFont.truetype('DejaVuSans-Bold.ttf', int(size * (0.34 if len(initials) > 1 else 0.46)))
+        except Exception:
+            font = ImageFont.load_default()
+        bbox = draw.textbbox((0, 0), initials, font=font)
+        x = (size - (bbox[2] - bbox[0])) / 2 - bbox[0]
+        y = (size - (bbox[3] - bbox[1])) / 2 - bbox[1] - size * 0.02
+        draw.text((x, y), initials, fill='white', font=font)
+    output = io.BytesIO(); canvas.convert('RGB').save(output, format='PNG', optimize=True)
+    response = Response(output.getvalue(), content_type='image/png')
+    response.headers['Cache-Control'] = 'public, max-age=86400'
+    return response
+
+
 def digital_hosted_pwa_settings(item):
     display = (getattr(item, 'hosted_pwa_display', None) or 'standalone').strip().lower()
     if display not in {'standalone', 'fullscreen', 'minimal-ui'}:
@@ -9876,6 +9954,8 @@ def digital_hosted_pwa_settings(item):
         'short_name': short_name,
         'theme_color': digital_pwa_color(getattr(item, 'hosted_pwa_theme_color', None), '#0084ff'),
         'display': display,
+        'icon_file_id': getattr(item, 'hosted_pwa_icon_file_id', None),
+        'per_use_hours': digital_hosted_per_use_hours(item),
     }
 
 
@@ -9902,8 +9982,9 @@ def digital_hosted_pwa_manifest(app_type, mode, key):
         scope = digital_uploaded_pwa_scope(item.id)
         start_url = url_for('digital_uploaded_pwa_launch', item_id=item.id, mode=(mode or '').strip().lower(), key=key)
         manifest_id = scope
-        icon_192 = url_for('digital_uploaded_pwa_icon', item_id=item.id, size=192)
-        icon_512 = url_for('digital_uploaded_pwa_icon', item_id=item.id, size=512)
+        icon_version = settings.get('icon_file_id') or 0
+        icon_192 = url_for('digital_uploaded_pwa_icon', item_id=item.id, size=192, v=icon_version)
+        icon_512 = url_for('digital_uploaded_pwa_icon', item_id=item.id, size=512, v=icon_version)
         short_name = settings['short_name']
         theme_color = settings['theme_color']
         display = settings['display']
@@ -9911,8 +9992,9 @@ def digital_hosted_pwa_manifest(app_type, mode, key):
         scope = '/digital/apps/'
         start_url = legacy_start_url
         manifest_id = f'/digital/apps/chat-lite/'
-        icon_192 = url_for('digital_hosted_pwa_icon', size=192)
-        icon_512 = url_for('digital_hosted_pwa_icon', size=512)
+        icon_version = settings.get('icon_file_id') or 0
+        icon_192 = url_for('digital_hosted_pwa_icon', size=192, v=icon_version)
+        icon_512 = url_for('digital_hosted_pwa_icon', size=512, v=icon_version)
         short_name = re.sub(r'\s+', ' ', item.name).strip()[:30] or 'Macleen App'
         theme_color = '#0084ff'
         display = 'standalone'
@@ -9928,6 +10010,7 @@ def digital_hosted_pwa_manifest(app_type, mode, key):
         'background_color': '#ffffff',
         'theme_color': theme_color,
         'description': f'{item.name} hosted securely by Macleen\'s Digital.',
+        'prefer_related_applications': False,
         'icons': [
             {'src': icon_192, 'sizes': '192x192', 'type': 'image/png', 'purpose': 'any maskable'},
             {'src': icon_512, 'sizes': '512x512', 'type': 'image/png', 'purpose': 'any maskable'},
@@ -9942,6 +10025,14 @@ def digital_hosted_pwa_manifest(app_type, mode, key):
 def digital_hosted_pwa_icon(size):
     if size not in {192, 512}:
         abort(404)
+    item = DigitalItem.query.filter(
+        DigitalItem.product_type == 'HOSTED_APP',
+        db.func.upper(db.func.coalesce(DigitalItem.hosted_app_key, '')) == 'CHAT_LITE',
+    ).first()
+    if item:
+        return digital_item_pwa_icon_response(item, size)
+    # Fallback only for a partially migrated database where CHAT Lite is not
+    # yet present.
     image = Image.new('RGB', (size, size), (0, 132, 255))
     draw = ImageDraw.Draw(image)
     pad = max(10, int(size * 0.08))
@@ -9967,28 +10058,7 @@ def digital_uploaded_pwa_icon(item_id, size):
     item = DigitalItem.query.get_or_404(item_id)
     if not digital_is_uploaded_hosted_app(item):
         abort(404)
-    settings = digital_hosted_pwa_settings(item)
-    color = settings['theme_color'].lstrip('#')
-    rgb = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
-    inner = tuple(max(0, min(255, int(channel * 0.86))) for channel in rgb)
-    image = Image.new('RGB', (size, size), rgb)
-    draw = ImageDraw.Draw(image)
-    pad = max(10, int(size * 0.075))
-    draw.rounded_rectangle((pad, pad, size - pad, size - pad), radius=int(size * 0.20), fill=inner)
-    words = re.findall(r'[A-Za-z0-9]+', item.name or '')
-    initials = ''.join(word[0] for word in words[:2]).upper() or 'M'
-    try:
-        font = ImageFont.truetype('DejaVuSans-Bold.ttf', int(size * (0.34 if len(initials) > 1 else 0.46)))
-    except Exception:
-        font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), initials, font=font)
-    x = (size - (bbox[2] - bbox[0])) / 2 - bbox[0]
-    y = (size - (bbox[3] - bbox[1])) / 2 - bbox[1] - size * 0.02
-    draw.text((x, y), initials, fill='white', font=font)
-    output = io.BytesIO(); image.save(output, format='PNG', optimize=True)
-    response = Response(output.getvalue(), content_type='image/png')
-    response.headers['Cache-Control'] = 'public, max-age=86400'
-    return response
+    return digital_item_pwa_icon_response(item, size)
 
 
 @app.route('/digital/apps/pwa/<int:item_id>/sw.js')
@@ -9996,9 +10066,10 @@ def digital_uploaded_pwa_service_worker(item_id):
     item = DigitalItem.query.get_or_404(item_id)
     if not digital_is_uploaded_hosted_app(item) or not digital_hosted_pwa_settings(item)['enabled']:
         abort(404)
-    # No fetch/cache handler: paid source files must always pass live entitlement
-    # checks and must never remain available after a per-use entitlement expires.
-    script = """self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});"""
+    # Keep every request live/no-cache so paid source still passes entitlement
+    # checks, but include a network-only fetch handler so Chromium can treat
+    # the page as a full installable PWA across older/newer browser versions.
+    script = """self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});self.addEventListener('fetch',e=>{if(e.request.method==='GET'){e.respondWith(fetch(e.request));}});"""
     response = Response(script, content_type='application/javascript; charset=utf-8')
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Service-Worker-Allowed'] = digital_uploaded_pwa_scope(item.id)
@@ -10045,7 +10116,9 @@ def digital_uploaded_pwa_launch(item_id, mode, key):
 @app.route('/digital/apps/pwa-sw.js')
 def digital_hosted_pwa_service_worker():
     # Legacy/shared worker retained for CHAT Lite and previously installed builds.
-    script = """self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});"""
+    # Network-only fetch keeps payment/entitlement checks live while satisfying
+    # Chromium versions that still expect a fetch-capable service worker.
+    script = """self.addEventListener('install',e=>{self.skipWaiting();});self.addEventListener('activate',e=>{e.waitUntil(self.clients.claim());});self.addEventListener('fetch',e=>{if(e.request.method==='GET'){e.respondWith(fetch(e.request));}});"""
     response = Response(script, content_type='application/javascript; charset=utf-8')
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     response.headers['Service-Worker-Allowed'] = '/digital/apps/'
@@ -11054,7 +11127,7 @@ def digital_launch_hosted_app(token, pass_id):
     if usage.status == 'UNUSED':
         usage.status = 'ACTIVE'
         usage.started_at = now
-        usage.expires_at = now + timedelta(hours=6)
+        usage.expires_at = now + timedelta(hours=digital_hosted_per_use_hours(order.item))
         db.session.commit()
     if digital_is_uploaded_hosted_app(order.item):
         return redirect(url_for('digital_hosted_app_per_use', access_token=usage.access_token))
@@ -11409,6 +11482,7 @@ def digital_hosted_app_save():
     access = request.form.get('hosted_customer_access', 'PER_USE').strip().upper()
     per_use_price = max(0.0, parse_float(request.form.get('price'), 0.0))
     lifetime_price = max(0.0, parse_float(request.form.get('lifetime_price'), 0.0))
+    per_use_hours = max(1, min(168, parse_int(request.form.get('hosted_per_use_hours'), 6)))
     if not name:
         flash('Enter a hosted app name.', 'error'); return redirect(url_for('digital_admin'))
     if access not in HOSTED_APP_ACCESS_MODES:
@@ -11418,6 +11492,7 @@ def digital_hosted_app_save():
     if access in {'LIFETIME', 'BOTH'} and lifetime_price <= 0:
         flash('Enter a Lifetime Access price greater than zero.', 'error'); return redirect(url_for('digital_admin'))
     upload = request.files.get('hosted_app_file')
+    icon_upload = request.files.get('hosted_pwa_icon')
     if not item_id and (not upload or not (upload.filename or '').strip()):
         flash('Upload the HTML app or ZIP package.', 'error'); return redirect(url_for('digital_admin'))
     try:
@@ -11440,6 +11515,13 @@ def digital_hosted_app_save():
         item.hosted_pwa_theme_color = digital_pwa_color(request.form.get('hosted_pwa_theme_color'), '#0084ff')
         pwa_display = request.form.get('hosted_pwa_display', 'standalone').strip().lower()
         item.hosted_pwa_display = pwa_display if pwa_display in {'standalone', 'fullscreen', 'minimal-ui'} else 'standalone'
+        item.hosted_per_use_hours = per_use_hours
+        if icon_upload and (icon_upload.filename or '').strip():
+            icon_asset = digital_pwa_icon_upload(icon_upload)
+            db.session.add(icon_asset); db.session.flush()
+            item.hosted_pwa_icon_file_id = icon_asset.id
+        elif request.form.get('clear_hosted_pwa_icon') == '1':
+            item.hosted_pwa_icon_file_id = None
         item.price = per_use_price if access in {'PER_USE', 'BOTH'} else 0.0
         item.lifetime_enabled = access in {'LIFETIME', 'BOTH'}
         item.lifetime_price = lifetime_price if item.lifetime_enabled else 0.0
@@ -11481,6 +11563,8 @@ def digital_item_save():
     item.product_type=product_type; item.price=price
     item.lifetime_enabled = bool(request.form.get('lifetime_enabled')) if product_type == 'HOSTED_APP' else False
     item.lifetime_price = max(0.0, parse_float(request.form.get('lifetime_price'), 0.0)) if product_type == 'HOSTED_APP' else 0.0
+    if product_type == 'HOSTED_APP':
+        item.hosted_per_use_hours = max(1, min(168, parse_int(request.form.get('hosted_per_use_hours'), getattr(item, 'hosted_per_use_hours', 6) or 6)))
     if item.lifetime_enabled and item.lifetime_price <= 0:
         flash('Enter a Lifetime Access price greater than zero, or turn Lifetime Access off.', 'error'); return redirect(url_for('digital_admin'))
     item.cost=max(0,parse_float(request.form.get('cost'),0)); item.image_url=request.form.get('image_url','').strip() or CRAFT_DEFAULT_IMAGE
@@ -11492,7 +11576,15 @@ def digital_item_save():
     item.is_featured=bool(request.form.get('is_featured'))
     release_notes = request.form.get('asset_release_notes', '').strip()[:3000] or None
     upload = request.files.get('asset_file')
+    pwa_icon_upload = request.files.get('hosted_pwa_icon')
     try:
+        if product_type == 'HOSTED_APP':
+            if pwa_icon_upload and (pwa_icon_upload.filename or '').strip():
+                icon_asset = digital_pwa_icon_upload(pwa_icon_upload)
+                db.session.add(icon_asset); db.session.flush()
+                item.hosted_pwa_icon_file_id = icon_asset.id
+            elif request.form.get('clear_hosted_pwa_icon') == '1':
+                item.hosted_pwa_icon_file_id = None
         if upload and (upload.filename or '').strip():
             replacing_existing_asset = bool(item_id and item.asset_file_id)
             asset = digital_asset_from_upload(upload)
