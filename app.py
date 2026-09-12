@@ -5100,6 +5100,30 @@ def clear_staff_session():
     for key in ('admin_id', 'admin_user', 'cashier_id', 'cashier_user', '_staff_last_activity', '_staff_ua_hash', '_staff_csrf_token', 'staff_upgrade_id', 'staff_upgrade_started_at'):
         session.pop(key, None)
 
+def _staff_auth_failure(target, message):
+    """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
+    clear_staff_session()
+    if request.is_json or request.path.startswith('/api/'):
+        return jsonify({'success': False, 'message': message}), 401
+    flash(message, 'info')
+    return redirect(url_for('staff_login', target=target))
+
+def require_admin(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get('admin_user') or not staff_session_valid():
+            return _staff_auth_failure('admin', 'Admin session expired. Please log in again.')
+        return f(*args, **kwargs)
+    return decorated
+
+def require_cashier(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not (session.get('cashier_user') or session.get('admin_user')) or not staff_session_valid():
+            return _staff_auth_failure('cashier', 'Staff session expired. Please log in again.')
+        return f(*args, **kwargs)
+    return decorated
+
 def get_store_settings():
     try:
         settings = {row.key: row.value for row in StoreSetting.query.all()}
@@ -5590,30 +5614,6 @@ def inject_globals():
         digital_support_faqs = []
     status = check_operating_status()
     return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link, digital_support_facebook_url=digital_support_facebook_url, digital_support_faqs=digital_support_faqs, loyalty_spend_per_point=loyalty_points_per_purchase(), daily_login_points=daily_login_points())
-
-def _staff_auth_failure(target, message):
-    """Return JSON for fetch/API calls and a normal login redirect for browser forms."""
-    clear_staff_session()
-    if request.is_json or request.path.startswith('/api/'):
-        return jsonify({'success': False, 'message': message}), 401
-    flash(message, 'info')
-    return redirect(url_for('staff_login', target=target))
-
-def require_admin(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not session.get('admin_user') or not staff_session_valid():
-            return _staff_auth_failure('admin', 'Admin session expired. Please log in again.')
-        return f(*args, **kwargs)
-    return decorated
-
-def require_cashier(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if not (session.get('cashier_user') or session.get('admin_user')) or not staff_session_valid():
-            return _staff_auth_failure('cashier', 'Staff session expired. Please log in again.')
-        return f(*args, **kwargs)
-    return decorated
 
 
 # ==================== CRAFT SHOP HELPERS ====================
