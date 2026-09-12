@@ -2272,31 +2272,61 @@ def run_db_setup():
         # Create bootstrap accounts only when they do not already exist. Production never
         # falls back to weak, predictable PINs. Existing accounts are preserved and are
         # forced through the credential-upgrade flow on their next login if non-compliant.
+        # Bootstrap only when the ROLE itself does not already exist. Do not look for a
+        # hard-coded username such as "admin" because secure credential upgrades may rename it.
+        # First-run usernames are also required to follow the same 8-20 alphanumeric policy.
         default_roles = [
-            ('admin', os.environ.get('DEFAULT_ADMIN_PASSWORD') or os.environ.get('DEFAULT_ADMIN_PIN'), 'ADMIN'),
-            ('cashier1', os.environ.get('DEFAULT_CASHIER_PASSWORD') or os.environ.get('DEFAULT_CASHIER_PIN'), 'CASHIER'),
+            (
+                (os.environ.get('DEFAULT_ADMIN_USERNAME') or 'adminuser').strip(),
+                os.environ.get('DEFAULT_ADMIN_PASSWORD') or os.environ.get('DEFAULT_ADMIN_PIN'),
+                'ADMIN',
+            ),
+            (
+                (os.environ.get('DEFAULT_CASHIER_USERNAME') or 'cashier1').strip(),
+                os.environ.get('DEFAULT_CASHIER_PASSWORD') or os.environ.get('DEFAULT_CASHIER_PIN'),
+                'CASHIER',
+            ),
         ]
         for username, bootstrap_password, role in default_roles:
-            existing = Staff.query.filter(db.func.lower(Staff.username) == username.lower()).first()
-            if not existing:
-                if IS_PRODUCTION and not bootstrap_password:
-                    raise RuntimeError(
-                        f'First-run {role} account needs a strong Render environment credential. '
-                        f'Set DEFAULT_{role}_PASSWORD to an 8-20 character alphanumeric password '
-                        f'with uppercase, lowercase, and a number.'
-                    )
-                bootstrap_password = bootstrap_password or secrets.token_urlsafe(12).replace('-', 'A').replace('_', '7')[:16]
-                if IS_PRODUCTION and staff_password_error(bootstrap_password, username):
-                    raise RuntimeError(
-                        f'DEFAULT_{role}_PASSWORD does not meet the staff password policy. '
-                        f'Use 8-20 alphanumeric characters with uppercase, lowercase, and a number.'
-                    )
-                db.session.add(Staff(
-                    username=username,
-                    pin_hash=generate_password_hash(bootstrap_password, method=STAFF_PASSWORD_HASH_METHOD),
-                    role=role,
-                    active=True,
-                ))
+            existing_role = Staff.query.filter(
+                db.func.upper(Staff.role) == role,
+                Staff.active.is_(True),
+            ).first()
+            if existing_role:
+                continue
+
+            if not re.fullmatch(r'[A-Za-z0-9]{8,20}', username):
+                raise RuntimeError(
+                    f'DEFAULT_{role}_USERNAME must be 8-20 alphanumeric characters.'
+                )
+
+            existing_username = Staff.query.filter(
+                db.func.lower(Staff.username) == username.lower()
+            ).first()
+            if existing_username:
+                raise RuntimeError(
+                    f'DEFAULT_{role}_USERNAME is already used by another staff account. '
+                    f'Choose a different 8-20 character alphanumeric username.'
+                )
+
+            if IS_PRODUCTION and not bootstrap_password:
+                raise RuntimeError(
+                    f'First-run {role} account needs a strong Render environment credential. '
+                    f'Set DEFAULT_{role}_PASSWORD to an 8-20 character alphanumeric password '
+                    f'with uppercase, lowercase, and a number.'
+                )
+            bootstrap_password = bootstrap_password or secrets.token_urlsafe(12).replace('-', 'A').replace('_', '7')[:16]
+            if IS_PRODUCTION and staff_password_error(bootstrap_password, username):
+                raise RuntimeError(
+                    f'DEFAULT_{role}_PASSWORD does not meet the staff password policy. '
+                    f'Use 8-20 alphanumeric characters with uppercase, lowercase, and a number.'
+                )
+            db.session.add(Staff(
+                username=username,
+                pin_hash=generate_password_hash(bootstrap_password, method=STAFF_PASSWORD_HASH_METHOD),
+                role=role,
+                active=True,
+            ))
         if not CraftCategory.query.filter(db.func.lower(CraftCategory.name) == 'general').first():
             db.session.add(CraftCategory(name='General', image_url=CRAFT_DEFAULT_IMAGE, is_active=True))
         if not CraftCategory.query.filter(db.func.lower(CraftCategory.name) == 'sticker').first():
