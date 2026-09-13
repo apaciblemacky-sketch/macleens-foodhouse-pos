@@ -17,8 +17,8 @@
 <body>
 <div class="shell">
   <div class="bar">
-    <div class="name"><strong>{{ item.name }}</strong><small>{% if access_mode=='ADMIN' %}Admin Free Access{% elif access_mode=='LIFETIME' %}Lifetime Access{% elif access_mode=='PER_USE' %}Paid {{ item.hosted_per_use_hours or 6 }}-hour usage{% else %}Free Access{% endif %}</small></div>
-    <div class="notice">Hosted in a protected static-app viewer. The uploaded app cannot use Macleen’s admin session.</div>
+    <div class="name"><strong>{{ item.name }}</strong><small>{% if access_mode=='ADMIN' %}Admin Free Access{% elif access_mode=='LIFETIME' %}Lifetime Access{% elif access_mode=='PER_USE' %}Paid {{ item.hosted_per_use_hours or 6 }}-hour usage{% elif access_mode=='TRIAL' %}Free trial · active until {{ trial.expires_at|ph_datetime('%b %d, %Y %I:%M %p') }}{% else %}Free Access{% endif %}</small></div>
+    <div class="notice">Hosted in a protected static-app viewer. The uploaded app cannot use Macleen’s admin session.{% if ai_token %} AI prompts are relayed to Google Gemini through Macleen’s server; the API key is never exposed to the app.{% endif %}</div>
     <div class="actions">
       {% if manifest_url %}<button class="btn install" type="button" data-install-app>📲 Install {{ item.name }}</button><span class="install-status" data-install-status aria-live="polite"></span>{% endif %}
       {% if access_mode=='ADMIN' %}<a class="btn" href="{{ url_for('digital_admin') }}">Digital Admin</a>{% endif %}
@@ -93,6 +93,47 @@
     });
   })();
 </script>
+{% if ai_token %}
+<script>
+  // Gemini is called only by the trusted Macleen's parent page. The uploaded
+  // app receives responses through postMessage and never receives the API key.
+  (() => {
+    const frame = document.getElementById('hostedAppFrame');
+    const aiToken = {{ ai_token|tojson }};
+    if (!frame || !aiToken) return;
+    let busy = 0;
+    window.addEventListener('message', async (event) => {
+      if (event.source !== frame.contentWindow) return;
+      const msg = event.data || {};
+      if (msg.type !== 'mfh-gemini-request' || !msg.requestId) return;
+      const prompt = String(msg.prompt || '').trim();
+      if (!prompt || prompt.length > 6000) {
+        frame.contentWindow.postMessage({type:'mfh-gemini-response',requestId:msg.requestId,ok:false,error:'Enter a shorter AI request.'}, '*');
+        return;
+      }
+      if (busy >= 2) {
+        frame.contentWindow.postMessage({type:'mfh-gemini-response',requestId:msg.requestId,ok:false,error:'Please wait for the current AI request to finish.'}, '*');
+        return;
+      }
+      busy += 1;
+      try {
+        const response = await fetch('/api/digital/hosted-gemini', {
+          method:'POST',
+          headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'},
+          body:JSON.stringify({token:aiToken,prompt})
+        });
+        const data = await response.json().catch(()=>({}));
+        frame.contentWindow.postMessage({type:'mfh-gemini-response',requestId:msg.requestId,ok:!!data.ok,text:data.text||'',error:data.error||'',remaining:data.remaining,model:data.model||''}, '*');
+      } catch (_) {
+        frame.contentWindow.postMessage({type:'mfh-gemini-response',requestId:msg.requestId,ok:false,error:'AI is temporarily unavailable.'}, '*');
+      } finally { busy = Math.max(0, busy - 1); }
+    });
+    frame.addEventListener('load', () => {
+      try { frame.contentWindow.postMessage({type:'mfh-gemini-ready',available:true}, '*'); } catch (_) {}
+    });
+  })();
+</script>
+{% endif %}
 {% if manifest_url %}
 <script>
   let deferredInstallPrompt = null;

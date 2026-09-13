@@ -79,7 +79,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.12-daily-sales-finance-analytics-social-v39'
+APP_RELEASE = '2026.09.13-digital-trial-gemini-v40'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 STAFF_CREDENTIAL_MIN_LEN = 8
@@ -1350,6 +1350,15 @@ class DigitalItem(db.Model):
     # PWA icons. Existing products default to the original 6-hour behavior.
     hosted_pwa_icon_file_id = db.Column(db.Integer, db.ForeignKey('digital_asset_file.id', ondelete='SET NULL'), nullable=True)
     hosted_per_use_hours = db.Column(db.Integer, default=6, nullable=False)
+    # Paid hosted apps include a one-time free trial. Existing and future apps
+    # default to 24 hours; FREE customer apps do not need a separate trial.
+    trial_enabled = db.Column(db.Boolean, default=True, nullable=False)
+    trial_hours = db.Column(db.Integer, default=24, nullable=False)
+    # Optional server-side Gemini bridge. The secret API key never enters the
+    # uploaded HTML/browser. Apps call window.MacleensAI.generate(...).
+    hosted_gemini_enabled = db.Column(db.Boolean, default=False, nullable=False)
+    hosted_gemini_trial_limit = db.Column(db.Integer, default=25, nullable=False)
+    hosted_gemini_paid_daily_limit = db.Column(db.Integer, default=100, nullable=False)
     cost = db.Column(db.Float, default=0.0)
     image_url = db.Column(db.Text, nullable=True)
     sample_url = db.Column(db.Text, nullable=True)
@@ -1441,6 +1450,43 @@ class DigitalUsagePass(db.Model):
     expires_at = db.Column(db.DateTime, nullable=True, index=True)
     created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
     order = db.relationship('DigitalOrder', lazy=True, backref=db.backref('usage_passes', cascade='all, delete-orphan', lazy=True))
+
+
+class DigitalAppTrial(db.Model):
+    """One 24-hour trial entitlement per hosted app and customer/browser."""
+    __tablename__ = 'digital_app_trial'
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('digital_item.id', ondelete='CASCADE'), nullable=False, index=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True, index=True)
+    browser_id_hash = db.Column(db.String(64), nullable=False, index=True)
+    access_token = db.Column(db.String(96), unique=True, nullable=False, index=True, default=lambda: secrets.token_urlsafe(32))
+    status = db.Column(db.String(20), nullable=False, default='ACTIVE')  # ACTIVE / EXPIRED
+    started_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    gemini_calls = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    item = db.relationship('DigitalItem', lazy=True)
+    customer = db.relationship('Customer', lazy=True)
+    __table_args__ = (
+        UniqueConstraint('item_id', 'browser_id_hash', name='uq_digital_trial_item_browser'),
+        UniqueConstraint('item_id', 'customer_id', name='uq_digital_trial_item_customer'),
+    )
+
+
+class DigitalHostedAIUsage(db.Model):
+    """Daily call counter for paid/admin Gemini bridge use."""
+    __tablename__ = 'digital_hosted_ai_usage'
+    id = db.Column(db.Integer, primary_key=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('digital_item.id', ondelete='CASCADE'), nullable=False, index=True)
+    access_kind = db.Column(db.String(20), nullable=False)
+    subject_hash = db.Column(db.String(64), nullable=False)
+    usage_date = db.Column(db.Date, nullable=False, default=date.today)
+    calls = db.Column(db.Integer, default=0, nullable=False)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    updated_at = db.Column(db.DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+    __table_args__ = (
+        UniqueConstraint('item_id', 'access_kind', 'subject_hash', 'usage_date', name='uq_digital_hosted_ai_daily'),
+    )
 
 
 class DigitalAppActivationCode(db.Model):
@@ -2112,6 +2158,11 @@ def run_schema_migrations():
             ('hosted_pwa_display', "VARCHAR(20) DEFAULT 'standalone'"),
             ('hosted_pwa_icon_file_id', 'INTEGER'),
             ('hosted_per_use_hours', 'INTEGER DEFAULT 6'),
+            ('trial_enabled', 'BOOLEAN DEFAULT TRUE'),
+            ('trial_hours', 'INTEGER DEFAULT 24'),
+            ('hosted_gemini_enabled', 'BOOLEAN DEFAULT FALSE'),
+            ('hosted_gemini_trial_limit', 'INTEGER DEFAULT 25'),
+            ('hosted_gemini_paid_daily_limit', 'INTEGER DEFAULT 100'),
             ('delivery_instructions', 'TEXT'),
             ('app_device_limit', 'INTEGER DEFAULT 0'),
             ('asset_version', 'INTEGER DEFAULT 1'),
@@ -2169,6 +2220,11 @@ def run_schema_migrations():
         if 'digital_item' in tables:
             conn.execute(text("UPDATE digital_item SET lifetime_enabled = FALSE WHERE lifetime_enabled IS NULL"))
             conn.execute(text("UPDATE digital_item SET lifetime_price = 0.0 WHERE lifetime_price IS NULL"))
+            conn.execute(text("UPDATE digital_item SET trial_enabled = TRUE WHERE trial_enabled IS NULL"))
+            conn.execute(text("UPDATE digital_item SET trial_hours = 24 WHERE trial_hours IS NULL OR trial_hours < 1"))
+            conn.execute(text("UPDATE digital_item SET hosted_gemini_enabled = FALSE WHERE hosted_gemini_enabled IS NULL"))
+            conn.execute(text("UPDATE digital_item SET hosted_gemini_trial_limit = 25 WHERE hosted_gemini_trial_limit IS NULL OR hosted_gemini_trial_limit < 1"))
+            conn.execute(text("UPDATE digital_item SET hosted_gemini_paid_daily_limit = 100 WHERE hosted_gemini_paid_daily_limit IS NULL OR hosted_gemini_paid_daily_limit < 1"))
         if 'digital_order' in tables:
             conn.execute(text("UPDATE digital_order SET access_plan = 'STANDARD' WHERE access_plan IS NULL OR access_plan = ''"))
         if 'order' in tables:
@@ -10301,11 +10357,55 @@ def digital_hosted_bundle_file(item, requested_path=None):
     return payload, mime, normalized
 
 
-def digital_hosted_content_response(item, requested_path=None):
+def digital_hosted_content_response(item, requested_path=None, ai_bridge=False):
     result = digital_hosted_bundle_file(item, requested_path)
     if not result:
         abort(404)
     payload, mime, name = result
+    # Apps allowed to use the Macleen's Gemini bridge get a tiny helper
+    # injected into HTML only. It never contains the API key.
+    if ai_bridge and name.lower().endswith(('.html', '.htm')) and getattr(item, 'hosted_gemini_enabled', False):
+        try:
+            html = payload.decode('utf-8')
+            helper = '''<script data-macleens-ai-bridge>
+(function(){
+  if(window.MacleensAI) return;
+  var pending = new Map(), seq = 0;
+  function nextId(){ seq += 1; return 'mfh-ai-' + Date.now() + '-' + seq; }
+  window.MacleensAI = {
+    available: true,
+    generate: function(prompt, options){
+      return new Promise(function(resolve,reject){
+        var text = String(prompt == null ? '' : prompt).trim();
+        if(!text){ reject(new Error('Enter a prompt first.')); return; }
+        var id = nextId();
+        var timer = setTimeout(function(){ pending.delete(id); reject(new Error('AI request timed out.')); }, 50000);
+        pending.set(id,{resolve:resolve,reject:reject,timer:timer});
+        window.parent.postMessage({type:'mfh-gemini-request',requestId:id,prompt:text,options:options||{}},'*');
+      });
+    }
+  };
+  window.addEventListener('message',function(ev){
+    if(ev.source !== window.parent) return;
+    var msg=ev.data||{};
+    if(msg.type!=='mfh-gemini-response' || !msg.requestId || !pending.has(msg.requestId)) return;
+    var job=pending.get(msg.requestId); pending.delete(msg.requestId); clearTimeout(job.timer);
+    if(msg.ok) job.resolve({text:msg.text||'',remaining:msg.remaining,model:msg.model||''});
+    else job.reject(new Error(msg.error||'AI request failed.'));
+  });
+  window.dispatchEvent(new CustomEvent('macleens-ai-ready'));
+})();
+</script>'''
+            if re.search(r'</head\s*>', html, flags=re.I):
+                html = re.sub(r'</head\s*>', helper + '</head>', html, count=1, flags=re.I)
+            elif re.search(r'</body\s*>', html, flags=re.I):
+                html = re.sub(r'</body\s*>', helper + '</body>', html, count=1, flags=re.I)
+            else:
+                html = helper + html
+            payload = html.encode('utf-8')
+            mime = 'text/html; charset=utf-8'
+        except UnicodeDecodeError:
+            pass
     response = Response(payload, content_type=mime)
     response.headers['Cache-Control'] = 'private, no-store, max-age=0'
     response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -10316,8 +10416,6 @@ def digital_hosted_content_response(item, requested_path=None):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Cross-Origin-Resource-Policy'] = 'cross-origin'
     if name.lower().endswith(('.html', '.htm')):
-        # Uploaded browser code runs in an opaque origin. It cannot call
-        # Macleen's authenticated admin APIs with same-origin privileges.
         response.headers['Content-Security-Policy'] = 'sandbox allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock'
     return response
 
@@ -10361,6 +10459,11 @@ def digital_pwa_resolve(app_type, mode, key):
     now = utc_now()
 
     if app_type == 'chat-lite':
+        if mode == 'trial':
+            trial = DigitalAppTrial.query.filter_by(access_token=key).first_or_404()
+            if not digital_trial_is_active(trial) or not trial.item or not digital_is_chat_lite(trial.item):
+                abort(403)
+            return trial.item, url_for('digital_chat_lite_trial', access_token=key)
         if mode == 'per-use':
             usage = DigitalUsagePass.query.filter_by(access_token=key, app_key='CHAT_LITE').first_or_404()
             if usage.status == 'ACTIVE' and usage.expires_at and usage.expires_at <= now:
@@ -10377,6 +10480,11 @@ def digital_pwa_resolve(app_type, mode, key):
         abort(404)
 
     if app_type == 'uploaded':
+        if mode == 'trial':
+            trial = DigitalAppTrial.query.filter_by(access_token=key).first_or_404()
+            if not digital_trial_is_active(trial) or not trial.item or not digital_is_uploaded_hosted_app(trial.item):
+                abort(403)
+            return trial.item, url_for('digital_hosted_app_trial', access_token=key)
         if mode == 'per-use':
             usage = DigitalUsagePass.query.filter_by(access_token=key).first_or_404()
             if usage.status == 'ACTIVE' and usage.expires_at and usage.expires_at <= now:
@@ -10427,6 +10535,157 @@ def digital_hosted_per_use_hours(item):
     except (TypeError, ValueError):
         hours = 6
     return max(1, min(168, hours))
+
+
+DIGITAL_TRIAL_BROWSER_COOKIE = 'macleens_digital_trial_browser'
+DIGITAL_TRIAL_BROWSER_MAX_AGE = 60 * 60 * 24 * 730
+
+
+def digital_trial_hours(item):
+    """One day by default, with a bounded admin override for future flexibility."""
+    try:
+        hours = int(getattr(item, 'trial_hours', 24) or 24)
+    except (TypeError, ValueError):
+        hours = 24
+    return max(1, min(168, hours))
+
+
+def digital_trial_eligible(item):
+    return bool(
+        item and item.product_type == 'HOSTED_APP' and item.is_active and
+        (digital_is_chat_lite(item) or digital_is_uploaded_hosted_app(item)) and
+        getattr(item, 'trial_enabled', True) is not False and
+        not digital_hosted_is_free(item)
+    )
+
+
+def digital_trial_browser_hash(raw_value):
+    return hashlib.sha256((raw_value or '').encode('utf-8')).hexdigest()
+
+
+def digital_trial_existing(item):
+    if not digital_trial_eligible(item):
+        return None
+    customer_id = parse_int(session.get('customer_id'), 0) or None
+    browser_id = (request.cookies.get(DIGITAL_TRIAL_BROWSER_COOKIE) or '').strip()
+    filters = []
+    if customer_id:
+        filters.append(DigitalAppTrial.customer_id == customer_id)
+    if browser_id:
+        filters.append(DigitalAppTrial.browser_id_hash == digital_trial_browser_hash(browser_id))
+    if not filters:
+        return None
+    return DigitalAppTrial.query.filter(DigitalAppTrial.item_id == item.id, or_(*filters)).order_by(DigitalAppTrial.id.asc()).first()
+
+
+def digital_trial_is_active(trial):
+    if not trial:
+        return False
+    now = utc_now()
+    if trial.status == 'ACTIVE' and trial.expires_at and trial.expires_at <= now:
+        trial.status = 'EXPIRED'
+        db.session.commit()
+    return bool(trial.status == 'ACTIVE' and trial.expires_at and trial.expires_at > now)
+
+
+def digital_trial_state(item):
+    """Customer-facing status without starting a trial on a page view."""
+    if not digital_trial_eligible(item):
+        return {'eligible': False, 'status': 'UNAVAILABLE', 'trial': None, 'hours': digital_trial_hours(item) if item else 24}
+    trial = digital_trial_existing(item)
+    if not trial:
+        return {'eligible': True, 'status': 'AVAILABLE', 'trial': None, 'hours': digital_trial_hours(item)}
+    if digital_trial_is_active(trial):
+        remaining = max(0, int((trial.expires_at - utc_now()).total_seconds()))
+        return {'eligible': True, 'status': 'ACTIVE', 'trial': trial, 'hours': digital_trial_hours(item), 'remaining_seconds': remaining}
+    return {'eligible': True, 'status': 'USED', 'trial': trial, 'hours': digital_trial_hours(item)}
+
+
+def digital_hosted_ai_token(item_id, access_mode, subject_id, ttl_seconds=7200):
+    """Issue a short-lived signed bridge token that contains no Gemini secret."""
+    expiry = int(datetime.now(timezone.utc).timestamp()) + max(300, min(21600, int(ttl_seconds)))
+    payload = f'{int(item_id)}:{str(access_mode).upper()}:{int(subject_id)}:{expiry}'
+    secret = str(app.config.get('SECRET_KEY') or '').encode('utf-8')
+    signature = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()[:48]
+    return base64.urlsafe_b64encode(f'{payload}:{signature}'.encode('utf-8')).decode('ascii').rstrip('=')
+
+
+def digital_hosted_ai_token_parse(token):
+    try:
+        padded = str(token or '') + '=' * (-len(str(token or '')) % 4)
+        decoded = base64.urlsafe_b64decode(padded.encode('ascii')).decode('utf-8')
+        item_id, mode, subject_id, expiry, signature = decoded.split(':', 4)
+        payload = f'{int(item_id)}:{mode}:{int(subject_id)}:{int(expiry)}'
+        secret = str(app.config.get('SECRET_KEY') or '').encode('utf-8')
+        expected = hmac.new(secret, payload.encode('utf-8'), hashlib.sha256).hexdigest()[:48]
+        if not hmac.compare_digest(signature, expected):
+            return None
+        if int(expiry) < int(datetime.now(timezone.utc).timestamp()):
+            return None
+        return int(item_id), mode.upper(), int(subject_id)
+    except Exception:
+        return None
+
+
+def digital_hosted_ai_model():
+    return (os.environ.get('GEMINI_HOSTED_APP_MODEL') or os.environ.get('GEMINI_DIGITAL_SUPPORT_MODEL') or os.environ.get('GEMINI_MARKETING_MODEL') or 'gemini-3.5-flash-lite').strip() or 'gemini-3.5-flash-lite'
+
+
+def digital_hosted_ai_access_context(token):
+    parsed = digital_hosted_ai_token_parse(token)
+    if not parsed:
+        return None
+    item_id, mode, subject_id = parsed
+    item = db.session.get(DigitalItem, item_id)
+    if not item or item.product_type != 'HOSTED_APP' or not item.is_active or not getattr(item, 'hosted_gemini_enabled', False):
+        return None
+    now = utc_now()
+    if mode == 'TRIAL':
+        trial = db.session.get(DigitalAppTrial, subject_id)
+        if not trial or trial.item_id != item.id or not digital_trial_is_active(trial):
+            return None
+        return item, mode, trial, f'trial:{trial.id}'
+    if mode == 'PER_USE':
+        usage = db.session.get(DigitalUsagePass, subject_id)
+        if not usage or usage.status != 'ACTIVE' or not usage.expires_at or usage.expires_at <= now or not usage.order or usage.order.item_id != item.id or not digital_paid_order(usage.order):
+            return None
+        return item, mode, usage, f'usage:{usage.id}'
+    if mode == 'LIFETIME':
+        order = db.session.get(DigitalOrder, subject_id)
+        if not order or order.item_id != item.id or not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME':
+            return None
+        return item, mode, order, f'order:{order.id}'
+    if mode == 'ADMIN':
+        if not session.get('admin_user') or not staff_session_valid():
+            return None
+        return item, mode, None, f'admin:{session.get("admin_id") or session.get("admin_user")}'
+    return None
+
+
+def digital_hosted_ai_usage_allow(item, mode, subject, subject_key):
+    """Return (allowed, remaining) and reserve one call before contacting Gemini."""
+    if mode == 'TRIAL':
+        limit = max(1, min(500, parse_int(getattr(item, 'hosted_gemini_trial_limit', 25), 25)))
+        used = max(0, parse_int(getattr(subject, 'gemini_calls', 0), 0))
+        if used >= limit:
+            return False, 0
+        subject.gemini_calls = used + 1
+        db.session.commit()
+        return True, max(0, limit - used - 1)
+    limit = max(1, min(5000, parse_int(getattr(item, 'hosted_gemini_paid_daily_limit', 100), 100)))
+    subject_hash = hashlib.sha256(subject_key.encode('utf-8')).hexdigest()
+    today = ph_today()
+    row = DigitalHostedAIUsage.query.filter_by(item_id=item.id, access_kind=mode, subject_hash=subject_hash, usage_date=today).first()
+    if not row:
+        row = DigitalHostedAIUsage(item_id=item.id, access_kind=mode, subject_hash=subject_hash, usage_date=today, calls=0)
+        db.session.add(row)
+        db.session.flush()
+    if max(0, parse_int(row.calls, 0)) >= limit:
+        db.session.rollback()
+        return False, 0
+    row.calls = max(0, parse_int(row.calls, 0)) + 1
+    db.session.commit()
+    return True, max(0, limit - row.calls)
 
 
 def digital_pwa_icon_upload(upload):
@@ -10632,29 +10891,39 @@ def digital_uploaded_pwa_launch(item_id, mode, key):
     sw_url = url_for('digital_uploaded_pwa_service_worker', item_id=item.id)
     manifest_url = digital_pwa_manifest_url('uploaded', mode, key, item=item)
 
+    if mode == 'trial':
+        trial = DigitalAppTrial.query.filter_by(access_token=key).first_or_404()
+        content_url = url_for('digital_hosted_content_trial', access_token=key, asset_path=item.hosted_app_entrypoint)
+        ai_token = digital_hosted_ai_token(item.id, 'TRIAL', trial.id) if getattr(item, 'hosted_gemini_enabled', False) and gemini_configured() else None
+        return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='TRIAL', content_url=content_url,
+                               end_url=None, usage_pass=None, trial=trial, ai_token=ai_token,
+                               manifest_url=manifest_url, pwa_service_worker_url=sw_url, pwa_scope=scope)
     if mode == 'per-use':
         usage = DigitalUsagePass.query.filter_by(access_token=key).first_or_404()
-        order = usage.order
         content_url = url_for('digital_hosted_content_per_use', access_token=key, asset_path=item.hosted_app_entrypoint)
+        ai_token = digital_hosted_ai_token(item.id, 'PER_USE', usage.id) if getattr(item, 'hosted_gemini_enabled', False) and gemini_configured() else None
         return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='PER_USE', content_url=content_url,
-                               end_url=url_for('digital_hosted_end_usage', access_token=key), usage_pass=usage,
+                               end_url=url_for('digital_hosted_end_usage', access_token=key), usage_pass=usage, trial=None, ai_token=ai_token,
                                manifest_url=manifest_url, pwa_service_worker_url=sw_url, pwa_scope=scope)
     if mode == 'lifetime':
         order = DigitalOrder.query.filter_by(tracking_token=key).first_or_404()
         content_url = url_for('digital_hosted_content_lifetime', token=key, asset_path=item.hosted_app_entrypoint)
+        ai_token = digital_hosted_ai_token(item.id, 'LIFETIME', order.id) if getattr(item, 'hosted_gemini_enabled', False) and gemini_configured() else None
         return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='LIFETIME', content_url=content_url,
-                               end_url=None, usage_pass=None, manifest_url=manifest_url,
+                               end_url=None, usage_pass=None, trial=None, ai_token=ai_token, manifest_url=manifest_url,
                                pwa_service_worker_url=sw_url, pwa_scope=scope)
     if mode == 'free':
         content_url = url_for('digital_hosted_content_free', item_id=item.id, asset_path=item.hosted_app_entrypoint)
         return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='FREE', content_url=content_url,
-                               end_url=None, usage_pass=None, manifest_url=manifest_url,
+                               end_url=None, usage_pass=None, trial=None, ai_token=None, manifest_url=manifest_url,
                                pwa_service_worker_url=sw_url, pwa_scope=scope)
     if mode == 'admin':
         content_token = digital_admin_hosted_token(item.id)
         content_url = url_for('admin_digital_hosted_content', content_token=content_token, asset_path=item.hosted_app_entrypoint)
+        admin_subject = parse_int(session.get('admin_id'), 0) or 0
+        ai_token = digital_hosted_ai_token(item.id, 'ADMIN', admin_subject) if getattr(item, 'hosted_gemini_enabled', False) and gemini_configured() else None
         return render_template('digital/apps/hosted_app_viewer.html', item=item, access_mode='ADMIN', content_url=content_url,
-                               end_url=None, usage_pass=None, manifest_url=manifest_url,
+                               end_url=None, usage_pass=None, trial=None, ai_token=ai_token, manifest_url=manifest_url,
                                pwa_service_worker_url=sw_url, pwa_scope=scope)
     abort(404)
 
@@ -11457,6 +11726,52 @@ def digital_social_preview(item_id, version):
     return response
 
 
+@app.route('/digital/item/<int:item_id>/trial/start', methods=['POST'])
+def digital_start_trial(item_id):
+    item = DigitalItem.query.filter_by(id=item_id, is_active=True, product_type='HOSTED_APP').first_or_404()
+    if not digital_trial_eligible(item):
+        flash('A free trial is not available for this app.', 'error')
+        return redirect(url_for('digital_item_detail', item_id=item.id))
+    if digital_lifetime_owned_map().get(item.id):
+        flash('You already own Lifetime Access to this app.', 'success')
+        return redirect(url_for('digital_my_apps'))
+
+    browser_id = (request.cookies.get(DIGITAL_TRIAL_BROWSER_COOKIE) or '').strip() or secrets.token_urlsafe(32)
+    browser_hash = digital_trial_browser_hash(browser_id)
+    customer_id = parse_int(session.get('customer_id'), 0) or None
+    filters = [DigitalAppTrial.browser_id_hash == browser_hash]
+    if customer_id:
+        filters.append(DigitalAppTrial.customer_id == customer_id)
+    existing = DigitalAppTrial.query.filter(DigitalAppTrial.item_id == item.id, or_(*filters)).order_by(DigitalAppTrial.id.asc()).first()
+    if existing:
+        if digital_trial_is_active(existing):
+            target = url_for('digital_chat_lite_trial', access_token=existing.access_token) if digital_is_chat_lite(item) else url_for('digital_hosted_app_trial', access_token=existing.access_token)
+            response = redirect(target)
+            response.set_cookie(DIGITAL_TRIAL_BROWSER_COOKIE, browser_id, max_age=DIGITAL_TRIAL_BROWSER_MAX_AGE, httponly=True, secure=IS_PRODUCTION, samesite='Lax')
+            return response
+        flash('The one-time free trial for this app has already been used on this account/browser.', 'info')
+        return redirect(url_for('digital_item_detail', item_id=item.id))
+
+    now = utc_now()
+    trial = DigitalAppTrial(item_id=item.id, customer_id=customer_id, browser_id_hash=browser_hash, status='ACTIVE',
+                            started_at=now, expires_at=now + timedelta(hours=digital_trial_hours(item)), gemini_calls=0)
+    db.session.add(trial)
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        existing = DigitalAppTrial.query.filter_by(item_id=item.id, browser_id_hash=browser_hash).first()
+        if not existing:
+            app.logger.exception('Could not create Digital hosted-app trial for item %s', item.id)
+            flash('Could not start the trial right now. Please try again.', 'error')
+            return redirect(url_for('digital_item_detail', item_id=item.id))
+        trial = existing
+    target = url_for('digital_chat_lite_trial', access_token=trial.access_token) if digital_is_chat_lite(item) else url_for('digital_hosted_app_trial', access_token=trial.access_token)
+    response = redirect(target)
+    response.set_cookie(DIGITAL_TRIAL_BROWSER_COOKIE, browser_id, max_age=DIGITAL_TRIAL_BROWSER_MAX_AGE, httponly=True, secure=IS_PRODUCTION, samesite='Lax')
+    return response
+
+
 @app.route('/digital/item/<int:item_id>', methods=['GET', 'POST'])
 def digital_item_detail(item_id):
     item = DigitalItem.query.filter_by(id=item_id, is_active=True).first_or_404()
@@ -11473,6 +11788,7 @@ def digital_item_detail(item_id):
         return render_template('digital/item.html', item=item, payment_settings=digital_payment_settings(),
                                hosted_access=digital_hosted_customer_access(item) if item.product_type == 'HOSTED_APP' else None,
                                owned_lifetime_order=owned_lifetime_order,
+                               trial_state=digital_trial_state(item) if item.product_type == 'HOSTED_APP' else {'eligible': False, 'status': 'UNAVAILABLE'},
                                digital_share_image=url_for('digital_social_preview', item_id=item.id, version=share_version, _external=True),
                                digital_share_page_url=url_for('digital_item_detail', item_id=item.id, pv=share_version, _external=True))
     if owned_lifetime_order:
@@ -11734,6 +12050,32 @@ def digital_chat_lite_lifetime(token):
     return render_template('digital/apps/chat_lite.html', usage_pass=None, order=order, access_mode='LIFETIME', manifest_url=digital_pwa_manifest_url('chat-lite', 'lifetime', token))
 
 
+@app.route('/digital/apps/trial/<string:access_token>')
+def digital_hosted_app_trial(access_token):
+    trial = DigitalAppTrial.query.filter_by(access_token=access_token).first_or_404()
+    if not digital_trial_is_active(trial) or not trial.item or not digital_is_uploaded_hosted_app(trial.item):
+        return render_template('digital/hosted_app_expired.html'), 403
+    return redirect(url_for('digital_uploaded_pwa_launch', item_id=trial.item.id, mode='trial', key=access_token))
+
+
+@app.route('/digital/apps/trial/<string:access_token>/content/', defaults={'asset_path': None})
+@app.route('/digital/apps/trial/<string:access_token>/content/<path:asset_path>')
+def digital_hosted_content_trial(access_token, asset_path):
+    trial = DigitalAppTrial.query.filter_by(access_token=access_token).first_or_404()
+    if not digital_trial_is_active(trial) or not trial.item or not digital_is_uploaded_hosted_app(trial.item):
+        abort(403)
+    return digital_hosted_content_response(trial.item, asset_path, ai_bridge=True)
+
+
+@app.route('/digital/apps/chat-lite/trial/<string:access_token>')
+def digital_chat_lite_trial(access_token):
+    trial = DigitalAppTrial.query.filter_by(access_token=access_token).first_or_404()
+    if not digital_trial_is_active(trial) or not trial.item or not digital_is_chat_lite(trial.item):
+        return render_template('digital/chat_lite_expired.html'), 403
+    return render_template('digital/apps/chat_lite.html', usage_pass=None, trial=trial, order=None, access_mode='TRIAL',
+                           manifest_url=digital_pwa_manifest_url('chat-lite', 'trial', access_token))
+
+
 @app.route('/digital/apps/hosted/<string:access_token>')
 def digital_hosted_app_per_use(access_token):
     usage = DigitalUsagePass.query.filter_by(access_token=access_token).first_or_404()
@@ -11760,7 +12102,7 @@ def digital_hosted_content_per_use(access_token, asset_path):
     order = usage.order
     if not digital_paid_order(order) or not digital_is_uploaded_hosted_app(order.item):
         abort(403)
-    return digital_hosted_content_response(order.item, asset_path)
+    return digital_hosted_content_response(order.item, asset_path, ai_bridge=True)
 
 
 @app.route('/digital/apps/hosted/<string:access_token>/end', methods=['POST'])
@@ -11787,7 +12129,7 @@ def digital_hosted_content_lifetime(token, asset_path):
     order = DigitalOrder.query.filter_by(tracking_token=token).first_or_404()
     if not digital_paid_order(order) or digital_order_access_plan(order) != 'LIFETIME' or not digital_is_uploaded_hosted_app(order.item):
         abort(403)
-    return digital_hosted_content_response(order.item, asset_path)
+    return digital_hosted_content_response(order.item, asset_path, ai_bridge=True)
 
 
 @app.route('/digital/apps/free/<int:item_id>')
@@ -11827,7 +12169,7 @@ def admin_digital_hosted_content(content_token, asset_path):
     item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP').first_or_404()
     if not digital_is_uploaded_hosted_app(item):
         abort(404)
-    return digital_hosted_content_response(item, asset_path)
+    return digital_hosted_content_response(item, asset_path, ai_bridge=True)
 
 
 @app.route('/admin/chat-lite')
@@ -11856,6 +12198,51 @@ def digital_chat_lite_end_usage(access_token):
             usage.expires_at = utc_now()
         db.session.commit()
     return ('', 204)
+
+
+@app.route('/api/digital/hosted-gemini', methods=['POST'])
+def digital_hosted_gemini_bridge():
+    payload = request.get_json(silent=True) or {}
+    token = str(payload.get('token') or '').strip()
+    prompt = str(payload.get('prompt') or '').strip()
+    if not token or not prompt:
+        return jsonify({'ok': False, 'error': 'A valid app session and prompt are required.'}), 400
+    if len(prompt) > 6000:
+        return jsonify({'ok': False, 'error': 'This AI request is too long. Keep it under 6,000 characters.'}), 400
+    context = digital_hosted_ai_access_context(token)
+    if not context:
+        return jsonify({'ok': False, 'error': 'This AI session is unavailable, expired, or not authorized.'}), 403
+    item, mode, subject, subject_key = context
+    if not gemini_configured():
+        return jsonify({'ok': False, 'error': 'AI is temporarily unavailable for this app.'}), 503
+    allowed, remaining = digital_hosted_ai_usage_allow(item, mode, subject, subject_key)
+    if not allowed:
+        message = 'This trial has reached its AI request limit.' if mode == 'TRIAL' else 'This app has reached its AI request limit for today.'
+        return jsonify({'ok': False, 'error': message, 'remaining': 0}), 429
+    api_key = (os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY') or '').strip()
+    model = digital_hosted_ai_model()
+    safe_prompt = (
+        f"You are the AI helper inside the hosted app '{item.name}' on Macleen's Digital. "
+        "Respond only to the user's app task. Never reveal, request, or invent API keys, server secrets, admin credentials, payment credentials, OTPs, or private Macleen's data. "
+        "Do not claim access to customer records or server data unless the prompt explicitly contains that information. Keep the answer practical and concise.\n\n"
+        f"USER REQUEST:\n{prompt}"
+    )
+    try:
+        upstream = requests.post(
+            'https://generativelanguage.googleapis.com/v1beta/interactions',
+            headers={'x-goog-api-key': api_key, 'Content-Type': 'application/json'},
+            json={'model': model, 'input': safe_prompt, 'response_format': {'type': 'text'}},
+            timeout=45,
+        )
+        body = upstream.json() if upstream.content else {}
+        text_value = _extract_gemini_output_text(body) if isinstance(body, dict) else ''
+        if not upstream.ok or not text_value:
+            app.logger.warning('Hosted app Gemini bridge failed for item=%s mode=%s status=%s', item.id, mode, upstream.status_code)
+            return jsonify({'ok': False, 'error': 'AI could not answer right now. Please try again shortly.', 'remaining': remaining}), 502
+        return jsonify({'ok': True, 'text': text_value[:8000], 'remaining': remaining, 'model': model})
+    except Exception:
+        app.logger.exception('Hosted app Gemini bridge request failed for item=%s mode=%s', item.id, mode)
+        return jsonify({'ok': False, 'error': 'AI could not answer right now. Please try again shortly.', 'remaining': remaining}), 502
 
 
 @app.route('/digital/order/<token>/download', methods=['POST'])
@@ -12051,6 +12438,11 @@ def digital_hosted_app_save():
     per_use_price = max(0.0, parse_float(request.form.get('price'), 0.0))
     lifetime_price = max(0.0, parse_float(request.form.get('lifetime_price'), 0.0))
     per_use_hours = max(1, min(168, parse_int(request.form.get('hosted_per_use_hours'), 6)))
+    trial_enabled = request.form.get('trial_enabled', '1') == '1'
+    trial_hours = max(1, min(168, parse_int(request.form.get('trial_hours'), 24)))
+    gemini_enabled = request.form.get('hosted_gemini_enabled') == '1'
+    gemini_trial_limit = max(1, min(500, parse_int(request.form.get('hosted_gemini_trial_limit'), 25)))
+    gemini_paid_limit = max(1, min(5000, parse_int(request.form.get('hosted_gemini_paid_daily_limit'), 100)))
     if not name:
         flash('Enter a hosted app name.', 'error'); return redirect(url_for('digital_admin'))
     if access not in HOSTED_APP_ACCESS_MODES:
@@ -12084,6 +12476,11 @@ def digital_hosted_app_save():
         pwa_display = request.form.get('hosted_pwa_display', 'standalone').strip().lower()
         item.hosted_pwa_display = pwa_display if pwa_display in {'standalone', 'fullscreen', 'minimal-ui'} else 'standalone'
         item.hosted_per_use_hours = per_use_hours
+        item.trial_enabled = trial_enabled
+        item.trial_hours = trial_hours
+        item.hosted_gemini_enabled = gemini_enabled
+        item.hosted_gemini_trial_limit = gemini_trial_limit
+        item.hosted_gemini_paid_daily_limit = gemini_paid_limit
         if icon_upload and (icon_upload.filename or '').strip():
             icon_asset = digital_pwa_icon_upload(icon_upload)
             db.session.add(icon_asset); db.session.flush()
@@ -12133,6 +12530,11 @@ def digital_item_save():
     item.lifetime_price = max(0.0, parse_float(request.form.get('lifetime_price'), 0.0)) if product_type == 'HOSTED_APP' else 0.0
     if product_type == 'HOSTED_APP':
         item.hosted_per_use_hours = max(1, min(168, parse_int(request.form.get('hosted_per_use_hours'), getattr(item, 'hosted_per_use_hours', 6) or 6)))
+        item.trial_enabled = request.form.get('trial_enabled', '1') == '1'
+        item.trial_hours = max(1, min(168, parse_int(request.form.get('trial_hours'), getattr(item, 'trial_hours', 24) or 24)))
+        item.hosted_gemini_enabled = request.form.get('hosted_gemini_enabled') == '1'
+        item.hosted_gemini_trial_limit = max(1, min(500, parse_int(request.form.get('hosted_gemini_trial_limit'), getattr(item, 'hosted_gemini_trial_limit', 25) or 25)))
+        item.hosted_gemini_paid_daily_limit = max(1, min(5000, parse_int(request.form.get('hosted_gemini_paid_daily_limit'), getattr(item, 'hosted_gemini_paid_daily_limit', 100) or 100)))
     if item.lifetime_enabled and item.lifetime_price <= 0:
         flash('Enter a Lifetime Access price greater than zero, or turn Lifetime Access off.', 'error'); return redirect(url_for('digital_admin'))
     item.cost=max(0,parse_float(request.form.get('cost'),0)); item.image_url=request.form.get('image_url','').strip() or CRAFT_DEFAULT_IMAGE
@@ -12186,6 +12588,11 @@ def digital_item_save():
                 item.hosted_pwa_theme_color = digital_pwa_color(getattr(item, 'hosted_pwa_theme_color', None), '#0084ff')
                 item.hosted_pwa_display = getattr(item, 'hosted_pwa_display', None) or 'standalone'
                 item.hosted_per_use_hours = max(1, min(168, parse_int(request.form.get('hosted_per_use_hours'), 6)))
+                item.trial_enabled = request.form.get('trial_enabled', '1') == '1'
+                item.trial_hours = max(1, min(168, parse_int(request.form.get('trial_hours'), 24)))
+                item.hosted_gemini_enabled = request.form.get('hosted_gemini_enabled') == '1'
+                item.hosted_gemini_trial_limit = max(1, min(500, parse_int(request.form.get('hosted_gemini_trial_limit'), 25)))
+                item.hosted_gemini_paid_daily_limit = max(1, min(5000, parse_int(request.form.get('hosted_gemini_paid_daily_limit'), 100)))
                 if pwa_icon_upload and (pwa_icon_upload.filename or '').strip():
                     icon_asset = digital_pwa_icon_upload(pwa_icon_upload)
                     db.session.add(icon_asset); db.session.flush()

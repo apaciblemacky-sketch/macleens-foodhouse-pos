@@ -28,6 +28,8 @@
       {% elif hosted_access == 'LIFETIME' %}<p><strong>Lifetime Access:</strong> ₱{{ '%.2f'|format(item.lifetime_price) }} one time</p>
       {% elif hosted_access == 'BOTH' %}<p><strong>Per Use:</strong> ₱{{ '%.2f'|format(item.price) }} · <strong>Lifetime Access:</strong> ₱{{ '%.2f'|format(item.lifetime_price) }} one time</p>
       {% else %}<p><strong>Per Use:</strong> ₱{{ '%.2f'|format(item.price) }}</p>{% endif %}
+      {% if trial_state.eligible and not owned_lifetime_order %}<p><strong>🎁 Free Trial:</strong> {{ trial_state.hours or 24 }} hours, one time per customer/browser.</p>{% endif %}
+      {% if item.hosted_gemini_enabled %}<p class="muted"><strong>✨ AI enabled:</strong> this app can use Macleen’s protected Gemini connection. The Gemini API key stays on the server and is never shown inside the customer’s app. Text submitted to an AI feature is sent to Google Gemini through Macleen’s secure server bridge.</p>{% endif %}
       <p class="muted">Hosted apps run inside Macleen’s Digital instead of being delivered as source files. After launch, customers can tap “Install Web App” to add the hosted app to their phone or computer. Per-use installs still follow the active {{ item.hosted_per_use_hours or 6 }}-hour pass; Lifetime Access can be reopened indefinitely from the same private order page. Admin access is always free.</p>
     {% else %}<p><strong>Format:</strong> {{ item.file_format or 'As described' }} · <strong>Turnaround:</strong> {{ item.turnaround_days }} day(s)</p>{% if item.asset_file_id %}<p class="muted">A protected file is attached. It becomes downloadable only after confirmed payment; the customer uses a private order link plus an access code.</p>{% endif %}{% endif %}
     <p class="muted">{{ item.license_terms or 'For the buyer’s permitted use; redistribution is not included unless stated.' }}</p>
@@ -46,6 +48,21 @@
       <p class="muted" style="margin-bottom:0;margin-top:12px">The app opens in a protected hosted viewer. Source files are not offered as a customer download.</p>
     {% else %}
       <h2>{% if item.product_type=='HOSTED_APP' %}Choose access{% else %}Order — ₱{{ '%.2f'|format(item.price) }}{% endif %}</h2>
+      {% if item.product_type=='HOSTED_APP' and trial_state.eligible %}
+        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:13px;padding:13px;margin-bottom:14px">
+          <strong>🎁 {{ trial_state.hours or 24 }}-Hour Free Trial</strong>
+          {% if trial_state.status == 'AVAILABLE' %}
+            <p class="muted" style="margin:6px 0 10px">Try the full hosted app before paying. No payment method is required to start the trial.</p>
+            <form method="post" action="{{ url_for('digital_start_trial', item_id=item.id) }}" data-no-live><button class="btn" type="submit">Start Free Trial</button></form>
+          {% elif trial_state.status == 'ACTIVE' %}
+            <p class="muted" style="margin:6px 0 10px">Your free trial is active until {{ trial_state.trial.expires_at|ph_datetime('%b %d, %Y %I:%M %p') }}.</p>
+            {% if item.hosted_app_key=='CHAT_LITE' %}<a class="btn" href="{{ url_for('digital_chat_lite_trial', access_token=trial_state.trial.access_token) }}">Resume Free Trial</a>{% else %}<a class="btn" href="{{ url_for('digital_hosted_app_trial', access_token=trial_state.trial.access_token) }}">Resume Free Trial</a>{% endif %}
+          {% else %}
+            <p class="muted" style="margin:6px 0 0">Your one-time free trial for this app has already ended. You can continue with Per Use or Lifetime Access below.</p>
+          {% endif %}
+          {% if item.hosted_gemini_enabled %}<p class="muted" style="margin:10px 0 0">✨ Gemini-powered features are available during the trial through Macleen’s secure server bridge. The API key is never sent to the browser; AI prompts are relayed to Google Gemini for processing.</p>{% endif %}
+        </div>
+      {% endif %}
       {% if payment_settings.paymongo_active or payment_settings.paypal_available %}
       <form method="post" data-no-live>
         <label>Name</label><input name="customer_name" required autocomplete="name">

@@ -135,6 +135,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running Digital 1-day trial and protected Gemini bridge checks...
+%DEPLOY_CHECK_CMD% scripts\v40_digital_trial_gemini_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Digital trial/Gemini checks failed.
+  pause
+  exit /b 1
+)
+
 echo Running isolated Community and social-preview behavior checks...
 %DEPLOY_CHECK_CMD% scripts\community_smoke_check.py
 if errorlevel 1 (
@@ -289,11 +298,12 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.12-daily-sales-finance-analytics-social-v39
+echo Expected release after Render finishes: 2026.09.13-digital-trial-gemini-v40
 echo Then test one Food product link and one Digital product link thumbnail,
 echo Daily Sales Record, Financial Statements Products ^& Cost, Vault Drop settings,
 echo Storefront/Crafts/Digital About + announcements + analytics AI suggestion,
-echo one QR PH and one PayPal checkout, one Hosted App launch, and Facebook automation settings.
+echo one QR PH and one PayPal checkout, one Hosted App 24-hour trial, one paid Hosted App launch,
+echo one Gemini-enabled trial app, and Facebook automation settings.
 echo.
 start "" "https://dashboard.render.com/"
 start "" "https://macleens-foodhouse-pos.onrender.com/healthz"

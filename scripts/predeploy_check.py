@@ -55,7 +55,7 @@ REQUIRED_DB_COLUMNS = {
     "hidden_prize_hunt": {"id", "title", "location", "location_product_id", "placement_slot", "display_size_px", "display_image_data", "prize_type", "points_amount", "voucher_discount_percent", "voucher_min_order", "prize_product_id", "max_winners", "starts_at", "ends_at", "reward_expires_at", "is_active", "created_at"},
     "hidden_prize_claim": {"id", "hunt_id", "customer_id", "claim_code", "status", "stock_reserved", "expires_at", "claimed_at"},
     "digital_asset_file": {"id", "original_filename", "download_filename", "content_type", "file_size", "sha256", "file_data", "uploaded_by", "created_at"},
-    "digital_item": {"id", "name", "product_type", "price", "cost", "asset_file_id", "asset_version", "asset_updated_at", "asset_release_notes", "delivery_instructions", "app_device_limit", "lifetime_enabled", "lifetime_price", "hosted_app_key", "hosted_app_entrypoint", "hosted_customer_access", "hosted_pwa_enabled", "hosted_pwa_short_name", "hosted_pwa_theme_color", "hosted_pwa_display", "hosted_pwa_icon_file_id", "hosted_per_use_hours", "is_active", "created_at"},
+    "digital_item": {"id", "name", "product_type", "price", "cost", "asset_file_id", "asset_version", "asset_updated_at", "asset_release_notes", "delivery_instructions", "app_device_limit", "lifetime_enabled", "lifetime_price", "hosted_app_key", "hosted_app_entrypoint", "hosted_customer_access", "hosted_pwa_enabled", "hosted_pwa_short_name", "hosted_pwa_theme_color", "hosted_pwa_display", "hosted_pwa_icon_file_id", "hosted_per_use_hours", "trial_enabled", "trial_hours", "hosted_gemini_enabled", "hosted_gemini_trial_limit", "hosted_gemini_paid_daily_limit", "is_active", "created_at"},
     "digital_order": {"id", "item_id", "payment_status", "asset_file_id", "delivery_access_code", "download_count", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "activation_device_limit"},
     "craft_order": {"id", "item_id", "payment_method", "payment_status", "status", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "tracking_token"},
     "digital_support_faq": {"id", "question", "answer", "is_active", "sort_order", "created_at", "updated_at"},
@@ -74,6 +74,8 @@ REQUIRED_DB_COLUMNS = {
     "staff_login_throttle": {"id", "key_hash", "failures", "window_started_at", "locked_until", "updated_at"},
     "guest_chat_message": {"id", "thread_token", "portal", "sender_type", "sender_staff", "body", "is_read", "expires_at", "created_at"},
     "digital_usage_pass": {"id", "order_id", "access_token", "app_key", "status", "started_at", "expires_at", "created_at"},
+    "digital_app_trial": {"id", "item_id", "customer_id", "browser_id_hash", "access_token", "status", "started_at", "expires_at", "gemini_calls", "created_at"},
+    "digital_hosted_ai_usage": {"id", "item_id", "access_kind", "subject_hash", "usage_date", "calls", "created_at", "updated_at"},
     "marketing_post": {
         "id", "status", "caption", "insight_reach", "insight_impressions",
         "insight_reactions", "insight_comments", "insight_shares", "insight_saves",
@@ -158,7 +160,7 @@ MIGRATABLE_DB_COLUMNS = {
     "product": {"description"},
     "order": {"base_points_earned", "hidden_prize_discount", "receipt_number", "payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response"},
     "delivery_zone": {"requires_detailed_address"},
-    "digital_item": {"asset_version", "asset_updated_at", "asset_release_notes", "lifetime_enabled", "lifetime_price", "hosted_app_key", "hosted_app_entrypoint", "hosted_customer_access", "hosted_pwa_enabled", "hosted_pwa_short_name", "hosted_pwa_theme_color", "hosted_pwa_display", "hosted_pwa_icon_file_id", "hosted_per_use_hours", "delivery_instructions", "app_device_limit"},
+    "digital_item": {"asset_version", "asset_updated_at", "asset_release_notes", "lifetime_enabled", "lifetime_price", "hosted_app_key", "hosted_app_entrypoint", "hosted_customer_access", "hosted_pwa_enabled", "hosted_pwa_short_name", "hosted_pwa_theme_color", "hosted_pwa_display", "hosted_pwa_icon_file_id", "hosted_per_use_hours", "trial_enabled", "trial_hours", "hosted_gemini_enabled", "hosted_gemini_trial_limit", "hosted_gemini_paid_daily_limit", "delivery_instructions", "app_device_limit"},
     "community_push_subscription": {"notification_preferences"},
     "craft_order": {"payment_gateway", "gateway_checkout_id", "gateway_checkout_url", "gateway_checked_at", "gateway_response", "tracking_token"},
     "hidden_prize_hunt": {"placement_slot", "display_size_px", "display_image_data"},
@@ -169,7 +171,7 @@ MIGRATABLE_DB_COLUMNS = {
 CREATE_ON_START_TABLES = {
     "customer_app_announcement", "hidden_prize_hunt", "hidden_prize_claim",
     "support_contribution", "website_visit_daily", "manual_daily_sales_record",
-    "staff_login_throttle", "guest_chat_message", "digital_usage_pass",
+    "staff_login_throttle", "guest_chat_message", "digital_usage_pass", "digital_app_trial", "digital_hosted_ai_usage",
 }
 
 
