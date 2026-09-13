@@ -71,6 +71,8 @@
     .action-btn:hover { background: #e4e6eb; }
     .action-btn.danger { color: var(--danger); }
     .action-btn.active-glow { background: #dbeafe; color: var(--ms-blue); }
+    #startScreenBtn { display: none; }
+    #startScreenBtn.screen-share-ready { display: flex; }
 
     /* Video Conference Deck */
     #videoConferenceArea {
@@ -135,6 +137,11 @@
       padding: 7px 12px; font-weight: 700; font-size: 0.76rem; text-decoration: none;
       display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
+    .file-image-preview {
+      display: block; width: min(280px, 62vw); max-height: 300px; object-fit: contain;
+      border-radius: 10px; background: rgba(0,0,0,.08); margin-bottom: 8px; cursor: zoom-in;
+    }
+    .file-image-card { display: flex; flex-direction: column; max-width: 320px; }
 
     /* Composer Bar */
     .composer {
@@ -214,7 +221,7 @@
     </div>
     <div class="header-actions">
       <button class="action-btn" id="startCallBtn" onclick="toggleConference()" title="Start Group Video Call">📹</button>
-      <button class="action-btn" id="startScreenBtn" onclick="toggleScreenShare()" title="Share Screen (desktop browsers; mobile support varies)">🖥️</button>
+      <button class="action-btn" id="startScreenBtn" onclick="toggleScreenShare()" title="Share Screen">🖥️</button>
       <button class="action-btn" onclick="copyInviteLink()" title="Copy Invite Link">🔗</button>
       <button class="action-btn danger" onclick="leaveSession()" title="Leave & Erase All Data">🚪</button>
     </div>
@@ -389,6 +396,59 @@
   const messageInput = document.getElementById('messageInput');
   const videoGrid = document.getElementById('videoGrid');
   const videoConferenceArea = document.getElementById('videoConferenceArea');
+  const screenShareBtn = document.getElementById('startScreenBtn');
+
+  function getUserMediaCompat(constraints) {
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function') {
+      return navigator.mediaDevices.getUserMedia(constraints);
+    }
+    const legacy = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+    if (legacy) {
+      return new Promise((resolve, reject) => legacy.call(navigator, constraints, resolve, reject));
+    }
+    const err = new Error('Camera and microphone are not supported by this browser engine.');
+    err.name = 'NotSupportedError';
+    return Promise.reject(err);
+  }
+
+  function hasActiveVideoTrack() {
+    return !!(localStream && localStream.getVideoTracks().some(t => t.readyState === 'live'));
+  }
+
+  function updateScreenShareButton() {
+    if (!screenShareBtn) return;
+    const canShare = !!(navigator.mediaDevices && typeof navigator.mediaDevices.getDisplayMedia === 'function');
+    const ready = hasActiveVideoTrack() && canShare;
+    screenShareBtn.classList.toggle('screen-share-ready', ready);
+    screenShareBtn.disabled = !ready;
+    screenShareBtn.setAttribute('aria-hidden', ready ? 'false' : 'true');
+    if (!ready) screenShareBtn.classList.remove('active-glow');
+  }
+
+  function explainMediaError(err) {
+    const name = (err && err.name) || '';
+    if (!window.isSecureContext) {
+      return 'Camera and microphone need a secure HTTPS connection. Please reopen CHAT Lite from the official Macleen\'s Digital HTTPS link.';
+    }
+    if (name === 'NotAllowedError' || name === 'SecurityError' || name === 'PermissionDeniedError') {
+      return 'Camera or microphone permission is blocked. Open the browser/app site permissions for Macleen\'s, allow Camera and Microphone, then return to CHAT Lite and tap Video Call again.';
+    }
+    if (name === 'NotFoundError' || name === 'DevicesNotFoundError') {
+      return 'No usable camera or microphone was found on this device. Connect/enable the device, then try again.';
+    }
+    if (name === 'NotReadableError' || name === 'TrackStartError') {
+      return 'The camera or microphone is busy or unavailable. Close other apps using the camera/mic, then try again.';
+    }
+    if (name === 'OverconstrainedError' || name === 'ConstraintNotSatisfiedError') {
+      return 'This device rejected the preferred camera settings. CHAT Lite tried a simpler camera mode too, but it could not start.';
+    }
+    if (name === 'NotSupportedError' || !navigator.mediaDevices) {
+      return 'This installed browser app does not expose camera/microphone access. Open CHAT Lite in an up-to-date Chrome, Samsung Internet, Edge, or Safari browser and allow Camera/Microphone permissions.';
+    }
+    return 'Camera/Microphone could not start' + (err && err.message ? ': ' + err.message : '. Please check the app/site permissions and try again.');
+  }
+
+  updateScreenShareButton();
 
   // Verify protocol security
   if (window.location.protocol === 'file:') {
@@ -520,7 +580,7 @@
       renderChatBubble(data.sender, data.text, false);
       ringChime();
     } else if (data.type === 'file') {
-      renderFileCard(data.sender, data.name, data.size, data.blobUrl, false);
+      renderFileCard(data.sender, data.name, data.size, data.blobUrl, false, data.mime || '');
       ringChime();
     }
   }
@@ -577,31 +637,98 @@
         sender: myName,
         name: file.name,
         size: readableSize,
+        mime: file.type || '',
         blobUrl: reader.result
       };
       Object.values(meshPeers).forEach(c => { if (c.open) c.send(payload); });
-      renderFileCard(myName, file.name, readableSize, reader.result, true);
+      renderFileCard(myName, file.name, readableSize, reader.result, true, file.type || '');
     };
     reader.readAsDataURL(file);
     input.value = '';
   }
 
-  function renderFileCard(sender, name, size, dataUrl, isSelf) {
+  function isImageAttachment(name, mime) {
+    if ((mime || '').toLowerCase().startsWith('image/')) return true;
+    return /\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(name || '');
+  }
+
+  function renderFileCard(sender, name, size, dataUrl, isSelf, mime) {
+    const safeDataUrl = (typeof dataUrl === 'string' && /^data:/i.test(dataUrl)) ? dataUrl : '';
+    if (!safeDataUrl) return;
     const row = document.createElement('div');
     row.className = `msg-group ${isSelf ? 'msg-self' : 'msg-peer'}`;
-    
-    row.innerHTML = `
-      <div class="msg-sender-name">${isSelf ? 'You' : sender}</div>
-      <div class="msg-bubble" style="padding: 6px;">
-        <div class="file-transfer-card">
-          <div class="file-info">
-            <span class="file-name" title="${name}">${name}</span>
-            <span class="file-meta">${size}</span>
-          </div>
-          <a href="${dataUrl}" download="${name}" class="file-dl-btn">⬇ Download</a>
-        </div>
-      </div>
-    `;
+
+    const senderName = document.createElement('div');
+    senderName.className = 'msg-sender-name';
+    senderName.textContent = isSelf ? 'You' : (sender || 'User');
+    row.appendChild(senderName);
+
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    bubble.style.padding = '6px';
+
+    const isImage = isImageAttachment(name, mime);
+    if (isImage) {
+      const imageCard = document.createElement('div');
+      imageCard.className = 'file-image-card';
+
+      const previewLink = document.createElement('a');
+      previewLink.href = safeDataUrl;
+      previewLink.target = '_blank';
+      previewLink.rel = 'noopener';
+      previewLink.title = 'Open full image';
+
+      const img = document.createElement('img');
+      img.className = 'file-image-preview';
+      img.src = safeDataUrl;
+      img.alt = name || 'Shared image';
+      img.loading = 'lazy';
+      previewLink.appendChild(img);
+      imageCard.appendChild(previewLink);
+
+      const fileCard = document.createElement('div');
+      fileCard.className = 'file-transfer-card';
+      const info = document.createElement('div');
+      info.className = 'file-info';
+      const fileName = document.createElement('span');
+      fileName.className = 'file-name';
+      fileName.title = name || '';
+      fileName.textContent = name || 'Image';
+      const fileMeta = document.createElement('span');
+      fileMeta.className = 'file-meta';
+      fileMeta.textContent = size || '';
+      info.append(fileName, fileMeta);
+      const dl = document.createElement('a');
+      dl.href = safeDataUrl;
+      dl.download = name || 'image';
+      dl.className = 'file-dl-btn';
+      dl.textContent = '⬇ Download';
+      fileCard.append(info, dl);
+      imageCard.appendChild(fileCard);
+      bubble.appendChild(imageCard);
+    } else {
+      const fileCard = document.createElement('div');
+      fileCard.className = 'file-transfer-card';
+      const info = document.createElement('div');
+      info.className = 'file-info';
+      const fileName = document.createElement('span');
+      fileName.className = 'file-name';
+      fileName.title = name || '';
+      fileName.textContent = name || 'File';
+      const fileMeta = document.createElement('span');
+      fileMeta.className = 'file-meta';
+      fileMeta.textContent = size || '';
+      info.append(fileName, fileMeta);
+      const dl = document.createElement('a');
+      dl.href = safeDataUrl;
+      dl.download = name || 'download';
+      dl.className = 'file-dl-btn';
+      dl.textContent = '⬇ Download';
+      fileCard.append(info, dl);
+      bubble.appendChild(fileCard);
+    }
+
+    row.appendChild(bubble);
     chatBody.appendChild(row);
     chatBody.scrollTop = chatBody.scrollHeight;
   }
@@ -616,32 +743,63 @@
   }
 
   async function launchMediaStream() {
-    try {
-      // Optimal constraints for smooth multi-party mesh
-      localStream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: currentCameraFacing },
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          frameRate: { max: 24 }
-        },
-        audio: true
-      });
-
-      acquireWakeLock();
-      showLocalPreview(localStream);
-      videoConferenceArea.style.display = 'flex';
-      document.getElementById('startCallBtn').classList.add('active-glow');
-
-      Object.keys(meshPeers).forEach(peerId => {
-        if (!activeCalls[peerId]) {
-          const call = peer.call(peerId, localStream);
-          monitorCallStream(call, peerId);
-        }
-      });
-    } catch (e) {
-      alert("Camera/Microphone access requires HTTPS.");
+    if (!window.isSecureContext) {
+      alert(explainMediaError({ name: 'SecurityError' }));
+      return;
     }
+
+    const preferred = {
+      video: {
+        facingMode: { ideal: currentCameraFacing },
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        frameRate: { max: 24 }
+      },
+      audio: true
+    };
+
+    let stream = null;
+    let lastError = null;
+    try {
+      stream = await getUserMediaCompat(preferred);
+    } catch (e) {
+      lastError = e;
+      // Installed PWAs/WebViews can be stricter about advanced constraints.
+      // Retry with the simplest camera+mic request before declaring failure.
+      try {
+        stream = await getUserMediaCompat({ video: true, audio: true });
+      } catch (e2) {
+        lastError = e2;
+        // If the microphone alone is the blocker, keep video calling usable.
+        try {
+          stream = await getUserMediaCompat({ video: true, audio: false });
+          alert('Video started, but microphone access is unavailable. You can still see and send video; allow Microphone permission to enable voice.');
+        } catch (e3) {
+          lastError = e3;
+        }
+      }
+    }
+
+    if (!stream) {
+      console.warn('CHAT Lite media start failed:', lastError);
+      alert(explainMediaError(lastError));
+      updateScreenShareButton();
+      return;
+    }
+
+    localStream = stream;
+    acquireWakeLock();
+    showLocalPreview(localStream);
+    videoConferenceArea.style.display = 'flex';
+    document.getElementById('startCallBtn').classList.add('active-glow');
+    updateScreenShareButton();
+
+    Object.keys(meshPeers).forEach(peerId => {
+      if (!activeCalls[peerId]) {
+        const call = peer.call(peerId, localStream);
+        monitorCallStream(call, peerId);
+      }
+    });
   }
 
   function acceptIncomingCall(call) {
@@ -651,6 +809,7 @@
       showLocalPreview(localStream);
       videoConferenceArea.style.display = 'flex';
       document.getElementById('startCallBtn').classList.add('active-glow');
+      updateScreenShareButton();
       call.answer(localStream);
       monitorCallStream(call, call.peer);
     };
@@ -659,12 +818,17 @@
       call.answer(localStream);
       monitorCallStream(call, call.peer);
     } else {
-      navigator.mediaDevices.getUserMedia({
+      getUserMediaCompat({
         video: { facingMode: { ideal: currentCameraFacing }, width: { ideal: 640 }, height: { ideal: 480 } },
         audio: true
-      }).then(handleAnswer).catch(() => {
-        // Fallback to voice-only if camera is unavailable
-        navigator.mediaDevices.getUserMedia({ audio: true }).then(handleAnswer);
+      }).then(handleAnswer).catch((err) => {
+        getUserMediaCompat({ video: true, audio: false }).then(handleAnswer).catch(() => {
+          getUserMediaCompat({ audio: true, video: false }).then(handleAnswer).catch(() => {
+            console.warn('Incoming call media permission failed:', err);
+            alert(explainMediaError(err));
+            try { call.close(); } catch (_) {}
+          });
+        });
       });
     }
   }
@@ -729,7 +893,7 @@
     attempts.push({ ...common, facingMode: { ideal: targetFacing } });
     for (const constraints of attempts) {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: constraints, audio: false });
+        const stream = await getUserMediaCompat({ video: constraints, audio: false });
         const track = stream.getVideoTracks()[0];
         if (track) return { stream, track };
         stream.getTracks().forEach(t => t.stop());
@@ -739,7 +903,7 @@
   }
 
   async function flipCamera() {
-    if (!localStream || cameraSwitching || !navigator.mediaDevices?.getUserMedia) return;
+    if (!localStream || cameraSwitching) return;
     const oldTrack = localStream.getVideoTracks()[0];
     if (!oldTrack) return alert('No active camera is available to switch.');
 
@@ -791,7 +955,7 @@
       // Best-effort recovery of the previous camera so a failed flip does not
       // leave the user with audio only.
       try {
-        const restored = await navigator.mediaDevices.getUserMedia({
+        const restored = await getUserMediaCompat({
           video: { facingMode: { ideal: oldFacing }, width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { max: 24 } },
           audio: false
         });
@@ -821,6 +985,10 @@
 
   // Screen Sharing
   async function toggleScreenShare() {
+    if (!hasActiveVideoTrack()) {
+      updateScreenShareButton();
+      return;
+    }
     if (screenStream) {
       stopScreenShare();
       return;
@@ -893,6 +1061,7 @@
       const selfVid = document.querySelector('#video-self video');
       if (selfVid) selfVid.srcObject = localStream;
     }
+    updateScreenShareButton();
   }
 
   // Audio / Video Controls
@@ -929,6 +1098,7 @@
     videoConferenceArea.style.display = 'none';
     document.getElementById('startCallBtn').classList.remove('active-glow');
     document.getElementById('startScreenBtn').classList.remove('active-glow');
+    updateScreenShareButton();
   }
 
   // 5. Wake Lock (Keeps mobile screens active during conference)

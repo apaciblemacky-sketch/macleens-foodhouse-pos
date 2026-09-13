@@ -2,33 +2,34 @@
 {% block title %}My Digital Apps | Macleen's{% endblock %}
 {% block content %}
 <section class="card" style="background:linear-gradient(135deg,#ecfdf5,#fff7fb);border-color:#99f6e4">
-  <div class="badge">♾️ Lifetime library</div>
+  <div class="badge">Your Digital app library</div>
   <h1 style="margin-bottom:7px">My Digital Apps</h1>
-  <p class="muted" style="max-width:720px">Your paid Lifetime apps stay here so you can reopen them after closing the browser, restarting your phone/PC, or coming back later. Lifetime-owned apps are not offered for sale to you again.</p>
-  <a class="btn btn-light" href="{{ url_for('digital_store') }}">Browse Digital Catalog</a>
-  {% if not session.get('customer_id') %}<a class="btn" style="margin-left:6px" href="{{ url_for('customer_login') }}">Sign in for cross-device recovery</a>{% endif %}
+  <p class="muted" style="max-width:760px">Reopen your paid hosted apps here after closing the browser, restarting your phone/PC, or returning another day. Lifetime apps remain permanently available to this Digital account.</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn btn-light" href="{{ url_for('digital_store') }}">Browse Digital Catalog</a><button class="btn" type="button" data-portal-install>📲 Install Macleen's Digital</button><a class="btn btn-light" href="{{ url_for('digital_account_home') }}">My Digital Account</a></div>
 </section>
 
-{% if lifetime_orders %}
+{% if paid_hosted_orders %}
 <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(250px,1fr))">
-  {% for order in lifetime_orders %}
+  {% for order in paid_hosted_orders %}
   <article class="card" style="margin:0">
     <img src="{{ order.item.image_url or '/static/logo.png' }}" alt="{{ order.item.name }}" style="width:100%;height:160px;object-fit:cover;border-radius:14px;background:#f0fdfa">
-    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px"><span class="badge">♾️ Owned · Lifetime</span>{% if order.customer_id and session.get('customer_id') == order.customer_id %}<span class="badge">✓ Account saved</span>{% else %}<span class="badge">This browser</span>{% endif %}</div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:12px">
+      {% if order.access_plan == 'LIFETIME' %}<span class="badge">♾️ Owned · Lifetime</span>{% else %}<span class="badge">⏱ Paid Per Use</span>{% endif %}
+      <span class="badge">{{ order.payment_status }}</span>
+    </div>
     <h2 style="margin-bottom:6px">{{ order.item.name }}</h2>
-    <p class="muted">Purchased once. No additional payment is required for this lifetime entitlement.</p>
+    {% if order.access_plan == 'LIFETIME' %}<p class="muted">Permanent access. This app is no longer offered for sale to you.</p>{% else %}<p class="muted">Open the private order to launch or resume any available paid usage.</p>{% endif %}
     <div style="display:flex;gap:7px;flex-wrap:wrap">
-      <a class="btn" href="{{ url_for('digital_my_apps_open',order_id=order.id) }}">Open App</a>
+      {% if order.access_plan == 'LIFETIME' %}<a class="btn" href="{{ url_for('digital_my_apps_open',order_id=order.id) }}">Open App</a>{% endif %}
       <a class="btn btn-light" href="{{ url_for('digital_order_status',token=order.tracking_token) }}">Private Order</a>
     </div>
-    {% if not order.customer_id %}<p class="muted" style="margin:10px 0 0">For access on another device, open the Private Order page while signed in and choose “Save Lifetime Access to My Account.”</p>{% endif %}
   </article>
   {% endfor %}
 </div>
 {% else %}
 <section class="card" style="text-align:center;padding:34px">
-  <div style="font-size:2.2rem">♾️</div><h2>No Lifetime apps found yet</h2>
-  <p class="muted">If you just paid as a guest, reopen the private order page once on this browser after payment confirms. Macleen’s will remember that Lifetime purchase here automatically.</p>
+  <div style="font-size:2.2rem">💻</div><h2>No purchased apps yet</h2>
+  <p class="muted">Your paid Per-Use and Lifetime hosted apps will appear here automatically after payment is confirmed.</p>
   <a class="btn" href="{{ url_for('digital_store') }}">Go to Digital Catalog</a>
 </section>
 {% endif %}

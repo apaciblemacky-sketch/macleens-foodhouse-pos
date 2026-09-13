@@ -144,6 +144,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
+echo Running Digital accounts, install-prompt, and CHAT Lite checks...
+%DEPLOY_CHECK_CMD% scripts\v41_digital_accounts_pwa_chatlite_smoke_check.py
+if errorlevel 1 (
+  echo.
+  echo DEPLOYMENT STOPPED: Digital accounts/PWA/CHAT Lite checks failed.
+  pause
+  exit /b 1
+)
+
 echo Running isolated Community and social-preview behavior checks...
 %DEPLOY_CHECK_CMD% scripts\community_smoke_check.py
 if errorlevel 1 (
@@ -298,7 +307,7 @@ echo Check the Render Events page until the deployment says Live.
 echo.
 echo Production health check:
 echo https://macleens-foodhouse-pos.onrender.com/healthz
-echo Expected release after Render finishes: 2026.09.13-digital-trial-gemini-v40
+echo Expected release after Render finishes: 2026.09.13-digital-accounts-chatlite-v41.1
 echo Then test one Food product link and one Digital product link thumbnail,
 echo Daily Sales Record, Financial Statements Products ^& Cost, Vault Drop settings,
 echo Storefront/Crafts/Digital About + announcements + analytics AI suggestion,

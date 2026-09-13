@@ -1,0 +1,17 @@
+{% extends 'digital/base.html' %}
+{% block title %}Sign in | Macleen's Digital{% endblock %}
+{% block content %}
+<section class="card" style="max-width:620px;margin:24px auto">
+  <div class="badge">Macleen's Digital account</div><h1 style="margin:10px 0 5px">Sign in to Digital</h1>
+  <p class="muted">Sign in before starting a free trial, opening a free hosted app, or purchasing an app.</p>
+  <form method="post">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <label>Email, mobile number, or Macleen's card number</label><input name="identifier" autocomplete="username" required placeholder="Email / mobile / card number">
+    <label>Password or Macleen's PIN</label><input type="password" name="password" autocomplete="current-password" required placeholder="Your Digital password or Rewards PIN">
+    <button class="btn" type="submit">Sign in</button>
+  </form>
+  <hr style="border:0;border-top:1px solid #e2e8f0;margin:20px 0">
+  <p><strong>Already a Macleen's Food House / Rewards customer?</strong><br><span class="muted">Use your existing mobile/card number and PIN. We create a Digital mirror automatically; your Rewards account remains separate.</span></p>
+  <p><strong>New to Macleen's Digital?</strong> <a href="{{ url_for('digital_account_register', next=next_url) }}">Create a Digital-only account</a>.</p>
+</section>
+{% endblock %}

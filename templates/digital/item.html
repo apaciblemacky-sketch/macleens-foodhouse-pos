@@ -43,15 +43,25 @@
       <a class="btn btn-light" style="margin-left:6px" href="{{ url_for('digital_my_apps') }}">My Digital Apps</a>
     {% elif item.product_type=='HOSTED_APP' and hosted_access=='FREE' and item.hosted_app_key=='UPLOADED' %}
       <h2>Free hosted access</h2>
-      <p class="muted">No payment or account login is required for this app.</p>
-      <a class="btn" href="{{ url_for('digital_hosted_app_free', item_id=item.id) }}">Launch {{ item.name }}</a>
+      {% if digital_customer %}
+        <p class="muted">Signed in as {{ digital_customer.name }}. This app is free to use.</p>
+        <a class="btn" href="{{ url_for('digital_hosted_app_free', item_id=item.id) }}">Launch {{ item.name }}</a>
+      {% else %}
+        <p class="muted">Create or sign in to a Macleen's Digital account first. No payment is required for this free app.</p>
+        <a class="btn" href="{{ url_for('digital_account_login', next=request.path) }}">Sign in to open</a>
+        <a class="btn btn-light" href="{{ url_for('digital_account_register', next=request.path) }}">Create Digital account</a>
+      {% endif %}
       <p class="muted" style="margin-bottom:0;margin-top:12px">The app opens in a protected hosted viewer. Source files are not offered as a customer download.</p>
     {% else %}
       <h2>{% if item.product_type=='HOSTED_APP' %}Choose access{% else %}Order — ₱{{ '%.2f'|format(item.price) }}{% endif %}</h2>
       {% if item.product_type=='HOSTED_APP' and trial_state.eligible %}
         <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:13px;padding:13px;margin-bottom:14px">
           <strong>🎁 {{ trial_state.hours or 24 }}-Hour Free Trial</strong>
-          {% if trial_state.status == 'AVAILABLE' %}
+          {% if trial_state.status == 'LOGIN_REQUIRED' %}
+            <p class="muted" style="margin:6px 0 10px">Sign in or register first. Your one-time trial is attached to your Digital account so you can return to it safely.</p>
+            <a class="btn" href="{{ url_for('digital_account_login', next=request.path) }}">Sign in to start trial</a>
+            <a class="btn btn-light" href="{{ url_for('digital_account_register', next=request.path) }}">Register</a>
+          {% elif trial_state.status == 'AVAILABLE' %}
             <p class="muted" style="margin:6px 0 10px">Try the full hosted app before paying. No payment method is required to start the trial.</p>
             <form method="post" action="{{ url_for('digital_start_trial', item_id=item.id) }}" data-no-live><button class="btn" type="submit">Start Free Trial</button></form>
           {% elif trial_state.status == 'ACTIVE' %}
@@ -63,11 +73,12 @@
           {% if item.hosted_gemini_enabled %}<p class="muted" style="margin:10px 0 0">✨ Gemini-powered features are available during the trial through Macleen’s secure server bridge. The API key is never sent to the browser; AI prompts are relayed to Google Gemini for processing.</p>{% endif %}
         </div>
       {% endif %}
-      {% if payment_settings.paymongo_active or payment_settings.paypal_available %}
+      {% if not digital_customer %}
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:13px;padding:14px"><strong>Digital account required</strong><p class="muted" style="margin:6px 0 10px">Sign in or register before purchasing. Existing Macleen's customers can use their current mobile/card number and PIN.</p><a class="btn" href="{{ url_for('digital_account_login', next=request.path) }}">Sign in</a> <a class="btn btn-light" href="{{ url_for('digital_account_register', next=request.path) }}">Register</a></div>
+      {% elif payment_settings.paymongo_active or payment_settings.paypal_available %}
       <form method="post" data-no-live>
-        <label>Name</label><input name="customer_name" required autocomplete="name">
-        <label>Contact</label><input name="contact_number" required inputmode="tel" autocomplete="tel">
-        <label>Delivery email</label><input type="email" name="email" required autocomplete="email">
+        <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:10px;padding:11px;margin-bottom:12px"><strong>{{ digital_customer.name }}</strong><div class="muted">{{ digital_customer.contact }} · {{ digital_customer.account_code }}</div></div>
+        <label>Delivery email</label><input type="email" name="email" value="{{ digital_customer.email or '' }}" required autocomplete="email">
         {% if item.product_type=='HOSTED_APP' %}
           <label>Access option</label>
           <select name="access_plan" id="hostedAccessPlan">

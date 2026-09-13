@@ -1,0 +1,19 @@
+{% extends 'digital/base.html' %}
+{% block title %}Register | Macleen's Digital{% endblock %}
+{% block content %}
+<section class="card" style="max-width:650px;margin:24px auto">
+  <div class="badge">Digital-only registration</div><h1 style="margin:10px 0 5px">Create your Macleen's Digital account</h1>
+  <p class="muted">This account is for Digital only. It does not create a Rewards account and does not give access to the Rewards portal.</p>
+  <form method="post">
+    <input type="hidden" name="next" value="{{ next_url }}">
+    <label>Full name</label><input name="name" maxlength="100" autocomplete="name" required>
+    <label>Email</label><input type="email" name="email" maxlength="120" autocomplete="email" required>
+    <label>Mobile number</label><input name="contact" maxlength="50" autocomplete="tel" required>
+    <label>Password</label><input type="password" name="password" minlength="8" maxlength="64" autocomplete="new-password" required>
+    <small class="muted">8–64 characters with at least one letter and one number.</small>
+    <label style="margin-top:10px">Confirm password</label><input type="password" name="confirm_password" minlength="8" maxlength="64" autocomplete="new-password" required>
+    <button class="btn" type="submit">Create Digital account</button>
+  </form>
+  <p style="margin-top:16px">Already registered or already a Macleen's customer? <a href="{{ url_for('digital_account_login', next=next_url) }}">Sign in instead</a>.</p>
+</section>
+{% endblock %}

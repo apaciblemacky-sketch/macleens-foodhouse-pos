@@ -1,4 +1,26 @@
-{% extends 'digital/base.html' %}{% block title %}Student & Business Digital Tools | Macleen's{% endblock %}{% block content %}
+{% extends 'digital/base.html' %}
+{% block title %}Student & Business Digital Tools | Macleen's{% endblock %}
+{% block head_extra %}
+  <meta name="description" content="Explore Macleen's Digital apps, trackers, business tools, and practical digital products.">
+  <link rel="canonical" href="{{ digital_catalog_share_url }}">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Macleen's Digital">
+  <meta property="og:title" content="Student & Business Digital Tools | Macleen's">
+  <meta property="og:description" content="Apps, trackers, templates, and practical digital tools from Macleen's Digital.">
+  <meta property="og:url" content="{{ digital_catalog_share_url }}">
+  <meta property="og:image" content="{{ digital_catalog_share_image }}">
+  <meta property="og:image:secure_url" content="{{ digital_catalog_share_image }}">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Macleen's Digital storefront">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Student & Business Digital Tools | Macleen's">
+  <meta name="twitter:description" content="Apps, trackers, templates, and practical digital tools from Macleen's Digital.">
+  <meta name="twitter:image" content="{{ digital_catalog_share_image }}">
+{% endblock %}
+{% block content %}
+
 <section class="digital-hero"><div><div class="eyebrow">Practical tools for everyday work</div><h1>Useful digital tools,<br><span>without the big price.</span></h1><p>Trackers, computation tools, web résumés, ready downloads, hosted apps, and custom systems—clear, practical, and supported by a local business.</p><a class="btn" href="#catalog">Explore digital tools</a> <a class="btn" style="background:#fff;color:#be185d;margin-left:6px" href="{{ url_for('digital_my_apps') }}">♾️ My Digital Apps</a></div><div class="hero-art">⌁<small>plan • create • grow</small></div></section>
 
 {% if featured and not selected_category %}<section class="featured-showcase" data-featured-carousel><div class="featured-head"><div><div class="eyebrow">Featured now</div><h2>Featured Digital Products</h2></div><div class="featured-controls"><button type="button" data-featured-prev aria-label="Previous featured product">‹</button><button type="button" data-featured-next aria-label="Next featured product">›</button></div></div><div class="featured-viewport"><div class="featured-track" data-featured-track>{% for item in featured %}{% set owned = owned_lifetime.get(item.id) %}<article class="featured-slide"><div class="featured-image"><img loading="lazy" src="{{ item.image_url or '/static/logo.png' }}" alt="{{ item.name }}">{% if owned %}<span class="featured" style="background:#dcfce7;color:#166534">♾️ Owned</span>{% endif %}</div><div class="featured-copy"><span class="badge">{{ item.category_name }}</span><h3>{{ item.name }}</h3><p>{{ (item.description or 'A featured digital offer from Macleen’s.')[:165] }}</p><div class="featured-footer"><div>{% if owned %}<small>Your access</small><strong style="color:#166534">Owned · Lifetime</strong><small style="display:block">No need to buy again</small>{% elif item.product_type=='HOSTED_APP' and item.hosted_customer_access=='FREE' %}<small>Hosted app</small><strong>FREE</strong>{% elif item.product_type=='HOSTED_APP' and item.hosted_customer_access=='LIFETIME' %}<small>Lifetime access</small><strong>₱{{ '%.2f'|format(item.lifetime_price) }}</strong>{% else %}<small>{{ 'Per usage' if item.product_type=='HOSTED_APP' else 'Starting at' }}</small><strong>₱{{ '%.2f'|format(item.price) }}</strong>{% if item.product_type=='HOSTED_APP' and item.lifetime_enabled and item.lifetime_price > 0 %}<small style="display:block">Lifetime ₱{{ '%.2f'|format(item.lifetime_price) }}</small>{% endif %}{% endif %}{% if item.product_type=='HOSTED_APP' and item.hosted_customer_access!='FREE' and item.trial_enabled is not sameas false %}<small style="display:block;color:#15803d;font-weight:800">🎁 {{ item.trial_hours or 24 }}h Free Trial</small>{% endif %}</div>{% if owned %}<a class="btn" href="{{ url_for('digital_my_apps_open',order_id=owned.id) }}">Open App</a>{% else %}<a class="btn" href="{{ url_for('digital_item_detail',item_id=item.id) }}">View details</a>{% endif %}</div></div></article>{% endfor %}</div></div><div class="featured-dots" data-featured-dots></div></section>{% endif %}

@@ -57,6 +57,19 @@ if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = database_url or 'sqlite:///foodhouse_pos.db'
+# Digital-only customer accounts intentionally live in a separate database from
+# the Food House / Rewards customer database. Existing Rewards customers can
+# still authenticate to Digital with their current credentials; Macleen's only
+# stores a lightweight Digital-account mirror here and never grants Digital-only
+# accounts access to Rewards. Set DIGITAL_DATABASE_URL in Render if you prefer a
+# separate managed PostgreSQL database. Otherwise Flask-SQLAlchemy keeps this as
+# a second SQLite file under the instance folder.
+digital_database_url = os.environ.get('DIGITAL_DATABASE_URL')
+if digital_database_url and digital_database_url.startswith('postgres://'):
+    digital_database_url = digital_database_url.replace('postgres://', 'postgresql://', 1)
+app.config['SQLALCHEMY_BINDS'] = {
+    'digital_accounts': digital_database_url or 'sqlite:///digital_customers.db',
+}
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {'pool_pre_ping': True}
 # A non-JavaScript bulk-catalog submission contains about fourteen controls per
@@ -79,7 +92,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.13-digital-trial-gemini-v40'
+APP_RELEASE = '2026.09.13-digital-accounts-chatlite-v41.1'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 STAFF_CREDENTIAL_MIN_LEN = 8
@@ -210,6 +223,32 @@ class Customer(db.Model):
     community_student_preapproved_by = db.Column(db.String(50), nullable=True)
     created_at = db.Column(db.DateTime, default=utc_now)
 
+class DigitalCustomer(db.Model):
+    """Digital-only customer identity stored in a separate database bind.
+
+    source_type=REWARDS means the customer authenticated with an existing
+    Macleen's Rewards account; only the Rewards customer id is mirrored here.
+    source_type=DIGITAL means this account exists only in Macleen's Digital and
+    never receives a Rewards/customer portal session.
+    """
+    __bind_key__ = 'digital_accounts'
+    __tablename__ = 'digital_customer'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(120), nullable=True, index=True)
+    contact = db.Column(db.String(50), nullable=False, unique=True, index=True)
+    password_hash = db.Column(db.String(255), nullable=True)
+    source_type = db.Column(db.String(20), nullable=False, default='DIGITAL', index=True)
+    rewards_customer_id = db.Column(db.Integer, nullable=True, unique=True, index=True)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime, default=utc_now, nullable=False)
+    last_login_at = db.Column(db.DateTime, nullable=True)
+
+    @property
+    def account_code(self):
+        return f'DIG-{int(self.id or 0):05d}'
+
+
 class DeliveryZone(db.Model):
     __tablename__ = 'delivery_zone'
     id = db.Column(db.Integer, primary_key=True)
@@ -300,6 +339,7 @@ class Order(db.Model):
     order_type = db.Column(db.String(30), nullable=False)
     dining_option = db.Column(db.String(20), default='DINE-IN')
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=True)
+    digital_customer_id = db.Column(db.Integer, nullable=True, index=True)
     customer_name = db.Column(db.String(100), default='Customer')
     contact_number = db.Column(db.String(50), default='N/A')
     fb_messenger = db.Column(db.String(150), nullable=True)
@@ -1458,6 +1498,7 @@ class DigitalAppTrial(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     item_id = db.Column(db.Integer, db.ForeignKey('digital_item.id', ondelete='CASCADE'), nullable=False, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True, index=True)
+    digital_customer_id = db.Column(db.Integer, nullable=True, index=True)
     browser_id_hash = db.Column(db.String(64), nullable=False, index=True)
     access_token = db.Column(db.String(96), unique=True, nullable=False, index=True, default=lambda: secrets.token_urlsafe(32))
     status = db.Column(db.String(20), nullable=False, default='ACTIVE')  # ACTIVE / EXPIRED
@@ -2169,7 +2210,11 @@ def run_schema_migrations():
             ('asset_updated_at', 'TIMESTAMP'),
             ('asset_release_notes', 'TEXT'),
         ],
+        'digital_app_trial': [
+            ('digital_customer_id', 'INTEGER'),
+        ],
         'digital_order': [
+            ('digital_customer_id', 'INTEGER'),
             ('asset_file_id', 'INTEGER'),
             ('access_plan', "VARCHAR(20) DEFAULT 'STANDARD'"),
             ('delivery_access_code', 'VARCHAR(24)'),
@@ -2452,7 +2497,7 @@ def app_startup_and_session_handler():
 
     # Customer logins may persist for up to 30 days. Staff sessions remain browser-session cookies
     # and are additionally protected by the explicit 8-hour inactivity check in the staff guards.
-    session.permanent = bool(session.get('customer_id')) and not bool(session.get('admin_user') or session.get('cashier_user'))
+    session.permanent = bool(session.get('customer_id') or session.get('digital_customer_id')) and not bool(session.get('admin_user') or session.get('cashier_user'))
 
     if 'customer_id' in session:
         try:
@@ -3369,7 +3414,7 @@ def cached_product_social_preview(prod):
         _PRODUCT_SHARE_CACHE[cache_key] = payload
     return payload
 
-DIGITAL_SHARE_STYLE_VERSION = 'digital-link-card-v1'
+DIGITAL_SHARE_STYLE_VERSION = 'digital-link-card-v2-face'
 _DIGITAL_SHARE_CACHE = {}
 
 
@@ -3437,6 +3482,71 @@ def cached_digital_social_preview(item):
         if len(_DIGITAL_SHARE_CACHE)>=PRODUCT_SHARE_CACHE_LIMIT:
             _DIGITAL_SHARE_CACHE.pop(next(iter(_DIGITAL_SHARE_CACHE)),None)
         _DIGITAL_SHARE_CACHE[key]=payload
+    return payload
+
+
+_DIGITAL_CATALOG_SHARE_CACHE = {}
+
+
+def digital_catalog_share_version():
+    rows = DigitalItem.query.filter_by(is_active=True).order_by(DigitalItem.is_featured.desc(), DigitalItem.id.asc()).limit(8).all()
+    state = [[row.id, row.name, row.image_url or '', bool(row.is_featured), row.asset_version or 1] for row in rows]
+    raw = json.dumps([APP_RELEASE, 'digital-catalog-face-v2', state], ensure_ascii=False, separators=(',', ':'))
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()[:12]
+
+
+def render_digital_catalog_social_preview():
+    width, height = PRODUCT_SHARE_IMAGE_SIZE
+    image = Image.new('RGBA', (width, height), '#0f766e')
+    draw = ImageDraw.Draw(image)
+    # Match the public Digital hero so the shared thumbnail feels like the face of the page.
+    for x in range(width):
+        t = x / max(1, width - 1)
+        color = (int(17 * (1-t) + 190 * t), int(94 * (1-t) + 24 * t), int(89 * (1-t) + 93 * t), 255)
+        draw.line((x, 0, x, height), fill=color)
+    draw.ellipse((820, -180, 1320, 320), fill=(255, 255, 255, 38))
+    draw.ellipse((-180, 390, 360, 830), fill=(236, 72, 153, 65))
+    try:
+        with Image.open(os.path.join(app.static_folder, 'logo.png')) as logo_source:
+            logo = ImageOps.fit(ImageOps.exif_transpose(logo_source).convert('RGBA'), (112, 112), method=Image.Resampling.LANCZOS)
+        mask = Image.new('L', (112, 112), 0); ImageDraw.Draw(mask).ellipse((0, 0, 111, 111), fill=255)
+        image.paste(logo, (72, 64), mask)
+    except Exception:
+        pass
+    draw.text((210, 73), "MACLEEN'S DIGITAL", font=_preview_font(39), fill='white')
+    draw.text((74, 210), 'Student & Business', font=_preview_font(55), fill='white')
+    draw.text((74, 278), 'Digital Tools', font=_preview_font(66), fill='#fbcfe8')
+    draw.text((77, 365), 'Apps • Trackers • Templates • Practical tools', font=_preview_font(24), fill='#ccfbf1')
+    draw.rounded_rectangle((74, 438, 535, 500), radius=28, fill='white')
+    draw.text((105, 454), 'OPEN MACLEEN’S DIGITAL', font=_preview_font(22), fill='#115e59')
+
+    featured = DigitalItem.query.filter_by(is_active=True, is_featured=True).order_by(DigitalItem.id.desc()).first()
+    if not featured:
+        featured = DigitalItem.query.filter_by(is_active=True).order_by(DigitalItem.id.desc()).first()
+    if featured:
+        try:
+            photo = _original_product_photo(_product_preview_photo(featured))
+            thumb = ImageOps.fit(photo.convert('RGBA'), (430, 430), method=Image.Resampling.LANCZOS)
+            card = Image.new('RGBA', (470, 510), (255,255,255,245))
+            card_draw = ImageDraw.Draw(card)
+            card_draw.rounded_rectangle((0,0,469,509), radius=34, fill=(255,255,255,245), outline=(153,246,228,255), width=4)
+            card.paste(thumb, (20, 20))
+            label = (featured.name or 'Featured Digital App')[:34]
+            card_draw.text((22, 462), label, font=_preview_font(20), fill='#172033')
+            image.alpha_composite(card, (665, 60))
+        except Exception:
+            pass
+    out = io.BytesIO(); image.convert('RGB').save(out, format='JPEG', quality=91, optimize=True, progressive=True, subsampling=0)
+    return out.getvalue()
+
+
+def cached_digital_catalog_social_preview():
+    key = digital_catalog_share_version()
+    payload = _DIGITAL_CATALOG_SHARE_CACHE.get(key)
+    if payload is None:
+        payload = render_digital_catalog_social_preview()
+        _DIGITAL_CATALOG_SHARE_CACHE.clear()
+        _DIGITAL_CATALOG_SHARE_CACHE[key] = payload
     return payload
 
 
@@ -10566,11 +10676,14 @@ def digital_trial_browser_hash(raw_value):
 def digital_trial_existing(item):
     if not digital_trial_eligible(item):
         return None
-    customer_id = parse_int(session.get('customer_id'), 0) or None
+    account = digital_current_customer(auto_link_rewards=True)
     browser_id = (request.cookies.get(DIGITAL_TRIAL_BROWSER_COOKIE) or '').strip()
     filters = []
-    if customer_id:
-        filters.append(DigitalAppTrial.customer_id == customer_id)
+    if account:
+        filters.append(DigitalAppTrial.digital_customer_id == account.id)
+        if account.rewards_customer_id:
+            # Find trials created before Digital accounts were separated.
+            filters.append(DigitalAppTrial.customer_id == account.rewards_customer_id)
     if browser_id:
         filters.append(DigitalAppTrial.browser_id_hash == digital_trial_browser_hash(browser_id))
     if not filters:
@@ -11577,6 +11690,222 @@ def digital_lifetime_cookie_value(order_ids):
     return base64.urlsafe_b64encode(f'{payload}:{signature}'.encode('utf-8')).decode('ascii').rstrip('=')
 
 
+DIGITAL_PASSWORD_MIN_LEN = 8
+DIGITAL_PASSWORD_MAX_LEN = 64
+
+
+def digital_password_error(password):
+    value = str(password or '')
+    if len(value) < DIGITAL_PASSWORD_MIN_LEN or len(value) > DIGITAL_PASSWORD_MAX_LEN:
+        return 'Password must be 8-64 characters.'
+    if not re.search(r'[A-Za-z]', value) or not re.search(r'\d', value):
+        return 'Password must contain at least one letter and one number.'
+    return None
+
+
+def digital_safe_next(value, fallback=None):
+    value = str(value or '').strip()
+    if value.startswith('/digital') and not value.startswith('//'):
+        return value
+    return fallback or url_for('digital_store')
+
+
+def digital_current_customer(auto_link_rewards=True):
+    """Return the Digital account without granting Rewards access.
+
+    If a customer is already signed in to the main Macleen's Rewards portal,
+    create/find a lightweight Digital-account mirror and keep both sessions.
+    Digital-only accounts set only digital_customer_id and therefore cannot
+    enter Rewards/customer-only routes.
+    """
+    digital_id = parse_int(session.get('digital_customer_id'), 0)
+    if digital_id:
+        account = db.session.get(DigitalCustomer, digital_id)
+        if account and account.active:
+            return account
+        session.pop('digital_customer_id', None)
+
+    if auto_link_rewards:
+        rewards_id = parse_int(session.get('customer_id'), 0)
+        if rewards_id:
+            rewards = db.session.get(Customer, rewards_id)
+            if rewards:
+                account = DigitalCustomer.query.filter_by(rewards_customer_id=rewards.id).first()
+                if not account:
+                    # Do not steal a Digital-only account using the same contact.
+                    account = DigitalCustomer.query.filter_by(contact=rewards.contact).first()
+                    if account and (account.source_type or '').upper() != 'REWARDS':
+                        return None
+                    if not account:
+                        account = DigitalCustomer(
+                            name=rewards.name,
+                            email=(rewards.email or None),
+                            contact=rewards.contact,
+                            source_type='REWARDS',
+                            rewards_customer_id=rewards.id,
+                            active=True,
+                        )
+                        db.session.add(account)
+                        db.session.commit()
+                else:
+                    account.name = rewards.name
+                    account.contact = rewards.contact
+                    if rewards.email and not account.email:
+                        account.email = rewards.email
+                    account.active = True
+                    db.session.commit()
+                session['digital_customer_id'] = account.id
+                session.permanent = True
+                return account
+    return None
+
+
+def digital_account_login_redirect(next_url=None):
+    target = digital_safe_next(next_url or request.full_path.rstrip('?'), url_for('digital_store'))
+    return redirect(url_for('digital_account_login', next=target))
+
+
+def digital_account_rewards_customer(account):
+    if not account or (account.source_type or '').upper() != 'REWARDS' or not account.rewards_customer_id:
+        return None
+    return db.session.get(Customer, account.rewards_customer_id)
+
+
+def digital_order_access_filters(account):
+    if not account:
+        return []
+    filters = [DigitalOrder.digital_customer_id == account.id]
+    if account.rewards_customer_id:
+        filters.append(DigitalOrder.customer_id == account.rewards_customer_id)
+    return filters
+
+
+def digital_account_paid_hosted_orders(account=None):
+    account = account or digital_current_customer()
+    filters = digital_order_access_filters(account)
+    if not filters:
+        return []
+    return DigitalOrder.query.join(DigitalItem, DigitalOrder.item_id == DigitalItem.id).filter(
+        DigitalOrder.payment_status == 'PAID',
+        DigitalItem.product_type == 'HOSTED_APP',
+        or_(*filters),
+    ).order_by(DigitalOrder.completed_at.desc().nullslast(), DigitalOrder.id.desc()).all()
+
+
+@app.route('/digital/account/login', methods=['GET', 'POST'])
+def digital_account_login():
+    existing = digital_current_customer(auto_link_rewards=True)
+    next_url = digital_safe_next(request.values.get('next'), url_for('digital_store'))
+    if existing and request.method == 'GET':
+        return redirect(next_url)
+    if request.method == 'POST':
+        identifier = request.form.get('identifier', '').strip()[:160]
+        secret = request.form.get('password', '').strip()
+        account = None
+
+        # First try a Digital-only account (email or contact + Digital password).
+        if identifier:
+            account = DigitalCustomer.query.filter(
+                or_(db.func.lower(DigitalCustomer.email) == identifier.lower(), DigitalCustomer.contact == identifier)
+            ).first()
+        if account and (account.source_type or '').upper() == 'DIGITAL':
+            if not account.active or not account.password_hash or not check_password_hash(account.password_hash, secret):
+                account = None
+        elif account and (account.source_type or '').upper() == 'REWARDS':
+            rewards = digital_account_rewards_customer(account)
+            if not rewards or not check_password_hash(rewards.pin_hash, secret):
+                account = None
+        else:
+            account = None
+
+        # Existing Macleen's Rewards customers can use their existing contact/card + PIN.
+        if not account:
+            rewards = get_customer_by_identifier(identifier)
+            if rewards and check_password_hash(rewards.pin_hash, secret) and not customer_access_issue(rewards):
+                account = DigitalCustomer.query.filter_by(rewards_customer_id=rewards.id).first()
+                if not account:
+                    conflict = DigitalCustomer.query.filter_by(contact=rewards.contact).first()
+                    if conflict and (conflict.source_type or '').upper() != 'REWARDS':
+                        flash('That mobile number already belongs to a Digital-only account. Sign in with its Digital password instead.', 'error')
+                        return render_template('digital/login.html', next_url=next_url)
+                    account = conflict or DigitalCustomer(
+                        name=rewards.name, email=(rewards.email or None), contact=rewards.contact,
+                        source_type='REWARDS', rewards_customer_id=rewards.id, active=True,
+                    )
+                    db.session.add(account)
+                    db.session.commit()
+
+        if not account:
+            flash('Invalid Digital account or Macleen’s customer credentials.', 'error')
+            return render_template('digital/login.html', next_url=next_url)
+
+        account.last_login_at = utc_now()
+        db.session.commit()
+        # Do not create a Rewards session for Digital-only logins.
+        session['digital_customer_id'] = account.id
+        session.permanent = True
+        return redirect(next_url)
+    return render_template('digital/login.html', next_url=next_url)
+
+
+@app.route('/digital/account/register', methods=['GET', 'POST'])
+def digital_account_register():
+    existing = digital_current_customer(auto_link_rewards=True)
+    next_url = digital_safe_next(request.values.get('next'), url_for('digital_store'))
+    if existing and request.method == 'GET':
+        return redirect(next_url)
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()[:100]
+        email = request.form.get('email', '').strip().lower()[:120]
+        contact = request.form.get('contact', '').strip()[:50]
+        password = request.form.get('password', '')
+        confirm = request.form.get('confirm_password', '')
+        error = digital_password_error(password)
+        if not name or not contact or '@' not in email:
+            flash('Name, mobile number, and a valid email are required.', 'error')
+            return render_template('digital/register.html', next_url=next_url)
+        if error:
+            flash(error, 'error')
+            return render_template('digital/register.html', next_url=next_url)
+        if password != confirm:
+            flash('Passwords do not match.', 'error')
+            return render_template('digital/register.html', next_url=next_url)
+        if Customer.query.filter(or_(Customer.contact == contact, db.func.lower(Customer.email) == email)).first():
+            flash('You already have a Macleen’s customer account. Use “Sign in with Macleen’s account” so the same credentials work in Digital.', 'info')
+            return redirect(url_for('digital_account_login', next=next_url))
+        if DigitalCustomer.query.filter(or_(DigitalCustomer.contact == contact, db.func.lower(DigitalCustomer.email) == email)).first():
+            flash('That email or mobile number is already registered in Macleen’s Digital.', 'error')
+            return redirect(url_for('digital_account_login', next=next_url))
+        account = DigitalCustomer(
+            name=name, email=email, contact=contact,
+            password_hash=generate_password_hash(password, method=STAFF_PASSWORD_HASH_METHOD),
+            source_type='DIGITAL', active=True, created_at=utc_now(), last_login_at=utc_now(),
+        )
+        db.session.add(account)
+        db.session.commit()
+        session['digital_customer_id'] = account.id
+        session.permanent = True
+        flash('Digital account created. You can now start trials and purchase apps.', 'success')
+        return redirect(next_url)
+    return render_template('digital/register.html', next_url=next_url)
+
+
+@app.route('/digital/account')
+def digital_account_home():
+    account = digital_current_customer(auto_link_rewards=True)
+    if not account:
+        return digital_account_login_redirect(url_for('digital_account_home'))
+    orders = digital_account_paid_hosted_orders(account)
+    return render_template('digital/account.html', digital_customer=account, orders=orders)
+
+
+@app.route('/digital/account/logout', methods=['POST'])
+def digital_account_logout():
+    session.pop('digital_customer_id', None)
+    flash('Signed out of Macleen’s Digital.', 'success')
+    return redirect(url_for('digital_store'))
+
+
 def digital_is_valid_lifetime_order(order):
     return bool(
         order and digital_paid_order(order) and digital_order_access_plan(order) == 'LIFETIME' and
@@ -11600,12 +11929,14 @@ def digital_remember_lifetime_order(response, order):
 
 
 def digital_lifetime_owned_orders():
-    """Lifetime hosted apps accessible to this account or remembered browser."""
-    customer_id = parse_int(session.get('customer_id'), 0)
+    """Lifetime hosted apps accessible to the signed-in Digital account.
+
+    Legacy remembered-browser orders remain visible for recovery, but every new
+    trial/purchase requires a Digital account and is linked by digital_customer_id.
+    """
+    account = digital_current_customer(auto_link_rewards=True)
     browser_ids = digital_lifetime_cookie_order_ids()
-    access_filters = []
-    if customer_id:
-        access_filters.append(DigitalOrder.customer_id == customer_id)
+    access_filters = digital_order_access_filters(account)
     if browser_ids:
         access_filters.append(DigitalOrder.id.in_(browser_ids))
     if not access_filters:
@@ -11632,9 +11963,12 @@ def digital_lifetime_owned_map():
 def digital_customer_can_open_lifetime_order(order):
     if not digital_is_valid_lifetime_order(order):
         return False
-    customer_id = parse_int(session.get('customer_id'), 0)
-    if customer_id and order.customer_id == customer_id:
-        return True
+    account = digital_current_customer(auto_link_rewards=True)
+    if account:
+        if order.digital_customer_id and order.digital_customer_id == account.id:
+            return True
+        if account.rewards_customer_id and order.customer_id == account.rewards_customer_id:
+            return True
     return order.id in digital_lifetime_cookie_order_ids()
 
 
@@ -11655,6 +11989,7 @@ def digital_support_rate_allowed():
 @app.route('/digital/')
 def digital_store():
     track_website_view('DIGITAL')
+    digital_customer = digital_current_customer(auto_link_rewards=True)
     category = request.args.get('category', '').strip()
     if category.casefold() == 'school':
         category = ''
@@ -11662,21 +11997,30 @@ def digital_store():
     if category:
         query = query.filter_by(category_name=category)
     featured = DigitalItem.query.filter_by(is_active=True, is_featured=True).order_by(DigitalItem.name.asc()).limit(12).all()
-    owned_lifetime = digital_lifetime_owned_map()
+    owned_lifetime = digital_lifetime_owned_map() if digital_customer else {}
+    catalog_share_version = digital_catalog_share_version()
     return render_template('digital/index.html', items=query.order_by(DigitalItem.is_featured.desc(), DigitalItem.name.asc()).all(),
-                           featured=featured, owned_lifetime=owned_lifetime,
+                           featured=featured, owned_lifetime=owned_lifetime, digital_customer=digital_customer,
                            categories=DigitalCategory.query.filter(
                                DigitalCategory.is_active.is_(True),
                                db.func.lower(DigitalCategory.name) != 'school',
                            ).order_by(DigitalCategory.name).all(), selected_category=category,
+                           digital_catalog_share_image=url_for('digital_catalog_social_preview', version=catalog_share_version, _external=True),
+                           digital_catalog_share_url=url_for('digital_store', _external=True),
                            payment_settings=digital_payment_settings(), announcement=portal_announcement('DIGITAL'), about=portal_about('DIGITAL'))
 
 
 @app.route('/digital/my-apps')
 def digital_my_apps():
+    account = digital_current_customer(auto_link_rewards=True)
+    if not account:
+        return digital_account_login_redirect(url_for('digital_my_apps'))
+    paid_hosted_orders = digital_account_paid_hosted_orders(account)
     return render_template(
         'digital/my_apps.html',
         lifetime_orders=digital_lifetime_owned_orders(),
+        paid_hosted_orders=paid_hosted_orders,
+        digital_customer=account,
         announcement=portal_announcement('DIGITAL'),
     )
 
@@ -11699,18 +12043,31 @@ def digital_save_lifetime_to_account(token):
     if not digital_is_valid_lifetime_order(order):
         flash('This order does not have active Lifetime Access.', 'error')
         return redirect(url_for('digital_order_status', token=token))
-    customer_id = parse_int(session.get('customer_id'), 0)
-    if not customer_id:
-        session['digital_lifetime_claim_token'] = token
-        flash('Log in once and Macleen’s will save this Lifetime Access to your account automatically.', 'info')
-        return redirect(url_for('customer_login', src='digital', next='digital-lifetime'))
-    if order.customer_id and order.customer_id != customer_id:
-        flash('This lifetime purchase is already linked to another customer account.', 'error')
+    account = digital_current_customer(auto_link_rewards=True)
+    if not account:
+        flash('Sign in to Macleen’s Digital to save this Lifetime Access to your account.', 'info')
+        return digital_account_login_redirect(url_for('digital_order_status', token=token))
+    if order.digital_customer_id and order.digital_customer_id != account.id:
+        flash('This lifetime purchase is already linked to another Digital account.', 'error')
         return redirect(url_for('digital_order_status', token=token))
-    order.customer_id = customer_id
+    order.digital_customer_id = account.id
+    if account.rewards_customer_id and not order.customer_id:
+        order.customer_id = account.rewards_customer_id
     db.session.commit()
-    flash('Lifetime Access saved to your account. You can now reopen it anytime from My Digital Apps.', 'success')
+    flash('Lifetime Access saved to your Digital account. You can reopen it anytime from My Apps.', 'success')
     return redirect(url_for('digital_order_status', token=token))
+
+
+@app.route('/social/digital/catalog/<version>.jpg')
+def digital_catalog_social_preview(version):
+    current_version = digital_catalog_share_version()
+    payload = cached_digital_catalog_social_preview()
+    response = Response(payload, mimetype='image/jpeg')
+    response.headers['Cache-Control'] = 'public, max-age=31536000, immutable' if version == current_version else 'public, max-age=3600'
+    response.headers['Content-Disposition'] = f'inline; filename="macleens-digital-catalog-{current_version}.jpg"'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['Content-Length'] = str(len(payload))
+    return response
 
 
 @app.route('/social/digital/<int:item_id>/<version>.jpg')
@@ -11729,6 +12086,10 @@ def digital_social_preview(item_id, version):
 @app.route('/digital/item/<int:item_id>/trial/start', methods=['POST'])
 def digital_start_trial(item_id):
     item = DigitalItem.query.filter_by(id=item_id, is_active=True, product_type='HOSTED_APP').first_or_404()
+    account = digital_current_customer(auto_link_rewards=True)
+    if not account:
+        flash('Create or sign in to your Macleen’s Digital account before starting a free trial.', 'info')
+        return digital_account_login_redirect(url_for('digital_item_detail', item_id=item.id))
     if not digital_trial_eligible(item):
         flash('A free trial is not available for this app.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
@@ -11738,29 +12099,43 @@ def digital_start_trial(item_id):
 
     browser_id = (request.cookies.get(DIGITAL_TRIAL_BROWSER_COOKIE) or '').strip() or secrets.token_urlsafe(32)
     browser_hash = digital_trial_browser_hash(browser_id)
-    customer_id = parse_int(session.get('customer_id'), 0) or None
-    filters = [DigitalAppTrial.browser_id_hash == browser_hash]
-    if customer_id:
-        filters.append(DigitalAppTrial.customer_id == customer_id)
+    filters = [DigitalAppTrial.digital_customer_id == account.id]
+    if account.rewards_customer_id:
+        filters.append(DigitalAppTrial.customer_id == account.rewards_customer_id)
+    # Keep old pre-v41 browser trials from being restarted after account migration.
+    filters.append(DigitalAppTrial.browser_id_hash == browser_hash)
     existing = DigitalAppTrial.query.filter(DigitalAppTrial.item_id == item.id, or_(*filters)).order_by(DigitalAppTrial.id.asc()).first()
     if existing:
+        if not existing.digital_customer_id:
+            existing.digital_customer_id = account.id
+        if account.rewards_customer_id and not existing.customer_id:
+            existing.customer_id = account.rewards_customer_id
+        db.session.commit()
         if digital_trial_is_active(existing):
             target = url_for('digital_chat_lite_trial', access_token=existing.access_token) if digital_is_chat_lite(item) else url_for('digital_hosted_app_trial', access_token=existing.access_token)
             response = redirect(target)
             response.set_cookie(DIGITAL_TRIAL_BROWSER_COOKIE, browser_id, max_age=DIGITAL_TRIAL_BROWSER_MAX_AGE, httponly=True, secure=IS_PRODUCTION, samesite='Lax')
             return response
-        flash('The one-time free trial for this app has already been used on this account/browser.', 'info')
+        flash('Your one-time free trial for this app has already been used.', 'info')
         return redirect(url_for('digital_item_detail', item_id=item.id))
 
     now = utc_now()
-    trial = DigitalAppTrial(item_id=item.id, customer_id=customer_id, browser_id_hash=browser_hash, status='ACTIVE',
-                            started_at=now, expires_at=now + timedelta(hours=digital_trial_hours(item)), gemini_calls=0)
+    trial = DigitalAppTrial(
+        item_id=item.id,
+        digital_customer_id=account.id,
+        customer_id=account.rewards_customer_id or None,
+        browser_id_hash=browser_hash,
+        status='ACTIVE',
+        started_at=now,
+        expires_at=now + timedelta(hours=digital_trial_hours(item)),
+        gemini_calls=0,
+    )
     db.session.add(trial)
     try:
         db.session.commit()
     except Exception:
         db.session.rollback()
-        existing = DigitalAppTrial.query.filter_by(item_id=item.id, browser_id_hash=browser_hash).first()
+        existing = DigitalAppTrial.query.filter_by(item_id=item.id, digital_customer_id=account.id).first()
         if not existing:
             app.logger.exception('Could not create Digital hosted-app trial for item %s', item.id)
             flash('Could not start the trial right now. Please try again.', 'error')
@@ -11775,7 +12150,8 @@ def digital_start_trial(item_id):
 @app.route('/digital/item/<int:item_id>', methods=['GET', 'POST'])
 def digital_item_detail(item_id):
     item = DigitalItem.query.filter_by(id=item_id, is_active=True).first_or_404()
-    owned_lifetime_order = digital_lifetime_owned_map().get(item.id) if item.product_type == 'HOSTED_APP' else None
+    digital_customer = digital_current_customer(auto_link_rewards=True)
+    owned_lifetime_order = digital_lifetime_owned_map().get(item.id) if digital_customer and item.product_type == 'HOSTED_APP' else None
     if request.method == 'GET':
         item.views = parse_int(item.views, 0) + 1; db.session.commit()
         share_version = digital_share_version(item)
@@ -11787,16 +12163,19 @@ def digital_item_detail(item_id):
                 app.logger.exception('Could not warm digital preview %s for social crawler', item.id)
         return render_template('digital/item.html', item=item, payment_settings=digital_payment_settings(),
                                hosted_access=digital_hosted_customer_access(item) if item.product_type == 'HOSTED_APP' else None,
-                               owned_lifetime_order=owned_lifetime_order,
-                               trial_state=digital_trial_state(item) if item.product_type == 'HOSTED_APP' else {'eligible': False, 'status': 'UNAVAILABLE'},
+                               owned_lifetime_order=owned_lifetime_order, digital_customer=digital_customer,
+                               trial_state=digital_trial_state(item) if digital_customer and item.product_type == 'HOSTED_APP' else {'eligible': bool(digital_trial_eligible(item)), 'status': 'LOGIN_REQUIRED', 'trial': None, 'hours': digital_trial_hours(item)},
                                digital_share_image=url_for('digital_social_preview', item_id=item.id, version=share_version, _external=True),
                                digital_share_page_url=url_for('digital_item_detail', item_id=item.id, pv=share_version, _external=True))
+    if not digital_customer:
+        flash('Create or sign in to your Macleen’s Digital account before purchasing an app.', 'info')
+        return digital_account_login_redirect(url_for('digital_item_detail', item_id=item.id))
     if owned_lifetime_order:
         flash('You already own Lifetime Access to this app. Open it from My Digital Apps instead of buying it again.', 'success')
         return redirect(url_for('digital_my_apps'))
-    name = request.form.get('customer_name', '').strip()[:100]
-    contact = request.form.get('contact_number', '').strip()[:50]
-    email = request.form.get('email', '').strip()[:120]
+    name = (digital_customer.name or '').strip()[:100]
+    contact = (digital_customer.contact or '').strip()[:50]
+    email = (request.form.get('email', '').strip() or digital_customer.email or '').strip().lower()[:120]
     qty = max(1, min(100, parse_int(request.form.get('quantity'), 1)))
     access_plan = 'STANDARD'
     unit_price = item.price
@@ -11826,8 +12205,11 @@ def digital_item_detail(item_id):
             unit_price = item.price
     requested_method = request.form.get('payment_method', 'QRPH').upper()
     if not name or not contact or '@' not in email:
-        flash('Name, contact number, and a valid delivery email are required.', 'error')
+        flash('A valid delivery email is required on your Digital account before checkout.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
+    if digital_customer.email != email:
+        digital_customer.email = email
+        db.session.flush()
     payment_settings = digital_payment_settings()
     if requested_method not in DIGITAL_PAYMENT_METHODS:
         flash('Choose QR PH or PayPal for this Digital product.', 'error')
@@ -11839,8 +12221,8 @@ def digital_item_detail(item_id):
         flash('PayPal is temporarily unavailable. Please choose QR PH or message the cashier.', 'error')
         return redirect(url_for('digital_item_detail', item_id=item.id))
     method = requested_method
-    member_id = parse_int(session.get('customer_id'), 0) or None
-    order = DigitalOrder(item_id=item.id, customer_id=member_id, customer_name=name, contact_number=contact, email=email,
+    member_id = digital_customer.rewards_customer_id or None
+    order = DigitalOrder(item_id=item.id, customer_id=member_id, digital_customer_id=digital_customer.id, customer_name=name, contact_number=contact, email=email,
         quantity=qty, unit_price=unit_price, unit_cost=item.cost or 0, total_price=unit_price * qty, access_plan=access_plan,
         payment_method=method, asset_file_id=item.asset_file_id,
         delivery_access_code=digital_access_code(), activation_device_limit=max(0, min(3, parse_int(item.app_device_limit, 0))),
@@ -12137,6 +12519,9 @@ def digital_hosted_app_free(item_id):
     item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP', is_active=True).first_or_404()
     if not digital_hosted_is_free(item) or not digital_is_uploaded_hosted_app(item):
         abort(403)
+    if not digital_current_customer(auto_link_rewards=True):
+        flash('Create or sign in to Macleen’s Digital before opening an app.', 'info')
+        return digital_account_login_redirect(url_for('digital_item_detail', item_id=item.id))
     return redirect(url_for('digital_uploaded_pwa_launch', item_id=item.id, mode='free', key=str(item.id)))
 
 
@@ -12146,6 +12531,8 @@ def digital_hosted_content_free(item_id, asset_path):
     item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP', is_active=True).first_or_404()
     if not digital_hosted_is_free(item) or not digital_is_uploaded_hosted_app(item):
         abort(403)
+    if not digital_current_customer(auto_link_rewards=True):
+        abort(401)
     return digital_hosted_content_response(item, asset_path)
 
 
@@ -12392,6 +12779,33 @@ def digital_admin():
     if order_ids:
         for activation in DigitalAppActivationCode.query.filter(DigitalAppActivationCode.order_id.in_(order_ids)).order_by(DigitalAppActivationCode.id.asc()).all():
             activation_codes_by_order.setdefault(activation.order_id, []).append(activation)
+    recent_trials = DigitalAppTrial.query.order_by(DigitalAppTrial.started_at.desc()).limit(500).all()
+    digital_ids = sorted({t.digital_customer_id for t in recent_trials if t.digital_customer_id})
+    digital_accounts = {}
+    if digital_ids:
+        try:
+            digital_accounts = {a.id: a for a in DigitalCustomer.query.filter(DigitalCustomer.id.in_(digital_ids)).all()}
+        except Exception:
+            app.logger.exception('Could not load Digital-account names for trial reporting')
+    paid_pairs = set()
+    if digital_ids:
+        for order in DigitalOrder.query.filter(
+            DigitalOrder.payment_status == 'PAID', DigitalOrder.digital_customer_id.in_(digital_ids)
+        ).all():
+            paid_pairs.add((order.digital_customer_id, order.item_id))
+    trial_rows = []
+    now = utc_now()
+    for trial in recent_trials:
+        account = digital_accounts.get(trial.digital_customer_id)
+        rewards = trial.customer
+        status = 'ACTIVE' if trial.expires_at and trial.expires_at > now and (trial.status or '').upper() == 'ACTIVE' else 'EXPIRED'
+        converted = bool(trial.digital_customer_id and (trial.digital_customer_id, trial.item_id) in paid_pairs)
+        trial_rows.append({
+            'trial': trial, 'account': account, 'rewards': rewards, 'status': status,
+            'converted': converted, 'customer_label': (account.name if account else (rewards.name if rewards else 'Legacy browser trial')),
+            'customer_code': (account.account_code if account else (rewards.card_number if rewards and rewards.card_number else ('CUST-' + str(rewards.id) if rewards else 'BROWSER'))),
+        })
+
     return render_template('digital/admin.html', items=DigitalItem.query.order_by(DigitalItem.is_active.desc(), DigitalItem.name).all(),
         categories=DigitalCategory.query.order_by(DigitalCategory.name).all(), orders=orders,
         payment_settings=digital_payment_settings(), support_faqs=DigitalSupportFAQ.query.order_by(DigitalSupportFAQ.sort_order.asc(), DigitalSupportFAQ.id.asc()).all(),
@@ -12399,7 +12813,7 @@ def digital_admin():
         order_assets={order.id: (digital_order_download_asset(order) if order.item and order.item.product_type == 'DOWNLOAD' else None) for order in orders},
         order_asset_versions={order.id: digital_order_asset_version(order) for order in orders},
         hosted_items=DigitalItem.query.filter(DigitalItem.product_type == 'HOSTED_APP', DigitalItem.hosted_app_key == 'UPLOADED').order_by(DigitalItem.name.asc()).all(),
-        announcement=portal_announcement('DIGITAL'), about=portal_about('DIGITAL'), website_view_analytics=build_website_view_analytics(30, 'DIGITAL'))
+        announcement=portal_announcement('DIGITAL'), about=portal_about('DIGITAL'), website_view_analytics=build_website_view_analytics(30, 'DIGITAL'), trial_rows=trial_rows)
 
 @app.route('/admin/digital/category/add', methods=['POST'])
 @require_admin

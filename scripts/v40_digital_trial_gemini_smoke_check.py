@@ -13,7 +13,7 @@ def need(text, marker, label):
         raise AssertionError(f'{label}: missing {marker!r}')
 
 for marker in [
-    "APP_RELEASE = '2026.09.13-digital-trial-gemini-v40'",
+    'digital-accounts-chatlite-v41.1',
     'class DigitalAppTrial(db.Model):',
     'class DigitalHostedAIUsage(db.Model):',
     "trial_hours = db.Column(db.Integer, default=24",

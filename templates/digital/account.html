@@ -1,0 +1,13 @@
+{% extends 'digital/base.html' %}
+{% block title %}My Digital Account | Macleen's{% endblock %}
+{% block content %}
+<section class="card">
+  <div style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap">
+    <div><div class="badge">{{ digital_customer.account_code }}</div><h1 style="margin:8px 0 3px">{{ digital_customer.name }}</h1><p class="muted">{{ digital_customer.email or 'No email' }} · {{ digital_customer.contact }}</p>
+    {% if digital_customer.source_type == 'DIGITAL' %}<p class="muted">Digital-only account · no Rewards portal access.</p>{% else %}<p class="muted">Linked to your existing Macleen's customer account.</p>{% endif %}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn" href="{{ url_for('digital_my_apps') }}">♾️ My Apps</a><button class="btn btn-light" type="button" data-portal-install>📲 Install Digital App</button></div>
+  </div>
+</section>
+<section class="card"><h2>Your paid hosted apps</h2><div class="grid">{% for order in orders %}<article style="border:1px solid #e2e8f0;border-radius:16px;padding:14px"><strong>{{ order.item.name }}</strong><div class="muted">{{ order.access_plan.replace('_',' ').title() }} · {{ order.payment_status }}</div>{% if order.access_plan == 'LIFETIME' %}<a class="btn" style="margin-top:10px" href="{{ url_for('digital_my_apps_open', order_id=order.id) }}">Open App</a>{% else %}<a class="btn" style="margin-top:10px" href="{{ url_for('digital_order_status', token=order.tracking_token) }}">Open order</a>{% endif %}</article>{% else %}<p class="muted">You have no paid hosted apps yet.</p>{% endfor %}</div></section>
+<section class="card"><form method="post" action="{{ url_for('digital_account_logout') }}"><button class="btn btn-light" type="submit">Sign out of Digital</button></form></section>
+{% endblock %}
