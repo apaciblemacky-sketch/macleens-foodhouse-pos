@@ -25,8 +25,74 @@
       {% if end_url %}<form method="post" action="{{ end_url }}" onsubmit="return confirm('End this paid usage now? You can otherwise keep reopening it until its {{ item.hosted_per_use_hours or 6 }}-hour expiry.');"><button class="btn end" type="submit">End Usage</button></form>{% endif %}
     </div>
   </div>
-  <iframe class="frame" src="{{ content_url }}" title="{{ item.name }}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock" allow="camera; microphone; display-capture; clipboard-read; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
+  <iframe id="hostedAppFrame" class="frame" src="{{ content_url }}" title="{{ item.name }}" sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-pointer-lock" allow="camera; microphone; display-capture; clipboard-read; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe>
 </div>
+<script>
+  // Secure device-local storage bridge for sandboxed uploaded apps.
+  // Uploaded app JS stays isolated; it can only read/write its own namespaced values.
+  (() => {
+    const frame = document.getElementById('hostedAppFrame');
+    if (!frame) return;
+    const storageKey = 'mfh-hosted-app-storage-v1:' + {{ item.id|tojson }};
+    const MAX_VALUE_CHARS = 2 * 1024 * 1024; // defensive per-value cap
+    const MAX_KEYS = 250;
+
+    function loadStore() {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch (_) { return {}; }
+    }
+    function saveStore(store) {
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(store));
+        return true;
+      } catch (_) { return false; }
+    }
+    function send(message) {
+      try { frame.contentWindow.postMessage(message, '*'); } catch (_) {}
+    }
+    function validKey(key) {
+      return typeof key === 'string' && key.length > 0 && key.length <= 120 && /^[A-Za-z0-9_.:-]+$/.test(key);
+    }
+
+    window.addEventListener('message', (event) => {
+      if (event.source !== frame.contentWindow) return;
+      const msg = event.data || {};
+      if (typeof msg !== 'object' || typeof msg.type !== 'string') return;
+
+      if (msg.type === 'mfh-host-storage-hello') {
+        send({type:'mfh-host-storage-ready', requestId: msg.requestId || null, data: loadStore()});
+        return;
+      }
+
+      if (msg.type === 'mfh-host-storage-set') {
+        if (!validKey(msg.key) || typeof msg.value !== 'string' || msg.value.length > MAX_VALUE_CHARS) return;
+        const store = loadStore();
+        if (!(msg.key in store) && Object.keys(store).length >= MAX_KEYS) return;
+        store[msg.key] = msg.value;
+        const ok = saveStore(store);
+        send({type:'mfh-host-storage-result', action:'set', key:msg.key, ok});
+        return;
+      }
+
+      if (msg.type === 'mfh-host-storage-remove') {
+        if (!validKey(msg.key)) return;
+        const store = loadStore();
+        delete store[msg.key];
+        const ok = saveStore(store);
+        send({type:'mfh-host-storage-result', action:'remove', key:msg.key, ok});
+        return;
+      }
+
+      if (msg.type === 'mfh-host-storage-clear') {
+        try { localStorage.removeItem(storageKey); send({type:'mfh-host-storage-result', action:'clear', ok:true}); }
+        catch (_) { send({type:'mfh-host-storage-result', action:'clear', ok:false}); }
+      }
+    });
+  })();
+</script>
 {% if manifest_url %}
 <script>
   let deferredInstallPrompt = null;
