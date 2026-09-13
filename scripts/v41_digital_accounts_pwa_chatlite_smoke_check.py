@@ -34,6 +34,15 @@ for m in ['screen-share-ready','file-image-preview','NotAllowedError']:
 js=(ROOT/'static/portal-pwa-install.js').read_text(encoding='utf-8')
 for m in ['Install ', 'Not now', 'data-portal-install', 'mfh-pwa-install-dismissed']:
     if m not in js: raise AssertionError('PWA prompt JS missing '+m)
+
+# Regression guard: Digital-only account ownership belongs to DigitalOrder, never Food Order.
+order_block = app.split('class Order(db.Model):', 1)[1].split('class OrderItem(db.Model):', 1)[0]
+digital_order_block = app.split('class DigitalOrder(db.Model):', 1)[1].split('class DigitalUsagePass(db.Model):', 1)[0]
+if 'digital_customer_id = db.Column' in order_block:
+    raise AssertionError('Food Order must not contain digital_customer_id')
+if 'digital_customer_id = db.Column' not in digital_order_block:
+    raise AssertionError('DigitalOrder must contain digital_customer_id')
+
 py_compile.compile(str(ROOT/'app.py'),doraise=True)
 env=Environment()
 for t in T.rglob('*.html'): env.parse(t.read_text(encoding='utf-8'))
