@@ -26,6 +26,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
+from markupsafe import escape
 
 import qrcode
 import qrcode.image.svg
@@ -16111,6 +16112,28 @@ def admin_dashboard():
     customers = Customer.query.order_by(Customer.id.desc()).all()
     delivery_zones = DeliveryZone.query.all()
     all_orders = Order.query.order_by(Order.created_at.desc()).limit(150).all()
+    # Show verified Sales Verification records in the existing Transactions breakdown
+    # without creating duplicate Order rows. Negative synthetic IDs use the existing trash
+    # button and are handled by admin_revert_order below.
+    verified_sales_for_breakdown = SalesVerification.query.filter_by(status='VERIFIED').order_by(
+        SalesVerification.verified_at.desc(), SalesVerification.id.desc()
+    ).limit(150).all()
+    sales_verification_audit_rows = []
+    for sale in verified_sales_for_breakdown:
+        class _SalesVerificationAuditRow:
+            pass
+        audit = _SalesVerificationAuditRow()
+        audit.id = -sale.id
+        audit.order_type = 'SALES VERIFICATION'
+        audit.dining_option = 'CUSTOMER-REPORTED'
+        audit.customer_id = None
+        audit.customer_name = sale.customer_name or 'Customer'
+        audit.total_amount = parse_float(sale.amount, 0.0)
+        audit.payment_method = 'CASHIER VERIFIED'
+        audit.status = 'VERIFIED'
+        audit.created_at = sale.verified_at or sale.submitted_at
+        sales_verification_audit_rows.append(audit)
+    all_orders = all_orders + sales_verification_audit_rows
     all_expenses = Expense.query.order_by(Expense.created_at.desc()).all()
     vault_drops = VaultDrop.query.order_by(VaultDrop.created_at.desc()).all()
     promotions = PromotionTracker.query.order_by(PromotionTracker.created_at.desc()).all()
@@ -16256,7 +16279,7 @@ def admin_dashboard():
 
     website_view_analytics = build_website_view_analytics(30)
 
-    return render_template('admin.html', 
+    rendered_admin = render_template('admin.html', 
                            products=products, 
                            categories=categories, 
                            staff_members=staff_members, 
@@ -16297,6 +16320,38 @@ def admin_dashboard():
                            suggestion_demand=suggestion_demand,
                            highlight_product_id=max(0, parse_int(request.args.get('added'), 0)),
                            suggestion_statuses=SUGGESTION_STATUSES)
+
+    # Inject verified Sales Verification rows into the existing Sales Breakdown -> Transactions
+    # table so they are visible alongside POS sales and can be removed with the existing trash UI.
+    audit_rows_html = []
+    for sale in verified_sales_for_breakdown:
+        safe_name = escape(sale.customer_name or 'Customer')
+        amount = max(0.0, parse_float(sale.amount, 0.0))
+        sale_id = parse_int(sale.id, 0)
+        audit_rows_html.append(
+            f'<tr style="background:#f0fdfa;">'
+            f'<td><strong>SV-{sale_id}</strong></td>'
+            f'<td><span class="badge" style="background:#ccfbf1; color:#115e59;">SALES VERIFICATION</span> '
+            f'<span class="badge" style="background:#f1f5f9; color:#475569;">CUSTOMER-REPORTED</span></td>'
+            f'<td><strong>{safe_name}</strong></td>'
+            f'<td style="font-weight:900; color:#059669;">₱{amount:,.2f}</td>'
+            f'<td>CASHIER VERIFIED</td>'
+            f'<td><span class="badge" style="background:#dcfce7; color:#15803d;">VERIFIED</span></td>'
+            f'<td style="text-align:center; color:#94a3b8;">—</td>'
+            f'<td><form action="/admin/revert-order/{-sale_id}" method="POST" onsubmit="return confirm(\'⚠️ Delete Sales Verification #SV-{sale_id}? This removes its sale total and reverses the points awarded by this verification.\');">'
+            f'<button type="submit" class="btn" style="background:#ef4444; color:white; padding:4px 6px; font-size:0.7rem;" title="Delete Sales Verification">🗑️</button>'
+            f'</form></td></tr>'
+        )
+    if audit_rows_html:
+        marker = '<div id="tabTransactions"'
+        start = rendered_admin.find(marker)
+        if start >= 0:
+            tbody_start = rendered_admin.find('<tbody>', start)
+            tbody_end = rendered_admin.find('</tbody>', tbody_start)
+            if tbody_start >= 0 and tbody_end >= 0:
+                rendered_admin = rendered_admin[:tbody_end] + ''.join(audit_rows_html) + rendered_admin[tbody_end:]
+
+    return rendered_admin
 
 @app.route('/admin/menu-vote/candidate/add', methods=['POST'])
 @require_admin
@@ -16458,6 +16513,31 @@ def reassign_order_to_customer(order, new_cust):
         apply_member_marketing_rewards(new_cust, order)
 
 
+@app.route('/admin/delete-sales-verification/<int:verification_id>', methods=['POST'])
+@require_admin
+def admin_delete_sales_verification(verification_id):
+    row = SalesVerification.query.get_or_404(verification_id)
+    customer = db.session.get(Customer, row.customer_id) if row.customer_id else None
+    label = f'Sales Verification #{row.id}'
+
+    if row.status == 'VERIFIED' and customer:
+        ledger_reason = f'Sales Verification #{row.id}'
+        ledger = RewardLedger.query.filter_by(
+            customer_id=customer.id,
+            reason=ledger_reason,
+        ).first()
+        if ledger and parse_float(ledger.points_change, 0.0) > 0:
+            customer.points_balance = max(
+                0.0,
+                round(parse_float(customer.points_balance, 0.0) - parse_float(ledger.points_change, 0.0), 2),
+            )
+            db.session.delete(ledger)
+
+    db.session.delete(row)
+    db.session.commit()
+    flash(f'{label} deleted. Its verified sale is removed from Sales Breakdown and financial totals.', 'info')
+    return redirect(url_for('admin_dashboard') + '#tabTransactions')
+
 @app.route('/admin/reassign-order/<int:order_id>', methods=['POST'])
 @require_admin
 def admin_reassign_order(order_id):
@@ -16561,6 +16641,8 @@ def admin_delete_product(product_id):
 @app.route('/admin/revert-order/<int:order_id>', methods=['POST'])
 @require_admin
 def admin_revert_order(order_id):
+    if order_id < 0:
+        return admin_delete_sales_verification(abs(order_id))
     order = Order.query.get_or_404(order_id)
     
     for item in order.items:
