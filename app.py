@@ -53,6 +53,122 @@ if not _secret_key:
     app.logger.warning('SECRET_KEY is not configured; generated a temporary key. Set SECRET_KEY in Render for stable sessions.')
 app.config['SECRET_KEY'] = _secret_key
 
+
+def send_store_order_notification(order, *, source='Storefront'):
+    """Send a non-blocking new-order notification through Resend.
+
+    The order has already been committed before this helper is called, so an
+    email/API failure can never prevent the customer order from being saved.
+    """
+    api_key = (os.environ.get('RESEND_API_KEY') or '').strip()
+    recipient = (os.environ.get('ORDER_NOTIFICATION_EMAIL') or 'apaciblemacky@gmail.com').strip()
+    sender = (os.environ.get('RESEND_FROM_EMAIL') or "Macleen's Food House <onboarding@resend.dev>").strip()
+    if not api_key or not recipient:
+        app.logger.warning('Order email notification skipped: RESEND_API_KEY or ORDER_NOTIFICATION_EMAIL is not configured.')
+        return False
+
+    item_rows = []
+    total_items = 0
+    for item in (order.items or []):
+        qty = int(parse_float(item.quantity, 0))
+        total_items += max(0, qty)
+        item_rows.append({
+            'name': str(item.product_name or 'Item'),
+            'quantity': max(0, qty),
+            'unit_price': parse_float(item.unit_price, 0.0),
+            'subtotal': parse_float(item.subtotal, 0.0),
+        })
+
+    order_type = str(order.order_type or '').upper()
+    payment_method = str(order.payment_method or '').upper()
+    fulfillment = str(order.fulfillment_status or '').replace('_', ' ').title()
+    customer_name = str(order.customer_name or 'Customer')
+    contact = str(order.contact_number or '—')
+    target_time = str(order.target_time or order.pickup_time or '—')
+    delivery_address = str(order.delivery_address or '—')
+    landmark = str(order.landmark or '—')
+    notes = str(order.notes or 'None')
+    total = parse_float(order.total_amount, 0.0)
+    subtotal = parse_float(order.subtotal, 0.0)
+    delivery_fee = parse_float(order.delivery_fee, 0.0)
+
+    item_text = '\n'.join(
+        f"- {row['name']} × {row['quantity']} @ ₱{row['unit_price']:,.2f} = ₱{row['subtotal']:,.2f}"
+        for row in item_rows
+    ) or '- No items recorded'
+    location_text = (
+        f"Delivery address: {delivery_address}\nLandmark: {landmark}"
+        if order_type == 'DELIVERY'
+        else f"Pickup/Dining option: {str(order.dining_option or 'TAKEOUT').replace('_', ' ').title()}"
+    )
+    subject = f"New Macleen's Food House Order #{order.id} — ₱{total:,.2f}"
+    text_body = (
+        f"NEW ORDER — {source}\n\n"
+        f"Order #: {order.id}\n"
+        f"Customer: {customer_name}\n"
+        f"Contact: {contact}\n"
+        f"Order type: {order_type or '—'}\n"
+        f"Target time: {target_time}\n"
+        f"Payment method: {payment_method or '—'}\n"
+        f"Order status: {str(order.status or '—')}\n"
+        f"Fulfillment: {fulfillment or '—'}\n"
+        f"{location_text}\n\n"
+        f"ITEMS ({total_items} item(s)):\n{item_text}\n\n"
+        f"Subtotal: ₱{subtotal:,.2f}\n"
+        f"Delivery fee: ₱{delivery_fee:,.2f}\n"
+        f"TOTAL: ₱{total:,.2f}\n\n"
+        f"Customer notes: {notes}\n"
+    )
+    html_items = ''.join(
+        f"<tr><td>{escape(row['name'])}</td><td>{row['quantity']}</td>"
+        f"<td>₱{row['unit_price']:,.2f}</td><td>₱{row['subtotal']:,.2f}</td></tr>"
+        for row in item_rows
+    ) or '<tr><td colspan="4">No items recorded</td></tr>'
+    html_location = (
+        f"<p><strong>Delivery address:</strong> {escape(delivery_address)}<br>"
+        f"<strong>Landmark:</strong> {escape(landmark)}</p>"
+        if order_type == 'DELIVERY'
+        else f"<p><strong>Pickup/Dining option:</strong> {escape(str(order.dining_option or 'TAKEOUT').replace('_', ' ').title())}</p>"
+    )
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;max-width:700px;margin:auto">
+      <h2>New Macleen's Food House Order</h2>
+      <p><strong>Order #{order.id}</strong> · {escape(source)}</p>
+      <table cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
+        <tr><td><strong>Customer</strong></td><td>{escape(customer_name)}</td></tr>
+        <tr><td><strong>Contact</strong></td><td>{escape(contact)}</td></tr>
+        <tr><td><strong>Order type</strong></td><td>{escape(order_type or '—')}</td></tr>
+        <tr><td><strong>Target time</strong></td><td>{escape(target_time)}</td></tr>
+        <tr><td><strong>Payment</strong></td><td>{escape(payment_method or '—')}</td></tr>
+        <tr><td><strong>Status</strong></td><td>{escape(str(order.status or '—'))}</td></tr>
+      </table>
+      {html_location}
+      <h3>Items</h3>
+      <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%">
+        <tr><th align="left">Item</th><th>Qty</th><th>Unit</th><th>Subtotal</th></tr>
+        {html_items}
+      </table>
+      <p><strong>Subtotal:</strong> ₱{subtotal:,.2f}<br>
+      <strong>Delivery fee:</strong> ₱{delivery_fee:,.2f}<br>
+      <strong style="font-size:18px">TOTAL: ₱{total:,.2f}</strong></p>
+      <p><strong>Customer notes:</strong> {escape(notes)}</p>
+    </div>
+    """
+    try:
+        response = requests.post(
+            'https://api.resend.com/emails',
+            headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
+            json={'from': sender, 'to': [recipient], 'subject': subject, 'text': text_body, 'html': html_body},
+            timeout=(4, 15),
+        )
+        if response.ok:
+            app.logger.info('Order email notification sent for order #%s to %s', order.id, recipient)
+            return True
+        app.logger.warning('Order email notification failed for order #%s: HTTP %s %s', order.id, response.status_code, response.text[:500])
+    except requests.RequestException as exc:
+        app.logger.warning('Order email notification failed for order #%s: %s', order.id, exc)
+    return False
+
 database_url = os.environ.get('DATABASE_URL')
 if database_url and database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql://", 1)
@@ -7437,6 +7553,7 @@ def api_storefront_checkout():
         ))
         reserve_cart_stock(lines)
         db.session.commit()
+        send_store_order_notification(order, source='Storefront')
         return jsonify({'success': True, 'order_id': order.id, 'total': total,
                         'tracking_url': url_for('order_tracking', token=order.public_token),
                         'order_chat_token': order.public_token,
@@ -7951,6 +8068,7 @@ def group_order_submit(token):
         group.submitted_order_id = order.id
         group.submitted_at = utc_now()
         db.session.commit()
+        send_store_order_notification(order, source='Group Order')
         return redirect(url_for('order_tracking', token=order.public_token))
     except (OrderValidationError, TypeError, ValueError, json.JSONDecodeError) as exc:
         db.session.rollback()
@@ -16338,7 +16456,7 @@ def admin_dashboard():
             f'<td>CASHIER VERIFIED</td>'
             f'<td><span class="badge" style="background:#dcfce7; color:#15803d;">VERIFIED</span></td>'
             f'<td style="text-align:center; color:#94a3b8;">—</td>'
-            f'<td><form action="/admin/revert-order/{-sale_id}" method="POST" onsubmit="return confirm(\'⚠️ Delete Sales Verification #SV-{sale_id}? This removes its sale total and reverses the points awarded by this verification.\');">'
+            f'<td><form action="/admin/delete-sales-verification/{sale_id}" method="POST" onsubmit="return confirm(\'⚠️ Delete Sales Verification #SV-{sale_id}? This removes its sale total and reverses the points awarded by this verification.\');">'
             f'<button type="submit" class="btn" style="background:#ef4444; color:white; padding:4px 6px; font-size:0.7rem;" title="Delete Sales Verification">🗑️</button>'
             f'</form></td></tr>'
         )
