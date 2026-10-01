@@ -96,6 +96,7 @@
       <a class="action" href="#favorites"><span>🔖</span>My Favorites</a>
       
       <a class="action" href="#appNotifications"><span>📲</span>App Alerts</a>
+      <a class="action" href="#salesVerification"><span>🧾</span>Verify a Sale</a>
     </div>
   </div>
 
@@ -239,6 +240,35 @@
     </div>
   </div>
 
+  <div class="card" id="salesVerification" style="border-color:#f9a8d4;background:linear-gradient(145deg,#fff,#fff7fb);">
+    <div class="row" style="margin-bottom:8px;">
+      <div><div class="section-title" style="margin:0;">🧾 Purchase Sales Verification</div><div class="muted">If you made a purchase in-store and want it recorded as an accounted sale, submit the amount below. A cashier must verify it before it counts.</div></div>
+      <span id="salesVerificationConnection" class="status-pill" style="background:#f1f5f9;color:#475569;">Ready</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr;gap:8px;">
+      <label style="font-size:.76rem;font-weight:900;color:var(--dark);">Purchase amount (₱)
+        <input id="salesVerificationAmount" type="number" min="0.01" max="1000000" step="0.01" inputmode="decimal" placeholder="e.g. 250" style="width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:10px;margin-top:4px;">
+      </label>
+      <label style="font-size:.76rem;font-weight:900;color:var(--dark);">Optional note
+        <textarea id="salesVerificationNote" maxlength="500" placeholder="Example: Walk-in food purchase • Cash" style="width:100%;min-height:72px;padding:10px;border:1px solid #cbd5e1;border-radius:10px;margin-top:4px;resize:vertical;"></textarea>
+      </label>
+      <button id="salesVerificationSubmit" type="button" class="btn btn-pink" onclick="submitSalesVerification()">Submit for Cashier Verification</button>
+    </div>
+    <div style="margin-top:14px;font-size:.78rem;font-weight:900;color:var(--dark);">My Submissions</div>
+    <div id="salesVerificationList" class="history" style="margin-top:5px;">
+      {% if sales_verification_submissions %}
+        {% for row in sales_verification_submissions %}
+          <div class="history-row">
+            <div class="row"><strong>#SV-{{ row.id }} • ₱{{ "{:,.2f}".format(row.amount) }}</strong><span class="status-pill" data-status-pill="{{ row.id }}">{{ row.status.title() }}</span></div>
+            <div class="muted">Submitted {{ utc_naive_to_ph(row.submitted_at).strftime('%b %d, %Y %I:%M %p') }}{% if row.note %} • {{ row.note }}{% endif %}</div>
+            {% if row.status == 'VERIFIED' %}<div style="color:#15803d;font-size:.7rem;font-weight:900;margin-top:3px;">✓ Verified by {{ row.verified_by or 'cashier' }}</div>{% elif row.status == 'REJECTED' %}<div style="color:#b91c1c;font-size:.7rem;font-weight:900;margin-top:3px;">✕ {{ row.rejection_note or 'Rejected by cashier.' }}</div>{% else %}<div style="color:#0369a1;font-size:.7rem;font-weight:900;margin-top:3px;">Waiting for cashier verification…</div>{% endif %}
+          </div>
+        {% endfor %}
+      {% else %}<div id="salesVerificationEmpty" class="muted" style="text-align:center;padding:10px;">No sales submissions yet.</div>{% endif %}
+    </div>
+    <div class="muted" style="margin-top:8px;">Only verified submissions count toward the verification-based accounted sales total. This does not create a duplicate online order.</div>
+  </div>
+
   <div class="card secondary-order" id="orders">
     <div class="row" style="margin-bottom:9px;">
       <div class="section-title" style="margin:0;">📦 Purchases & Orders</div>
@@ -380,6 +410,51 @@
     const button=document.getElementById(`applyPoints-${orderId}`);if(button){const note=document.createElement('div');note.style.cssText='color:#059669;font-weight:900;margin-top:3px;font-size:.72rem';note.textContent=`✓ ${data.points_redeemed.toFixed(2)} points used (₱${data.discount.toFixed(2)} discount)`;button.replaceWith(note);}
     const balance=Number(data.points_balance||0),display=balance.toFixed(1);document.getElementById('pointsBalanceMain').textContent=display;document.getElementById('ringPoints').textContent=display;document.getElementById('rewardRing').style.setProperty('--progress',`${Math.min(100,balance/20*100)*3.6}deg`);document.getElementById('milestoneText').textContent=balance>=20?'20-point milestone reached!':`${(20-balance).toFixed(1)} pts to 20-point milestone`;
   }
+  function salesVerificationStatusClass(status){
+    const value=String(status||'').toUpperCase();
+    if(value==='VERIFIED')return {bg:'#dcfce7',color:'#166534',label:'Verified'};
+    if(value==='REJECTED')return {bg:'#fee2e2',color:'#991b1b',label:'Rejected'};
+    return {bg:'#e0f2fe',color:'#075985',label:'Pending'};
+  }
+  function renderSalesVerificationRows(rows){
+    const list=document.getElementById('salesVerificationList');if(!list)return;
+    if(!rows.length){list.innerHTML='<div class="muted" style="text-align:center;padding:10px;">No sales submissions yet.</div>';return;}
+    list.innerHTML=rows.map(row=>{
+      const st=salesVerificationStatusClass(row.status);
+      const when=row.submitted_at?new Date(row.submitted_at).toLocaleString('en-PH',{dateStyle:'medium',timeStyle:'short'}):'';
+      const note=row.note?` • ${String(row.note).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]))}`:'';
+      let detail=row.status==='VERIFIED'?`<div style="color:#15803d;font-size:.7rem;font-weight:900;margin-top:3px;">✓ Verified by ${row.verified_by||'cashier'}</div>`:row.status==='REJECTED'?`<div style="color:#b91c1c;font-size:.7rem;font-weight:900;margin-top:3px;">✕ ${row.rejection_note||'Rejected by cashier.'}</div>`:'<div style="color:#0369a1;font-size:.7rem;font-weight:900;margin-top:3px;">Waiting for cashier verification…</div>';
+      return `<div class="history-row"><div class="row"><strong>#SV-${row.id} • ₱${Number(row.amount||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong><span class="status-pill" style="background:${st.bg};color:${st.color};">${st.label}</span></div><div class="muted">Submitted ${when}${note}</div>${detail}</div>`;
+    }).join('');
+  }
+  async function loadSalesVerifications(){
+    const state=document.getElementById('salesVerificationConnection');
+    try{
+      const res=await fetch('/api/customer/sales-verifications',{cache:'no-store'});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||!data.success)throw new Error(data.message||'Unavailable');
+      renderSalesVerificationRows(data.submissions||[]);
+      if(state){state.textContent='● Connected';state.style.background='#dcfce7';state.style.color='#166534';}
+    }catch(e){if(state){state.textContent='● Reconnecting';state.style.background='#fef3c7';state.style.color='#92400e';}}
+  }
+  async function submitSalesVerification(){
+    const amountEl=document.getElementById('salesVerificationAmount'),noteEl=document.getElementById('salesVerificationNote'),button=document.getElementById('salesVerificationSubmit');
+    const amount=Number(amountEl?.value||0),note=(noteEl?.value||'').trim();
+    if(!Number.isFinite(amount)||amount<=0)return alert('Please enter a valid purchase amount.');
+    button.disabled=true;button.textContent='Submitting…';
+    try{
+      const res=await fetch('/api/customer/sales-verifications',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({amount,note})});
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||!data.success)throw new Error(data.message||'Could not submit the purchase.');
+      amountEl.value='';noteEl.value='';
+      renderSalesVerificationRows([data.submission]);
+      await loadSalesVerifications();
+      alert('Submitted! Your purchase is now waiting for cashier verification.');
+    }catch(e){alert(e.message||'Could not submit the purchase.');}
+    finally{button.disabled=false;button.textContent='Submit for Cashier Verification';}
+  }
+  if(document.getElementById('salesVerification')){loadSalesVerifications();setInterval(loadSalesVerifications,4000);}
+
   syncCustomerCardPreview();
 </script>
 </body>

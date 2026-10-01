@@ -379,6 +379,29 @@ class Order(db.Model):
     customer = db.relationship('Customer', backref='orders', lazy=True)
     items = db.relationship('OrderItem', backref='order_rel', cascade="all, delete-orphan", lazy=True)
 
+class SalesVerification(db.Model):
+    """Customer-reported sale awaiting cashier verification.
+
+    This is deliberately separate from Order so a customer-submitted amount
+    cannot create a duplicate POS order. Only VERIFIED records count toward
+    the verification-based accounted-sales totals and financial journal.
+    """
+    __tablename__ = 'sales_verification'
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id', ondelete='SET NULL'), nullable=True, index=True)
+    customer_name = db.Column(db.String(100), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    note = db.Column(db.String(500), nullable=True)
+    status = db.Column(db.String(20), nullable=False, default='PENDING', index=True)
+    submitted_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
+    verified_at = db.Column(db.DateTime, nullable=True)
+    verified_by = db.Column(db.String(50), nullable=True)
+    rejected_at = db.Column(db.DateTime, nullable=True)
+    rejected_by = db.Column(db.String(50), nullable=True)
+    rejection_note = db.Column(db.String(255), nullable=True)
+    customer = db.relationship('Customer', lazy=True)
+
+
 class OrderItem(db.Model):
     __tablename__ = 'order_item'
     id = db.Column(db.Integer, primary_key=True)
@@ -6815,10 +6838,134 @@ def run_marketing_agent_once():
 def api_queue_counts():
     try:
         pending_cashier = Order.query.filter_by(status="VERIFICATION").count()
-        return jsonify({'pending_cashier': pending_cashier})
+        pending_sales_verifications = SalesVerification.query.filter_by(status='PENDING').count()
+        today_start, next_day = ph_day_utc_bounds()
+        verified_sales_today = db.session.query(db.func.coalesce(db.func.sum(SalesVerification.amount), 0.0)).filter(
+            SalesVerification.status == 'VERIFIED',
+            SalesVerification.verified_at >= today_start,
+            SalesVerification.verified_at < next_day,
+        ).scalar() or 0.0
+        return jsonify({
+            'pending_cashier': pending_cashier,
+            'pending_sales_verifications': pending_sales_verifications,
+            'verified_sales_today': round(float(verified_sales_today), 2),
+            'gross_sales_accounted_today': round(
+                float(verified_sales_today) + float(db.session.query(db.func.coalesce(db.func.sum(Order.total_amount), 0.0)).filter(
+                    Order.status == 'COMPLETED', Order.payment_verified.is_(True),
+                    Order.created_at >= today_start, Order.created_at < next_day,
+                ).scalar() or 0.0), 2
+            ),
+        })
     except Exception:
         app.logger.exception('Queue-count query failed')
         return jsonify({'error': 'Queue data is temporarily unavailable.'}), 500
+
+# ==================== CUSTOMER SALES VERIFICATION ====================
+
+def _sales_verification_payload(row):
+    return {
+        'id': row.id,
+        'customer_name': row.customer_name,
+        'amount': round(parse_float(row.amount, 0.0), 2),
+        'note': row.note or '',
+        'status': row.status,
+        'submitted_at': utc_naive_to_ph(row.submitted_at).isoformat() if row.submitted_at else None,
+        'verified_at': utc_naive_to_ph(row.verified_at).isoformat() if row.verified_at else None,
+        'verified_by': row.verified_by or '',
+        'rejected_at': utc_naive_to_ph(row.rejected_at).isoformat() if row.rejected_at else None,
+        'rejection_note': row.rejection_note or '',
+    }
+
+@app.route('/api/customer/sales-verifications', methods=['GET', 'POST'])
+def customer_sales_verifications_api():
+    if 'customer_id' not in session:
+        return jsonify({'success': False, 'message': 'Please log in to use Sales Verification.'}), 401
+    cust = Customer.query.get(session['customer_id'])
+    if not cust:
+        return jsonify({'success': False, 'message': 'Customer session expired. Please log in again.'}), 401
+    issue = customer_access_issue(cust)
+    if issue:
+        return jsonify({'success': False, 'message': issue}), 403
+
+    if request.method == 'GET':
+        rows = SalesVerification.query.filter_by(customer_id=cust.id).order_by(SalesVerification.submitted_at.desc(), SalesVerification.id.desc()).limit(30).all()
+        return jsonify({'success': True, 'submissions': [_sales_verification_payload(row) for row in rows]})
+
+    data = request.get_json(silent=True) or {}
+    amount = round(parse_float(data.get('amount'), 0.0), 2)
+    note = re.sub(r'\s+', ' ', str(data.get('note', '')).strip())[:500]
+    if amount <= 0 or amount > 1000000:
+        return jsonify({'success': False, 'message': 'Purchase amount must be greater than ₱0.00 and no more than ₱1,000,000.00.'}), 400
+
+    row = SalesVerification(
+        customer_id=cust.id,
+        customer_name=cust.name[:100],
+        amount=amount,
+        note=note or None,
+        status='PENDING',
+    )
+    db.session.add(row)
+    db.session.commit()
+    return jsonify({'success': True, 'submission': _sales_verification_payload(row), 'message': 'Purchase submitted. Please wait for cashier verification.'}), 201
+
+@app.route('/api/cashier/sales-verifications')
+@require_cashier
+def cashier_sales_verifications_api():
+    rows = SalesVerification.query.filter_by(status='PENDING').order_by(SalesVerification.submitted_at.asc(), SalesVerification.id.asc()).limit(100).all()
+    today_start, next_day = ph_day_utc_bounds()
+    verified_today = db.session.query(db.func.coalesce(db.func.sum(SalesVerification.amount), 0.0)).filter(
+        SalesVerification.status == 'VERIFIED',
+        SalesVerification.verified_at >= today_start,
+        SalesVerification.verified_at < next_day,
+    ).scalar() or 0.0
+    return jsonify({
+        'success': True,
+        'pending': [_sales_verification_payload(row) for row in rows],
+        'verified_today': round(float(verified_today), 2),
+    })
+
+@app.route('/api/cashier/sales-verifications/<int:verification_id>/action', methods=['POST'])
+@require_cashier
+def cashier_sales_verification_action(verification_id):
+    row = SalesVerification.query.get_or_404(verification_id)
+    if row.status != 'PENDING':
+        return jsonify({'success': False, 'message': f'Submission #{row.id} is already {row.status.lower()}.'}), 409
+    data = request.get_json(silent=True) or {}
+    action = str(data.get('action', '')).strip().upper()
+    staff_user = active_cashier_username() or 'cashier'
+
+    if action == 'VERIFY':
+        row.status = 'VERIFIED'
+        row.verified_at = utc_now()
+        row.verified_by = staff_user[:50]
+        row.rejection_note = None
+    elif action == 'REJECT':
+        row.status = 'REJECTED'
+        row.rejected_at = utc_now()
+        row.rejected_by = staff_user[:50]
+        row.rejection_note = re.sub(r'\s+', ' ', str(data.get('reason', '')).strip())[:255] or 'Rejected by cashier.'
+    else:
+        return jsonify({'success': False, 'message': 'Choose VERIFY or REJECT.'}), 400
+
+    db.session.commit()
+    if row.customer_id:
+        try:
+            if row.status == 'VERIFIED':
+                send_customer_app_push(
+                    'Purchase verified',
+                    f'Your ₱{row.amount:,.2f} purchase submission was verified by the cashier.',
+                    url='/portal/dashboard#salesVerification', category='ORDER', customer_ids=[row.customer_id],
+                )
+            else:
+                send_customer_app_push(
+                    'Purchase submission reviewed',
+                    f'Your ₱{row.amount:,.2f} purchase submission was rejected. Please check Sales Verification for the cashier note.',
+                    url='/portal/dashboard#salesVerification', category='ORDER', customer_ids=[row.customer_id],
+                )
+        except Exception:
+            app.logger.exception('Could not send sales-verification notification for id=%s', row.id)
+    return jsonify({'success': True, 'submission': _sales_verification_payload(row)})
+
 
 # ==================== STOREFRONT ====================
 
@@ -7809,6 +7956,23 @@ def cashier_terminal():
     community_gift_vouchers = []
     community_mystery_drops = []
     hidden_prize_product_claims = []
+    sales_verification_pending = SalesVerification.query.filter_by(status='PENDING').order_by(SalesVerification.submitted_at.asc(), SalesVerification.id.asc()).limit(100).all()
+    today_start, next_day = ph_day_utc_bounds()
+    sales_verification_today = db.session.query(db.func.coalesce(db.func.sum(SalesVerification.amount), 0.0)).filter(
+        SalesVerification.status == 'VERIFIED',
+        SalesVerification.verified_at >= today_start,
+        SalesVerification.verified_at < next_day,
+    ).scalar() or 0.0
+    completed_sales_today = db.session.query(db.func.coalesce(db.func.sum(Order.total_amount), 0.0)).filter(
+        Order.status == 'COMPLETED', Order.payment_verified.is_(True),
+        Order.created_at >= today_start, Order.created_at < next_day,
+    ).scalar() or 0.0
+    sales_verification_gross_today = float(completed_sales_today) + float(sales_verification_today)
+    sales_verification_qr_target = f"{_marketing_public_base_url()}/portal/dashboard#salesVerification"
+    sales_verification_qr = qrcode.make(sales_verification_qr_target)
+    qr_buf = io.BytesIO()
+    sales_verification_qr.save(qr_buf, format='PNG')
+    sales_verification_qr_data = 'data:image/png;base64,' + base64.b64encode(qr_buf.getvalue()).decode('ascii')
 
     return render_template(
         'cashier_pos.html',
@@ -7829,6 +7993,11 @@ def cashier_terminal():
         community_gift_vouchers=community_gift_vouchers,
         community_mystery_drops=community_mystery_drops,
         hidden_prize_product_claims=hidden_prize_product_claims,
+        sales_verification_pending=sales_verification_pending,
+        sales_verification_today=round(float(sales_verification_today), 2),
+        sales_verification_gross_today=round(sales_verification_gross_today, 2),
+        sales_verification_qr_data=sales_verification_qr_data,
+        sales_verification_qr_target=sales_verification_qr_target,
     )
 
 
@@ -13520,6 +13689,31 @@ def financial_build_journal(period_start, period_end, fallback_cost_percent, inc
                 note=(f'₱{estimated_cost:,.2f} uses the saved Cost % fallback.' if estimated_cost > 0 else ''),
             )
 
+    verified_submissions = SalesVerification.query.filter(
+        SalesVerification.status == 'VERIFIED',
+        SalesVerification.verified_at >= utc_start, SalesVerification.verified_at < utc_end,
+    ).order_by(SalesVerification.verified_at.asc(), SalesVerification.id.asc()).all()
+    for row in verified_submissions:
+        transaction_day = utc_naive_to_ph(row.verified_at).date()
+        amount = max(0.0, parse_float(row.amount, 0.0))
+        if amount <= 0:
+            continue
+        financial_add_entry(
+            lines, transaction_day, f'SALES-VERIFY-{row.id}-REVENUE',
+            f'Verified customer sale #{row.id} — {row.customer_name}', 'SALES_VERIFICATION', row.id,
+            [('Cash & Digital Collections', amount, 0.0), ('Food & Beverage Sales', 0.0, amount)],
+            note='Cashier-verified customer-reported purchase amount; no duplicate POS Order created.',
+        )
+        cogs = amount * (fallback_cost_percent / 100.0)
+        if cogs > 0:
+            financial_add_entry(
+                lines, transaction_day, f'SALES-VERIFY-{row.id}-COGS',
+                f'Estimated cost for verified customer sale #{row.id}', 'SALES_VERIFICATION', row.id,
+                [('Cost of Goods Sold', cogs, 0.0), ('Inventory', 0.0, cogs)],
+                is_estimated=True,
+                note=f'Uses Financial Statements fallback Cost % ({fallback_cost_percent:.2f}%) because customer-reported sales have no item-level cost detail.',
+            )
+
     vault_drops = VaultDrop.query.filter(
         VaultDrop.created_at >= utc_start, VaultDrop.created_at < utc_end,
     ).order_by(VaultDrop.created_at.asc(), VaultDrop.id.asc()).all()
@@ -13908,6 +14102,21 @@ def bir_daily_sales_summary(period_start, period_end):
         row['delivery_fee'] += parse_float(order.delivery_fee, 0.0)
         row['discount'] += parse_float(order.points_discount, 0.0)
         row['amount_received'] += parse_float(order.total_amount, 0.0)
+    verified_rows = SalesVerification.query.filter(
+        SalesVerification.status == 'VERIFIED',
+        SalesVerification.verified_at >= cashflow_utc_bounds(period_start, period_end + timedelta(days=1))[0],
+        SalesVerification.verified_at < cashflow_utc_bounds(period_start, period_end + timedelta(days=1))[1],
+    ).all()
+    for sale in verified_rows:
+        local_dt = utc_naive_to_ph(sale.verified_at)
+        day = local_dt.date() if local_dt else period_start
+        row = buckets.setdefault(day, {
+            'sales_date': day, 'transaction_count': 0, 'subtotal': 0.0,
+            'delivery_fee': 0.0, 'discount': 0.0, 'amount_received': 0.0,
+        })
+        row['transaction_count'] += 1
+        row['subtotal'] += parse_float(sale.amount, 0.0)
+        row['amount_received'] += parse_float(sale.amount, 0.0)
     rows = list(buckets.values())
     rows.sort(key=lambda row: row['sales_date'])
     return rows
@@ -14202,6 +14411,11 @@ def cash_flow_portal():
         VaultDrop.created_at >= utc_start,
         VaultDrop.created_at < utc_end,
     ).all()
+    verified_submissions = SalesVerification.query.filter(
+        SalesVerification.status == 'VERIFIED',
+        SalesVerification.verified_at >= utc_start,
+        SalesVerification.verified_at < utc_end,
+    ).all()
 
     daily_sales = {}
     daily_order_sales = {}
@@ -14216,6 +14430,10 @@ def cash_flow_portal():
         amount = max(0.0, parse_float(drop.amount, 0.0))
         daily_vault_sales[day] = daily_vault_sales.get(day, 0.0) + amount
         daily_sales[day] = daily_sales.get(day, 0.0) + amount
+    for row in verified_submissions:
+        day = utc_naive_to_ph(row.verified_at).date()
+        amount = max(0.0, parse_float(row.amount, 0.0))
+        daily_sales[day] = daily_sales.get(day, 0.0) + amount
 
     # Build the forecast average from every recorded ACTUAL sales day up to today.
     # A day is counted in the average only when it has positive recorded sales; blank
@@ -14226,6 +14444,10 @@ def cash_flow_portal():
     historical_orders = Order.query.filter(
         Order.status == 'COMPLETED',
         Order.created_at < history_end_utc,
+    ).all()
+    historical_verified_submissions = SalesVerification.query.filter(
+        SalesVerification.status == 'VERIFIED',
+        SalesVerification.verified_at < history_end_utc,
     ).all()
     excluded_historical_orders = [order for order in historical_orders if cashflow_order_is_excluded(order)]
     historical_orders = [order for order in historical_orders if not cashflow_order_is_excluded(order)]
@@ -15890,6 +16112,10 @@ def admin_dashboard():
     weekly_orders = Order.query.filter(Order.created_at >= week_ago, Order.status == 'COMPLETED').all()
     monthly_orders = Order.query.filter(Order.created_at >= month_ago, Order.status == 'COMPLETED').all()
     all_completed = Order.query.filter_by(status='COMPLETED').all()
+    daily_verified_sales = SalesVerification.query.filter(SalesVerification.status == 'VERIFIED', SalesVerification.verified_at >= day_start, SalesVerification.verified_at < next_day).all()
+    weekly_verified_sales = SalesVerification.query.filter(SalesVerification.status == 'VERIFIED', SalesVerification.verified_at >= week_ago).all()
+    monthly_verified_sales = SalesVerification.query.filter(SalesVerification.status == 'VERIFIED', SalesVerification.verified_at >= month_ago).all()
+    all_verified_sales = SalesVerification.query.filter_by(status='VERIFIED').all()
 
     daily_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(Expense.created_at >= day_start, Expense.created_at < next_day).scalar() or 0.0
     weekly_exp = db.session.query(db.func.coalesce(db.func.sum(Expense.amount), 0.0)).filter(Expense.created_at >= week_ago).scalar() or 0.0
@@ -15901,14 +16127,16 @@ def admin_dashboard():
     monthly_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).filter(VaultDrop.created_at >= month_ago).scalar() or 0.0
     all_vault = db.session.query(db.func.coalesce(db.func.sum(VaultDrop.amount), 0.0)).scalar() or 0.0
 
-    def calc_period(orders, exp, vault_drop_sales):
+    def calc_period(orders, verified_sales, exp, vault_drop_sales):
         order_rev = sum(o.total_amount for o in orders)
-        total_rev = order_rev + vault_drop_sales
+        verified_rev = sum(parse_float(row.amount, 0.0) for row in verified_sales)
+        total_rev = order_rev + verified_rev + vault_drop_sales
         cost = sum(sum((getattr(it, 'cost_price', 0.0) or 0.0) * it.quantity for it in o.items) for o in orders)
         gross_p = total_rev - cost
         net_p = gross_p - exp
         return {
             'order_rev': order_rev,
+            'verified_sales': verified_rev,
             'vault_sales': vault_drop_sales,
             'rev': total_rev,
             'cost': cost,
@@ -15917,10 +16145,10 @@ def admin_dashboard():
             'net_p': net_p
         }
 
-    fin_daily = calc_period(daily_orders, daily_exp, daily_vault)
-    fin_weekly = calc_period(weekly_orders, weekly_exp, weekly_vault)
-    fin_monthly = calc_period(monthly_orders, monthly_exp, monthly_vault)
-    fin_all = calc_period(all_completed, total_exp_all, all_vault)
+    fin_daily = calc_period(daily_orders, daily_verified_sales, daily_exp, daily_vault)
+    fin_weekly = calc_period(weekly_orders, weekly_verified_sales, weekly_exp, weekly_vault)
+    fin_monthly = calc_period(monthly_orders, monthly_verified_sales, monthly_exp, monthly_vault)
+    fin_all = calc_period(all_completed, all_verified_sales, total_exp_all, all_vault)
 
     product_sales_stats = {}
     food_revenue_total = 0.0
@@ -15951,6 +16179,7 @@ def admin_dashboard():
     ))
 
     food_revenue_total += all_vault
+    food_revenue_total += sum(parse_float(row.amount, 0.0) for row in all_verified_sales)
     total_ar = sum((c.outstanding_ar or 0.0) for c in customers)
 
     bonus_campaigns = BonusCampaign.query.order_by(BonusCampaign.created_at.desc()).all()
@@ -19521,6 +19750,7 @@ def customer_dashboard():
         db.session.commit()
 
     my_orders = Order.query.filter_by(customer_id=cust.id).order_by(Order.created_at.desc()).limit(30).all()
+    sales_verification_submissions = SalesVerification.query.filter_by(customer_id=cust.id).order_by(SalesVerification.submitted_at.desc(), SalesVerification.id.desc()).limit(30).all()
     active_promos = PromotionTracker.query.filter_by(is_active=True, is_visible=True).order_by(PromotionTracker.created_at.desc()).all()
     # Preserve the existing 3-day promo cycle automatically.
     active_promos = [p for p in active_promos if (utc_now() - p.created_at).days <= 3]
@@ -19567,6 +19797,7 @@ def customer_dashboard():
         'customer_dashboard.html',
         cust=cust,
         orders=my_orders,
+        sales_verification_submissions=sales_verification_submissions,
         active_promos=active_promos,
         bonus_campaigns=bonus_campaigns,
         reward_target=reward_target,

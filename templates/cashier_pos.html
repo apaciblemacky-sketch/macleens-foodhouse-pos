@@ -36,6 +36,9 @@
     .cashier-side-tab { border:1px solid #475569; background:#0f172a; color:#cbd5e1; border-radius:7px; padding:6px 7px; font-size:.67rem; font-weight:900; cursor:pointer; white-space:nowrap; }
     .cashier-side-tab.active { background:var(--hk-pink); border-color:#f9a8d4; color:#fff; }
     .cashier-side-tab small { display:inline-block; min-width:15px; padding:1px 4px; margin-left:2px; border-radius:999px; background:rgba(255,255,255,.17); color:inherit; }
+    #cashierQueuePanel.sales-verification-mode > h3, #cashierQueuePanel.sales-verification-mode > .ticket-card { display:none; }
+    #cashierQueuePanel.sales-verification-mode > .cashier-side-tabs { display:none; }
+    #cashierQueuePanel.sales-verification-mode > #cashierSalesVerificationPanel { display:block !important; }
     .btn-act { padding: 6px 10px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 0.8rem; }
     .modal-backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 9999; justify-content: center; align-items: center; }
     .modal-box { background: #1e293b; color: white; border: 2px solid #ec4899; border-radius: 12px; width: 90%; max-width: 520px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
@@ -90,10 +93,17 @@
       <button onclick="openMemberScanModal()" style="background:#0f766e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">▦ Scan Member</button>
       <a href="{{ url_for('cashier_mobile_scanner') }}" target="_blank" rel="noopener" style="background:#0369a1; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem; font-weight:bold;">📱 Phone Scanner</a>
       <button onclick="openCustomerChatModal()" style="background:#0f766e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💬 Live Chats <span id="cashierChatUnreadBadge" style="display:none;background:#fef3c7;color:#92400e;border-radius:9px;padding:1px 4px;margin-left:2px;"></span></button>
+      <button onclick="selectCashierSideTab('salesverify')" style="background:#be185d; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🧾 Sales Verify <span id="salesVerifyHeaderButtonBadge" style="background:#fce7f3;color:#831843;border-radius:9px;padding:1px 4px;margin-left:2px;">{{ sales_verification_pending|length }}</span></button>
       <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
       <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Logout</a>
     </div>
   </header>
+
+  <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:7px 10px;background:#020617;border-bottom:1px solid #334155;">
+    <div style="padding:6px 8px;border:1px solid #334155;border-radius:7px;background:#0f172a;"><div style="font-size:.6rem;color:#94a3b8;font-weight:800;">Pending Sales Verification</div><strong id="salesVerifyHeaderPending" style="color:#f9a8d4;font-size:1rem;">{{ sales_verification_pending|length }}</strong></div>
+    <div style="padding:6px 8px;border:1px solid #334155;border-radius:7px;background:#0f172a;"><div style="font-size:.6rem;color:#94a3b8;font-weight:800;">Verified Sales Today</div><strong id="salesVerifyHeaderToday" style="color:#34d399;font-size:1rem;">₱{{ "{:,.2f}".format(sales_verification_today) }}</strong></div>
+    <div style="padding:6px 8px;border:1px solid #334155;border-radius:7px;background:#0f172a;"><div style="font-size:.6rem;color:#94a3b8;font-weight:800;">Gross Sales Accounted Today</div><strong id="salesVerifyHeaderGross" style="color:#fbbf24;font-size:1rem;">₱{{ "{:,.2f}".format(sales_verification_gross_today) }}</strong></div>
+  </div>
 
   <div class="pos-layout">
     <!-- 1. Verification Queue -->
@@ -105,6 +115,7 @@
         <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="unpaid" onclick="selectCashierSideTab('unpaid')">📦 Unpaid <small>{{ unpaid_collections|length }}</small></button>
         <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="recent" onclick="selectCashierSideTab('recent')">🧾 Recent</button>
         <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="orders" onclick="selectCashierSideTab('orders')">⏱ Orders</button>
+        <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="salesverify" onclick="selectCashierSideTab('salesverify')">🧾 Sales Verify <small id="salesVerifyPendingBadge">{{ sales_verification_pending|length }}</small></button>
       </div>
       <h3 style="font-size:0.85rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
       {% for o in pending_orders %}
@@ -172,6 +183,31 @@
         </div>
       </div>
       {% endfor %}
+
+      <section id="cashierSalesVerificationPanel" data-cashier-side-section="salesverify" style="display:none;">
+        <div style="background:linear-gradient(145deg,#fff7fb,#f0fdfa);border:1px solid #f9a8d4;border-radius:10px;padding:8px;margin-bottom:8px;">
+          <div style="font-size:.78rem;font-weight:900;color:#831843;">🧾 Customer Sales Verification</div>
+          <div style="font-size:.67rem;color:#64748b;margin-top:2px;">Customer-submitted purchases do not count until a cashier verifies them.</div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:5px;margin-bottom:8px;">
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:7px;padding:7px;"><div style="font-size:.62rem;color:#94a3b8;font-weight:800;">Pending</div><strong id="salesVerifyPendingCount" style="font-size:1.05rem;color:#f9a8d4;">{{ sales_verification_pending|length }}</strong></div>
+          <div style="background:#0f172a;border:1px solid #334155;border-radius:7px;padding:7px;"><div style="font-size:.62rem;color:#94a3b8;font-weight:800;">Verified Today</div><strong id="salesVerifyToday" style="font-size:1.05rem;color:#34d399;">₱{{ "{:,.2f}".format(sales_verification_today) }}</strong></div>
+        </div>
+        <div id="cashierSalesVerificationList">
+          {% for row in sales_verification_pending %}
+            <div class="ticket-card sales-verification-ticket" data-sales-verification-id="{{ row.id }}">
+              <div style="display:flex;justify-content:space-between;gap:6px;font-weight:900;margin-bottom:4px;"><span>#SV-{{ row.id }} • {{ row.customer_name }}</span><span style="color:#f9a8d4;">₱{{ "{:,.2f}".format(row.amount) }}</span></div>
+              <div style="font-size:.7rem;color:#cbd5e1;line-height:1.45;">Submitted {{ utc_naive_to_ph(row.submitted_at).strftime('%b %d, %Y %I:%M %p') }}{% if row.note %}<br>📝 {{ row.note }}{% endif %}</div>
+              <div style="display:flex;gap:4px;margin-top:7px;"><button type="button" class="btn-act" style="background:#16a34a;color:white;flex:1;" onclick="cashierSalesVerificationAction({{ row.id }},'VERIFY')">✓ VERIFY</button><button type="button" class="btn-act" style="background:#ef4444;color:white;flex:1;" onclick="cashierSalesVerificationAction({{ row.id }},'REJECT')">✕ REJECT</button></div>
+            </div>
+          {% else %}<div id="cashierSalesVerificationEmpty" style="padding:18px;text-align:center;color:#94a3b8;font-size:.75rem;">No customer sales submissions are waiting.</div>{% endfor %}
+        </div>
+        <div style="margin-top:10px;padding:8px;background:#1e293b;border:1px solid #334155;border-radius:8px;text-align:center;">
+          <div style="font-size:.66rem;color:#cbd5e1;font-weight:900;margin-bottom:5px;">CUSTOMER SUBMISSION QR</div>
+          <img src="{{ sales_verification_qr_data }}" alt="Customer Sales Verification QR" style="width:145px;height:145px;background:white;padding:6px;border-radius:8px;">
+          <div style="font-size:.6rem;color:#94a3b8;margin-top:5px;word-break:break-all;">{{ sales_verification_qr_target }}</div>
+        </div>
+      </section>
     </div>
 
     <!-- 2. Center Catalog -->
@@ -1003,19 +1039,20 @@
       selectCashierSideTab(activeCashierSideTab, true);
     }
     function selectCashierSideTab(tab, skipSave) {
-      const allowed = ['pending', 'members', 'credit', 'unpaid', 'recent', 'orders'];
+      const allowed = ['pending', 'members', 'credit', 'unpaid', 'recent', 'orders', 'salesverify'];
       if (!allowed.includes(tab)) return;
       activeCashierSideTab = tab;
+      const queue = document.getElementById('cashierQueuePanel');
+      if (queue) queue.classList.toggle('sales-verification-mode', tab === 'salesverify');
       if (!skipSave) { try { sessionStorage.setItem('macleens:cashier-side-tab', tab); } catch (_) {} }
       document.querySelectorAll('[data-cashier-side-tab-button]').forEach(button => {
         button.classList.toggle('active', button.dataset.cashierSideTabButton === tab);
       });
       const compact = document.body.classList.contains('tablet-pos-mode') || document.body.classList.contains('phone-pos-mode');
       if (!compact) return;
-      const queue = document.getElementById('cashierQueuePanel');
       const status = document.getElementById('cashierStatusPanel');
-      queue.style.display = tab === 'pending' ? 'block' : 'none';
-      status.style.display = tab === 'pending' ? 'none' : 'block';
+      queue.style.display = (tab === 'pending' || tab === 'salesverify') ? 'block' : 'none';
+      status.style.display = (tab === 'pending' || tab === 'salesverify') ? 'none' : 'block';
       document.querySelectorAll('[data-cashier-side-section]').forEach(section => {
         section.style.display = section.dataset.cashierSideSection === tab ? 'block' : 'none';
       });
@@ -1840,6 +1877,38 @@
       triggerThermalPrint(receipt);
     }
 
+    function renderCashierSalesVerifications(rows){
+      const list=document.getElementById('cashierSalesVerificationList');if(!list)return;
+      const badge=document.getElementById('salesVerifyPendingBadge'),count=document.getElementById('salesVerifyPendingCount'),headerCount=document.getElementById('salesVerifyHeaderPending');
+      [badge,count,headerCount].forEach(el=>{if(el)el.textContent=rows.length;});
+      if(!rows.length){list.innerHTML='<div id="cashierSalesVerificationEmpty" style="padding:18px;text-align:center;color:#94a3b8;font-size:.75rem;">No customer sales submissions are waiting.</div>';return;}
+      list.innerHTML=rows.map(row=>`<div class="ticket-card sales-verification-ticket" data-sales-verification-id="${row.id}"><div style="display:flex;justify-content:space-between;gap:6px;font-weight:900;margin-bottom:4px;"><span>#SV-${row.id} • ${String(row.customer_name||'Customer').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]))}</span><span style="color:#f9a8d4;">₱${Number(row.amount||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div><div style="font-size:.7rem;color:#cbd5e1;line-height:1.45;">Submitted ${row.submitted_at?new Date(row.submitted_at).toLocaleString('en-PH',{dateStyle:'medium',timeStyle:'short'}):''}${row.note?`<br>📝 ${String(row.note).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]))}`:''}</div><div style="display:flex;gap:4px;margin-top:7px;"><button type="button" class="btn-act" style="background:#16a34a;color:white;flex:1;" onclick="cashierSalesVerificationAction(${row.id},'VERIFY')">✓ VERIFY</button><button type="button" class="btn-act" style="background:#ef4444;color:white;flex:1;" onclick="cashierSalesVerificationAction(${row.id},'REJECT')">✕ REJECT</button></div></div>`).join('');
+    }
+    async function loadCashierSalesVerifications(){
+      try{
+        const res=await fetch('/api/cashier/sales-verifications',{cache:'no-store'});
+        if(!res.ok)return;
+        const data=await res.json();if(!data.success)return;
+        renderCashierSalesVerifications(data.pending||[]);
+        const today=document.getElementById('salesVerifyToday'),headerToday=document.getElementById('salesVerifyHeaderToday');
+        [today,headerToday].forEach(el=>{if(el)el.textContent=`₱${Number(data.verified_today||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}`;});
+      }catch(_){}
+    }
+    async function cashierSalesVerificationAction(id,action){
+      let reason='';
+      if(action==='REJECT'){reason=prompt('Optional rejection reason:')||'';}
+      try{
+        const res=await fetch(`/api/cashier/sales-verifications/${id}/action`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,reason})});
+        const data=await res.json().catch(()=>({}));
+        if(!res.ok||!data.success)throw new Error(data.message||'Could not update this submission.');
+        playCashierBeep();
+        await loadCashierSalesVerifications();
+      }catch(e){alert(e.message||'Could not update this submission.');}
+    }
+    if(window.macleensSalesVerificationTimer)clearInterval(window.macleensSalesVerificationTimer);
+    window.macleensSalesVerificationTimer=setInterval(loadCashierSalesVerifications,3000);
+    loadCashierSalesVerifications();
+
     function playCashierBeep() {
       try {
         const ctx = cashierChatAudio || new (window.AudioContext || window.webkitAudioContext)();
@@ -1865,6 +1934,11 @@
       try {
         const res = await fetch('/api/queue-counts');
         const data = await res.json();
+        const salesPending = Number(data.pending_sales_verifications || 0);
+        const salesBadge = document.getElementById('salesVerifyHeaderButtonBadge');
+        if (salesBadge) salesBadge.textContent = salesPending;
+        const grossHeader = document.getElementById('salesVerifyHeaderGross');
+        if (grossHeader && Number.isFinite(Number(data.gross_sales_accounted_today))) grossHeader.textContent = `₱${Number(data.gross_sales_accounted_today).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
         if (data.pending_cashier > lastPendingCount) {
           playCashierBeep();
           setTimeout(() => { if (window.MacleensLiveUI) window.MacleensLiveUI.refresh(); else window.location.reload(); }, 600);
