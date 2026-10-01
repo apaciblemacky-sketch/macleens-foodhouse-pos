@@ -90,7 +90,6 @@
       <button onclick="openMemberScanModal()" style="background:#0f766e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">▦ Scan Member</button>
       <a href="{{ url_for('cashier_mobile_scanner') }}" target="_blank" rel="noopener" style="background:#0369a1; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem; font-weight:bold;">📱 Phone Scanner</a>
       <button onclick="openCustomerChatModal()" style="background:#0f766e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💬 Live Chats <span id="cashierChatUnreadBadge" style="display:none;background:#fef3c7;color:#92400e;border-radius:9px;padding:1px 4px;margin-left:2px;"></span></button>
-      <a href="{{ url_for('cashier_investor_proposals') }}" style="background:#6d28d9; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem; font-weight:bold;">📈 Investor Proposals</a>
       <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
       <a href="/staff/logout?role=cashier" style="background:#ef4444; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem;">Logout</a>
     </div>
@@ -108,36 +107,6 @@
         <button type="button" class="cashier-side-tab" data-cashier-side-tab-button="orders" onclick="selectCashierSideTab('orders')">⏱ Orders</button>
       </div>
       <h3 style="font-size:0.85rem; color:var(--hk-pink); margin-bottom:8px;">📥 Pending Verification ({{ pending_orders|length }})</h3>
-      {% if community_gift_vouchers or community_mystery_drops %}
-      <div style="background:#0f172a;border:1.5px solid #f59e0b;border-radius:9px;padding:8px;margin-bottom:10px;">
-        <h3 style="font-size:.78rem;color:#fbbf24;margin-bottom:6px;">🎁 Community reward claims ({{ (community_gift_vouchers|length) + (community_mystery_drops|length) }})</h3>
-        <div style="font-size:.65rem;color:#94a3b8;margin-bottom:6px;">Confirm the member and physical handover before redeeming. Each claim works once.</div>
-        {% for gift in community_gift_vouchers %}
-        <div style="padding:6px 0;border-top:1px dashed #475569;font-size:.69rem;">
-          <strong>{{ gift.claim_code }} • {{ gift.product_name }}</strong><br><span style="color:#cbd5e1">For {{ gift.recipient.name }} • from {{ gift.sender.name }}</span>
-          <form action="{{ url_for('cashier_redeem_community_gift', gift_id=gift.id) }}" method="POST" onsubmit="return confirm('Product handed to {{ gift.recipient.name|e }}? This cannot be redeemed twice.');" style="margin-top:4px"><button type="submit" class="btn-act" style="background:#d97706;color:white;width:100%">Redeem gift</button></form>
-        </div>
-        {% endfor %}
-        {% for drop in community_mystery_drops %}
-        <div style="padding:6px 0;border-top:1px dashed #475569;font-size:.69rem;">
-          <strong>30-day Drop • {{ drop.product.name if drop.product else 'Awaiting product' }}</strong><br><span style="color:#cbd5e1">For {{ drop.customer.name }}</span>
-          <form action="{{ url_for('cashier_redeem_community_drop', drop_id=drop.id) }}" method="POST" onsubmit="return confirm('Freebie handed to {{ drop.customer.name|e }}?');" style="margin-top:4px"><button type="submit" class="btn-act" style="background:#7c3aed;color:white;width:100%">Redeem freebie</button></form>
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
-      {% if hidden_prize_product_claims %}
-      <div style="background:#111827;border:1.5px solid #ec4899;border-radius:9px;padding:8px;margin-bottom:10px;">
-        <h3 style="font-size:.78rem;color:#f9a8d4;margin-bottom:6px;">🎁 Hidden Treat free-product claims ({{ hidden_prize_product_claims|length }})</h3>
-        <div style="font-size:.65rem;color:#cbd5e1;margin-bottom:6px;">Verify the member and hand over the listed prize. The prize stock was reserved when it was found.</div>
-        {% for claim in hidden_prize_product_claims %}
-        <div style="padding:6px 0;border-top:1px dashed #475569;font-size:.69rem;">
-          <strong>{{ claim.claim_code }} • {{ claim.hunt.prize_product.name if claim.hunt.prize_product else 'Free product' }}</strong><br><span style="color:#cbd5e1">For {{ claim.customer.name }} • found {{ claim.claimed_at|ph_datetime('%b %d, %I:%M %p') if claim.claimed_at else 'today' }} PH time</span>
-          <form action="{{ url_for('cashier_redeem_hidden_prize', claim_id=claim.id) }}" method="POST" onsubmit="return confirm('Hand over this Hidden Treat prize to {{ claim.customer.name|e }}? It cannot be redeemed twice.');" style="margin-top:4px"><button type="submit" class="btn-act" style="background:#db2777;color:white;width:100%">Redeem free product</button></form>
-        </div>
-        {% endfor %}
-      </div>
-      {% endif %}
       {% for o in pending_orders %}
       <div class="ticket-card" id="ticket-{{ o.id }}">
         <div style="display:flex; justify-content:space-between; font-weight:bold; margin-bottom:4px;">
@@ -892,7 +861,6 @@
         <h3 style="color:#f472b6; font-size:1rem;">🎁 Scan & Get Rewarded</h3>
         <button onclick="closeModal('memberQrModal')" style="background:none; border:none; color:#94a3b8; font-size:1.2rem; cursor:pointer;">✕</button>
       </div>
-      <img src="/marketing/qr/counter.svg" alt="Counter member registration QR" style="width:240px; height:240px; background:white; padding:8px; border-radius:12px;">
       <div style="font-size:0.82rem; font-weight:900; margin-top:8px;">New customer? Scan before payment.</div>
       <div style="font-size:0.72rem; color:#cbd5e1; margin-top:4px; line-height:1.4;">Join in about 20 seconds • Earn walk-in points • Suggest products • Member-only deals.</div>
       <div style="font-size:0.68rem; color:#94a3b8; margin-top:8px;">After registration, refresh the Cashier page and select the new member before recording the sale.</div>
@@ -1771,7 +1739,6 @@
           if (bonusPts > 0) rewardLine += `\nCampaign Bonus: +${bonusPts.toFixed(1)} pts`;
           if (referralPts > 0) rewardLine += `\nFirst-Purchase Referral Bonus: +${referralPts.toFixed(1)} pts`;
           if (data.member_balance !== null && data.member_balance !== undefined) rewardLine += `\nNew Balance: ${Number(data.member_balance).toFixed(1)} pts`;
-          if (Number(data.hidden_prize_discount || 0) > 0) rewardLine += `\nHidden Treat Discount: -₱${Number(data.hidden_prize_discount).toFixed(2)}`;
           alert(`🎉 Sale #${data.order_id} recorded!\nTotal: ₱${data.total.toFixed(2)}\nPoints Used: ${Number(data.points_redeemed || 0).toFixed(2)}\n${rewardLine}`);
           clearPosCart();
           document.getElementById('posCashBill').value = '';
@@ -1865,7 +1832,6 @@
         <div class="divider"></div>
         <div class="footer bold">* PASS TO KITCHEN / SERVING *</div>
         <div class="center" style="margin-top:8px;">
-          <img src="${window.location.origin}/marketing/qr/receipt.svg" style="width:88px;height:88px;" alt="Rewards QR">
           <div style="font-size:9px;font-weight:bold;">SCAN TO CHECK REWARDS</div>
           <div style="font-size:8px;">Walk-in purchases earn points too.</div>
         </div>

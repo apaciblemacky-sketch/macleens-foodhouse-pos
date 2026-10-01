@@ -121,8 +121,6 @@
     .portal-announcement{max-width:1100px;margin:12px auto 0;padding:11px 14px;border:1px solid #f9a8d4;border-radius:14px;background:linear-gradient(135deg,#fff,#fff7fb);box-shadow:0 8px 22px rgba(157,23,77,.08)}.portal-announcement strong{color:#9d174d}.portal-announcement a{color:#0f766e;font-weight:900;text-decoration:none}.featured-showcase{margin:18px 0 8px;background:white;border:1px solid #e2e8f0;border-radius:22px;padding:13px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.featured-showcase-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:2px 2px 10px}.featured-showcase-head h2{font-size:1.1rem;margin:2px 0}.featured-showcase-controls{display:flex;gap:5px}.featured-showcase-controls button{width:36px;height:36px;border:1px solid #f9a8d4;border-radius:50%;background:white;color:#be185d;font-size:1.4rem;cursor:pointer}.featured-showcase-viewport{overflow:hidden;border-radius:16px}.featured-showcase-track{display:flex;transition:transform .35s ease}.featured-slide{min-width:100%;display:grid;grid-template-columns:minmax(190px,.8fr) 1.2fr;background:linear-gradient(135deg,#fff7fb,#f0fdfa)}.featured-slide img{width:100%;height:245px;object-fit:cover;background:#f8fafc}.featured-slide-copy{padding:20px;display:flex;flex-direction:column;justify-content:center}.featured-slide-copy .kicker{font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;font-weight:950;color:#db2777}.featured-slide-copy h3{font-size:1.55rem;margin:5px 0;color:#172033}.featured-slide-copy p{font-size:.8rem;color:#64748b;line-height:1.45;margin:0 0 12px}.featured-slide-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}.featured-slide-actions strong{font-size:1.35rem;color:#db2777}.featured-dots{display:flex;justify-content:center;gap:6px;margin-top:9px}.featured-dots button{width:8px;height:8px;border:0;border-radius:50%;background:#fbcfe8;padding:0;cursor:pointer}.featured-dots button.active{background:#0f766e;transform:scale(1.25)}
     @media(max-width:720px){header .brand span{display:none}header>div:last-child .nav-btn:nth-of-type(n+2),header>div:last-child button{display:none}.hero img{width:86px;height:86px;margin:0 0 8px 14px}.p-img{height:124px}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.interaction-bar{gap:4px}.btn-review{padding:6px 7px}.drawer{max-width:none}.scroll-btn{display:none}.featured-slide{grid-template-columns:1fr}.featured-slide img{height:180px}.featured-slide-copy{padding:14px}.featured-slide-copy h3{font-size:1.2rem}}
     @media(min-width:721px){.student-bottom-nav{left:50%;transform:translateX(-50%);width:620px;border-radius:18px 18px 0 0;border:1px solid #e2e8f0;border-bottom:0}.p-img{height:175px}}
-    /* Owner-configured Hidden Treat locations on product cards. */
-    .hidden-treat-photo-wrap{position:relative}.hidden-treat-icon{display:inline-grid;place-items:center;vertical-align:middle;flex:none;border:1px solid #fcd34d;background:linear-gradient(135deg,#fff7ed,#fef3c7);border-radius:12px;padding:3px;cursor:pointer;line-height:1;overflow:hidden;box-shadow:0 7px 17px #92400e18;animation:hiddenTreatGlow 1.8s ease-in-out infinite}.hidden-treat-icon:hover{transform:scale(1.08)}.hidden-treat-icon img{width:100%;height:100%;object-fit:cover;border-radius:9px}.hidden-treat-icon.overlay{position:absolute;z-index:4}.hidden-treat-icon.top-left{top:7px;left:7px}.hidden-treat-icon.top-right{top:7px;right:7px}.hidden-treat-inline{margin:0 0 5px}.hidden-treat-below-add{margin:7px auto 0;display:grid}
   </style>
 </head>
 <body>
@@ -266,28 +264,21 @@
 
     <!-- MAIN DISH CATALOG -->
     <div class="section-title">🍽️ <span id="catalogTitleText">Menu</span></div>
-    {% macro product_hidden_treat(hunt, css_class='') -%}
-      {%- if hunt -%}<button type="button" class="hidden-treat-icon {{ css_class }}" data-hidden-hunt="{{ hunt.id }}" onclick="claimHiddenTreat({{ hunt.id }}, this)" style="width:{{ hidden_prize_display_size(hunt) }}px;height:{{ hidden_prize_display_size(hunt) }}px;" title="Something may be hidden here" aria-label="Open a hidden gift">{% if hunt.display_image_data %}<img src="{{ hunt.display_image_data }}" alt="">{% else %}🎁{% endif %}</button>{%- endif -%}
-    {%- endmacro %}
     <div class="product-grid" id="productGrid">
       {% for p in products %}
-      {% set product_hunts = storefront_hunts_by_product.get(p.id, {}) %}
       <div class="product-card" data-cat="{{ p.category_name }}" data-name="{{ p.name|lower }} {{ p.category_name|lower }} {{ (p.description or '')|lower }}" data-price="{{ product_starting_price(p) }}" data-available="{{ '1' if product_is_available_now(p) else '0' }}" data-trending="{{ '1' if p.id in trending_ids else '0' }}">
         <div class="product-badges">{% if p.id in trending_ids %}<span class="product-badge trending">Popular now</span>{% endif %}{% if p.is_top_seller %}<span class="product-badge">Best seller</span>{% elif p.is_featured %}<span class="product-badge">Featured</span>{% endif %}</div>
         <div>
-          <div class="hidden-treat-photo-wrap">
+          <div>
           {% if p.image_url %}
             <img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="lazy" class="p-img" alt="{{ p.name }}" onerror="this.style.display='none';this.nextElementSibling.style.display='grid';"><div class="p-img" style="display:none;place-items:center;font-size:2.5rem">🍲</div>
           {% else %}
             <div class="p-img" style="display:flex; justify-content:center; align-items:center; font-size:2.5rem;">🍲</div>
           {% endif %}
-          {{ product_hidden_treat(product_hunts.get('STOREFRONT_IMAGE_TOP_LEFT'), 'overlay top-left') }}
-          {{ product_hidden_treat(product_hunts.get('STOREFRONT_IMAGE_TOP_RIGHT'), 'overlay top-right') }}
           </div>
           <span style="font-size:0.68rem; font-weight:bold; color:#ec4899;">{{ p.category_name }}</span>
-          <div class="p-title" style="display:flex;align-items:center;justify-content:space-between;gap:5px;">{{ p.name }}{{ product_hidden_treat(product_hunts.get('STOREFRONT_TITLE')) }}</div>
+          <div class="p-title" style="display:flex;align-items:center;justify-content:space-between;gap:5px;">{{ p.name }}</div>
           {% if p.description %}<div style="font-size:.68rem;color:#64748b;line-height:1.35;margin:-1px 0 5px">{{ p.description }}</div>{% endif %}
-          {{ product_hidden_treat(product_hunts.get('STOREFRONT_DESCRIPTION'), 'hidden-treat-inline') }}
           <div class="p-price">{% if p.size_schema %}From {% endif %}₱{{ "{:,.2f}".format(product_starting_price(p)) }}</div>
           <div class="product-meta"><span>⏱ {{ p.prep_minutes or 10 }} min</span><span>⭐ +{{ (product_starting_price(p)//30)|int }} pts</span>{% if p.stock <= 10 %}<span style="color:#b45309">{{ p.stock }} left</span>{% endif %}</div>
           {% if p.size_schema %}<div style="font-size:0.68rem; color:#be185d; font-weight:800; margin-bottom:3px;">Choose size • priced per size</div>{% endif %}
@@ -313,7 +304,6 @@
           <div style="font-size:0.7rem;color:#92400e;background:#fffbeb;border:1px solid #fde68a;border-radius:7px;padding:5px 7px;margin-bottom:5px;font-weight:800;text-align:center;">⏰ Visible now • ordering follows its availability schedule{% if p.available_start_time and p.available_end_time %}: {{ p.available_start_time }}–{{ p.available_end_time }}{% endif %}</div>
           <button class="btn-add" type="button" disabled style="background:#94a3b8;cursor:not-allowed;">Not Available to Order Now</button>
           {% endif %}
-          {{ product_hidden_treat(product_hunts.get('STOREFRONT_ADD_BUTTON'), 'hidden-treat-below-add') }}
         </div>
       </div>
       {% endfor %}
@@ -335,7 +325,7 @@
     <a class="active" href="/"><span>⌂</span>Home</a>
     <a href="#menu"><span>🍽</span>Menu</a>
     <a href="{{ url_for('digital_store') }}"><span>💻</span>Digital</a>
-    <a href="/community"><span>◉</span>Community</a>
+    
     {% if cust %}<a href="/portal/dashboard#rewards"><span>★</span>Rewards</a><a href="/portal/dashboard#orders"><span>▣</span>Orders</a>{% else %}<a href="/portal/login"><span>★</span>Rewards</a><a href="/portal/login"><span>♙</span>Log in</a>{% endif %}
   </nav>
   <div id="studentToast" class="toast" role="status" aria-live="polite"></div>
@@ -427,13 +417,6 @@
           <div style="font-size:0.72rem;color:#64748b;margin:3px 0 6px;">Available: <strong>{{ "{:,.2f}".format(cust.points_balance or 0) }} points</strong> • Minimum 20 points • 1 point = ₱1</div>
           <input type="number" id="redeemPoints" class="form-control" min="0" step="0.01" max="{{ cust.points_balance or 0 }}" value="0" oninput="renderCart()">
         </div>
-        {% if hidden_prize_vouchers %}
-        <div style="margin-bottom:10px;background:#faf5ff;border:1px solid #d8b4fe;padding:10px;border-radius:8px;">
-          <label style="font-size:0.8rem;font-weight:bold;color:#6b21a8;">🎁 Use a Hidden Treat Voucher</label>
-          <div style="font-size:.70rem;color:#64748b;margin:3px 0 6px;">Choose one voucher. It discounts food items only and cannot be combined with loyalty-points redemption.</div>
-          <select id="hiddenPrizeCode" class="form-control" onchange="renderCart()"><option value="">No Hidden Treat voucher</option>{% for claim in hidden_prize_vouchers %}<option value="{{ claim.claim_code }}" data-percent="{{ claim.hunt.voucher_discount_percent }}" data-minimum="{{ claim.hunt.voucher_min_order or 0 }}">{{ claim.hunt.voucher_discount_percent|round(2) }}% off • {{ claim.claim_code }}{% if claim.hunt.voucher_min_order %} • min ₱{{ "%.2f"|format(claim.hunt.voucher_min_order) }}{% endif %}</option>{% endfor %}</select>
-        </div>
-        {% endif %}
         {% endif %}
 
         <div style="margin-bottom:10px;">
@@ -860,25 +843,8 @@
 
       const redeemEl = document.getElementById('redeemPoints');
       const requestedPoints = redeemEl ? Math.max(0, parseFloat(redeemEl.value) || 0) : 0;
-      const voucherEl = document.getElementById('hiddenPrizeCode');
-      const voucherChoice = voucherEl?.selectedOptions?.[0];
-      const voucherCode = voucherEl?.value || '';
-      const voucherPercent = voucherCode ? Math.max(0, parseFloat(voucherChoice?.dataset?.percent || 0) || 0) : 0;
-      const voucherMinimum = voucherCode ? Math.max(0, parseFloat(voucherChoice?.dataset?.minimum || 0) || 0) : 0;
-      const voucherDiscount = voucherCode && subtotal + 0.0001 >= voucherMinimum ? Math.min(subtotal, subtotal * voucherPercent / 100) : 0;
-      const pointsDiscount = voucherCode ? 0 : Math.min(requestedPoints, subtotal);
-      if (voucherCode && requestedPoints > 0) {
-        html += `<div style="padding:7px 0;color:#b45309;font-size:.72rem;font-weight:800;">Choose either your Hidden Treat voucher or loyalty points for this order.</div>`;
-      }
-      if (pointsDiscount > 0) {
-        html += `<div style="display:flex;justify-content:space-between;padding:8px 0;color:#059669;font-weight:bold;"><span>Loyalty Points Discount</span><span>-₱${pointsDiscount.toFixed(2)}</span></div>`;
-      }
-      if (voucherCode && voucherDiscount > 0) {
-        html += `<div style="display:flex;justify-content:space-between;padding:8px 0;color:#7e22ce;font-weight:bold;"><span>🎁 Hidden Treat Voucher (${voucherPercent.toFixed(2)}%)</span><span>-₱${voucherDiscount.toFixed(2)}</span></div>`;
-      } else if (voucherCode) {
-        html += `<div style="padding:7px 0;color:#b45309;font-size:.72rem;font-weight:800;">This voucher needs at least ₱${voucherMinimum.toFixed(2)} in food items.</div>`;
-      }
-      const total = Math.max(0, subtotal + deliveryFee - pointsDiscount - voucherDiscount);
+      const pointsDiscount = Math.min(requestedPoints, subtotal);
+      const total = Math.max(0, subtotal + deliveryFee - pointsDiscount);
       if (container) container.innerHTML = html;
       if (barTotalEl) barTotalEl.innerText = `₱${total.toFixed(2)}`;
       if (barCountEl) barCountEl.innerText = count;
@@ -950,7 +916,6 @@
       const notes = document.getElementById('orderNotes').value.trim();
       const orderType = document.getElementById('orderType').value;
       const pay = document.getElementById('payMethod').value;
-      const hiddenPrizeCode = document.getElementById('hiddenPrizeCode')?.value || '';
       const requestedPoints = parseFloat(document.getElementById('redeemPoints')?.value) || 0;
       
       let landmark = document.getElementById('landmark').value.trim();
@@ -966,7 +931,6 @@
       }
 
       if (!targetTime) return showToast("Please fill in your target time.");
-      if (hiddenPrizeCode && requestedPoints > 0) return showToast('Use either your Hidden Treat voucher or loyalty points, not both.');
       const payload = {
         items: keys.map(id => {
           const item = cart[id];
@@ -986,7 +950,6 @@
         delivery_address: deliveryAddress,
         landmark: landmark,
         redeem_points: requestedPoints,
-        hidden_prize_code: hiddenPrizeCode
       };
 
       const res = await fetch('/api/storefront-checkout', {
@@ -1020,21 +983,6 @@
       } else {
         showToast(data.message || 'The order could not be sent.');
       }
-    }
-
-    async function claimHiddenTreat(huntId, button) {
-      try {
-        const res = await fetch(`/api/hidden-prizes/${Number(huntId)}/claim`, { method: 'POST' });
-        const data = await res.json();
-        if (res.status === 401) {
-          showToast(data.message || 'Log in first to claim this Hidden Treat.');
-          setTimeout(() => { window.location.href = '/portal/login'; }, 500);
-          return;
-        }
-        if (!res.ok || !data.success) return showToast(data.message || 'This Hidden Treat could not be claimed.');
-        if (button) button.remove();
-        showToast(data.message || 'Hidden Treat claimed!');
-      } catch (_) { showToast('Could not claim this Hidden Treat. Please check your connection.'); }
     }
 
     const storefrontChatEnabled = {{ 'true' if cust else 'false' }};

@@ -92,7 +92,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.13-digital-accounts-chatlite-v41.1'
+APP_RELEASE = '2026.09.25-safe-cleanup-v41.2'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 STAFF_CREDENTIAL_MIN_LEN = 8
@@ -2481,7 +2481,8 @@ def run_db_setup():
 
         ensure_default_promos()
         ensure_legacy_craft_catalog()
-        ensure_community_defaults()
+        # Community Lite has been retired. Its tables/data are preserved, but no
+        # startup defaults are created or modified anymore.
         disable_legacy_meta_connection()
         _DB_INITIALIZED = True
         app.logger.info('Database setup completed successfully.')
@@ -2508,6 +2509,87 @@ def app_startup_and_session_handler():
         except Exception:
             db.session.rollback()
             app.logger.exception('Could not update customer last_active_at for customer_id=%s', session.get('customer_id'))
+
+# ==================== RETIRED FEATURE ACCESS GATE ====================
+# v41.2 retires selected legacy modules without dropping their database tables.
+# This is intentionally request-level only: existing customer/order/history data
+# remains untouched and can be preserved for audit or future migration.
+RETIRED_PATH_PREFIXES = (
+    '/community',
+    '/investor',
+    '/investors',
+    '/admin/investors',
+    '/pos/investor-proposals',
+    '/api/hidden-prizes',
+    '/admin/hidden-prizes',
+    '/pos/redeem-hidden-prize',
+    '/digital/apps/chat-lite',
+    '/admin/chat-lite',
+)
+RETIRED_META_EXACT_PATHS = {
+    '/admin/marketing',
+    '/admin/marketing/',
+    '/admin/marketing/facebook-page',
+    '/admin/marketing/daily-menu/settings',
+    '/admin/marketing/daily-menu/draft',
+    '/admin/marketing/daily-menu/publish',
+    '/admin/marketing/daily-menu/provider-send',
+    '/admin/marketing/daily-menu/group-bridge-send',
+    '/admin/marketing/daily-menu/test-reply',
+    '/admin/marketing/run-agent',
+    '/admin/marketing/generate',
+    '/admin/marketing/insights/import',
+    '/tasks/marketing/run',
+    '/tasks/facebook-menu/run',
+}
+RETIRED_META_PREFIXES = (
+    '/admin/marketing/post/',
+    '/admin/marketing/group/',
+    '/admin/marketing/group-post/',
+)
+RETIRED_META_ENDPOINTS = {
+    'marketing_admin',
+    'marketing_save_settings',
+    'marketing_save_facebook_page',
+    'marketing_save_daily_menu_settings',
+    'marketing_create_daily_menu_draft',
+    'marketing_publish_daily_menu',
+    'marketing_send_daily_menu_provider',
+    'marketing_send_daily_menu_group_bridge',
+    'marketing_test_menu_reply',
+    'marketing_run_agent_now',
+    'marketing_generate',
+    'marketing_edit_post',
+    'marketing_page_mark_posted',
+    'marketing_save_insights',
+    'marketing_import_insights',
+    'marketing_analyze_insights',
+    'marketing_delete_post',
+    'marketing_group_add',
+    'marketing_group_toggle',
+    'marketing_group_delete',
+    'marketing_group_generate',
+    'marketing_group_mark_posted',
+    'marketing_cron_run',
+    'facebook_menu_cron_run',
+    'meta_messenger_webhook',
+    'craft_like_item',
+    'craft_add_comment',
+}
+
+@app.before_request
+def block_retired_features_v412():
+    path = request.path or '/'
+    endpoint = request.endpoint or ''
+    # Keep the generic installed-app announcement endpoint alive because
+    # announcements are retained even though Community Lite is retired.
+    if endpoint in {'community_admin_create_app_announcement', 'community_admin_save_app_notification_sounds'}:
+        return None
+    if path.startswith(RETIRED_PATH_PREFIXES):
+        abort(404)
+    if path in RETIRED_META_EXACT_PATHS or path.startswith(RETIRED_META_PREFIXES) or endpoint in RETIRED_META_ENDPOINTS:
+        abort(404)
+    return None
 
 @app.after_request
 def add_live_ui_progressive_enhancement(response):
@@ -6812,17 +6894,9 @@ def store_catalog():
                 row.product_id for row in CustomerWishlist.query.filter_by(customer_id=cust.id).all()
             }
 
-    # A hunt is visible only at its selected product location and disappears
-    # after this loyalty account successfully claims it.
+    # Hidden Treats are retired in v41.2. Keep the variable empty so legacy
+    # template data cannot surface the feature.
     storefront_hunts_by_product = {}
-    for hunt in active_hidden_prize_hunts('STOREFRONT_PRODUCT', customer=cust):
-        if hunt.location_product_id:
-            slot = hidden_prize_placement_slot(hunt)
-            # One item may safely have more than one hunt only when each has a
-            # different configured display area. Keep the oldest hunt in a
-            # specific area visible first to avoid overlapping prize buttons.
-            product_slots = storefront_hunts_by_product.setdefault(hunt.location_product_id, {})
-            product_slots.setdefault(slot, hunt)
 
     reorder_cart = session.pop('reorder_cart', None)
 
@@ -6847,7 +6921,7 @@ def store_catalog():
                            hidden_prize_display_size=hidden_prize_display_size,
                            reorder_cart=reorder_cart,
                            storefront_payment_settings=storefront_payment_settings(),
-                           messenger_menu_url=(messenger_menu_start_url() if marketing_settings()['daily_menu_messenger_reply'] else ''),
+                           messenger_menu_url='',
                            product_is_available_now=is_product_available_now,
                            announcement=portal_announcement('STOREFRONT'),
                            about=portal_about('STOREFRONT'))
@@ -7072,7 +7146,8 @@ def api_storefront_checkout():
     zone_id = data.get('delivery_zone_id')
     landmark = str(data.get('landmark', '')).strip()
     delivery_address = str(data.get('delivery_address', '')).strip()
-    hidden_prize_code = normalize_hidden_prize_claim_code(data.get('hidden_prize_code', ''))
+    # Hidden Treat vouchers are retired; ignore any legacy client field.
+    hidden_prize_code = ''
 
     if order_type not in {'PICKUP', 'DELIVERY'}:
         return jsonify({'success': False, 'message': 'Invalid order type.'}), 400
@@ -7729,13 +7804,11 @@ def cashier_terminal():
     today_change_funds = ChangeFund.query.filter(ChangeFund.created_at >= start_today, ChangeFund.created_at < next_day).order_by(ChangeFund.created_at.desc()).all()
     next_drop_num = len(today_drops) + 1
     active_bonus_campaigns = get_active_bonus_campaigns()
-    community_gift_vouchers = CommunityGift.query.filter_by(gift_type='PRODUCT', status='AVAILABLE').order_by(CommunityGift.created_at.asc()).all()
-    community_mystery_drops = CommunityDrop.query.filter_by(reward_type='STAFF_FREEBIE', status='ACTIVE').order_by(CommunityDrop.created_at.asc()).all()
-    expire_hidden_prize_claims(persist=True)
-    hidden_prize_product_claims = HiddenPrizeClaim.query.join(HiddenPrizeHunt).filter(
-        HiddenPrizeClaim.status == 'AVAILABLE',
-        HiddenPrizeHunt.prize_type == 'PRODUCT',
-    ).order_by(HiddenPrizeClaim.claimed_at.asc()).all()
+    # Community rewards and Hidden Treat claims are retired; do not load their
+    # queues into Cashier POS.
+    community_gift_vouchers = []
+    community_mystery_drops = []
+    hidden_prize_product_claims = []
 
     return render_template(
         'cashier_pos.html',
@@ -7892,7 +7965,8 @@ def cashier_direct_sale():
     cust_name = str(data.get('customer_name', 'Counter Walk-in')).strip() or 'Counter Walk-in'
     notes = str(data.get('notes', 'Cashier Counter POS Sale')).strip() or 'Cashier Counter POS Sale'
     change_for = parse_float(data.get('change_for'), 0.0)
-    hidden_prize_code = normalize_hidden_prize_claim_code(data.get('hidden_prize_code', ''))
+    # Hidden Treat vouchers are retired; ignore any legacy client field.
+    hidden_prize_code = ''
 
     if dining_opt not in {'DINE-IN', 'TAKEOUT'}:
         return jsonify({'success': False, 'message': 'Invalid dining option.'}), 400
@@ -8988,7 +9062,6 @@ def update_operating_hours():
 @app.route('/craft/')
 def craft_store():
     track_website_view('CRAFT')
-    ip = get_client_ip()[:64]
 
     selected_category = request.args.get('category', '').strip()
     query = CraftItem.query.filter_by(is_active=True)
@@ -8999,7 +9072,6 @@ def craft_store():
     featured = CraftItem.query.filter_by(is_active=True, is_featured=True).order_by(CraftItem.name.asc()).limit(12).all()
     top_sellers = CraftItem.query.filter_by(is_active=True, is_top_seller=True).order_by(CraftItem.orders_count.desc(), CraftItem.name.asc()).limit(12).all()
     cust = db.session.get(Customer, session.get('customer_id')) if session.get('customer_id') else None
-    liked_ids = {x.item_id for x in CraftItemLike.query.filter_by(ip_address=ip).all()}
     return render_template(
         'craft/index.html',
         items=items,
@@ -9008,7 +9080,7 @@ def craft_store():
         featured=featured,
         top_sellers=top_sellers,
         cust=cust,
-        liked_ids=liked_ids,
+        liked_ids=set(),
         announcement=portal_announcement('CRAFT'),
         about=portal_about('CRAFT'),
     )
@@ -9016,18 +9088,7 @@ def craft_store():
 @app.route('/craft/item/<int:item_id>')
 def craft_item_detail(item_id):
     item = CraftItem.query.filter_by(id=item_id, is_active=True).first_or_404()
-    ip = get_client_ip()[:64]
-    viewed = CraftItemView.query.filter_by(item_id=item.id, ip_address=ip).first()
-    if not viewed:
-        try:
-            db.session.add(CraftItemView(item_id=item.id, ip_address=ip))
-            item.views = parse_int(item.views, 0) + 1
-            db.session.commit()
-        except Exception:
-            # A concurrent duplicate request from the same IP must not inflate the counter.
-            db.session.rollback()
-    liked = bool(CraftItemLike.query.filter_by(item_id=item.id, ip_address=ip).first())
-    return render_template('craft/item_detail.html', item=item, liked=liked)
+    return render_template('craft/item_detail.html', item=item)
 
 @app.route('/craft/item/<int:item_id>/like', methods=['POST'])
 def craft_like_item(item_id):
@@ -9260,9 +9321,8 @@ def craft_admin_dashboard():
     manual_income = sum(max(0.0, parse_float(x.amount, 0.0)) for x in ledger if x.event_type == 'OTHER_INCOME')
     expense_total = sum(max(0.0, parse_float(x.amount, 0.0)) for x in ledger if x.event_type in ('EXPENSE', 'REFUND'))
     metrics = {
-        'product_unique_views': sum(parse_int(i.views, 0) for i in items),
-        'total_likes': sum(parse_int(i.likes, 0) for i in items),
-        'total_comments': CraftComment.query.count(),
+        # Craft likes/comments/views are retired. Historical columns/tables are
+        # preserved, but they are no longer read into active metrics.
         'total_orders': CraftOrder.query.count(),
         'completed_sales': sale_revenue,
         'recorded_cogs': sale_cost,
@@ -11053,33 +11113,12 @@ def digital_hosted_pwa_service_worker():
     return response
 
 def ensure_chat_lite_digital_product():
-    item = DigitalItem.query.filter(db.func.lower(DigitalItem.name) == 'chat lite ephemeral').first()
-    if not item:
-        item = DigitalItem.query.filter(
-            DigitalItem.product_type == 'HOSTED_APP',
-            DigitalItem.delivery_instructions.ilike('%Launch CHAT Lite%'),
-        ).first()
-    if not item:
-        db.session.add(DigitalItem(
-            name='CHAT Lite Ephemeral',
-            description='Private, zero-trace peer-to-peer room with group chat, video calling, screen sharing, and direct file sharing. Choose ₱5 per usage, or an optional one-time Lifetime Access plan when enabled by admin.',
-            category_name='Apps & Tools', product_type='HOSTED_APP', price=5.0, lifetime_enabled=False, lifetime_price=0.0,
-            hosted_app_key='CHAT_LITE', hosted_customer_access='PER_USE', cost=0.0,
-            image_url='/static/logo.png', file_format='Hosted web app',
-            license_terms='Per-use purchases create hosted room usages. Lifetime Access, when offered, unlocks repeated hosted use for the original buyer. Do not resell or redistribute the hosted application.',
-            delivery_instructions='After payment, open your private order page and launch CHAT Lite. Per-use purchases create usage passes; Lifetime Access can be reopened without buying another usage.',
-            turnaround_days=0, is_active=True, is_featured=True,
-        ))
-        return
-    # Keep the requested hosted-app pricing authoritative without altering admin-written copy.
-    item.product_type = 'HOSTED_APP'
-    item.hosted_app_key = 'CHAT_LITE'
-    if not item.hosted_customer_access:
-        item.hosted_customer_access = 'BOTH' if item.lifetime_enabled and parse_float(item.lifetime_price, 0) > 0 else 'PER_USE'
-    item.price = 5.0
-    item.category_name = item.category_name or 'Apps & Tools'
-    item.is_active = True
+    """Legacy compatibility hook: CHAT Lite is retired in v41.2.
 
+    Existing DigitalItem / usage / order rows are deliberately preserved.
+    The catalog/admin filters and retired-route gate prevent new access.
+    """
+    return None
 
 def digital_usage_passes(order, include_expired=False):
     if not order:
@@ -11993,10 +12032,17 @@ def digital_store():
     category = request.args.get('category', '').strip()
     if category.casefold() == 'school':
         category = ''
-    query = DigitalItem.query.filter_by(is_active=True)
+    query = DigitalItem.query.filter(
+        DigitalItem.is_active.is_(True),
+        db.func.upper(db.func.coalesce(DigitalItem.hosted_app_key, '')) != 'CHAT_LITE',
+    )
     if category:
         query = query.filter_by(category_name=category)
-    featured = DigitalItem.query.filter_by(is_active=True, is_featured=True).order_by(DigitalItem.name.asc()).limit(12).all()
+    featured = DigitalItem.query.filter(
+        DigitalItem.is_active.is_(True),
+        DigitalItem.is_featured.is_(True),
+        db.func.upper(db.func.coalesce(DigitalItem.hosted_app_key, '')) != 'CHAT_LITE',
+    ).order_by(DigitalItem.name.asc()).limit(12).all()
     owned_lifetime = digital_lifetime_owned_map() if digital_customer else {}
     catalog_share_version = digital_catalog_share_version()
     return render_template('digital/index.html', items=query.order_by(DigitalItem.is_featured.desc(), DigitalItem.name.asc()).all(),
@@ -12085,7 +12131,12 @@ def digital_social_preview(item_id, version):
 
 @app.route('/digital/item/<int:item_id>/trial/start', methods=['POST'])
 def digital_start_trial(item_id):
-    item = DigitalItem.query.filter_by(id=item_id, is_active=True, product_type='HOSTED_APP').first_or_404()
+    item = DigitalItem.query.filter(
+        DigitalItem.id == item_id,
+        DigitalItem.is_active.is_(True),
+        DigitalItem.product_type == 'HOSTED_APP',
+        db.func.upper(db.func.coalesce(DigitalItem.hosted_app_key, '')) != 'CHAT_LITE',
+    ).first_or_404()
     account = digital_current_customer(auto_link_rewards=True)
     if not account:
         flash('Create or sign in to your Macleen’s Digital account before starting a free trial.', 'info')
@@ -12149,7 +12200,11 @@ def digital_start_trial(item_id):
 
 @app.route('/digital/item/<int:item_id>', methods=['GET', 'POST'])
 def digital_item_detail(item_id):
-    item = DigitalItem.query.filter_by(id=item_id, is_active=True).first_or_404()
+    item = DigitalItem.query.filter(
+        DigitalItem.id == item_id,
+        DigitalItem.is_active.is_(True),
+        db.func.upper(db.func.coalesce(DigitalItem.hosted_app_key, '')) != 'CHAT_LITE',
+    ).first_or_404()
     digital_customer = digital_current_customer(auto_link_rewards=True)
     owned_lifetime_order = digital_lifetime_owned_map().get(item.id) if digital_customer and item.product_type == 'HOSTED_APP' else None
     if request.method == 'GET':
@@ -12397,7 +12452,7 @@ def digital_launch_hosted_app(token, pass_id):
         db.session.commit()
     if digital_is_uploaded_hosted_app(order.item):
         return redirect(url_for('digital_hosted_app_per_use', access_token=usage.access_token))
-    return redirect(url_for('digital_chat_lite_hosted', access_token=usage.access_token))
+    abort(404)
 
 
 @app.route('/digital/apps/chat-lite/<string:access_token>')
@@ -12421,7 +12476,7 @@ def digital_launch_hosted_app_lifetime(token):
         return redirect(url_for('digital_order_status', token=token))
     if digital_is_uploaded_hosted_app(order.item):
         return redirect(url_for('digital_hosted_app_lifetime', token=order.tracking_token))
-    return redirect(url_for('digital_chat_lite_lifetime', token=order.tracking_token))
+    abort(404)
 
 
 @app.route('/digital/apps/chat-lite/lifetime/<string:token>')
@@ -12541,7 +12596,7 @@ def digital_hosted_content_free(item_id, asset_path):
 def admin_digital_hosted_app(item_id):
     item = DigitalItem.query.filter_by(id=item_id, product_type='HOSTED_APP').first_or_404()
     if digital_is_chat_lite(item):
-        return redirect(url_for('admin_chat_lite'))
+        abort(404)
     if not digital_is_uploaded_hosted_app(item):
         abort(404)
     return redirect(url_for('digital_uploaded_pwa_launch', item_id=item.id, mode='admin', key=str(item.id)))
@@ -12806,7 +12861,9 @@ def digital_admin():
             'customer_code': (account.account_code if account else (rewards.card_number if rewards and rewards.card_number else ('CUST-' + str(rewards.id) if rewards else 'BROWSER'))),
         })
 
-    return render_template('digital/admin.html', items=DigitalItem.query.order_by(DigitalItem.is_active.desc(), DigitalItem.name).all(),
+    return render_template('digital/admin.html', items=DigitalItem.query.filter(
+        db.func.upper(db.func.coalesce(DigitalItem.hosted_app_key, '')) != 'CHAT_LITE'
+    ).order_by(DigitalItem.is_active.desc(), DigitalItem.name).all(),
         categories=DigitalCategory.query.order_by(DigitalCategory.name).all(), orders=orders,
         payment_settings=digital_payment_settings(), support_faqs=DigitalSupportFAQ.query.order_by(DigitalSupportFAQ.sort_order.asc(), DigitalSupportFAQ.id.asc()).all(),
         activation_codes_by_order=activation_codes_by_order,
@@ -15804,11 +15861,10 @@ def admin_dashboard():
     vault_drops = VaultDrop.query.order_by(VaultDrop.created_at.desc()).all()
     promotions = PromotionTracker.query.order_by(PromotionTracker.created_at.desc()).all()
     bundle_deals = BundleDeal.query.order_by(BundleDeal.created_at.desc(), BundleDeal.id.desc()).all()
-    expire_hidden_prize_claims(persist=True)
-    hidden_prize_hunts = HiddenPrizeHunt.query.order_by(HiddenPrizeHunt.created_at.desc(), HiddenPrizeHunt.id.desc()).all()
-    hidden_prize_claim_counts = {
-        hunt.id: hidden_prize_claim_count(hunt.id) for hunt in hidden_prize_hunts
-    }
+    # Hidden Treats are retired. Preserve historical tables/data but do not load
+    # them into the active admin UI.
+    hidden_prize_hunts = []
+    hidden_prize_claim_counts = {}
     for bundle in bundle_deals:
         try:
             bundle.pricing = bundle_deal_pricing(bundle)
@@ -19353,7 +19409,7 @@ def customer_login():
                     flash('Lifetime Access saved to your account. You can reopen it anytime from My Digital Apps.', 'success')
                     return redirect(url_for('digital_order_status', token=lifetime_claim_token))
             if next_section == 'community':
-                return redirect(url_for('community_home'))
+                next_section = ''
             target = url_for('customer_dashboard')
             return redirect(target + (f'#{next_section}' if next_section else ''))
         flash('Invalid Contact or PIN.', 'error')
@@ -19432,7 +19488,7 @@ def customer_register():
             else:
                 flash(f'🎉 Welcome! You earned {welcome_award:.2f} login point(s)!', 'success')
             if next_section == 'community':
-                return redirect(url_for('community_home'))
+                next_section = ''
             target = url_for('customer_dashboard')
             return redirect(target + (f'#{next_section}' if next_section else ''))
         except Exception:
@@ -19475,10 +19531,10 @@ def customer_dashboard():
     points_to_reward = max(0.0, reward_target - balance)
     reward_progress_pct = min(100.0, (balance / reward_target * 100.0) if reward_target else 100.0)
     recent_rewards = RewardLedger.query.filter_by(customer_id=cust.id).order_by(RewardLedger.created_at.desc()).limit(8).all()
-    hidden_prize_claims = customer_hidden_prize_claims(cust)
-    hidden_prize_vouchers = [claim for claim in hidden_prize_claims if claim.hunt and claim.hunt.prize_type == 'VOUCHER' and claim.status == 'AVAILABLE']
-    loyalty_hidden_hunts = active_hidden_prize_hunts('LOYALTY_PORTAL', customer=cust)
-    loyalty_hidden_hunts_by_slot = hidden_prize_hunts_by_slot(loyalty_hidden_hunts)
+    hidden_prize_claims = []
+    hidden_prize_vouchers = []
+    loyalty_hidden_hunts = []
+    loyalty_hidden_hunts_by_slot = {}
     referral_rewards_count = ReferralReward.query.filter_by(referrer_customer_id=cust.id).count()
     favorite_items = Product.query.join(
         CustomerWishlist, CustomerWishlist.product_id == Product.id

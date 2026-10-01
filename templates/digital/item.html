@@ -66,7 +66,7 @@
             <form method="post" action="{{ url_for('digital_start_trial', item_id=item.id) }}" data-no-live><button class="btn" type="submit">Start Free Trial</button></form>
           {% elif trial_state.status == 'ACTIVE' %}
             <p class="muted" style="margin:6px 0 10px">Your free trial is active until {{ trial_state.trial.expires_at|ph_datetime('%b %d, %Y %I:%M %p') }}.</p>
-            {% if item.hosted_app_key=='CHAT_LITE' %}<a class="btn" href="{{ url_for('digital_chat_lite_trial', access_token=trial_state.trial.access_token) }}">Resume Free Trial</a>{% else %}<a class="btn" href="{{ url_for('digital_hosted_app_trial', access_token=trial_state.trial.access_token) }}">Resume Free Trial</a>{% endif %}
+            <a class="btn" href="{{ url_for('digital_hosted_app_trial', access_token=trial_state.trial.access_token) }}">Resume Free Trial</a>
           {% else %}
             <p class="muted" style="margin:6px 0 0">Your one-time free trial for this app has already ended. You can continue with Per Use or Lifetime Access below.</p>
           {% endif %}

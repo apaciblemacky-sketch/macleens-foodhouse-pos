@@ -114,7 +114,7 @@
   <script src="{{ url_for('static', filename='share-helper.js') }}?v=6"></script>
   <script>
     function shareFoodProductSafe(title, path) {
-      const url = new URL(path || window.location.href, window.location.origin).href;
+      cZonst url = new URL(path || window.location.href, window.location.origin).href;
       if (window.MacleensShare && typeof window.MacleensShare.open === 'function') {
         return window.MacleensShare.open((title || 'Product') + " — Macleen's Food House", url);
       }
