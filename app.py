@@ -6867,7 +6867,14 @@ def api_queue_counts():
 
 # ==================== CUSTOMER SALES VERIFICATION ====================
 
+def _sales_verification_points(amount):
+    """Sales Verification loyalty rule: 1 point per ₱60 of verified sales."""
+    return max(0, int(max(0.0, parse_float(amount, 0.0)) // 60.0))
+
+
 def _sales_verification_payload(row):
+    customer = row.customer if row.customer_id else None
+    points_earned = _sales_verification_points(row.amount) if row.status == 'VERIFIED' else 0
     return {
         'id': row.id,
         'customer_name': row.customer_name,
@@ -6879,6 +6886,8 @@ def _sales_verification_payload(row):
         'verified_by': row.verified_by or '',
         'rejected_at': utc_naive_to_ph(row.rejected_at).isoformat() if row.rejected_at else None,
         'rejection_note': row.rejection_note or '',
+        'points_earned': points_earned,
+        'points_balance': round(parse_float(customer.points_balance, 0.0), 2) if customer else None,
     }
 
 @app.route('/api/customer/sales-verifications', methods=['GET', 'POST'])
@@ -6944,6 +6953,24 @@ def cashier_sales_verification_action(verification_id):
         row.verified_at = utc_now()
         row.verified_by = staff_user[:50]
         row.rejection_note = None
+
+        # Sales Verification earns loyalty points only after cashier verification.
+        # Keep this separate from the normal POS earning setting: 1 point per ₱60.
+        if row.customer_id:
+            customer = db.session.get(Customer, row.customer_id)
+            points_earned = _sales_verification_points(row.amount)
+            if customer and points_earned > 0:
+                ledger_reason = f'Sales Verification #{row.id}'
+                already_awarded = RewardLedger.query.filter_by(
+                    customer_id=customer.id, reason=ledger_reason,
+                ).first()
+                if not already_awarded:
+                    customer.points_balance = (customer.points_balance or 0.0) + points_earned
+                    db.session.add(RewardLedger(
+                        customer_id=customer.id,
+                        points_change=points_earned,
+                        reason=ledger_reason,
+                    ))
     elif action == 'REJECT':
         row.status = 'REJECTED'
         row.rejected_at = utc_now()

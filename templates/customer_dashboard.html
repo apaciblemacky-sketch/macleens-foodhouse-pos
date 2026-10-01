@@ -423,7 +423,7 @@
       const st=salesVerificationStatusClass(row.status);
       const when=row.submitted_at?new Date(row.submitted_at).toLocaleString('en-PH',{dateStyle:'medium',timeStyle:'short'}):'';
       const note=row.note?` • ${String(row.note).replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[m]))}`:'';
-      let detail=row.status==='VERIFIED'?`<div style="color:#15803d;font-size:.7rem;font-weight:900;margin-top:3px;">✓ Verified by ${row.verified_by||'cashier'}</div>`:row.status==='REJECTED'?`<div style="color:#b91c1c;font-size:.7rem;font-weight:900;margin-top:3px;">✕ ${row.rejection_note||'Rejected by cashier.'}</div>`:'<div style="color:#0369a1;font-size:.7rem;font-weight:900;margin-top:3px;">Waiting for cashier verification…</div>';
+      let detail=row.status==='VERIFIED'?`<div style="color:#15803d;font-size:.7rem;font-weight:900;margin-top:3px;">✓ Verified by ${row.verified_by||'cashier'}${Number(row.points_earned||0)>0?` • +${Number(row.points_earned).toLocaleString('en-PH')} point(s) earned`:''}</div>`:row.status==='REJECTED'?`<div style="color:#b91c1c;font-size:.7rem;font-weight:900;margin-top:3px;">✕ ${row.rejection_note||'Rejected by cashier.'}</div>`:'<div style="color:#0369a1;font-size:.7rem;font-weight:900;margin-top:3px;">Waiting for cashier verification…</div>';
       return `<div class="history-row"><div class="row"><strong>#SV-${row.id} • ₱${Number(row.amount||0).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}</strong><span class="status-pill" style="background:${st.bg};color:${st.color};">${st.label}</span></div><div class="muted">Submitted ${when}${note}</div>${detail}</div>`;
     }).join('');
   }
@@ -434,6 +434,12 @@
       const data=await res.json().catch(()=>({}));
       if(!res.ok||!data.success)throw new Error(data.message||'Unavailable');
       renderSalesVerificationRows(data.submissions||[]);
+      const latest=(data.submissions||[]).find(row=>row.status==='VERIFIED'&&row.points_balance!==null);
+      if(latest){
+        const balance=Number(latest.points_balance||0),display=balance.toFixed(1);
+        const main=document.getElementById('pointsBalanceMain'),ring=document.getElementById('ringPoints'),milestone=document.getElementById('milestoneText'),rewardRing=document.getElementById('rewardRing');
+        if(main)main.textContent=display;if(ring)ring.textContent=display;if(rewardRing)rewardRing.style.setProperty('--progress',`${Math.min(100,balance/20*100)*3.6}deg`);if(milestone)milestone.textContent=balance>=20?'20-point milestone reached!':`${(20-balance).toFixed(1)} pts to 20-point milestone`;
+      }
       if(state){state.textContent='● Connected';state.style.background='#dcfce7';state.style.color='#166534';}
     }catch(e){if(state){state.textContent='● Reconnecting';state.style.background='#fef3c7';state.style.color='#92400e';}}
   }
