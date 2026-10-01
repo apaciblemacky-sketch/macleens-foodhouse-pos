@@ -5517,6 +5517,11 @@ def ensure_default_promos():
         app.logger.exception('Could not ensure default promotions')
         raise
 
+@app.template_global('utc_naive_to_ph')
+def jinja_utc_naive_to_ph(value):
+    return utc_naive_to_ph(value)
+
+
 @app.template_filter('ph_datetime')
 def ph_datetime_filter(value, fmt='%b %d, %Y - %I:%M %p'):
     local_value = utc_naive_to_ph(value)
