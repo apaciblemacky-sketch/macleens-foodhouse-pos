@@ -90,8 +90,6 @@
       <button onclick="openModal('expenseModal')" style="background:#f59e0b; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💸 Expense</button>
       <button onclick="openModal('vaultModal')" style="background:#10b981; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🏦 Vault Drop (#{{ next_drop_num }})</button>
       <button onclick="openModal('memberQrModal')" style="background:#db2777; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🎁 New Member QR</button>
-      <button onclick="openMemberScanModal()" style="background:#0f766e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">▦ Scan Member</button>
-      <a href="{{ url_for('cashier_mobile_scanner') }}" target="_blank" rel="noopener" style="background:#0369a1; color:white; padding:5px 8px; border-radius:4px; text-decoration:none; font-size:0.75rem; font-weight:bold;">📱 Phone Scanner</a>
       <button onclick="openCustomerChatModal()" style="background:#0f766e; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">💬 Live Chats <span id="cashierChatUnreadBadge" style="display:none;background:#fef3c7;color:#92400e;border-radius:9px;padding:1px 4px;margin-left:2px;"></span></button>
       <button onclick="selectCashierSideTab('salesverify')" style="background:#be185d; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">🧾 Sales Verify <span id="salesVerifyHeaderButtonBadge" style="background:#fce7f3;color:#831843;border-radius:9px;padding:1px 4px;margin-left:2px;">{{ sales_verification_pending|length }}</span></button>
       <button onclick="openModal('settingsModal')" style="background:#ec4899; color:white; border:none; padding:5px 8px; border-radius:4px; font-size:0.75rem; font-weight:bold; cursor:pointer;">⚙️ Settings</button>
@@ -903,17 +901,6 @@
     </div>
   </div>
 
-  <div id="memberScanModal" class="modal-backdrop">
-    <div class="modal-box" style="max-width:440px;text-align:center;border-color:#14b8a6;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><h3 style="color:#5eead4;font-size:1rem;">▦ Scan loyalty QR</h3><button type="button" onclick="closeMemberScanModal()" style="background:none;border:none;color:#94a3b8;font-size:1.2rem;cursor:pointer;">✕</button></div>
-      <video id="memberScanVideo" playsinline muted style="display:none;width:100%;max-height:245px;object-fit:cover;background:#020617;border-radius:10px;border:1px solid #475569;"></video>
-      <div id="memberScanStatus" style="font-size:.72rem;color:#cbd5e1;line-height:1.45;margin:8px 0;">Use the camera when supported, or type the member card/mobile number below.</div>
-      <div style="display:flex;gap:6px"><input id="memberScanInput" class="form-input" style="margin:0" placeholder="MFH-0001 or mobile number" autocomplete="off"><button type="button" onclick="selectScannedMember(document.getElementById('memberScanInput').value)" style="border:0;border-radius:6px;background:#0f766e;color:white;font-weight:900;padding:7px 11px;cursor:pointer;">Find</button></div>
-      <button type="button" id="memberCameraButton" onclick="startMemberCameraScanner()" style="width:100%;margin-top:8px;border:1px solid #2dd4bf;border-radius:7px;background:#134e4a;color:#ccfbf1;padding:8px;font-weight:900;cursor:pointer;">Start camera scanner</button>
-      <div style="font-size:.63rem;color:#94a3b8;margin-top:8px;">Selecting the member only links the account. Record the paid sale normally so points and the digital purchase card update exactly once.</div>
-    </div>
-  </div>
-
   <!-- PENDING ORDER ADJUSTMENT MODAL -->
   <div id="orderAdjustModal" class="modal-backdrop">
     <div class="modal-box" style="border-color:#f59e0b; max-width:560px;">
@@ -1077,7 +1064,7 @@
     window.macleensCashierClockTimer = window.setInterval(updateCashierLocalClock, 1000);
 
     function openModal(id) { document.getElementById(id).style.display = 'flex'; }
-    function closeModal(id) { document.getElementById(id).style.display = 'none'; if (id === 'memberScanModal') stopMemberCameraScanner(); }
+    function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
     let cashierChatCurrentKey = null;
     let cashierChatUnreadTotal = 0;
@@ -1174,91 +1161,6 @@
     }
     window.setInterval(loadCashierChatThreads, 2200);
     window.setTimeout(loadCashierChatThreads, 800);
-
-    let memberScanStream = null;
-    let memberScanFrame = null;
-    let latestMobileLoyaltyScanId = null;
-    function memberLookupValue(raw) {
-      const value = String(raw || '').trim();
-      try { const parsed = new URL(value, window.location.origin); return parsed.searchParams.get('card') || parsed.searchParams.get('member') || value; } catch (_) { return value; }
-    }
-    function selectScannedMember(raw) {
-      const value = memberLookupValue(raw).replace(/\s+/g, '').toUpperCase();
-      if (!value) return;
-      const select = document.getElementById('posRegCustSelect');
-      const digits = value.replace(/\D/g, '');
-      const option = [...select.options].find(item =>
-        String(item.dataset.card || '').replace(/\s+/g, '').toUpperCase() === value ||
-        (digits && String(item.dataset.contact || '').replace(/\D/g, '') === digits)
-      );
-      if (!option) { document.getElementById('memberScanStatus').textContent = 'No matching member was found. Check the card/mobile number or register the customer first.'; return; }
-      document.getElementById('posCustType').value = 'REGISTERED';
-      togglePosCustSelect();
-      select.value = option.value;
-      updateMemberQuickInfo();
-      document.getElementById('memberScanStatus').textContent = `Selected ${option.textContent.trim()}`;
-      setTimeout(closeMemberScanModal, 650);
-    }
-    function openMemberScanModal() { openModal('memberScanModal'); document.getElementById('memberScanInput').focus(); }
-    function closeMemberScanModal() { closeModal('memberScanModal'); }
-    function stopMemberCameraScanner() {
-      if (memberScanFrame) cancelAnimationFrame(memberScanFrame);
-      memberScanFrame = null;
-      if (memberScanStream) memberScanStream.getTracks().forEach(track => track.stop());
-      memberScanStream = null;
-      const video = document.getElementById('memberScanVideo');
-      if (video) { video.pause(); video.srcObject = null; video.style.display = 'none'; }
-    }
-    async function startMemberCameraScanner() {
-      const status = document.getElementById('memberScanStatus');
-      if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) { status.textContent = 'Built-in QR scanning is unavailable here. Type the card number instead, or use Chrome on Android over HTTPS.'; return; }
-      try {
-        stopMemberCameraScanner();
-        const detector = new BarcodeDetector({formats:['qr_code']});
-        const video = document.getElementById('memberScanVideo');
-        memberScanStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
-        video.srcObject = memberScanStream; video.style.display = 'block'; await video.play(); status.textContent = 'Point the camera at the customer loyalty QR.';
-        const scan = async () => {
-          if (!memberScanStream) return;
-          try { const codes = await detector.detect(video); if (codes.length) { selectScannedMember(codes[0].rawValue); stopMemberCameraScanner(); return; } } catch (_) {}
-          memberScanFrame = requestAnimationFrame(scan);
-        };
-        scan();
-      } catch (_) { stopMemberCameraScanner(); status.textContent = 'Camera access was unavailable. You can still type the member card/mobile number.'; }
-    }
-
-    function applyMobileLoyaltyScan(scan) {
-      const select = document.getElementById('posRegCustSelect');
-      if (!select || !scan || !scan.customer_id) return false;
-      const option = [...select.options].find(item => String(item.value) === String(scan.customer_id));
-      if (!option) return false;
-      document.getElementById('posCustType').value = 'REGISTERED';
-      togglePosCustSelect();
-      select.value = String(scan.customer_id);
-      updateMemberQuickInfo();
-      const info = document.getElementById('memberQuickInfo');
-      if (info) info.innerText = `📱 Phone scan loaded: ${scan.customer_name} • ${scan.card_number || 'Loyalty member'} • ${Number(scan.points_balance || 0).toFixed(2)} pts`;
-      return true;
-    }
-
-    async function pollMobileLoyaltyScanner() {
-      if (document.visibilityState === 'hidden') return;
-      try {
-        const response = await fetch('/api/mobile-scanner/pending', {cache:'no-store'});
-        if (!response.ok) return;
-        const data = await response.json();
-        const scan = data && data.scan;
-        if (!scan || String(scan.id) === String(latestMobileLoyaltyScanId)) return;
-        if (!applyMobileLoyaltyScan(scan)) return;
-        const claim = await fetch(`/api/mobile-scanner/${scan.id}/claim`, {method:'POST'});
-        if (!claim.ok) return;
-        latestMobileLoyaltyScanId = scan.id;
-      } catch (_) {
-        // A short network interruption must never interfere with the sale in progress.
-      }
-    }
-    window.setInterval(pollMobileLoyaltyScanner, 2000);
-    window.setTimeout(pollMobileLoyaltyScanner, 700);
 
     function openOrderAdjustModal(orderId, note, total, paymentMethod, changeFor) {
       const form = document.getElementById('orderAdjustForm');

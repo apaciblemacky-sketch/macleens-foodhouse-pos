@@ -209,7 +209,7 @@ app.config['SESSION_COOKIE_SECURE'] = IS_PRODUCTION
 
 db = SQLAlchemy(app)
 
-APP_RELEASE = '2026.09.25-safe-cleanup-v41.2'
+APP_RELEASE = '2026.10.04-safe-module-cleanup-v41.3'
 MANILA_TZ = ZoneInfo('Asia/Manila')
 STAFF_SESSION_TIMEOUT = timedelta(hours=8)
 STAFF_CREDENTIAL_MIN_LEN = 8
@@ -2665,6 +2665,19 @@ RETIRED_PATH_PREFIXES = (
     '/pos/redeem-hidden-prize',
     '/digital/apps/chat-lite',
     '/admin/chat-lite',
+    '/admin/cash-flow',
+    '/admin/cashflow',
+    '/admin/financial-statements',
+    '/admin/financials',
+    '/admin/loyalty-cards',
+    '/admin/digital',
+    '/admin/craft',
+    '/digital',
+    '/craft',
+    '/admin/marketing',
+    '/admin/bundles',
+    '/pos/mobile-scanner',
+    '/api/mobile-scanner',
 )
 RETIRED_META_EXACT_PATHS = {
     '/admin/marketing',
@@ -2681,6 +2694,13 @@ RETIRED_META_EXACT_PATHS = {
     '/admin/marketing/insights/import',
     '/tasks/marketing/run',
     '/tasks/facebook-menu/run',
+    '/admin/chats/toggle',
+    '/admin/portal-announcement/STOREFRONT',
+    '/admin/portal-about/STOREFRONT',
+    '/portal/card-theme',
+    '/admin/update-promo-financials',
+    '/admin/toggle-promo',
+    '/admin/toggle-promo-visibility',
 }
 RETIRED_META_PREFIXES = (
     '/admin/marketing/post/',
@@ -5508,9 +5528,13 @@ def staff_session_valid():
     now = utc_now()
     if now - last > STAFF_SESSION_TIMEOUT:
         return False
+    # Browser/PWA user-agent details can legitimately change between requests.
+    # Keep the 8-hour inactivity timeout as the staff-session boundary, but do
+    # not force a logout merely because the browser identifier changed.
+    current_ua = staff_user_agent_fingerprint()
     expected_ua = str(session.get('_staff_ua_hash') or '')
-    if not expected_ua or not hmac.compare_digest(expected_ua, staff_user_agent_fingerprint()):
-        return False
+    if expected_ua and not hmac.compare_digest(expected_ua, current_ua):
+        session['_staff_ua_hash'] = current_ua
     session['_staff_last_activity'] = now.isoformat()
     return True
 
