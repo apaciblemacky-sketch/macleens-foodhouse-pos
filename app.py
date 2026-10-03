@@ -2667,6 +2667,7 @@ RETIRED_PATH_PREFIXES = (
     '/admin/chat-lite',
     '/admin/cash-flow',
     '/admin/cashflow',
+    '/admin/bir-sales-record',
     '/admin/financial-statements',
     '/admin/financials',
     '/admin/loyalty-cards',
