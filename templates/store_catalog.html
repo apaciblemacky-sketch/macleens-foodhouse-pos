@@ -121,6 +121,70 @@
     .portal-announcement{max-width:1100px;margin:12px auto 0;padding:11px 14px;border:1px solid #f9a8d4;border-radius:14px;background:linear-gradient(135deg,#fff,#fff7fb);box-shadow:0 8px 22px rgba(157,23,77,.08)}.portal-announcement strong{color:#9d174d}.portal-announcement a{color:#0f766e;font-weight:900;text-decoration:none}.featured-showcase{margin:18px 0 8px;background:white;border:1px solid #e2e8f0;border-radius:22px;padding:13px;box-shadow:0 12px 30px rgba(15,23,42,.06)}.featured-showcase-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:2px 2px 10px}.featured-showcase-head h2{font-size:1.1rem;margin:2px 0}.featured-showcase-controls{display:flex;gap:5px}.featured-showcase-controls button{width:36px;height:36px;border:1px solid #f9a8d4;border-radius:50%;background:white;color:#be185d;font-size:1.4rem;cursor:pointer}.featured-showcase-viewport{overflow:hidden;border-radius:16px}.featured-showcase-track{display:flex;transition:transform .35s ease}.featured-slide{min-width:100%;display:grid;grid-template-columns:minmax(190px,.8fr) 1.2fr;background:linear-gradient(135deg,#fff7fb,#f0fdfa)}.featured-slide img{width:100%;height:245px;object-fit:cover;background:#f8fafc}.featured-slide-copy{padding:20px;display:flex;flex-direction:column;justify-content:center}.featured-slide-copy .kicker{font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;font-weight:950;color:#db2777}.featured-slide-copy h3{font-size:1.55rem;margin:5px 0;color:#172033}.featured-slide-copy p{font-size:.8rem;color:#64748b;line-height:1.45;margin:0 0 12px}.featured-slide-actions{display:flex;align-items:center;justify-content:space-between;gap:10px}.featured-slide-actions strong{font-size:1.35rem;color:#db2777}.featured-dots{display:flex;justify-content:center;gap:6px;margin-top:9px}.featured-dots button{width:8px;height:8px;border:0;border-radius:50%;background:#fbcfe8;padding:0;cursor:pointer}.featured-dots button.active{background:#0f766e;transform:scale(1.25)}
     @media(max-width:720px){header .brand span{display:none}header>div:last-child .nav-btn:nth-of-type(n+2),header>div:last-child button{display:none}.hero img{width:86px;height:86px;margin:0 0 8px 14px}.p-img{height:124px}.product-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.interaction-bar{gap:4px}.btn-review{padding:6px 7px}.drawer{max-width:none}.scroll-btn{display:none}.featured-slide{grid-template-columns:1fr}.featured-slide img{height:180px}.featured-slide-copy{padding:14px}.featured-slide-copy h3{font-size:1.2rem}}
     @media(min-width:721px){.student-bottom-nav{left:50%;transform:translateX(-50%);width:620px;border-radius:18px 18px 0 0;border:1px solid #e2e8f0;border-bottom:0}.p-img{height:175px}}
+    /* Clean compact list view: each main product is a single horizontal row. */
+    .product-grid{display:flex!important;flex-direction:column!important;gap:6px!important}
+    .list-product-card{position:relative!important;display:grid!important;grid-template-columns:42px minmax(0,1fr) auto!important;align-items:center!important;width:100%!important;height:48px!important;min-height:48px!important;max-height:48px!important;padding:4px 7px!important;gap:8px!important;border:1px solid #dbe7e4!important;border-radius:10px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 2px 8px rgba(15,23,42,.045)!important;overflow:hidden!important}
+    .list-product-card:hover{transform:none!important;box-shadow:0 4px 12px rgba(15,23,42,.07)!important}
+    .list-badge{position:absolute!important;left:4px!important;top:3px!important;z-index:3!important}
+    .list-badge .product-badge{font-size:.42rem!important;padding:1px 4px!important;border-radius:999px!important;box-shadow:0 2px 5px rgba(15,23,42,.12)!important;line-height:1!important}
+    .list-product-thumb{width:42px!important;height:40px!important;border-radius:7px!important;overflow:hidden!important;background:#f8fafc!important;display:grid!important;place-items:center!important;flex:none!important}
+    .list-product-thumb img,.list-fallback{width:42px!important;height:40px!important;object-fit:cover!important;border-radius:7px!important}
+    .list-fallback{display:grid;place-items:center;font-size:1.05rem!important;background:#fdf2f8!important}
+    .list-product-info{min-width:0!important;display:flex!important;flex-direction:column!important;justify-content:center!important;gap:1px!important}
+    .list-category{font-size:.48rem!important;line-height:1!important;font-weight:850!important;color:#0f766e!important;text-transform:none!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+    .list-product-name{font-size:.72rem!important;line-height:1.1!important;font-weight:900!important;color:#172033!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+    .list-product-price{color:#db2777!important;font-weight:950!important;margin-left:4px!important;white-space:nowrap!important}
+    .list-product-actions{display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:3px!important;min-width:max-content!important}
+    .list-action{width:25px!important;height:25px!important;min-width:25px!important;display:grid!important;place-items:center!important;padding:0!important;border-radius:7px!important;font-size:.54rem!important;line-height:1!important}
+    .list-action.btn-like{flex:none!important;border:1px solid #e2e8f0!important;background:#fff!important;color:#64748b!important;font-weight:900!important}
+    .list-action.btn-like.liked{border-color:#f9a8d4!important;background:#fff1f7!important;color:#db2777!important}
+    .list-action.btn-favorite{border:1px solid #e2e8f0!important;background:#fff!important;font-size:.62rem!important}
+    .list-action.btn-favorite.saved{background:#ffe4f1!important;border-color:#f9a8d4!important}
+    .list-action.btn-review{border:1px solid #e2e8f0!important;background:#f8fafc!important;color:#475569!important;text-decoration:none!important}
+    .list-add{height:28px!important;min-width:53px!important;padding:0 7px!important;border:0!important;border-radius:7px!important;background:linear-gradient(135deg,#0f766e,#14b8a6)!important;color:#fff!important;font-size:.56rem!important;font-weight:950!important;cursor:pointer!important;white-space:nowrap!important}
+    .list-add:disabled{background:#94a3b8!important;cursor:not-allowed!important}
+    @media(max-width:720px){
+      .product-grid{gap:5px!important}
+      .list-product-card{grid-template-columns:38px minmax(0,1fr) auto!important;height:46px!important;min-height:46px!important;max-height:46px!important;padding:3px 5px!important;gap:7px!important}
+      .list-product-thumb,.list-product-thumb img,.list-fallback{width:38px!important;height:38px!important}
+      .list-action{width:22px!important;height:22px!important;min-width:22px!important;font-size:.5rem!important}
+      .list-product-name{font-size:.66rem!important}
+      .list-category{font-size:.43rem!important}
+      .list-add{height:24px!important;min-width:47px!important;padding:0 6px!important;font-size:.53rem!important}
+      .list-badge .product-badge{font-size:.38rem!important}
+    }
+    /* Clean compact list view: each main product is a single horizontal row. */
+    .product-grid{display:flex!important;flex-direction:column!important;gap:6px!important}
+    .list-product-card{position:relative!important;display:grid!important;grid-template-columns:42px minmax(0,1fr) auto!important;align-items:center!important;width:100%!important;height:48px!important;min-height:48px!important;max-height:48px!important;padding:4px 7px!important;gap:8px!important;border:1px solid #dbe7e4!important;border-radius:10px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 2px 8px rgba(15,23,42,.045)!important;overflow:hidden!important}
+    .list-product-card:hover{transform:none!important;box-shadow:0 4px 12px rgba(15,23,42,.07)!important}
+    .list-badge{position:absolute!important;left:4px!important;top:3px!important;z-index:3!important}
+    .list-badge .product-badge{font-size:.42rem!important;padding:1px 4px!important;border-radius:999px!important;box-shadow:0 2px 5px rgba(15,23,42,.12)!important;line-height:1!important}
+    .list-product-thumb{width:42px!important;height:40px!important;border-radius:7px!important;overflow:hidden!important;background:#f8fafc!important;display:grid!important;place-items:center!important;flex:none!important}
+    .list-product-thumb img,.list-fallback{width:42px!important;height:40px!important;object-fit:cover!important;border-radius:7px!important}
+    .list-fallback{display:grid;place-items:center;font-size:1.05rem!important;background:#fdf2f8!important}
+    .list-product-info{min-width:0!important;display:flex!important;flex-direction:column!important;justify-content:center!important;gap:1px!important}
+    .list-category{font-size:.48rem!important;line-height:1!important;font-weight:850!important;color:#0f766e!important;text-transform:none!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+    .list-product-name{font-size:.72rem!important;line-height:1.1!important;font-weight:900!important;color:#172033!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+    .list-product-price{color:#db2777!important;font-weight:950!important;margin-left:4px!important;white-space:nowrap!important}
+    .list-product-actions{display:flex!important;align-items:center!important;justify-content:flex-end!important;gap:3px!important;min-width:max-content!important}
+    .list-action{width:25px!important;height:25px!important;min-width:25px!important;display:grid!important;place-items:center!important;padding:0!important;border-radius:7px!important;font-size:.54rem!important;line-height:1!important}
+    .list-action.btn-like{flex:none!important;border:1px solid #e2e8f0!important;background:#fff!important;color:#64748b!important;font-weight:900!important}
+    .list-action.btn-like.liked{border-color:#f9a8d4!important;background:#fff1f7!important;color:#db2777!important}
+    .list-action.btn-favorite{border:1px solid #e2e8f0!important;background:#fff!important;font-size:.62rem!important}
+    .list-action.btn-favorite.saved{background:#ffe4f1!important;border-color:#f9a8d4!important}
+    .list-action.btn-review{border:1px solid #e2e8f0!important;background:#f8fafc!important;color:#475569!important;text-decoration:none!important}
+    .list-add{height:28px!important;min-width:53px!important;padding:0 7px!important;border:0!important;border-radius:7px!important;background:linear-gradient(135deg,#0f766e,#14b8a6)!important;color:#fff!important;font-size:.56rem!important;font-weight:950!important;cursor:pointer!important;white-space:nowrap!important}
+    .list-add:disabled{background:#94a3b8!important;cursor:not-allowed!important}
+    @media(max-width:720px){
+      .product-grid{gap:5px!important}
+      .list-product-card{grid-template-columns:38px minmax(0,1fr) auto!important;height:46px!important;min-height:46px!important;max-height:46px!important;padding:3px 5px!important;gap:7px!important}
+      .list-product-thumb,.list-product-thumb img,.list-fallback{width:38px!important;height:38px!important}
+      .list-action{width:22px!important;height:22px!important;min-width:22px!important;font-size:.5rem!important}
+      .list-product-name{font-size:.66rem!important}
+      .list-category{font-size:.43rem!important}
+      .list-add{height:24px!important;min-width:47px!important;padding:0 6px!important;font-size:.53rem!important}
+      .list-badge .product-badge{font-size:.38rem!important}
+    }
     /* Compact storefront list view: approximately 1 cm / 38 px per product row. */
     .product-grid{display:flex!important;flex-direction:column!important;gap:4px!important}
     .product-card{min-height:38px!important;height:38px!important;width:100%!important;display:grid!important;grid-template-columns:38px minmax(0,1fr) auto!important;align-items:center!important;gap:7px!important;padding:3px 6px!important;border-radius:8px!important;box-shadow:none!important;overflow:hidden!important}
@@ -277,33 +341,33 @@
     <div class="section-title">🍽️ <span id="catalogTitleText">Menu</span></div>
     <div class="product-grid" id="productGrid">
       {% for p in products %}
-      <div class="product-card" data-cat="{{ p.category_name }}" data-name="{{ p.name|lower }} {{ p.category_name|lower }} {{ (p.description or '')|lower }}" data-price="{{ product_starting_price(p) }}" data-available="{{ '1' if product_is_available_now(p) else '0' }}" data-trending="{{ '1' if p.id in trending_ids else '0' }}">
-        <div class="product-badges">{% if p.id in trending_ids %}<span class="product-badge trending">Popular</span>{% elif p.is_top_seller %}<span class="product-badge">Best</span>{% elif p.is_featured %}<span class="product-badge">Featured</span>{% endif %}</div>
-        <div>
-          <div>
-          {% if p.image_url %}
-            <img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="lazy" class="p-img" alt="{{ p.name }}" onerror="this.style.display='none';this.nextElementSibling.style.display='grid';"><div class="p-img" style="display:none;place-items:center;font-size:1.2rem">🍲</div>
-          {% else %}
-            <div class="p-img" style="display:flex; justify-content:center; align-items:center; font-size:1.2rem;">🍲</div>
-          {% endif %}
-          </div>
-          <span>{{ p.category_name }}</span>
-          <div class="p-title">{{ p.name }}</div>
-          <div class="product-meta"><span>₱{{ "{:,.2f}".format(product_starting_price(p)) }}</span>{% if p.stock <= 10 %}<span style="color:#b45309">{{ p.stock }} left</span>{% endif %}</div>
+      <div class="product-card list-product-card" data-cat="{{ p.category_name }}" data-name="{{ p.name|lower }} {{ p.category_name|lower }} {{ (p.description or '')|lower }}" data-price="{{ product_starting_price(p) }}" data-available="{{ '1' if product_is_available_now(p) else '0' }}" data-trending="{{ '1' if p.id in trending_ids else '0' }}">
+        <div class="list-badge">
+          {% if p.id in trending_ids %}<span class="product-badge trending">Popular</span>{% elif p.is_top_seller %}<span class="product-badge">Best</span>{% elif p.is_featured %}<span class="product-badge">Featured</span>{% endif %}
         </div>
-        <div>
-          <div class="interaction-bar">
-            <button class="btn-like {% if p.id in liked_ids %}liked{% endif %}" id="like-btn-{{ p.id }}" onclick="toggleLike({{ p.id }})" title="Like">
-              ❤️ <span id="like-{{ p.id }}">{{ p.total_likes }}</span>
-            </button>
-            <button type="button" class="btn-favorite {% if p.id in favorite_ids %}saved{% endif %}" id="favorite-{{ p.id }}" onclick="toggleFavorite({{ p.id }})" title="Save" aria-label="Save {{ p.name }}">🔖</button>
-            <a href="/product/{{ p.id }}" class="btn-review" title="Comments">💬 {{ p.comments|length }}</a>
-            <button type="button" class="btn-review food-share-btn" data-share-title="{{ p.name|e }}" data-share-url="{{ url_for('product_detail', product_id=p.id, pv=product_share_version(p))|e }}" aria-label="Share {{ p.name|e }}" title="Share">↗</button>
-          </div>
-          {% if product_is_available_now(p) %}
-          <button class="btn-add" onclick='addToCart({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_choice_groups(p.option_schema, p.size_schema)|tojson }}, {{ p.allow_custom_amount|tojson }}, {{ (p.minimum_order_amount or p.price)|tojson }})'>+ Add</button>
+        <div class="list-product-thumb">
+          {% if p.image_url %}
+            <img src="{{ p.image_url }}" referrerpolicy="no-referrer" loading="lazy" alt="{{ p.name }}" onerror="this.style.display='none';this.nextElementSibling.style.display='grid';">
+            <div class="list-fallback" style="display:none;">🍲</div>
           {% else %}
-          <button class="btn-add" type="button" disabled style="background:#94a3b8;cursor:not-allowed;">⏰ Closed</button>
+            <div class="list-fallback">🍲</div>
+          {% endif %}
+        </div>
+        <div class="list-product-info">
+          <div class="list-category">{{ p.category_name }}</div>
+          <div class="list-product-name">{{ p.name }} <span class="list-product-price">₱{{ "{:,.2f}".format(product_starting_price(p)) }}{% if p.size_schema %}+</span>{% else %}</span>{% endif %}</div>
+        </div>
+        <div class="list-product-actions">
+          <button class="list-action btn-like {% if p.id in liked_ids %}liked{% endif %}" id="like-btn-{{ p.id }}" onclick="toggleLike({{ p.id }})" title="Like">
+            ❤️ <span id="like-{{ p.id }}">{{ p.total_likes }}</span>
+          </button>
+          <button type="button" class="list-action btn-favorite {% if p.id in favorite_ids %}saved{% endif %}" id="favorite-{{ p.id }}" onclick="toggleFavorite({{ p.id }})" title="Save" aria-label="Save {{ p.name }}">🔖</button>
+          <a href="/product/{{ p.id }}" class="list-action btn-review" title="Comments">💬 <span>{{ p.comments|length }}</span></a>
+          <button type="button" class="list-action btn-review food-share-btn" data-share-title="{{ p.name|e }}" data-share-url="{{ url_for('product_detail', product_id=p.id, pv=product_share_version(p))|e }}" aria-label="Share {{ p.name|e }}" title="Share">↗</button>
+          {% if product_is_available_now(p) %}
+          <button class="list-add" onclick='addToCart({{ p.id }}, {{ p.name|tojson }}, {{ p.price }}, {{ product_choice_groups(p.option_schema, p.size_schema)|tojson }}, {{ p.allow_custom_amount|tojson }}, {{ (p.minimum_order_amount or p.price)|tojson }})'>+ Add</button>
+          {% else %}
+          <button class="list-add" type="button" disabled>⏰</button>
           {% endif %}
         </div>
       </div>
