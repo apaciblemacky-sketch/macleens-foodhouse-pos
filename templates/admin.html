@@ -194,7 +194,7 @@
           <tr>
             <td><strong>{{ pname }}</strong></td>
             <td style="text-align:center;">
-              {% elif '[Service]' in pname or 'Printing' in pname %}
+              {% if '[Service]' in pname or 'Printing' in pname %}
                 <span class="badge" style="background:#ede9fe; color:#6d28d9;">Service / Print</span>
               {% else %}
                 <span class="badge" style="background:#fce7f3; color:#be185d;">Food / Drink</span>
