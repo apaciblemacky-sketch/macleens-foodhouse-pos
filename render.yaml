@@ -17,6 +17,12 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
+      - key: GEMINI_MARKETING_MODEL
+        value: gemini-3.5-flash-lite
+      - key: OPENAI_MARKETING_MODEL
+        value: gpt-5.5
+      - key: MARKETING_CRON_TOKEN
+        sync: false
       - key: PUBLIC_BASE_URL
         value: https://macleens-foodhouse-pos.onrender.com
       # Optional browser push for installed-app announcements. Generate a VAPID
