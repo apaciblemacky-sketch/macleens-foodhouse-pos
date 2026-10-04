@@ -6879,6 +6879,29 @@ def create_ai_marketing_post(
         decision['business'] = 'FOODHOUSE'
         decision['source_kind'] = 'PRODUCT'
         decision['source_id'] = selected_products[0].id
+
+    # A manually typed food name is an explicit admin request, not a suggestion.
+    # Never let the AI turn that request into a skipped post. When the provider
+    # returns should_post=false, generate a safe name-only draft locally instead.
+    if requested_names and not decision.get('should_post'):
+        decision = {
+            'should_post': True,
+            'business': 'FOODHOUSE',
+            'post_type': post_type_hint if post_type_hint in MARKETING_POST_TYPES else 'PRODUCT_SPOTLIGHT',
+            'source_kind': 'PAGE',
+            'source_id': None,
+            'caption': (
+                f"Today's food spotlight: {requested_names[0]} ✨ "
+                "What do you think about this one? Tell us if you'd like to see it featured at Macleen's Food House. "
+                "#MacleensFoodHouse"
+            ),
+            'reason': (
+                f"Admin explicitly requested the food name '{requested_names[0]}'. "
+                "The AI provider skipped, so a safe name-only fallback was used without inventing price or availability."
+            ),
+            'model': 'manual-name-fallback',
+        }
+
     if not decision.get('should_post'):
         post = MarketingPost(
             target_type=target_type,
