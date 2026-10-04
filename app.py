@@ -6872,10 +6872,13 @@ def create_ai_marketing_post(
         context, business_hint, post_type_hint, group_context,
         provider=marketing_settings().get('ai_provider', 'GEMINI'),
     )
-    if selected_product and decision.get('should_post'):
+    # When exactly one catalog product was selected (and no manual names were
+    # supplied), lock the decision to that product. With multiple choices or
+    # typed names, let the AI choose within the supplied Food House context.
+    if len(selected_products) == 1 and not requested_names and decision.get('should_post'):
         decision['business'] = 'FOODHOUSE'
         decision['source_kind'] = 'PRODUCT'
-        decision['source_id'] = selected_product.id
+        decision['source_id'] = selected_products[0].id
     if not decision.get('should_post'):
         post = MarketingPost(
             target_type=target_type,
