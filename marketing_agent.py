@@ -332,7 +332,7 @@ def generate_template_marketing_decision(context: dict, business_hint: str = "AU
     if requested_food_names and business == "FOODHOUSE":
         # Manually requested food names take priority over the generic catalog pool.
         business = "FOODHOUSE"
-    if not rows:
+    if not rows and not requested_food_names:
         other_business = "CRAFT" if business == "FOODHOUSE" else "FOODHOUSE"
         other_rows = crafts if other_business == "CRAFT" else foods
         if other_rows:
