@@ -1266,6 +1266,7 @@ def main() -> int:
         "Macleen's AI Marketing", "Two safe modes", "Facebook Page — Manual Posting Shortcut",
         "Joined Facebook Groups — Manual Posting", "Copy Post", "Mark Posted",
         "Gemini Free (Recommended)", "Smart Template — No API", "Generate Marketing Draft",
+        "Food Products Choices", "Specific Food Names", "name="food_product_ids"", "name="specific_food_names"",
     ]:
         if marker not in marketing_html:
             fail(f"AI Marketing UI is missing: {marker}")
@@ -1279,6 +1280,10 @@ def main() -> int:
         fail("Gemini structured-output/default-model configuration is missing")
     if "generate_template_marketing_decision" not in marketing_py or "smart-template-fallback" not in marketing_py:
         fail("No-cost smart-template fallback is missing")
+    if "requested_food_names" not in source:
+        fail("manual Food House name requests are not wired into the marketing context")
+    if "food_product_ids=request.form.getlist('food_product_ids')" not in source:
+        fail("multi-select Food House product choices are not wired into AI marketing generation")
     if "https://api.openai.com/v1/responses" not in marketing_py or '"type": "json_schema"' not in marketing_py:
         fail("Optional OpenAI structured-output integration is missing")
     render_yaml = (ROOT / "render.yaml").read_text(encoding="utf-8")
