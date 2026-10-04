@@ -71,7 +71,7 @@
       <form action="{{ url_for('marketing_generate') }}" method="post">
         <div class="form-grid">
           <div><label>Business</label><select name="business"><option value="AUTO">Let AI Decide</option><option value="FOODHOUSE">Food House</option><option value="CRAFT">Crafts</option></select></div>
-          <div><label>Post Purpose</label><select name="post_type"><option value="AUTO">Let AI Decide</option>{% for pt in post_types %}<option value="{{ pt }}">{{ pt.replace('_',' ').title() }}</option>{% endfor %}</select></div>
+          <div><label>Post Purpose</label><select name="post_type"><option value="AUTO">Let AI Decide</option>{% for pt in post_types %}<option value="{{ pt }}">{% if pt == 'OCCASION_ORDER' %}Long Occasion / Bulk Order{% else %}{{ pt.replace('_',' ').title() }}{% endif %}</option>{% endfor %}</select></div>
 
           <div style="grid-column:1/-1">
             <label>🍲 Food Products Choices — select one or more</label>
