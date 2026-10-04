@@ -71,6 +71,9 @@ Goals:
 - Do not put a URL in caption; the application attaches the verified link separately.
 - Use at most four hashtags.
 - For group-assisted posts, adapt the tone to the group's saved purpose/rules and avoid pretending the post was automatically published.
+- When the business context includes requested_food_names, prioritize those exact names as the main food subject.
+- When specific selected Food House products are supplied, stay within those selected products when choosing the food subject.
+- A manually typed food name that does not match a current catalog item may still be used as a creative topic, but do not invent its price, stock, availability, discount, or product link.
 """.strip()
 
 
@@ -321,6 +324,14 @@ def generate_template_marketing_decision(context: dict, business_hint: str = "AU
                 business = _stable_pick(["FOODHOUSE", "CRAFT"], f"business|{today}") or "FOODHOUSE"
 
     rows = foods if business == "FOODHOUSE" else crafts
+    requested_food_names = [
+        str(name).strip()[:100]
+        for name in (context.get("requested_food_names") or [])
+        if str(name).strip()
+    ][:12]
+    if requested_food_names and business == "FOODHOUSE":
+        # Manually requested food names take priority over the generic catalog pool.
+        business = "FOODHOUSE"
     if not rows:
         other_business = "CRAFT" if business == "FOODHOUSE" else "FOODHOUSE"
         other_rows = crafts if other_business == "CRAFT" else foods
@@ -364,7 +375,33 @@ def generate_template_marketing_decision(context: dict, business_hint: str = "AU
 
     page_types = {"ENGAGEMENT", "BRAND_AWARENESS", "LOYALTY"}
     item = None
-    if rows and post_type not in page_types:
+    manual_food_name = None
+    if business == "FOODHOUSE" and requested_food_names and post_type not in page_types:
+        normalized_rows = {
+            re.sub(r"[^a-z0-9]+", " ", str(row.get("name") or "").lower()).strip(): row
+            for row in fresh_rows
+        }
+        matched = []
+        for requested_name in requested_food_names:
+            key = re.sub(r"[^a-z0-9]+", " ", requested_name.lower()).strip()
+            if key in normalized_rows:
+                matched.append(normalized_rows[key])
+                continue
+            partial = next(
+                (row for row in fresh_rows
+                 if key and key in re.sub(r"[^a-z0-9]+", " ", str(row.get("name") or "").lower()).strip()),
+                None,
+            )
+            if partial:
+                matched.append(partial)
+        if matched:
+            item = matched[0]
+        else:
+            manual_food_name = _stable_pick(
+                requested_food_names,
+                f"manual-food|{today}|{post_type}",
+            )
+    if rows and post_type not in page_types and item is None:
         if post_type == "SLOW_SELLER" and business == "FOODHOUSE":
             item = min(fresh_rows, key=lambda r: (int(r.get("qty_30d") or 0), -int(r.get("stock") or 0), str(r.get("name") or "")))
         elif post_type == "TOP_SELLER":
@@ -379,7 +416,18 @@ def generate_template_marketing_decision(context: dict, business_hint: str = "AU
         else:
             item = _stable_pick(fresh_rows, f"item|{today}|{business}|{post_type}")
 
-    if item:
+    if manual_food_name:
+        name = manual_food_name
+        options = [
+            f"Putting {name} in the spotlight today 💗 What do you think about this one? Tell us if you'd like to see it featured at Macleen's Food House. #MacleensFoodHouse",
+            f"Today's food idea: {name} ✨ Would you order this from Macleen's Food House? Let us know! #MacleensFoodHouse",
+            f"Craving inspiration? 😋 {name} is on today's Macleen's conversation list. Tell us what you think! #MacleensFoodHouse",
+        ]
+        caption = _stable_pick(options, f"manual-caption|{today}|{name}|{post_type}")
+        reason = f"Used the manually requested Food House name '{name}' as a name-only marketing topic because it did not match a current catalog item."
+        source_kind = "PAGE"
+        source_id = None
+    elif item:
         name = str(item.get("name") or "our featured item")
         price = _money(item.get("price"))
         if business == "FOODHOUSE":
