@@ -72,9 +72,29 @@
         <div class="form-grid">
           <div><label>Business</label><select name="business"><option value="AUTO">Let AI Decide</option><option value="FOODHOUSE">Food House</option><option value="CRAFT">Crafts</option></select></div>
           <div><label>Post Purpose</label><select name="post_type"><option value="AUTO">Let AI Decide</option>{% for pt in post_types %}<option value="{{ pt }}">{{ pt.replace('_',' ').title() }}</option>{% endfor %}</select></div>
-          <div><label>Food Product</label><select name="product_id"><option value="">Let AI choose an active product</option>{% for product in active_products %}<option value="{{ product.id }}" {% if product.stock|int <= 0 %}disabled{% endif %}>{{ product.name }}{% if product.stock|int <= 0 %} — out of stock{% endif %}</option>{% endfor %}</select></div>
+
+          <div style="grid-column:1/-1">
+            <label>🍲 Food Products Choices — select one or more</label>
+            <div style="max-height:190px;overflow:auto;border:1px solid #cbd5e1;border-radius:9px;padding:8px;background:#f8fafc;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:5px;">
+              {% for product in active_products %}
+                <label style="display:flex;align-items:center;gap:7px;margin:0;padding:6px 7px;border-radius:7px;background:#fff;border:1px solid #e2e8f0;font-size:.78rem;font-weight:700;">
+                  <input type="checkbox" name="food_product_ids" value="{{ product.id }}" {% if product.stock|int <= 0 %}disabled{% endif %} style="width:auto;">
+                  <span>{{ product.name }}{% if product.stock|int <= 0 %} <span class="muted">(out of stock)</span>{% endif %}</span>
+                </label>
+              {% else %}
+                <span class="muted">No Food House products are currently available.</span>
+              {% endfor %}
+            </div>
+            <div class="muted" style="margin-top:5px">Selected catalog products are used as the AI's allowed Food House pool and keep their live price/availability data.</div>
+          </div>
+
+          <div style="grid-column:1/-1">
+            <label>✍️ Specific Food Names — optional manual input</label>
+            <textarea name="specific_food_names" style="min-height:82px" placeholder="Example: Porkchop, Utan, Tinolang Bangus&#10;You can enter several names separated by commas or new lines."></textarea>
+            <div class="muted" style="margin-top:5px">Typed names are prioritized. If a name does not match a current catalog product, AI may use it as a name-only topic and will not invent a price, stock, availability, or discount.</div>
+          </div>
         </div>
-        <p class="muted" style="margin:10px 0">The AI may intentionally choose not to create a post if the current data does not support a useful, truthful promotion.</p>
+        <p class="muted" style="margin:10px 0">Use the product choices for current catalog items, the text box for specific names, or both together. The AI still checks recent marketing history and follows the marketing safety rules.</p>
         <button class="btn btn-blue" type="submit">✨ Generate Marketing Draft</button>
       </form>
     </section>
