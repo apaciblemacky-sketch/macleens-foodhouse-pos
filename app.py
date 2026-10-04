@@ -15238,6 +15238,8 @@ def marketing_generate():
             business_hint=request.form.get('business', 'AUTO').upper(),
             post_type_hint=request.form.get('post_type', 'AUTO').upper(),
             product_id=request.form.get('product_id'),
+            food_product_ids=request.form.getlist('food_product_ids'),
+            specific_food_names=request.form.get('specific_food_names', ''),
         )
         if post.status == 'SKIPPED':
             flash(f'AI chose not to create a promotional post: {post.reason}', 'info')
