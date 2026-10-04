@@ -6797,16 +6797,60 @@ def validate_marketing_decision(decision):
         'model': str(decision.get('model') or '').strip(),
     }
 
-def create_ai_marketing_post(business_hint='AUTO', post_type_hint='AUTO', group=None, product_id=None):
+def create_ai_marketing_post(
+    business_hint='AUTO',
+    post_type_hint='AUTO',
+    group=None,
+    product_id=None,
+    food_product_ids=None,
+    specific_food_names=None,
+):
     context = build_marketing_context()
-    selected_product = None
+
+    # Keep the original single-product option working, while allowing the admin
+    # to select several Food House products and/or type specific food names.
+    selected_ids = []
+    for raw_id in (food_product_ids or []):
+        parsed_id = parse_int(raw_id, 0)
+        if parsed_id and parsed_id not in selected_ids:
+            selected_ids.append(parsed_id)
     if product_id:
-        selected_product = db.session.get(Product, parse_int(product_id, 0))
-        if not selected_product or not selected_product.is_active:
-            raise OrderValidationError('The selected product is no longer active.')
-        if parse_int(selected_product.stock, 0) <= 0:
-            raise OrderValidationError('The selected active product is currently out of stock.')
-        context['foodhouse_products'] = [row for row in context['foodhouse_products'] if row['id'] == selected_product.id]
+        parsed_id = parse_int(product_id, 0)
+        if parsed_id and parsed_id not in selected_ids:
+            selected_ids.append(parsed_id)
+
+    selected_products = []
+    for selected_id in selected_ids:
+        product = db.session.get(Product, selected_id)
+        if not product or not product.is_active:
+            raise OrderValidationError(f'Selected Food House product #{selected_id} is no longer active.')
+        if parse_int(product.stock, 0) <= 0:
+            raise OrderValidationError(f'Selected Food House product "{product.name}" is currently out of stock.')
+        selected_products.append(product)
+
+    requested_names = []
+    raw_names = specific_food_names or []
+    if isinstance(raw_names, str):
+        raw_names = re.split(r'[,;\n]+', raw_names)
+    for raw_name in raw_names:
+        name = re.sub(r'\s+', ' ', str(raw_name or '').strip())
+        if name and name.casefold() not in {n.casefold() for n in requested_names}:
+            requested_names.append(name[:100])
+        if len(requested_names) >= 12:
+            break
+
+    if selected_products:
+        selected_product_ids = {product.id for product in selected_products}
+        context['foodhouse_products'] = [
+            row for row in context['foodhouse_products'] if row['id'] in selected_product_ids
+        ]
+        context['craft_items'] = []
+        business_hint = 'FOODHOUSE'
+        if post_type_hint == 'AUTO':
+            post_type_hint = 'PRODUCT_SPOTLIGHT'
+
+    if requested_names:
+        context['requested_food_names'] = requested_names
         context['craft_items'] = []
         business_hint = 'FOODHOUSE'
         if post_type_hint == 'AUTO':
