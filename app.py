@@ -6881,26 +6881,41 @@ def create_ai_marketing_post(
         decision['source_id'] = selected_products[0].id
 
     # A manually typed food name is an explicit admin request, not a suggestion.
-    # Never let the AI turn that request into a skipped post. When the provider
-    # returns should_post=false, generate a safe name-only draft locally instead.
-    if requested_names and not decision.get('should_post'):
-        decision = {
-            'should_post': True,
-            'business': 'FOODHOUSE',
-            'post_type': post_type_hint if post_type_hint in MARKETING_POST_TYPES else 'PRODUCT_SPOTLIGHT',
-            'source_kind': 'PAGE',
-            'source_id': None,
-            'caption': (
-                f"Today's food spotlight: {requested_names[0]} ✨ "
-                "What do you think about this one? Tell us if you'd like to see it featured at Macleen's Food House. "
-                "#MacleensFoodHouse"
-            ),
-            'reason': (
-                f"Admin explicitly requested the food name '{requested_names[0]}'. "
-                "The AI provider skipped, so a safe name-only fallback was used without inventing price or availability."
-            ),
-            'model': 'manual-name-fallback',
-        }
+    # Never let the AI turn that request into a skipped post or override it with
+    # an unavailable catalog product. Typed names are handled as name-only topics.
+    if requested_names:
+        safe_name = requested_names[0]
+        ai_caption = str(decision.get('caption') or '').strip()
+        ai_prices = extract_peso_amounts(ai_caption)
+        if (
+            not decision.get('should_post')
+            or not ai_caption
+            or ai_prices
+        ):
+            decision = {
+                'should_post': True,
+                'business': 'FOODHOUSE',
+                'post_type': post_type_hint if post_type_hint in MARKETING_POST_TYPES else 'PRODUCT_SPOTLIGHT',
+                'source_kind': 'PAGE',
+                'source_id': None,
+                'caption': (
+                    f"Today's food spotlight: {safe_name} ✨ "
+                    "What do you think about this one? Tell us if you'd like to see it featured at Macleen's Food House. "
+                    "#MacleensFoodHouse"
+                ),
+                'reason': (
+                    f"Admin explicitly requested the food name '{safe_name}'. "
+                    "A safe name-only marketing draft was used without inventing price, stock, availability, or discount."
+                ),
+                'model': 'manual-name-fallback',
+            }
+        else:
+            # Even when the provider successfully writes the caption, the typed
+            # name remains the authoritative topic and never becomes a catalog
+            # product reference that can fail availability validation.
+            decision['business'] = 'FOODHOUSE'
+            decision['source_kind'] = 'PAGE'
+            decision['source_id'] = None
 
     if not decision.get('should_post'):
         post = MarketingPost(
