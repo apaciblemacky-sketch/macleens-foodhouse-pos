@@ -71,8 +71,9 @@ Goals:
 - Do not put a URL in caption; the application attaches the verified link separately.
 - Use at most four hashtags.
 - For group-assisted posts, adapt the tone to the group's saved purpose/rules and avoid pretending the post was automatically published.
-- When the business context includes requested_food_names, those are explicit admin instructions: choose one of those exact names as the main food subject and set should_post=true.
-- When requested_food_names is present, do not skip the post merely because the name is not in the catalog or because there is no current product data. Use the name only and do not invent price, stock, availability, discount, or product link.
+- When the business context includes requested_food_names, those are explicit admin instructions: ALL of those names must be included in the marketing caption. Do not choose only one, omit any, or substitute another food.
+- When requested_food_names is present, set should_post=true and treat every supplied name as an explicit requested topic. Do not skip the post merely because a name is not in the catalog or because there is no current product data. Use the names only and do not invent price, stock, availability, discount, or product link.
+- Preserve the requested food names exactly as supplied whenever practical, including names such as "Pichi2", "Sapin2 Cups", and "Puto Cheese".
 - When specific selected Food House products are supplied, stay within those selected products when choosing the food subject.
 - A manually typed food name that does not match a current catalog item may still be used as a creative topic, but do not invent its price, stock, availability, discount, or product link.
 """.strip()
@@ -417,7 +418,17 @@ def generate_template_marketing_decision(context: dict, business_hint: str = "AU
         else:
             item = _stable_pick(fresh_rows, f"item|{today}|{business}|{post_type}")
 
-    if manual_food_name:
+    if requested_food_names:
+        names_text = ", ".join(requested_food_names)
+        caption = (
+            f"Today's Macleen's Food House food lineup ✨ {names_text}. "
+            "Which one would you choose? Tell us your pick and what you'd like to see featured! "
+            "#MacleensFoodHouse"
+        )
+        reason = "Used all manually requested Food House names as explicit name-only marketing topics."
+        source_kind = "PAGE"
+        source_id = None
+    elif manual_food_name:
         name = manual_food_name
         options = [
             f"Putting {name} in the spotlight today 💗 What do you think about this one? Tell us if you'd like to see it featured at Macleen's Food House. #MacleensFoodHouse",
