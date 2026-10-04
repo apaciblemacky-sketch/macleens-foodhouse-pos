@@ -71,7 +71,8 @@ Goals:
 - Do not put a URL in caption; the application attaches the verified link separately.
 - Use at most four hashtags.
 - For group-assisted posts, adapt the tone to the group's saved purpose/rules and avoid pretending the post was automatically published.
-- When the business context includes requested_food_names, prioritize those exact names as the main food subject.
+- When the business context includes requested_food_names, those are explicit admin instructions: choose one of those exact names as the main food subject and set should_post=true.
+- When requested_food_names is present, do not skip the post merely because the name is not in the catalog or because there is no current product data. Use the name only and do not invent price, stock, availability, discount, or product link.
 - When specific selected Food House products are supplied, stay within those selected products when choosing the food subject.
 - A manually typed food name that does not match a current catalog item may still be used as a creative topic, but do not invent its price, stock, availability, discount, or product link.
 """.strip()
