@@ -11,6 +11,7 @@ GEMINI_INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/inte
 
 MARKETING_POST_TYPES = [
     "PRODUCT_SPOTLIGHT",
+    "OCCASION_ORDER",
     "SLOW_SELLER",
     "TOP_SELLER",
     "NEW_OR_FEATURED",
@@ -72,6 +73,8 @@ Goals:
 - Use at most four hashtags.
 - For group-assisted posts, adapt the tone to the group's saved purpose/rules and avoid pretending the post was automatically published.
 - When the business context includes requested_food_names, those are explicit admin instructions: ALL of those names must be included in the marketing caption. Do not choose only one, omit any, or substitute another food.
+- When post_type_hint is OCCASION_ORDER, create a longer Facebook-ready post specifically calling out customers who are planning birthdays, fiestas, meetings, school events, office gatherings, family celebrations, or other occasions. Invite advance orders or inquiries without inventing prices, minimum orders, discounts, stock, delivery promises, or deadlines.
+- OCCASION_ORDER should be substantially longer than a normal product spotlight, with a strong opening, natural occasion examples, the supplied food lineup, and a clear call to action.
 - When requested_food_names is present, set should_post=true and treat every supplied name as an explicit requested topic. Do not skip the post merely because a name is not in the catalog or because there is no current product data. Use the names only and do not invent price, stock, availability, discount, or product link.
 - Preserve the requested food names exactly as supplied whenever practical, including names such as "Pichi2", "Sapin2 Cups", and "Puto Cheese".
 - When specific selected Food House products are supplied, stay within those selected products when choosing the food subject.
@@ -418,7 +421,33 @@ def generate_template_marketing_decision(context: dict, business_hint: str = "AU
         else:
             item = _stable_pick(fresh_rows, f"item|{today}|{business}|{post_type}")
 
-    if requested_food_names:
+    if post_type == "OCCASION_ORDER" and business == "FOODHOUSE" and requested_food_names:
+        names_text = ", ".join(requested_food_names)
+        caption = (
+            "Planning a birthday, fiesta, school event, office gathering, family celebration, or another special occasion? 🎉 "
+            "Let Macleen's Food House be part of your food table!\n\n"
+            f"Our requested lineup includes: {names_text}.\n\n"
+            "Whether you're preparing food for a small get-together or a bigger celebration, you can message us to ask about your food needs and ordering options. "
+            "If you already have an upcoming occasion in mind, send us your preferred items and event details so we can help you plan your order. 💗\n\n"
+            "Planning ahead? Don't wait until the last minute—message Macleen's Food House and let's talk about your order! "
+            "#MacleensFoodHouse #OccasionOrders"
+        )
+        reason = "Generated a longer occasion-order post using all manually requested Food House names."
+        source_kind = "PAGE"
+        source_id = None
+    elif post_type == "OCCASION_ORDER" and business == "FOODHOUSE":
+        caption = (
+            "Got a birthday, fiesta, school event, office gathering, family celebration, or special occasion coming up? 🎉 "
+            "Macleen's Food House can be part of your food plans!\n\n"
+            "Message us with your occasion, expected order, and food preferences so we can help you plan what you'd like to serve. "
+            "Planning ahead makes it easier to organize your food before the big day. 💗\n\n"
+            "Have an upcoming celebration? Send us a message and let's talk about your order! "
+            "#MacleensFoodHouse #OccasionOrders"
+        )
+        reason = "Generated a longer occasion-order post for Food House inquiries."
+        source_kind = "PAGE"
+        source_id = None
+    elif requested_food_names:
         names_text = ", ".join(requested_food_names)
         caption = (
             f"Today's Macleen's Food House food lineup ✨ {names_text}. "
