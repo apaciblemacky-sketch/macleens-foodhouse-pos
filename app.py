@@ -6884,14 +6884,20 @@ def create_ai_marketing_post(
     # Never let the AI turn that request into a skipped post or override it with
     # an unavailable catalog product. Typed names are handled as name-only topics.
     if requested_names:
-        safe_name = requested_names[0]
         ai_caption = str(decision.get('caption') or '').strip()
+        ai_caption_normalized = re.sub(r'[^a-z0-9]+', ' ', ai_caption.casefold()).strip()
+        missing_names = [
+            name for name in requested_names
+            if re.sub(r'[^a-z0-9]+', ' ', name.casefold()).strip() not in ai_caption_normalized
+        ]
         ai_prices = extract_peso_amounts(ai_caption)
         if (
             not decision.get('should_post')
             or not ai_caption
             or ai_prices
+            or missing_names
         ):
+            names_text = ', '.join(requested_names)
             decision = {
                 'should_post': True,
                 'business': 'FOODHOUSE',
@@ -6899,20 +6905,20 @@ def create_ai_marketing_post(
                 'source_kind': 'PAGE',
                 'source_id': None,
                 'caption': (
-                    f"Today's food spotlight: {safe_name} ✨ "
-                    "What do you think about this one? Tell us if you'd like to see it featured at Macleen's Food House. "
+                    f"Today's Macleen's Food House lineup ✨ {names_text}. "
+                    "Which one would you choose? Tell us your pick and what you'd like to see featured! "
                     "#MacleensFoodHouse"
                 ),
                 'reason': (
-                    f"Admin explicitly requested the food name '{safe_name}'. "
-                    "A safe name-only marketing draft was used without inventing price, stock, availability, or discount."
+                    "Admin explicitly requested these food names: "
+                    f"{names_text}. A safe name-only marketing draft was used so every requested name is preserved "
+                    "without inventing price, stock, availability, or discount."
                 ),
                 'model': 'manual-name-fallback',
             }
         else:
-            # Even when the provider successfully writes the caption, the typed
-            # name remains the authoritative topic and never becomes a catalog
-            # product reference that can fail availability validation.
+            # Typed names are authoritative topics and must never become a
+            # catalog product reference that can fail availability validation.
             decision['business'] = 'FOODHOUSE'
             decision['source_kind'] = 'PAGE'
             decision['source_id'] = None
