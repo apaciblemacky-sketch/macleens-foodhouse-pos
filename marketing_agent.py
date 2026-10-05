@@ -34,8 +34,12 @@ def openai_configured() -> bool:
 
 
 def gemini_image_configured() -> bool:
-    """Whether Gemini image generation/editing is configured for Creative Studio."""
-    return bool((os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip())
+    """Creative Studio is always available because poster rendering is local/free.
+
+    Gemini is used separately for optional marketing copy/decision generation.
+    This function is kept for compatibility with the existing admin UI.
+    """
+    return True
 
 
 def generate_marketing_image_poster(
@@ -48,123 +52,177 @@ def generate_marketing_image_poster(
     post_type: str = "PRODUCT_SPOTLIGHT",
     price_text: str = "",
 ):
-    """Generate a Facebook-ready marketing poster using Gemini image editing.
+    """Create a Facebook-ready poster locally with Pillow.
 
-    The uploaded photo is supplied as a reference image. Gemini creates the poster
-    directly, while the server supplies the verified product name and catalog price.
-    No OpenAI image API is used by Creative Studio.
+    This deliberately makes no paid image-generation API call. The uploaded
+    product photo remains the source of truth; Pillow only composes it into a
+    clean 4:5 marketing layout and adds verified catalog text.
     """
-    api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not configured. Add it in Render to use Gemini Creative Studio.")
-
     if not image_bytes:
         raise ValueError("The uploaded image is empty.")
 
-    model = (
-        os.environ.get("GEMINI_MARKETING_IMAGE_MODEL", "gemini-3.1-flash-image").strip()
-        or "gemini-3.1-flash-image"
-    )
-    safe_mime = str(mime_type or "image/png").strip().lower() or "image/png"
-    if safe_mime not in {"image/png", "image/jpeg", "image/webp"}:
-        safe_mime = "image/png"
-
-    purpose_labels = {
-        "PRODUCT_SPOTLIGHT": "a product spotlight",
-        "OCCASION_ORDER": "a longer occasion and bulk-order callout",
-        "SLOW_SELLER": "a fresh spotlight to encourage customers to try the item",
-        "TOP_SELLER": "a customer-favorite feature",
-        "NEW_OR_FEATURED": "a featured/new-item promotion",
-        "LOYALTY": "a warm customer-loyalty message",
-        "ENGAGEMENT": "an engaging question-style social post",
-        "BRAND_AWARENESS": "a brand-awareness food/craft post",
-        "RESTOCK_OR_AVAILABILITY": "an availability/restock announcement",
-        "CRAFT_STORY": "a craft-story feature",
-        "VALUE_REMINDER": "a value-focused promotion",
-    }
-    purpose = purpose_labels.get(str(post_type or "").upper(), "a product spotlight")
-    brand = "MACLEEN'S FOOD HOUSE" if str(business or "").upper() == "FOODHOUSE" else "MACLEEN'S CRAFTS"
-    product = str(product_name or "the uploaded product").strip()[:120]
-    price = str(price_text or "").strip()[:40]
-
-    prompt = (
-        "Create a polished Facebook marketing poster using the uploaded product photograph as the "
-        "primary visual reference. This is for a small Philippine local business. "
-        f"Business brand: {brand}. Product: {product}. "
-        f"Marketing purpose: {purpose}. "
-        f"Verified catalog price, if supplied: {price or 'none — do not invent a price'}. "
-        "Preserve the real uploaded product faithfully: its actual food/craft appearance, shape, "
-        "portion, colors, texture, toppings, packaging, serving vessel, and important visible details. "
-        "Do not replace the product with a different product. Do not invent extra food, ingredients, "
-        "packaging, logos, awards, discounts, stock claims, delivery promises, or prices. "
-        "Remove or replace the distracting original background with a clean, bright, modern, "
-        "Instagrammable cafeteria/cafe-style background that makes the real product stand out. "
-        "Create a premium but practical local-business poster, suitable for Facebook, with strong "
-        "visual hierarchy, generous whitespace, attractive food photography, and legible typography. "
-        "Use the exact product name and exact supplied price text when displayed. "
-        "For an occasion-order purpose, visually communicate advance planning, gatherings, birthdays, "
-        "fiestas, meetings, school events, office gatherings, or family celebrations without inventing "
-        "specific offers. For other purposes, keep the design aligned to that purpose. "
-        "Do not add a long caption onto the image; keep poster text concise and readable. "
-        "Do not include a fake phone number or unverified URL. "
-        "Output one finished portrait Facebook poster."
-    )
-
-    encoded_input = base64.b64encode(image_bytes).decode("ascii")
-    response = requests.post(
-        GEMINI_INTERACTIONS_URL,
-        headers={
-            "x-goog-api-key": api_key,
-            "x-goog-api-client": "macleens-creative-studio/2.0.0",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "input": [
-                {"type": "text", "text": prompt},
-                {"type": "image", "mime_type": safe_mime, "data": encoded_input},
-            ],
-            "response_format": {
-                "type": "image",
-                "mime_type": "image/jpeg",
-                "aspect_ratio": "4:5",
-                "image_size": os.environ.get("GEMINI_MARKETING_IMAGE_SIZE", "1K").strip() or "1K",
-            },
-        },
-        timeout=180,
-    )
-    payload = response.json() if response.content else {}
-    if not response.ok:
-        error = payload.get("error") if isinstance(payload, dict) else None
-        message = error.get("message") if isinstance(error, dict) else None
-        raise RuntimeError(f"Gemini image edit error: {message or response.text or 'Gemini image generation failed.'}")
-
-    encoded = None
-    output_image = payload.get("output_image") if isinstance(payload, dict) else None
-    if isinstance(output_image, dict):
-        encoded = output_image.get("data")
-
-    if not encoded:
-        for step in (payload.get("steps", []) if isinstance(payload, dict) else []) or []:
-            if step.get("type") != "model_output":
-                continue
-            for part in step.get("content", []) or []:
-                if part.get("type") == "image" and part.get("data"):
-                    encoded = part["data"]
-                    break
-            if encoded:
-                break
-
-    if not encoded:
-        raise RuntimeError("Gemini image generation returned no image.")
+    try:
+        from io import BytesIO
+        from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageOps
+    except Exception as exc:
+        raise RuntimeError("The local poster engine requires Pillow.") from exc
 
     try:
-        base64.b64decode(encoded, validate=True)
+        source = Image.open(BytesIO(image_bytes)).convert("RGBA")
     except Exception as exc:
-        raise RuntimeError("Gemini image generation returned invalid image data.") from exc
+        raise ValueError("The uploaded image could not be read.") from exc
 
-    return {"model": model, "b64_json": encoded, "mime_type": "image/jpeg"}
+    # Keep output compact enough for browser download while retaining a sharp
+    # Facebook-ready portrait layout.
+    canvas_w, canvas_h = 1080, 1350
+    canvas = Image.new("RGB", (canvas_w, canvas_h), (248, 250, 247))
+    draw = ImageDraw.Draw(canvas)
 
+    # Soft warm cafe-style background with subtle bands.
+    for y in range(canvas_h):
+        t = y / max(1, canvas_h - 1)
+        r = int(248 - 8 * t)
+        g = int(250 - 6 * t)
+        b = int(247 - 2 * t)
+        draw.line((0, y, canvas_w, y), fill=(r, g, b))
+    draw.ellipse((-220, 560, 420, 1190), fill=(255, 245, 225))
+    draw.ellipse((760, -180, 1240, 420), fill=(235, 246, 238))
+
+    def font(size, bold=False):
+        candidates = (
+            ("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",)
+            if bold else
+            ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",)
+        )
+        for path in candidates:
+            try:
+                return ImageFont.truetype(path, size=size)
+            except Exception:
+                pass
+        return ImageFont.load_default()
+
+    def fit_text(text, max_width, size, bold=False):
+        text = str(text or "").strip()
+        current = size
+        while current >= 24:
+            f = font(current, bold)
+            if draw.textbbox((0, 0), text, font=f)[2] <= max_width:
+                return f
+            current -= 4
+        return font(24, bold)
+
+    def wrap(text, max_chars):
+        words = str(text or "").split()
+        lines, line = [], ""
+        for word in words:
+            candidate = (line + " " + word).strip()
+            if len(candidate) <= max_chars:
+                line = candidate
+            else:
+                if line:
+                    lines.append(line)
+                line = word
+        if line:
+            lines.append(line)
+        return lines
+
+    brand = "MACLEEN'S FOOD HOUSE" if str(business or "").upper() == "FOODHOUSE" else "MACLEEN'S CRAFTS"
+    product = str(product_name or "Featured Item").strip()[:90]
+    price = str(price_text or "").strip()[:40]
+
+    purpose_labels = {
+        "PRODUCT_SPOTLIGHT": "TODAY'S FEATURE",
+        "OCCASION_ORDER": "PERFECT FOR YOUR NEXT OCCASION",
+        "SLOW_SELLER": "GIVE THIS ONE A TRY",
+        "TOP_SELLER": "CUSTOMER FAVORITE",
+        "NEW_OR_FEATURED": "FEATURED PICK",
+        "LOYALTY": "A LITTLE SOMETHING FOR YOU",
+        "ENGAGEMENT": "WHAT'S YOUR PICK?",
+        "BRAND_AWARENESS": "MADE FOR YOUR DAY",
+        "RESTOCK_OR_AVAILABILITY": "AVAILABLE TODAY",
+        "CRAFT_STORY": "MADE WITH CARE",
+        "VALUE_REMINDER": "GOOD FOOD, GOOD VALUE",
+    }
+    kicker = purpose_labels.get(str(post_type or "").upper(), "TODAY'S FEATURE")
+
+    # Header
+    draw.rounded_rectangle((58, 48, canvas_w - 58, 126), radius=28, fill=(255, 255, 255))
+    draw.text((88, 70), brand, font=font(30, True), fill=(32, 45, 38))
+    draw.text((canvas_w - 88, 73), "AI + FREE", font=font(22, True), fill=(91, 110, 98), anchor="ra")
+
+    # Purpose ribbon
+    ribbon_font = font(28, True)
+    draw.rounded_rectangle((70, 160, canvas_w - 70, 222), radius=24, fill=(45, 77, 58))
+    draw.text((canvas_w // 2, 191), kicker, font=ribbon_font, fill=(255, 255, 255), anchor="mm")
+
+    # Product card with shadow.
+    card = (62, 255, canvas_w - 62, 905)
+    shadow = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    sd = ImageDraw.Draw(shadow)
+    sd.rounded_rectangle((card[0] + 8, card[1] + 12, card[2] + 8, card[3] + 12), radius=38, fill=(0, 0, 0, 42))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(12))
+    canvas = Image.alpha_composite(canvas.convert("RGBA"), shadow).convert("RGB")
+    draw = ImageDraw.Draw(canvas)
+    draw.rounded_rectangle(card, radius=38, fill=(255, 255, 255))
+
+    photo_box = (92, 285, canvas_w - 92, 875)
+    max_w = photo_box[2] - photo_box[0]
+    max_h = photo_box[3] - photo_box[1]
+    photo = ImageOps.contain(source, (max_w, max_h), Image.Resampling.LANCZOS)
+    px = photo_box[0] + (max_w - photo.width) // 2
+    py = photo_box[1] + (max_h - photo.height) // 2
+    # Rounded mask gives the original photo a clean social-poster presentation.
+    mask = Image.new("L", photo.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, photo.width - 1, photo.height - 1), radius=28, fill=255)
+    canvas.paste(photo, (px, py), mask)
+
+    # Product information area.
+    title_y = 948
+    title_font = fit_text(product, canvas_w - 140, 64, True)
+    draw.text((70, title_y), product, font=title_font, fill=(27, 39, 32))
+
+    if price:
+        price_font = fit_text(price, 360, 50, True)
+        price_box = (canvas_w - 410, 930, canvas_w - 65, 1005)
+        draw.rounded_rectangle(price_box, radius=28, fill=(255, 234, 176))
+        draw.text(((price_box[0] + price_box[2]) // 2, 967), price, font=price_font, fill=(80, 59, 19), anchor="mm")
+
+    # Purpose-specific supporting copy, without inventing offers or claims.
+    support = {
+        "PRODUCT_SPOTLIGHT": "A delicious choice for your next meal or snack.",
+        "OCCASION_ORDER": "Planning a birthday, fiesta, meeting, school event, office gathering, or family celebration? Ask us about advance orders.",
+        "SLOW_SELLER": "Give something different a try and discover a new favorite.",
+        "TOP_SELLER": "One of the items customers keep coming back for.",
+        "NEW_OR_FEATURED": "Check out this featured pick from Macleen's.",
+        "LOYALTY": "Thank you for supporting our local food house.",
+        "ENGAGEMENT": "Would you choose this for your next order?",
+        "BRAND_AWARENESS": "Affordable, comforting choices from Macleen's.",
+        "RESTOCK_OR_AVAILABILITY": "Currently featured for today's orders.",
+        "CRAFT_STORY": "A practical handmade pick from Macleen's Crafts.",
+        "VALUE_REMINDER": "Simple, satisfying choices made for everyday budgets.",
+    }.get(str(post_type or "").upper(), "A delicious choice from Macleen's.")
+
+    lines = wrap(support, 55)[:3]
+    y = 1030
+    body_font = font(27)
+    for line in lines:
+        draw.text((70, y), line, font=body_font, fill=(77, 91, 82))
+        y += 38
+
+    # Occasion posts get a clear, non-invented call to action.
+    cta = "MESSAGE US TO ORDER" if str(post_type or "").upper() == "OCCASION_ORDER" else "MESSAGE US FOR ORDERS"
+    draw.rounded_rectangle((70, 1160, canvas_w - 70, 1240), radius=30, fill=(45, 77, 58))
+    draw.text((canvas_w // 2, 1200), cta, font=font(30, True), fill=(255, 255, 255), anchor="mm")
+    draw.text((canvas_w // 2, 1288), "Macleen's Food House • Local • Affordable • Comforting", font=font(21), fill=(95, 108, 100), anchor="mm")
+
+    output = BytesIO()
+    canvas.save(output, format="JPEG", quality=92, optimize=True, progressive=True)
+    encoded = base64.b64encode(output.getvalue()).decode("ascii")
+    return {
+        "model": "local-poster-engine-v1",
+        "b64_json": encoded,
+        "mime_type": "image/jpeg",
+    }
 
 def _marketing_schema(include_openai_constraints: bool = False):
     string_caption = {"type": "string"}
