@@ -10470,21 +10470,6 @@ def marketing_save_settings():
     flash('AI Marketing settings saved. Facebook publishing remains manual.', 'success')
     return redirect(url_for('marketing_admin'))
 
-@app.route('/admin/marketing/facebook-page', methods=['POST'])
-@require_admin
-def marketing_save_facebook_page():
-    name = request.form.get('page_name', '').strip()[:150] or "Macleen's Facebook Page"
-    page_url = request.form.get('page_url', '').strip()
-    if page_url and not page_url.startswith(('https://facebook.com/', 'https://www.facebook.com/', 'https://m.facebook.com/')):
-        flash('Enter a valid Facebook Page URL starting with https://www.facebook.com/.', 'error')
-        return redirect(url_for('marketing_admin'))
-    save_marketing_setting('marketing_facebook_page_name', name)
-    save_marketing_setting('marketing_facebook_page_url', page_url)
-    db.session.commit()
-    flash('Facebook Page shortcut saved. No Meta API connection is required.', 'success')
-    return redirect(url_for('marketing_admin'))
-
-
 @app.route('/admin/marketing/daily-menu/settings', methods=['POST'])
 @require_admin
 def marketing_save_daily_menu_settings():
@@ -10657,105 +10642,6 @@ def _assign_marketing_insights_from_form(post):
     post.insight_notes = request.form.get('insight_notes', '').strip()[:3000]
     post.insights_updated_at = utc_now()
 
-@app.route('/admin/marketing/post/<int:post_id>/insights', methods=['POST'])
-@require_admin
-def marketing_save_insights(post_id):
-    post = MarketingPost.query.get_or_404(post_id)
-    if post.status != 'POSTED':
-        flash('Mark the post as posted before adding Meta insights.', 'error')
-        return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
-    try:
-        _assign_marketing_insights_from_form(post)
-    except OrderValidationError as exc:
-        flash(str(exc), 'error')
-        return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
-    db.session.commit()
-    flash(f'Meta insights saved for Post #{post.id}.', 'success')
-    return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
-
-@app.route('/admin/marketing/insights/import', methods=['POST'])
-@require_admin
-def marketing_import_insights():
-    upload = request.files.get('meta_export')
-    if not upload:
-        flash('Choose a Meta Business Suite CSV or XLSX export.', 'error')
-        return redirect(url_for('marketing_admin') + '#meta-import')
-    try:
-        filename, summary, analysis = parse_meta_insight_upload(upload)
-        db.session.add(MarketingInsightImport(filename=filename, row_count=summary['rows'],
-            summary_json=json.dumps(summary), analysis=analysis, uploaded_by=session.get('admin_user') or 'admin'))
-        db.session.commit()
-        flash(f'Meta export analyzed: {summary["rows"]} post row(s).', 'success')
-    except (OrderValidationError, Exception) as exc:
-        db.session.rollback()
-        if not isinstance(exc, OrderValidationError): app.logger.exception('Meta insight import failed')
-        flash(str(exc) if isinstance(exc, OrderValidationError) else 'Could not analyze that Meta export.', 'error')
-    return redirect(url_for('marketing_admin') + '#meta-import')
-
-@app.route('/admin/marketing/post/<int:post_id>/analyze-insights', methods=['POST'])
-@require_admin
-def marketing_analyze_insights(post_id):
-    post = MarketingPost.query.get_or_404(post_id)
-    if post.status != 'POSTED':
-        flash('Only posts marked as posted can be analyzed.', 'error')
-        return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
-    try:
-        _assign_marketing_insights_from_form(post)
-    except OrderValidationError as exc:
-        flash(str(exc), 'error')
-        return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
-
-    comparison_rows = MarketingPost.query.filter(
-        MarketingPost.status == 'POSTED',
-        MarketingPost.id != post.id,
-        MarketingPost.insights_updated_at.isnot(None),
-    ).order_by(MarketingPost.insights_updated_at.desc()).limit(10).all()
-    payload = {
-        'post': {
-            'id': post.id,
-            'business': post.business,
-            'post_type': post.post_type,
-            'caption': post.caption[:3000],
-            'published_at': post.published_at.isoformat() if post.published_at else None,
-            'insights_captured_at': post.insights_updated_at.isoformat() if post.insights_updated_at else None,
-        },
-        'metrics': {
-            'reach': post.insight_reach or 0,
-            'impressions': post.insight_impressions or 0,
-            'reactions': post.insight_reactions or 0,
-            'comments': post.insight_comments or 0,
-            'shares': post.insight_shares or 0,
-            'saves': post.insight_saves or 0,
-            'link_clicks': post.insight_link_clicks or 0,
-            'new_followers': post.insight_new_followers or 0,
-            'spend_php': post.insight_spend or 0.0,
-            'notes': post.insight_notes or '',
-        },
-        'recent_internal_comparisons': [
-            {
-                'post_type': row.post_type,
-                'reach': row.insight_reach or 0,
-                'reactions': row.insight_reactions or 0,
-                'comments': row.insight_comments or 0,
-                'shares': row.insight_shares or 0,
-                'link_clicks': row.insight_link_clicks or 0,
-            }
-            for row in comparison_rows
-        ],
-    }
-    try:
-        result = analyze_marketing_insights(payload, provider=marketing_settings().get('ai_provider', 'GEMINI'))
-        post.insight_analysis = str(result.get('analysis') or '')[:5000]
-        post.insight_ai_model = str(result.get('model') or 'smart-template:insights')[:100]
-        post.insights_analyzed_at = utc_now()
-        db.session.commit()
-        flash(f'AI analysis completed for Post #{post.id}.', 'success')
-    except Exception as exc:
-        db.session.rollback()
-        app.logger.exception('Marketing insight analysis failed for post_id=%s', post.id)
-        flash(f'Could not analyze Post #{post.id}: {exc}', 'error')
-    return redirect(url_for('marketing_admin') + f'#insights-{post.id}')
-
 @app.route('/admin/marketing/post/<int:post_id>/delete', methods=['POST'])
 @require_admin
 def marketing_delete_post(post_id):
@@ -10766,77 +10652,6 @@ def marketing_delete_post(post_id):
         db.session.delete(post)
         db.session.commit()
         flash('Marketing draft removed.', 'info')
-    return redirect(url_for('marketing_admin'))
-
-@app.route('/admin/marketing/group/add', methods=['POST'])
-@require_admin
-def marketing_group_add():
-    name = request.form.get('name', '').strip()
-    group_url = request.form.get('group_url', '').strip()
-    if not name or not group_url.startswith(('https://facebook.com/', 'https://www.facebook.com/', 'https://m.facebook.com/')):
-        flash('Enter a group name and a valid Facebook group URL.', 'error')
-        return redirect(url_for('marketing_admin'))
-    scope = request.form.get('business_scope', 'BOTH').upper()
-    if scope not in ('FOODHOUSE', 'CRAFT', 'BOTH'):
-        scope = 'BOTH'
-    group = MarketingGroup(
-        name=name[:150],
-        group_url=group_url,
-        business_scope=scope,
-        post_types=request.form.get('post_types', '').strip()[:255],
-        cooldown_days=max(0, min(90, parse_int(request.form.get('cooldown_days'), 7))),
-        notes=request.form.get('notes', '').strip()[:3000],
-        is_active=True,
-    )
-    db.session.add(group)
-    db.session.commit()
-    flash(f'Facebook group {name} added to the assisted queue.', 'success')
-    return redirect(url_for('marketing_admin'))
-
-@app.route('/admin/marketing/group/<int:group_id>/toggle', methods=['POST'])
-@require_admin
-def marketing_group_toggle(group_id):
-    group = MarketingGroup.query.get_or_404(group_id)
-    group.is_active = not group.is_active
-    db.session.commit()
-    return redirect(url_for('marketing_admin'))
-
-@app.route('/admin/marketing/group/<int:group_id>/delete', methods=['POST'])
-@require_admin
-def marketing_group_delete(group_id):
-    group = MarketingGroup.query.get_or_404(group_id)
-    db.session.delete(group)
-    db.session.commit()
-    flash('Group removed from the assisted queue.', 'info')
-    return redirect(url_for('marketing_admin'))
-
-@app.route('/admin/marketing/group/<int:group_id>/generate', methods=['POST'])
-@require_admin
-def marketing_group_generate(group_id):
-    group = MarketingGroup.query.get_or_404(group_id)
-    if group.last_posted_at and group.cooldown_days and utc_now() - group.last_posted_at < timedelta(days=group.cooldown_days):
-        flash(f'{group.name} is still inside its {group.cooldown_days}-day cooldown.', 'info')
-        return redirect(url_for('marketing_admin'))
-    try:
-        post = create_ai_marketing_post(group=group)
-        flash(f'Group-assisted draft #{post.id} created for {group.name}.', 'success' if post.status != 'SKIPPED' else 'info')
-    except Exception as exc:
-        app.logger.exception('Group-assisted marketing generation failed')
-        flash(f'Could not generate group post: {exc}', 'error')
-    return redirect(url_for('marketing_admin'))
-
-@app.route('/admin/marketing/group-post/<int:post_id>/mark-posted', methods=['POST'])
-@require_admin
-def marketing_group_mark_posted(post_id):
-    post = MarketingPost.query.get_or_404(post_id)
-    if post.target_type != 'GROUP_ASSIST' or not post.group:
-        flash('This is not a group-assisted post.', 'error')
-    else:
-        post.status = 'POSTED'
-        post.published_at = utc_now()
-        post.group.last_posted_at = utc_now()
-        db.session.commit()
-        flash('Group post marked as posted.', 'success')
     return redirect(url_for('marketing_admin'))
 
 @app.route('/tasks/marketing/run', methods=['GET', 'POST'])
