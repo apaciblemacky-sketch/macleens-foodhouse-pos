@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import json
 import os
@@ -30,6 +31,88 @@ def gemini_configured() -> bool:
 
 def openai_configured() -> bool:
     return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+
+
+def openai_image_configured() -> bool:
+    """Whether the OpenAI image-editing provider is configured for Creative Studio."""
+    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+
+
+def generate_marketing_image_cutout(
+    image_bytes: bytes,
+    filename: str,
+    mime_type: str,
+    *,
+    product_name: str = "",
+    business: str = "FOODHOUSE",
+):
+    """Remove the source background while preserving the exact uploaded product.
+
+    This image-edit operation does not add poster text, prices, claims, ingredients,
+    or other business content. The server composes the final poster so trusted
+    catalog prices cannot be invented by the image model.
+    """
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured. Add it in Render to use AI Creative Studio.")
+
+    if not image_bytes:
+        raise ValueError("The uploaded image is empty.")
+
+    model = (
+        os.environ.get("OPENAI_MARKETING_IMAGE_MODEL", "gpt-image-1.5").strip()
+        or "gpt-image-1.5"
+    )
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(filename or "product.png")).strip("._") or "product.png"
+    safe_mime = str(mime_type or "image/png").strip().lower() or "image/png"
+    prompt = (
+        "Edit this real product photo for a small Philippine food/craft business poster. "
+        "Remove the original background completely and return the exact product as a clean "
+        "photographic cutout on a transparent background. Preserve the product's real shape, "
+        "portion, colors, texture, toppings, packaging, serving vessel, and visible details. "
+        "Do not add ingredients, food items, garnish, packaging, logos, props, hands, utensils, "
+        "steam, text, prices, labels, shadows that are not naturally part of the product, or any "
+        "other object. Do not restyle, redraw, beautify, or substitute the product. Keep the "
+        "camera perspective and overall appearance as close to the source photo as practical. "
+        "The result will be composited by the application into a branded poster. "
+        f"Business: {str(business or 'FOODHOUSE').upper()}. "
+        f"Product name for context only: {str(product_name or 'uploaded product').strip()[:120]}."
+    )
+    response = requests.post(
+        "https://api.openai.com/v1/images/edits",
+        headers={"Authorization": f"Bearer {api_key}"},
+        files=[("image[]", (safe_name, image_bytes, safe_mime))],
+        data={
+            "model": model,
+            "prompt": prompt,
+            "background": "transparent",
+            "input_fidelity": "high",
+            "output_format": "png",
+            "quality": "medium",
+            "size": "1024x1024",
+            "n": "1",
+        },
+        timeout=120,
+    )
+    payload = response.json() if response.content else {}
+    if not response.ok:
+        message = (
+            ((payload.get("error") or {}).get("message") if isinstance(payload, dict) else None)
+            or response.text
+            or "OpenAI image edit request failed."
+        )
+        raise RuntimeError(f"OpenAI image edit error: {message}")
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if not rows or not isinstance(rows, list) or not isinstance(rows[0], dict):
+        raise RuntimeError("OpenAI image edit returned no image.")
+    encoded = rows[0].get("b64_json")
+    if not encoded:
+        raise RuntimeError("OpenAI image edit returned no base64 image data.")
+    try:
+        base64.b64decode(encoded, validate=True)
+    except Exception as exc:
+        raise RuntimeError("OpenAI image edit returned invalid image data.") from exc
+    return {"model": model, "b64_json": encoded}
 
 
 def _marketing_schema(include_openai_constraints: bool = False):
