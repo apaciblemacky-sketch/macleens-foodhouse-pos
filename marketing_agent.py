@@ -33,86 +33,137 @@ def openai_configured() -> bool:
     return bool(os.environ.get("OPENAI_API_KEY", "").strip())
 
 
-def openai_image_configured() -> bool:
-    """Whether the OpenAI image-editing provider is configured for Creative Studio."""
-    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+def gemini_image_configured() -> bool:
+    """Whether Gemini image generation/editing is configured for Creative Studio."""
+    return bool((os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip())
 
 
-def generate_marketing_image_cutout(
+def generate_marketing_image_poster(
     image_bytes: bytes,
     filename: str,
     mime_type: str,
     *,
     product_name: str = "",
     business: str = "FOODHOUSE",
+    post_type: str = "PRODUCT_SPOTLIGHT",
+    price_text: str = "",
 ):
-    """Remove the source background while preserving the exact uploaded product.
+    """Generate a Facebook-ready marketing poster using Gemini image editing.
 
-    This image-edit operation does not add poster text, prices, claims, ingredients,
-    or other business content. The server composes the final poster so trusted
-    catalog prices cannot be invented by the image model.
+    The uploaded photo is supplied as a reference image. Gemini creates the poster
+    directly, while the server supplies the verified product name and catalog price.
+    No OpenAI image API is used by Creative Studio.
     """
-    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
     if not api_key:
-        raise RuntimeError("OPENAI_API_KEY is not configured. Add it in Render to use AI Creative Studio.")
+        raise RuntimeError("GEMINI_API_KEY is not configured. Add it in Render to use Gemini Creative Studio.")
 
     if not image_bytes:
         raise ValueError("The uploaded image is empty.")
 
     model = (
-        os.environ.get("OPENAI_MARKETING_IMAGE_MODEL", "gpt-image-1.5").strip()
-        or "gpt-image-1.5"
+        os.environ.get("GEMINI_MARKETING_IMAGE_MODEL", "gemini-3.1-flash-image").strip()
+        or "gemini-3.1-flash-image"
     )
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", str(filename or "product.png")).strip("._") or "product.png"
     safe_mime = str(mime_type or "image/png").strip().lower() or "image/png"
+    if safe_mime not in {"image/png", "image/jpeg", "image/webp"}:
+        safe_mime = "image/png"
+
+    purpose_labels = {
+        "PRODUCT_SPOTLIGHT": "a product spotlight",
+        "OCCASION_ORDER": "a longer occasion and bulk-order callout",
+        "SLOW_SELLER": "a fresh spotlight to encourage customers to try the item",
+        "TOP_SELLER": "a customer-favorite feature",
+        "NEW_OR_FEATURED": "a featured/new-item promotion",
+        "LOYALTY": "a warm customer-loyalty message",
+        "ENGAGEMENT": "an engaging question-style social post",
+        "BRAND_AWARENESS": "a brand-awareness food/craft post",
+        "RESTOCK_OR_AVAILABILITY": "an availability/restock announcement",
+        "CRAFT_STORY": "a craft-story feature",
+        "VALUE_REMINDER": "a value-focused promotion",
+    }
+    purpose = purpose_labels.get(str(post_type or "").upper(), "a product spotlight")
+    brand = "MACLEEN'S FOOD HOUSE" if str(business or "").upper() == "FOODHOUSE" else "MACLEEN'S CRAFTS"
+    product = str(product_name or "the uploaded product").strip()[:120]
+    price = str(price_text or "").strip()[:40]
+
     prompt = (
-        "Edit this real product photo for a small Philippine food/craft business poster. "
-        "Remove the original background completely and return the exact product as a clean "
-        "photographic cutout on a transparent background. Preserve the product's real shape, "
-        "portion, colors, texture, toppings, packaging, serving vessel, and visible details. "
-        "Do not add ingredients, food items, garnish, packaging, logos, props, hands, utensils, "
-        "steam, text, prices, labels, shadows that are not naturally part of the product, or any "
-        "other object. Do not restyle, redraw, beautify, or substitute the product. Keep the "
-        "camera perspective and overall appearance as close to the source photo as practical. "
-        "The result will be composited by the application into a branded poster. "
-        f"Business: {str(business or 'FOODHOUSE').upper()}. "
-        f"Product name for context only: {str(product_name or 'uploaded product').strip()[:120]}."
+        "Create a polished Facebook marketing poster using the uploaded product photograph as the "
+        "primary visual reference. This is for a small Philippine local business. "
+        f"Business brand: {brand}. Product: {product}. "
+        f"Marketing purpose: {purpose}. "
+        f"Verified catalog price, if supplied: {price or 'none — do not invent a price'}. "
+        "Preserve the real uploaded product faithfully: its actual food/craft appearance, shape, "
+        "portion, colors, texture, toppings, packaging, serving vessel, and important visible details. "
+        "Do not replace the product with a different product. Do not invent extra food, ingredients, "
+        "packaging, logos, awards, discounts, stock claims, delivery promises, or prices. "
+        "Remove or replace the distracting original background with a clean, bright, modern, "
+        "Instagrammable cafeteria/cafe-style background that makes the real product stand out. "
+        "Create a premium but practical local-business poster, suitable for Facebook, with strong "
+        "visual hierarchy, generous whitespace, attractive food photography, and legible typography. "
+        "Use the exact product name and exact supplied price text when displayed. "
+        "For an occasion-order purpose, visually communicate advance planning, gatherings, birthdays, "
+        "fiestas, meetings, school events, office gatherings, or family celebrations without inventing "
+        "specific offers. For other purposes, keep the design aligned to that purpose. "
+        "Do not add a long caption onto the image; keep poster text concise and readable. "
+        "Do not include a fake phone number or unverified URL. "
+        "Output one finished portrait Facebook poster."
     )
+
+    encoded_input = base64.b64encode(image_bytes).decode("ascii")
     response = requests.post(
-        "https://api.openai.com/v1/images/edits",
-        headers={"Authorization": f"Bearer {api_key}"},
-        files=[("image[]", (safe_name, image_bytes, safe_mime))],
-        data={
-            "model": model,
-            "prompt": prompt,
-            "background": "transparent",
-            "input_fidelity": "high",
-            "output_format": "png",
-            "quality": "medium",
-            "size": "1024x1024",
-            "n": "1",
+        GEMINI_INTERACTIONS_URL,
+        headers={
+            "x-goog-api-key": api_key,
+            "x-goog-api-client": "macleens-creative-studio/2.0.0",
+            "Content-Type": "application/json",
         },
-        timeout=120,
+        json={
+            "model": model,
+            "input": [
+                {"type": "text", "text": prompt},
+                {"type": "image", "mime_type": safe_mime, "data": encoded_input},
+            ],
+            "response_format": {
+                "type": "image",
+                "mime_type": "image/jpeg",
+                "aspect_ratio": "4:5",
+                "image_size": os.environ.get("GEMINI_MARKETING_IMAGE_SIZE", "1K").strip() or "1K",
+            },
+        },
+        timeout=180,
     )
     payload = response.json() if response.content else {}
     if not response.ok:
-        message = (
-            ((payload.get("error") or {}).get("message") if isinstance(payload, dict) else None)
-            or response.text
-            or "OpenAI image edit request failed."
-        )
-        raise RuntimeError(f"OpenAI image edit error: {message}")
-    rows = payload.get("data") if isinstance(payload, dict) else None
-    if not rows or not isinstance(rows, list) or not isinstance(rows[0], dict):
-        raise RuntimeError("OpenAI image edit returned no image.")
-    encoded = rows[0].get("b64_json")
+        error = payload.get("error") if isinstance(payload, dict) else None
+        message = error.get("message") if isinstance(error, dict) else None
+        raise RuntimeError(f"Gemini image edit error: {message or response.text or 'Gemini image generation failed.'}")
+
+    encoded = None
+    output_image = payload.get("output_image") if isinstance(payload, dict) else None
+    if isinstance(output_image, dict):
+        encoded = output_image.get("data")
+
     if not encoded:
-        raise RuntimeError("OpenAI image edit returned no base64 image data.")
+        for step in (payload.get("steps", []) if isinstance(payload, dict) else []) or []:
+            if step.get("type") != "model_output":
+                continue
+            for part in step.get("content", []) or []:
+                if part.get("type") == "image" and part.get("data"):
+                    encoded = part["data"]
+                    break
+            if encoded:
+                break
+
+    if not encoded:
+        raise RuntimeError("Gemini image generation returned no image.")
+
     try:
         base64.b64decode(encoded, validate=True)
     except Exception as exc:
-        raise RuntimeError("OpenAI image edit returned invalid image data.") from exc
-    return {"model": model, "b64_json": encoded}
+        raise RuntimeError("Gemini image generation returned invalid image data.") from exc
+
+    return {"model": model, "b64_json": encoded, "mime_type": "image/jpeg"}
 
 
 def _marketing_schema(include_openai_constraints: bool = False):
