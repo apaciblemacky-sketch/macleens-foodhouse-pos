@@ -35,8 +35,8 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 from marketing_agent import (
     analyze_marketing_insights, extract_peso_amounts, generate_ai_marketing_decision,
-    gemini_configured, openai_configured, openai_image_configured,
-    generate_marketing_image_cutout, _extract_gemini_output_text, analyze_website_analytics,
+    gemini_configured, openai_configured, gemini_image_configured,
+    generate_marketing_image_poster, _extract_gemini_output_text, analyze_website_analytics,
 )
 
 logging.basicConfig(
@@ -15112,8 +15112,8 @@ def marketing_admin():
         post_types=MARKETING_POST_TYPES,
         active_products=Product.query.filter_by(is_active=True).order_by(Product.name.asc()).all(),
         active_crafts=CraftItem.query.filter_by(is_active=True).order_by(CraftItem.name.asc()).all(),
-        openai_image_ready=openai_image_configured(),
-        openai_image_model=os.environ.get('OPENAI_MARKETING_IMAGE_MODEL', 'gpt-image-1.5'),
+        gemini_image_ready=gemini_image_configured(),
+        gemini_image_model=os.environ.get('GEMINI_MARKETING_IMAGE_MODEL', 'gemini-3.1-flash-image'),
         insight_imports=MarketingInsightImport.query.order_by(MarketingInsightImport.created_at.desc()).limit(10).all(),
         daily_menu_preview=daily_menu_preview,
         daily_menu_preview_error=daily_menu_preview_error,
@@ -15531,18 +15531,15 @@ def marketing_creative_generate():
         )
         upload = request.files.get('creative_image')
         normalized, filename, mime_type = _creative_normalize_uploaded_image(upload)
-        image_result = generate_marketing_image_cutout(
+        image_result = generate_marketing_image_poster(
             normalized, filename, mime_type,
             product_name=product_name,
             business=business,
+            post_type=post.post_type,
+            price_text=price_text,
         )
-        poster_data_url = _build_marketing_poster(
-            image_result['b64_json'],
-            business,
-            post.post_type,
-            product_name,
-            price_text,
-        )
+        poster_data_url = 'data:' + image_result.get('mime_type', 'image/jpeg') + ';base64,' + image_result['b64_json']
+
         response = jsonify({
             'success': True,
             'post_id': post.id,
