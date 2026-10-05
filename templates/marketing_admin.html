@@ -224,11 +224,7 @@
             <div class="actions">
             {% if post.status not in ['POSTED','SKIPPED'] %}
               <button type="button" class="btn btn-blue" onclick="copyMarketingPost({{ post.id }})">Copy Post</button>
-              {% if post.target_type == 'GROUP_ASSIST' and post.group %}
-                <a class="btn btn-light" target="_blank" rel="noopener" href="{{ post.group.group_url }}">Open Group ↗</a>
-                <form method="post" action="{{ url_for('marketing_group_mark_posted', post_id=post.id) }}"><button class="btn btn-green">Mark Posted</button></form>
-              {% elif post.target_type == 'FACEBOOK_PAGE' %}
-                <a class="btn btn-light" target="_blank" rel="noopener" href="{{ settings.facebook_page_url or 'https://www.facebook.com/' }}">{{ 'Open Page ↗' if settings.facebook_page_url else 'Open Facebook ↗' }}</a>
+              {% if post.target_type == 'FACEBOOK_PAGE' %}
                 <form method="post" action="{{ url_for('marketing_page_mark_posted', post_id=post.id) }}"><button class="btn btn-green">Mark Posted</button></form>
               {% endif %}
             {% endif %}
