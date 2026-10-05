@@ -40,6 +40,7 @@
   <div class="grid">
     <div class="metric"><span class="muted">AI Provider</span><strong>{{ settings.ai_provider }}</strong><span class="status info">Gemini Free is default</span></div>
     <div class="metric"><span class="muted">Gemini</span><strong>{{ 'READY' if gemini_ready else 'NO KEY YET' }}</strong><span class="status {{ 'ok' if gemini_ready else 'warn' }}">{{ gemini_model if gemini_ready else 'Add GEMINI_API_KEY' }}</span></div>
+    <div class="metric"><span class="muted">AI Image Editor</span><strong>{{ 'READY' if openai_image_ready else 'SETUP NEEDED' }}</strong><span class="status {{ 'ok' if openai_image_ready else 'warn' }}">{{ openai_image_model if openai_image_ready else 'Add OPENAI_API_KEY' }}</span></div>
     <div class="metric"><span class="muted">Daily Page API</span><strong>{{ 'READY' if page_api_ready else 'SETUP NEEDED' }}</strong><span class="status {{ 'ok' if page_api_ready else 'warn' }}">{{ 'Official API connected' if page_api_ready else 'Add Render credentials' }}</span></div>
     <div class="metric"><span class="muted">Messenger MENU Reply</span><strong>{{ 'READY' if webhook_ready else 'SETUP NEEDED' }}</strong><span class="status {{ 'ok' if webhook_ready else 'warn' }}">{{ messenger_metrics.contacts }} contact(s)</span></div>
     <div class="metric"><span class="muted">Scheduled Draft Queue</span><strong>{{ 'ON' if settings.enabled else 'PAUSED' }}</strong><span class="status {{ 'ok' if settings.enabled else 'warn' }}">Drafts only</span></div>
@@ -99,6 +100,82 @@
       </form>
     </section>
   </div>
+
+  <section class="card" id="creative-studio">
+    <h2>🎨 AI Marketing Creative Studio</h2>
+    <p class="muted">Upload a real product photo and turn it into a Facebook-ready poster. AI removes the original background while preserving the uploaded product; the server adds the exact product name, purpose-based design, and only a trusted catalog price when one exists.</p>
+    <div class="notice" style="margin:10px 0">
+      <strong>AI image cleanup:</strong> {{ openai_image_model }} · {{ 'READY' if openai_image_ready else 'SETUP NEEDED' }}.
+      Add <code>OPENAI_API_KEY</code> in Render to enable image editing. Your existing Gemini/AI Marketing provider can still generate the Facebook caption.
+    </div>
+
+    <form id="creativeStudioForm" action="{{ url_for('marketing_creative_generate') }}" method="post" enctype="multipart/form-data">
+      <div class="form-grid">
+        <div><label>Business</label><select name="creative_business" id="creativeBusiness"><option value="FOODHOUSE">Food House</option><option value="CRAFT">Crafts</option></select></div>
+        <div><label>Post Purpose</label><select name="creative_post_type" id="creativePostType">
+          <option value="AUTO">Let AI Choose / Product Spotlight</option>
+          {% for pt in post_types %}<option value="{{ pt }}">{% if pt == 'OCCASION_ORDER' %}Long Occasion / Bulk Order{% else %}{{ pt.replace('_',' ').title() }}{% endif %}</option>{% endfor %}
+        </select></div>
+
+        <div id="creativeFoodProductField">
+          <label>Food House Catalog Product</label>
+          <select name="creative_product_id" id="creativeProductId">
+            <option value="">— Choose a current in-stock product —</option>
+            {% for product in active_products %}{% if product.stock|int > 0 %}<option value="{{ product.id }}">{{ product.name }} — ₱{{ '%.2f'|format(product.price or 0) }}</option>{% endif %}{% endfor %}
+          </select>
+        </div>
+
+        <div id="creativeCraftItemField" style="display:none">
+          <label>Crafts Catalog Item</label>
+          <select name="creative_craft_item_id" id="creativeCraftItemId">
+            <option value="">— Choose a current Crafts item —</option>
+            {% for item in active_crafts %}
+              <option value="{{ item.id }}"{% if (item.availability_type or 'IN_STOCK')|upper == 'IN_STOCK' and item.stock_quantity|int <= 0 %} disabled{% endif %}>{{ item.name }}{% if (item.availability_type or 'IN_STOCK')|upper == 'IN_STOCK' and item.stock_quantity|int <= 0 %} — out of stock{% endif %}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div style="grid-column:1/-1" id="creativeManualNameField">
+          <label>Specific Food Name — optional for Food House</label>
+          <input name="creative_manual_name" maxlength="100" placeholder="Example: Shawarma Fries">
+          <div class="muted" style="margin-top:5px">Use this for a food item that is not in the current catalog. Name-only posters never invent a price or availability.</div>
+        </div>
+
+        <div style="grid-column:1/-1">
+          <label>Upload Product Picture</label>
+          <input type="file" name="creative_image" id="creativeImage" accept="image/png,image/jpeg,image/webp" required>
+          <div class="muted" style="margin-top:5px">PNG, JPG, JPEG, or WEBP · maximum 8 MB.</div>
+          <div id="creativeLocalPreviewWrap" style="display:none;margin-top:10px"><img id="creativeLocalPreview" alt="Uploaded product preview" style="max-width:240px;max-height:180px;border-radius:10px;border:1px solid #e2e8f0;object-fit:contain"></div>
+        </div>
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <button class="btn btn-blue" id="creativeGenerateBtn" type="submit">✨ Generate Poster + Facebook Draft</button>
+        <span class="muted" id="creativeStatus"></span>
+      </div>
+    </form>
+
+    <div id="creativeResult" class="group-row" style="display:none;margin-top:14px">
+      <div class="grid-2">
+        <div>
+          <h3>Generated Poster</h3>
+          <img id="creativePosterPreview" alt="Generated Facebook poster" style="display:block;width:100%;max-width:520px;border-radius:12px;border:1px solid #e2e8f0;background:#f8fafc">
+          <div class="actions" style="margin-top:9px">
+            <a id="creativeDownload" class="btn btn-green" href="#" download="macleens-facebook-poster.jpg">⬇ Download Poster</a>
+            <a class="btn btn-light" href="#creative-studio">Create Another</a>
+          </div>
+        </div>
+        <div>
+          <h3>Facebook Caption — Draft #<span id="creativePostId">—</span></h3>
+          <textarea id="creativeCaption" style="min-height:300px"></textarea>
+          <div class="actions" style="margin-top:8px">
+            <button class="btn btn-blue" type="button" id="creativeCopyCaption">Copy Caption</button>
+            <a class="btn btn-light" href="#creative-studio">Back to Creative Studio</a>
+          </div>
+          <p class="muted" id="creativeMeta"></p>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <section class="card">
     <h2>📘 Facebook Page — Manual Posting Shortcut</h2>
@@ -314,6 +391,78 @@ async function copyMarketingPost(id){
   try{await navigator.clipboard.writeText(el.value); alert('Caption + verified link copied. Open Facebook and paste it.');}
   catch(e){el.select();document.execCommand('copy');alert('Post copied.');}
 }
+
+const creativeForm=document.getElementById('creativeStudioForm');
+const creativeBusiness=document.getElementById('creativeBusiness');
+const creativeFoodProductField=document.getElementById('creativeFoodProductField');
+const creativeCraftItemField=document.getElementById('creativeCraftItemField');
+const creativeManualNameField=document.getElementById('creativeManualNameField');
+const creativeProductId=document.getElementById('creativeProductId');
+const creativeCraftItemId=document.getElementById('creativeCraftItemId');
+const creativeImage=document.getElementById('creativeImage');
+const creativeLocalPreviewWrap=document.getElementById('creativeLocalPreviewWrap');
+const creativeLocalPreview=document.getElementById('creativeLocalPreview');
+const creativeGenerateBtn=document.getElementById('creativeGenerateBtn');
+const creativeStatus=document.getElementById('creativeStatus');
+const creativeResult=document.getElementById('creativeResult');
+const creativePosterPreview=document.getElementById('creativePosterPreview');
+const creativeDownload=document.getElementById('creativeDownload');
+const creativeCaption=document.getElementById('creativeCaption');
+const creativePostId=document.getElementById('creativePostId');
+const creativeCopyCaption=document.getElementById('creativeCopyCaption');
+const creativeMeta=document.getElementById('creativeMeta');
+
+function syncCreativeBusinessFields(){
+  const craft=creativeBusiness.value==='CRAFT';
+  creativeFoodProductField.style.display=craft?'none':'';
+  creativeCraftItemField.style.display=craft?'':'none';
+  creativeManualNameField.style.display=craft?'none':'';
+  creativeProductId.disabled=craft;
+  creativeCraftItemId.disabled=!craft;
+}
+creativeBusiness.addEventListener('change',syncCreativeBusinessFields);
+syncCreativeBusinessFields();
+
+creativeImage.addEventListener('change',()=>{
+  const file=creativeImage.files&&creativeImage.files[0];
+  if(!file){creativeLocalPreviewWrap.style.display='none';creativeLocalPreview.removeAttribute('src');return;}
+  creativeLocalPreview.src=URL.createObjectURL(file);
+  creativeLocalPreviewWrap.style.display='';
+});
+
+creativeCopyCaption.addEventListener('click',async()=>{
+  const text=creativeCaption.value||'';
+  try{await navigator.clipboard.writeText(text);creativeStatus.textContent='Caption copied.';}
+  catch(e){creativeCaption.focus();creativeCaption.select();document.execCommand('copy');creativeStatus.textContent='Caption copied.';}
+});
+
+creativeForm.addEventListener('submit',async(event)=>{
+  event.preventDefault();
+  if(!creativeImage.files||!creativeImage.files[0]){creativeStatus.textContent='Please choose a product image first.';return;}
+  creativeGenerateBtn.disabled=true;
+  creativeGenerateBtn.textContent='⏳ Creating poster…';
+  creativeStatus.textContent='Generating the product cutout, poster, and Facebook draft…';
+  creativeResult.style.display='none';
+  try{
+    const response=await fetch(creativeForm.action,{method:'POST',body:new FormData(creativeForm),headers:{'X-Requested-With':'fetch'}});
+    const payload=await response.json().catch(()=>({success:false,message:'The server returned an unexpected response.'}));
+    if(!response.ok||!payload.success)throw new Error(payload.message||'Creative Studio could not generate the poster.');
+    creativePosterPreview.src=payload.poster_data_url;
+    creativeDownload.href=payload.poster_data_url;
+    creativeDownload.download=payload.poster_filename||'macleens-facebook-poster.jpg';
+    creativeCaption.value=payload.caption||'';
+    creativePostId.textContent=payload.post_id||'—';
+    creativeMeta.textContent=(payload.business||'')+' · '+(payload.post_type||'')+' · Image editor: '+(payload.image_model||'OpenAI');
+    creativeResult.style.display='';
+    creativeStatus.textContent='Done — poster and Facebook caption are ready.';
+    creativeResult.scrollIntoView({behavior:'smooth',block:'start'});
+  }catch(error){
+    creativeStatus.textContent=error.message||'Creative Studio failed.';
+  }finally{
+    creativeGenerateBtn.disabled=false;
+    creativeGenerateBtn.textContent='✨ Generate Poster + Facebook Draft';
+  }
+});
 </script>
 </body>
 </html>
