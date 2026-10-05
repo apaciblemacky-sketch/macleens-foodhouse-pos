@@ -21,10 +21,6 @@ services:
         value: gemini-3.5-flash-lite
       - key: OPENAI_MARKETING_MODEL
         value: gpt-5.5
-      - key: GEMINI_MARKETING_IMAGE_MODEL
-        value: gemini-3.1-flash-image
-      - key: GEMINI_MARKETING_IMAGE_SIZE
-        value: 1K
       - key: MARKETING_CRON_TOKEN
         sync: false
       - key: PUBLIC_BASE_URL
