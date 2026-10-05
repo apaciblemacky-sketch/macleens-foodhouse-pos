@@ -35,7 +35,8 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 from marketing_agent import (
     analyze_marketing_insights, extract_peso_amounts, generate_ai_marketing_decision,
-    gemini_configured, openai_configured, _extract_gemini_output_text, analyze_website_analytics,
+    gemini_configured, openai_configured, openai_image_configured,
+    generate_marketing_image_cutout, _extract_gemini_output_text, analyze_website_analytics,
 )
 
 logging.basicConfig(
@@ -15110,6 +15111,9 @@ def marketing_admin():
         cron_ready=bool(os.environ.get('MARKETING_CRON_TOKEN')),
         post_types=MARKETING_POST_TYPES,
         active_products=Product.query.filter_by(is_active=True).order_by(Product.name.asc()).all(),
+        active_crafts=CraftItem.query.filter_by(is_active=True).order_by(CraftItem.name.asc()).all(),
+        openai_image_ready=openai_image_configured(),
+        openai_image_model=os.environ.get('OPENAI_MARKETING_IMAGE_MODEL', 'gpt-image-1.5'),
         insight_imports=MarketingInsightImport.query.order_by(MarketingInsightImport.created_at.desc()).limit(10).all(),
         daily_menu_preview=daily_menu_preview,
         daily_menu_preview_error=daily_menu_preview_error,
@@ -15276,6 +15280,290 @@ def marketing_run_agent_now():
         app.logger.exception('Manual AI marketing agent run failed')
         flash(f'AI Marketing agent failed: {exc}', 'error')
     return redirect(url_for('marketing_admin'))
+
+MARKETING_CREATIVE_MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+MARKETING_CREATIVE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
+
+def _creative_font(size, bold=False):
+    candidates = (
+        '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf' if bold else '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+        '/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf' if bold else '/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf',
+    )
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size=size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+def _creative_wrap_text(draw, text_value, font, max_width):
+    words = str(text_value or '').split()
+    if not words:
+        return []
+    lines, current = [], ''
+    for word in words:
+        candidate = word if not current else current + ' ' + word
+        bbox = draw.textbbox((0, 0), candidate, font=font)
+        if (bbox[2] - bbox[0]) <= max_width or not current:
+            current = candidate
+        else:
+            lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+def _creative_draw_centered(draw, xy, text_value, font, fill, max_width=None, spacing=8):
+    lines = _creative_wrap_text(draw, text_value, font, max_width) if max_width else [str(text_value or '')]
+    if not lines:
+        return
+    x, y = xy
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        draw.text((x - (bbox[2] - bbox[0]) / 2, y), line, font=font, fill=fill)
+        y += (bbox[3] - bbox[1]) + spacing
+
+def _creative_normalize_uploaded_image(upload):
+    if not upload or not str(upload.filename or '').strip():
+        raise OrderValidationError('Please upload a product image.')
+    filename = secure_filename(upload.filename or 'product')
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in MARKETING_CREATIVE_EXTENSIONS:
+        raise OrderValidationError('Use a PNG, JPG, JPEG, or WEBP product image.')
+    raw = upload.read(MARKETING_CREATIVE_MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MARKETING_CREATIVE_MAX_UPLOAD_BYTES:
+        raise OrderValidationError('Product image is too large. Maximum size is 8 MB.')
+    if not raw:
+        raise OrderValidationError('The uploaded product image is empty.')
+    try:
+        with Image.open(io.BytesIO(raw)) as original:
+            original.verify()
+        with Image.open(io.BytesIO(raw)) as original:
+            image = ImageOps.exif_transpose(original).convert('RGB')
+            resample = getattr(Image, 'Resampling', Image).LANCZOS
+            image.thumbnail((2048, 2048), resample)
+            output = io.BytesIO()
+            image.save(output, format='PNG', optimize=True)
+            normalized = output.getvalue()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise OrderValidationError('The uploaded file is not a supported image.') from exc
+    return normalized, filename, 'image/png'
+
+def _creative_headline(post_type, business):
+    headlines = {
+        'PRODUCT_SPOTLIGHT': 'A LITTLE TASTE OF SOMETHING GOOD',
+        'OCCASION_ORDER': 'PLANNING FOOD FOR AN OCCASION?',
+        'SLOW_SELLER': 'GIVE THIS ONE A SPOTLIGHT',
+        'TOP_SELLER': "TODAY'S CUSTOMER FAVORITE",
+        'NEW_OR_FEATURED': "FEATURED AT MACLEEN'S",
+        'LOYALTY': 'A LITTLE REWARD FOR OUR CUSTOMERS',
+        'ENGAGEMENT': 'WHAT WOULD YOU PICK TODAY?',
+        'BRAND_AWARENESS': 'MADE FOR EVERYDAY CRAVINGS',
+        'RESTOCK_OR_AVAILABILITY': 'AVAILABLE TODAY',
+        'CRAFT_STORY': 'A SMALL DETAIL WITH BIG CHARM',
+        'VALUE_REMINDER': 'GOOD VALUE, GOOD CHOICE',
+    }
+    if business == 'CRAFT' and post_type == 'PRODUCT_SPOTLIGHT':
+        return 'A LITTLE CRAFT TO BRIGHTEN YOUR DAY'
+    return headlines.get(post_type, 'MADE FOR YOUR NEXT ORDER')
+
+def _build_marketing_poster(cutout_b64, business, post_type, product_name, price_text=''):
+    try:
+        cutout = Image.open(io.BytesIO(base64.b64decode(cutout_b64, validate=True))).convert('RGBA')
+    except Exception as exc:
+        raise OrderValidationError('The AI image result could not be read.') from exc
+
+    width, height = 1080, 1350
+    pink = (255, 79, 163)
+    light_pink = (255, 240, 245)
+    dark = (131, 24, 67)
+    soft = (255, 255, 255)
+    canvas = Image.new('RGB', (width, height), light_pink)
+    draw = ImageDraw.Draw(canvas)
+
+    draw.rounded_rectangle((48, 48, width - 48, height - 48), radius=44, fill=soft)
+    draw.rounded_rectangle((70, 70, width - 70, 220), radius=34, fill=(255, 225, 240))
+    draw.ellipse((width - 250, 40, width - 20, 270), fill=(255, 198, 226))
+    draw.ellipse((-80, 1050, 180, 1310), fill=(255, 214, 232))
+
+    brand = "MACLEEN'S FOOD HOUSE" if business == 'FOODHOUSE' else "MACLEEN'S CRAFTS"
+    draw.text((95, 94), brand, font=_creative_font(38, True), fill=dark)
+    draw.text((95, 145), "FACEBOOK POSTER", font=_creative_font(20, False), fill=pink)
+
+    headline_font = _creative_font(42, True)
+    name_font = _creative_font(56, True)
+    price_font = _creative_font(46, True)
+    cta_font = _creative_font(30, True)
+
+    headline = _creative_headline(post_type, business)
+    _creative_draw_centered(draw, (width / 2, 265), headline, headline_font, dark, max_width=860, spacing=8)
+
+    cutout.thumbnail((850, 670), getattr(Image, 'Resampling', Image).LANCZOS)
+    px = int((width - cutout.width) / 2)
+    py = 395
+    canvas_rgba = canvas.convert('RGBA')
+    canvas_rgba.alpha_composite(cutout, (px, py))
+    canvas = canvas_rgba.convert('RGB')
+    draw = ImageDraw.Draw(canvas)
+
+    name_y = 1090 if post_type != 'OCCASION_ORDER' else 1060
+    _creative_draw_centered(draw, (width / 2, name_y), product_name, name_font, dark, max_width=860, spacing=6)
+    if price_text:
+        price_bbox = draw.textbbox((0, 0), price_text, font=price_font)
+        pw = price_bbox[2] - price_bbox[0]
+        ph = price_bbox[3] - price_bbox[1]
+        pill = (width/2 - pw/2 - 22, name_y + 78, width/2 + pw/2 + 22, name_y + 78 + ph + 24)
+        draw.rounded_rectangle(tuple(map(int, pill)), radius=22, fill=pink)
+        draw.text((width/2 - pw/2, name_y + 90), price_text, font=price_font, fill=soft)
+
+    cta_y = 1240 if price_text else 1210
+    cta = 'MESSAGE US TO PLAN YOUR ORDER' if post_type == 'OCCASION_ORDER' else 'MESSAGE US • ORDER • PICK UP'
+    _creative_draw_centered(draw, (width / 2, cta_y), cta, cta_font, dark, max_width=900, spacing=6)
+
+    output = io.BytesIO()
+    canvas.save(output, format='JPEG', quality=92, optimize=True)
+    return 'data:image/jpeg;base64,' + base64.b64encode(output.getvalue()).decode('ascii')
+
+def _create_creative_marketing_post(business, post_type, product=None, craft_item=None, manual_name=''):
+    post_type = post_type if post_type in MARKETING_POST_TYPES else 'PRODUCT_SPOTLIGHT'
+    provider = marketing_settings().get('ai_provider', 'GEMINI')
+    if product is not None:
+        post = create_ai_marketing_post(
+            business_hint='FOODHOUSE',
+            post_type_hint=post_type,
+            product_id=str(product.id),
+        )
+        return post, product.name, f'₱{float(product.price or 0.0):,.2f}'
+    if craft_item is not None:
+        context = build_marketing_context()
+        context['foodhouse_products'] = []
+        context['craft_items'] = [
+            row for row in context.get('craft_items') or []
+            if row.get('id') == craft_item.id
+        ]
+        decision = generate_ai_marketing_decision(
+            context, 'CRAFT', post_type, None, provider=provider,
+        )
+        decision['business'] = 'CRAFT'
+        decision['source_kind'] = 'CRAFT_ITEM'
+        decision['source_id'] = craft_item.id
+        decision['should_post'] = True
+        safe = validate_marketing_decision(decision)
+        post = MarketingPost(
+            target_type='FACEBOOK_PAGE',
+            business='CRAFT',
+            post_type=safe['post_type'],
+            source_kind=safe['source_kind'],
+            source_id=safe['source_id'],
+            caption=safe['caption'],
+            reason=safe['reason'],
+            link_url=_marketing_source_link(safe['source_kind'], safe['source_id'], safe['business']),
+            status='DRAFT',
+            ai_model=safe['model'],
+        )
+        db.session.add(post)
+        db.session.commit()
+        price = f'₱{float(craft_item.price or 0.0):,.2f}' if float(craft_item.price or 0.0) > 0 else ''
+        return post, craft_item.name, price
+    if manual_name:
+        normalized = re.sub(r's+', ' ', manual_name.strip())[:100]
+        safe_caption = (
+            f"Putting {normalized} in the spotlight today ✨ What do you think? "
+            "Message Macleen's Food House if you'd like to ask about this item. "
+            "#MacleensFoodHouse"
+        )
+        post = MarketingPost(
+            target_type='FACEBOOK_PAGE',
+            business='FOODHOUSE',
+            post_type=post_type,
+            source_kind='PAGE',
+            source_id=None,
+            caption=safe_caption,
+            reason=f"Used the manually supplied Food House name '{normalized}' as a name-only creative topic.",
+            link_url=_marketing_public_base_url() + '/',
+            status='DRAFT',
+            ai_model='manual-name-creative',
+        )
+        db.session.add(post)
+        db.session.commit()
+        return post, normalized, ''
+    raise OrderValidationError('Choose a Food House product, a Craft item, or enter a specific Food House name.')
+
+@app.route('/admin/marketing/creative/generate', methods=['POST'])
+@require_admin
+def marketing_creative_generate():
+    try:
+        business = request.form.get('creative_business', 'FOODHOUSE').upper()
+        if business not in ('FOODHOUSE', 'CRAFT'):
+            raise OrderValidationError('Choose Food House or Crafts.')
+
+        post_type = request.form.get('creative_post_type', 'PRODUCT_SPOTLIGHT').upper()
+        if post_type == 'AUTO' or post_type not in MARKETING_POST_TYPES:
+            post_type = 'PRODUCT_SPOTLIGHT'
+
+        product = craft_item = None
+        manual_name = re.sub(r's+', ' ', request.form.get('creative_manual_name', '').strip())[:100]
+        if business == 'FOODHOUSE':
+            product_id = parse_int(request.form.get('creative_product_id'), 0)
+            if product_id:
+                product = db.session.get(Product, product_id)
+                if not product or not product.is_active:
+                    raise OrderValidationError('Selected Food House product is no longer active.')
+                if parse_int(product.stock, 0) <= 0:
+                    raise OrderValidationError(f'Selected Food House product "{product.name}" is currently out of stock.')
+            elif not manual_name:
+                raise OrderValidationError('Choose a Food House product or enter a specific Food House name.')
+        else:
+            craft_id = parse_int(request.form.get('creative_craft_item_id'), 0)
+            if not craft_id:
+                raise OrderValidationError('Choose a current Crafts item for a Creative Studio poster.')
+            craft_item = db.session.get(CraftItem, craft_id)
+            if not craft_item or not craft_item.is_active:
+                raise OrderValidationError('Selected Crafts item is no longer active.')
+            availability = (craft_item.availability_type or 'IN_STOCK').upper()
+            if availability == 'IN_STOCK' and parse_int(craft_item.stock_quantity, 0) <= 0:
+                raise OrderValidationError(f'Selected Crafts item "{craft_item.name}" is currently out of stock.')
+
+        # Generate the caption/draft first so a missing text provider or source validation
+        # error does not spend an OpenAI image-edit request unnecessarily.
+        post, product_name, price_text = _create_creative_marketing_post(
+            business, post_type, product=product, craft_item=craft_item, manual_name=manual_name,
+        )
+        upload = request.files.get('creative_image')
+        normalized, filename, mime_type = _creative_normalize_uploaded_image(upload)
+        image_result = generate_marketing_image_cutout(
+            normalized, filename, mime_type,
+            product_name=product_name,
+            business=business,
+        )
+        poster_data_url = _build_marketing_poster(
+            image_result['b64_json'],
+            business,
+            post.post_type,
+            product_name,
+            price_text,
+        )
+        response = jsonify({
+            'success': True,
+            'post_id': post.id,
+            'business': business,
+            'post_type': post.post_type,
+            'product_name': product_name,
+            'price_text': price_text,
+            'caption': post.caption,
+            'poster_data_url': poster_data_url,
+            'poster_filename': re.sub(r'[^A-Za-z0-9._-]+', '-', product_name).strip('-')[:80] + '-fb-poster.jpg',
+            'image_model': image_result['model'],
+        })
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except OrderValidationError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('AI creative studio generation failed')
+        return jsonify({'success': False, 'message': f'Creative Studio could not generate the poster: {exc}'}), 500
 
 @app.route('/admin/marketing/generate', methods=['POST'])
 @require_admin
