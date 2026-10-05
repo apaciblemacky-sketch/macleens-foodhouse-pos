@@ -54,19 +54,19 @@
   </div>
 
   <section class="card" id="creative-studio">
-    <h2>🎨 AI Marketing Creative Studio</h2>
-    <p class="muted">Upload a real product photo and turn it into a Facebook-ready poster. AI removes the original background while preserving the uploaded product; the server adds the exact product name, purpose-based design, and only a trusted catalog price when one exists.</p>
+    <h2>✍️ AI Facebook Caption Generator</h2>
+    <p class="muted">Generate a ready-to-post Facebook caption from your product or service details. Gemini is used for text generation only — no image generation, Canva, OpenAI image API, or poster engine is involved.</p>
     <div class="notice" style="margin:10px 0">
-      <strong>Free local poster engine:</strong> Pillow renders the uploaded product photo into a Facebook-ready 4:5 poster. No image-generation API credits are used.
-      Add <code>GEMINI_API_KEY</code> in Render to enable Gemini image generation/editing. The same Gemini provider generates the Facebook caption.
+      <strong>Gemini Caption AI:</strong> Choose the length and writing style you want. Prices are taken from your catalog when a catalog item is selected.
+      {% if caption_ai_ready %}<span class="status ok" style="margin-left:6px">READY · {{ caption_ai_model }}</span>{% else %}<span class="status warn" style="margin-left:6px">Add GEMINI_API_KEY for AI generation</span>{% endif %}
     </div>
 
-    <form id="creativeStudioForm" action="{{ url_for('marketing_creative_generate') }}" method="post" enctype="multipart/form-data">
+    <form id="creativeStudioForm" action="{{ url_for('marketing_creative_generate') }}" method="post">
       <div class="form-grid">
         <div><label>Business</label><select name="creative_business" id="creativeBusiness"><option value="FOODHOUSE">Food House</option><option value="CRAFT">Crafts</option></select></div>
         <div><label>Post Purpose</label><select name="creative_post_type" id="creativePostType">
-          <option value="AUTO">Let AI Choose / Product Spotlight</option>
-          {% for pt in post_types %}<option value="{{ pt }}">{% if pt == 'OCCASION_ORDER' %}Long Occasion / Bulk Order{% else %}{{ pt.replace('_',' ').title() }}{% endif %}</option>{% endfor %}
+          <option value="PRODUCT_SPOTLIGHT">Product Spotlight</option>
+          {% for pt in post_types if pt != 'PRODUCT_SPOTLIGHT' %}<option value="{{ pt }}">{% if pt == 'OCCASION_ORDER' %}Long Occasion / Bulk Order{% else %}{{ pt.replace('_',' ').title() }}{% endif %}</option>{% endfor %}
         </select></div>
 
         <div id="creativeFoodProductField">
@@ -88,48 +88,83 @@
         </div>
 
         <div style="grid-column:1/-1" id="creativeManualNameField">
-          <label>Specific Food Name — optional for Food House</label>
+          <label>Specific Food Name — optional</label>
           <input name="creative_manual_name" maxlength="100" placeholder="Example: Shawarma Fries">
-          <div class="muted" style="margin-top:5px">Use this for a food item that is not in the current catalog. Name-only posters never invent a price or availability.</div>
+          <div class="muted" style="margin-top:5px">Use this when the product is not in the current catalog. The AI will not invent a price.</div>
         </div>
 
-        <div style="grid-column:1/-1">
-          <label>Upload Product Picture</label>
-          <input type="file" name="creative_image" id="creativeImage" accept="image/png,image/jpeg,image/webp" required>
-          <div class="muted" style="margin-top:5px">PNG, JPG, JPEG, or WEBP · maximum 8 MB.</div>
-          <div id="creativeLocalPreviewWrap" style="display:none;margin-top:10px"><img id="creativeLocalPreview" alt="Uploaded product preview" style="max-width:240px;max-height:180px;border-radius:10px;border:1px solid #e2e8f0;object-fit:contain"></div>
+        <div>
+          <label>Caption Length</label>
+          <select name="caption_word_target">
+            <option value="30">Short · ~30 words</option>
+            <option value="50">Quick · ~50 words</option>
+            <option value="80" selected>Standard · ~80 words</option>
+            <option value="120">Detailed · ~120 words</option>
+            <option value="180">Long · ~180 words</option>
+            <option value="250">Very Long · ~250 words</option>
+            <option value="400">Extra Long · ~400 words</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Tone</label>
+          <select name="caption_tone">
+            <option value="FRIENDLY">Friendly & Warm</option>
+            <option value="CASUAL">Casual & Conversational</option>
+            <option value="EXCITING">Exciting & Attention-Grabbing</option>
+            <option value="PROFESSIONAL">Clean & Professional</option>
+            <option value="STUDENT">Student / Campus-Friendly</option>
+            <option value="URGENCY">Direct & Action-Oriented</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Language</label>
+          <select name="caption_language">
+            <option value="ENGLISH">English</option>
+            <option value="MIXED">Taglish</option>
+            <option value="FILIPINO">Filipino / Tagalog</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Target Audience</label>
+          <select name="caption_audience">
+            <option value="LOCAL_CUSTOMERS">Local Customers</option>
+            <option value="STUDENTS">Students</option>
+            <option value="FAMILIES">Families</option>
+            <option value="OFFICE_GROUPS">Office / School / Group Orders</option>
+            <option value="EVENT_CUSTOMERS">Events & Occasions</option>
+            <option value="EVERYONE">Everyone</option>
+          </select>
+        </div>
+
+        <div>
+          <label>Extras</label>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;padding-top:8px">
+            <label style="font-weight:normal"><input type="checkbox" name="caption_emojis" value="yes" checked> Emojis</label>
+            <label style="font-weight:normal"><input type="checkbox" name="caption_cta" value="yes" checked> Order CTA</label>
+            <label style="font-weight:normal"><input type="checkbox" name="caption_hashtags" value="yes" checked> Hashtags</label>
+          </div>
         </div>
       </div>
+
       <div class="actions" style="margin-top:12px">
-        <button class="btn btn-blue" id="creativeGenerateBtn" type="submit">✨ Generate Poster + Facebook Draft</button>
+        <button class="btn btn-blue" id="creativeGenerateBtn" type="submit">✨ Generate Facebook Caption</button>
         <span class="muted" id="creativeStatus"></span>
       </div>
     </form>
 
     <div id="creativeResult" class="group-row" style="display:none;margin-top:14px">
-      <div class="grid-2">
-        <div>
-          <h3>Generated Poster</h3>
-          <img id="creativePosterPreview" alt="Generated Facebook poster" style="display:block;width:100%;max-width:520px;border-radius:12px;border:1px solid #e2e8f0;background:#f8fafc">
-          <div class="actions" style="margin-top:9px">
-            <a id="creativeDownload" class="btn btn-green" href="#" download="macleens-facebook-poster.jpg">⬇ Download Poster</a>
-            <a class="btn btn-light" href="#creative-studio">Create Another</a>
-          </div>
-        </div>
-        <div>
-          <h3>Facebook Caption — Draft #<span id="creativePostId">—</span></h3>
-          <textarea id="creativeCaption" style="min-height:300px"></textarea>
-          <div class="actions" style="margin-top:8px">
-            <button class="btn btn-blue" type="button" id="creativeCopyCaption">Copy Caption</button>
-            <a class="btn btn-light" href="#creative-studio">Back to Creative Studio</a>
-          </div>
-          <p class="muted" id="creativeMeta"></p>
-        </div>
+      <h3>Facebook Caption — Draft #<span id="creativePostId">—</span></h3>
+      <textarea id="creativeCaption" style="min-height:340px;width:100%"></textarea>
+      <div class="actions" style="margin-top:8px">
+        <button class="btn btn-blue" type="button" id="creativeCopyCaption">Copy Caption</button>
+        <a class="btn btn-light" href="#creative-studio">Generate Another</a>
       </div>
+      <p class="muted" id="creativeMeta"></p>
     </div>
   </section>
-
-  
 
   <section class="card" id="daily-menu-automation">
     <h2>🍽️ Daily Facebook Menu Automation</h2>
@@ -257,14 +292,9 @@ const creativeCraftItemField=document.getElementById('creativeCraftItemField');
 const creativeManualNameField=document.getElementById('creativeManualNameField');
 const creativeProductId=document.getElementById('creativeProductId');
 const creativeCraftItemId=document.getElementById('creativeCraftItemId');
-const creativeImage=document.getElementById('creativeImage');
-const creativeLocalPreviewWrap=document.getElementById('creativeLocalPreviewWrap');
-const creativeLocalPreview=document.getElementById('creativeLocalPreview');
 const creativeGenerateBtn=document.getElementById('creativeGenerateBtn');
 const creativeStatus=document.getElementById('creativeStatus');
 const creativeResult=document.getElementById('creativeResult');
-const creativePosterPreview=document.getElementById('creativePosterPreview');
-const creativeDownload=document.getElementById('creativeDownload');
 const creativeCaption=document.getElementById('creativeCaption');
 const creativePostId=document.getElementById('creativePostId');
 const creativeCopyCaption=document.getElementById('creativeCopyCaption');
@@ -281,13 +311,6 @@ function syncCreativeBusinessFields(){
 creativeBusiness.addEventListener('change',syncCreativeBusinessFields);
 syncCreativeBusinessFields();
 
-creativeImage.addEventListener('change',()=>{
-  const file=creativeImage.files&&creativeImage.files[0];
-  if(!file){creativeLocalPreviewWrap.style.display='none';creativeLocalPreview.removeAttribute('src');return;}
-  creativeLocalPreview.src=URL.createObjectURL(file);
-  creativeLocalPreviewWrap.style.display='';
-});
-
 creativeCopyCaption.addEventListener('click',async()=>{
   const text=creativeCaption.value||'';
   try{await navigator.clipboard.writeText(text);creativeStatus.textContent='Caption copied.';}
@@ -296,29 +319,31 @@ creativeCopyCaption.addEventListener('click',async()=>{
 
 creativeForm.addEventListener('submit',async(event)=>{
   event.preventDefault();
-  if(!creativeImage.files||!creativeImage.files[0]){creativeStatus.textContent='Please choose a product image first.';return;}
+  if(creativeBusiness.value==='FOODHOUSE' && !creativeProductId.value && !document.querySelector('[name="creative_manual_name"]').value.trim()){
+    creativeStatus.textContent='Choose a catalog product or enter a specific food name.';return;
+  }
+  if(creativeBusiness.value==='CRAFT' && !creativeCraftItemId.value){
+    creativeStatus.textContent='Choose a Crafts catalog item.';return;
+  }
   creativeGenerateBtn.disabled=true;
-  creativeGenerateBtn.textContent='⏳ Creating poster…';
-  creativeStatus.textContent='Creating the free local poster and Facebook draft…';
+  creativeGenerateBtn.textContent='⏳ Generating caption…';
+  creativeStatus.textContent='Gemini is writing your Facebook caption…';
   creativeResult.style.display='none';
   try{
     const response=await fetch(creativeForm.action,{method:'POST',body:new FormData(creativeForm),headers:{'X-Requested-With':'fetch'}});
     const payload=await response.json().catch(()=>({success:false,message:'The server returned an unexpected response.'}));
-    if(!response.ok||!payload.success)throw new Error(payload.message||'Creative Studio could not generate the poster.');
-    creativePosterPreview.src=payload.poster_data_url;
-    creativeDownload.href=payload.poster_data_url;
-    creativeDownload.download=payload.poster_filename||'macleens-facebook-poster.jpg';
+    if(!response.ok||!payload.success)throw new Error(payload.message||'Caption Generator could not generate the caption.');
     creativeCaption.value=payload.caption||'';
     creativePostId.textContent=payload.post_id||'—';
-    creativeMeta.textContent=(payload.business||'')+' · '+(payload.post_type||'')+' · Poster engine: '+(payload.image_model||'Local');
+    creativeMeta.textContent=(payload.business||'')+' · '+(payload.post_type||'')+' · Target: ~'+(payload.word_target||'—')+' words · Actual: '+(payload.actual_words||'—')+' words · '+(payload.ai_model||'Gemini');
     creativeResult.style.display='';
-    creativeStatus.textContent='Done — poster and Facebook caption are ready.';
+    creativeStatus.textContent='Done — your Facebook caption is ready.';
     creativeResult.scrollIntoView({behavior:'smooth',block:'start'});
   }catch(error){
-    creativeStatus.textContent=error.message||'Creative Studio failed.';
+    creativeStatus.textContent=error.message||'Caption Generator failed.';
   }finally{
     creativeGenerateBtn.disabled=false;
-    creativeGenerateBtn.textContent='✨ Generate Poster + Facebook Draft';
+    creativeGenerateBtn.textContent='✨ Generate Facebook Caption';
   }
 });
 </script>
