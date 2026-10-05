@@ -15113,7 +15113,7 @@ def marketing_admin():
         active_products=Product.query.filter_by(is_active=True).order_by(Product.name.asc()).all(),
         active_crafts=CraftItem.query.filter_by(is_active=True).order_by(CraftItem.name.asc()).all(),
         gemini_image_ready=gemini_image_configured(),
-        gemini_image_model=os.environ.get('GEMINI_MARKETING_IMAGE_MODEL', 'gemini-3.1-flash-image'),
+        gemini_image_model='Local Poster Engine (Free)',
         insight_imports=MarketingInsightImport.query.order_by(MarketingInsightImport.created_at.desc()).limit(10).all(),
         daily_menu_preview=daily_menu_preview,
         daily_menu_preview_error=daily_menu_preview_error,
@@ -15524,8 +15524,7 @@ def marketing_creative_generate():
             if availability == 'IN_STOCK' and parse_int(craft_item.stock_quantity, 0) <= 0:
                 raise OrderValidationError(f'Selected Crafts item "{craft_item.name}" is currently out of stock.')
 
-        # Generate the caption/draft first so a missing text provider or source validation
-        # error does not spend an OpenAI image-edit request unnecessarily.
+        # Generate the caption/draft first. Poster rendering is local and does not consume an image API quota.
         post, product_name, price_text = _create_creative_marketing_post(
             business, post_type, product=product, craft_item=craft_item, manual_name=manual_name,
         )
