@@ -40,7 +40,7 @@
   <div class="grid">
     <div class="metric"><span class="muted">AI Provider</span><strong>{{ settings.ai_provider }}</strong><span class="status info">Gemini Free is default</span></div>
     <div class="metric"><span class="muted">Gemini</span><strong>{{ 'READY' if gemini_ready else 'NO KEY YET' }}</strong><span class="status {{ 'ok' if gemini_ready else 'warn' }}">{{ gemini_model if gemini_ready else 'Add GEMINI_API_KEY' }}</span></div>
-    <div class="metric"><span class="muted">AI Image Editor</span><strong>{{ 'READY' if openai_image_ready else 'SETUP NEEDED' }}</strong><span class="status {{ 'ok' if openai_image_ready else 'warn' }}">{{ openai_image_model if openai_image_ready else 'Add OPENAI_API_KEY' }}</span></div>
+    <div class="metric"><span class="muted">Gemini Image Studio</span><strong>{{ 'READY' if gemini_image_ready else 'SETUP NEEDED' }}</strong><span class="status {{ 'ok' if gemini_image_ready else 'warn' }}">{{ gemini_image_model if gemini_image_ready else 'Add GEMINI_API_KEY' }}</span></div>
     <div class="metric"><span class="muted">Daily Page API</span><strong>{{ 'READY' if page_api_ready else 'SETUP NEEDED' }}</strong><span class="status {{ 'ok' if page_api_ready else 'warn' }}">{{ 'Official API connected' if page_api_ready else 'Add Render credentials' }}</span></div>
     <div class="metric"><span class="muted">Messenger MENU Reply</span><strong>{{ 'READY' if webhook_ready else 'SETUP NEEDED' }}</strong><span class="status {{ 'ok' if webhook_ready else 'warn' }}">{{ messenger_metrics.contacts }} contact(s)</span></div>
     <div class="metric"><span class="muted">Scheduled Draft Queue</span><strong>{{ 'ON' if settings.enabled else 'PAUSED' }}</strong><span class="status {{ 'ok' if settings.enabled else 'warn' }}">Drafts only</span></div>
@@ -57,8 +57,8 @@
     <h2>🎨 AI Marketing Creative Studio</h2>
     <p class="muted">Upload a real product photo and turn it into a Facebook-ready poster. AI removes the original background while preserving the uploaded product; the server adds the exact product name, purpose-based design, and only a trusted catalog price when one exists.</p>
     <div class="notice" style="margin:10px 0">
-      <strong>AI image cleanup:</strong> {{ openai_image_model }} · {{ 'READY' if openai_image_ready else 'SETUP NEEDED' }}.
-      Add <code>OPENAI_API_KEY</code> in Render to enable image editing. Your existing Gemini/AI Marketing provider can still generate the Facebook caption.
+      <strong>Gemini image generation:</strong> {{ gemini_image_model }} · {{ 'READY' if gemini_image_ready else 'SETUP NEEDED' }}.
+      Add <code>GEMINI_API_KEY</code> in Render to enable Gemini image generation/editing. The same Gemini provider generates the Facebook caption.
     </div>
 
     <form id="creativeStudioForm" action="{{ url_for('marketing_creative_generate') }}" method="post" enctype="multipart/form-data">
@@ -310,7 +310,7 @@ creativeForm.addEventListener('submit',async(event)=>{
     creativeDownload.download=payload.poster_filename||'macleens-facebook-poster.jpg';
     creativeCaption.value=payload.caption||'';
     creativePostId.textContent=payload.post_id||'—';
-    creativeMeta.textContent=(payload.business||'')+' · '+(payload.post_type||'')+' · Image editor: '+(payload.image_model||'OpenAI');
+    creativeMeta.textContent=(payload.business||'')+' · '+(payload.post_type||'')+' · Image editor: '+(payload.image_model||'Gemini');
     creativeResult.style.display='';
     creativeStatus.textContent='Done — poster and Facebook caption are ready.';
     creativeResult.scrollIntoView({behavior:'smooth',block:'start'});
