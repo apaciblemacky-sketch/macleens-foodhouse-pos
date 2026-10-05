@@ -148,7 +148,7 @@ def generate_marketing_image_poster(
     # Header
     draw.rounded_rectangle((58, 48, canvas_w - 58, 126), radius=28, fill=(255, 255, 255))
     draw.text((88, 70), brand, font=font(30, True), fill=(32, 45, 38))
-    draw.text((canvas_w - 88, 73), "AI + FREE", font=font(22, True), fill=(91, 110, 98), anchor="ra")
+    draw.text((canvas_w - 88, 73), "FREE POSTER", font=font(22, True), fill=(91, 110, 98), anchor="ra")
 
     # Purpose ribbon
     ribbon_font = font(28, True)
