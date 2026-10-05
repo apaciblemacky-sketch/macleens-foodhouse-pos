@@ -33,7 +33,6 @@ def openai_configured() -> bool:
     return bool(os.environ.get("OPENAI_API_KEY", "").strip())
 
 
-
 def generate_marketing_caption(
     *,
     product_name: str,
@@ -48,16 +47,11 @@ def generate_marketing_caption(
     include_hashtags: bool = True,
     audience: str = "LOCAL_CUSTOMERS",
 ):
-    """Generate a configurable Facebook caption using Gemini text only.
-
-    No image-generation API is involved. If Gemini is unavailable, a useful
-    deterministic caption is returned so the feature still works.
-    """
+    """Generate a configurable Facebook caption using Gemini text only."""
     try:
         word_target = max(10, min(int(word_target or 80), 500))
     except (TypeError, ValueError):
         word_target = 80
-
     tone_map = {
         "FRIENDLY": "friendly, warm, natural, and approachable",
         "CASUAL": "casual, conversational, and relatable",
@@ -66,11 +60,7 @@ def generate_marketing_caption(
         "STUDENT": "budget-conscious, youthful, and campus-friendly",
         "URGENCY": "direct, action-oriented, and time-sensitive without inventing scarcity",
     }
-    language_map = {
-        "ENGLISH": "English",
-        "FILIPINO": "Filipino/Tagalog",
-        "MIXED": "natural Taglish (English + Filipino)",
-    }
+    language_map = {"ENGLISH": "English", "FILIPINO": "Filipino/Tagalog", "MIXED": "natural Taglish (English + Filipino)"}
     audience_map = {
         "LOCAL_CUSTOMERS": "local customers around Binalbagan",
         "STUDENTS": "students and young customers",
@@ -96,12 +86,10 @@ def generate_marketing_caption(
     lang_text = language_map.get(str(language).upper(), language_map["ENGLISH"])
     audience_text = audience_map.get(str(audience).upper(), audience_map["LOCAL_CUSTOMERS"])
     purpose_text = purpose_map.get(str(post_type).upper(), purpose_map["PRODUCT_SPOTLIGHT"])
-
     api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
     if api_key:
         model = os.environ.get("GEMINI_MARKETING_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
-        prompt = f"""
-You are Macleen's Food House social-media copywriter in Binalbagan, Philippines.
+        prompt = f"""You are Macleen's Food House social-media copywriter in Binalbagan, Philippines.
 
 Write ONE ready-to-post Facebook caption for:
 Business: {business}
@@ -122,21 +110,13 @@ Rules:
 - Do not mention that you are AI.
 - Do not add a title such as "Caption:".
 - Make the result directly copyable into Facebook.
-- Stay close to the requested word target.
-"""
+- Stay close to the requested word target."""
         try:
             response = requests.post(
                 GEMINI_INTERACTIONS_URL,
                 headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "input": prompt.strip(),
-                    "response_format": {"type": "text"},
-                    "generation_config": {
-                        "max_output_tokens": max(80, min(1200, word_target * 2)),
-                        "temperature": 0.8,
-                    },
-                },
+                json={"model": model, "input": prompt.strip(), "response_format": {"type": "text"},
+                      "generation_config": {"max_output_tokens": max(80, min(1200, word_target * 2)), "temperature": 0.8}},
                 timeout=55,
             )
             body = response.json() if response.content else {}
@@ -144,27 +124,596 @@ Rules:
                 error = body.get("error") if isinstance(body, dict) else {}
                 message = error.get("message") if isinstance(error, dict) else None
                 raise RuntimeError(message or response.text)
-            caption = _extract_gemini_output_text(body).strip()
-            if caption:
-                return {"caption": caption, "model": f"gemini:{model}"}
+            caption_text = _extract_gemini_output_text(body).strip()
+            if caption_text:
+                return {"caption": caption_text, "model": f"gemini:{model}"}
         except Exception as exc:
             fallback_note = f"Gemini unavailable ({type(exc).__name__})"
         else:
             fallback_note = "Gemini returned no caption."
     else:
         fallback_note = "Gemini key not configured."
-
     emoji = "✨ " if emojis else ""
     cta = " Message us to order!" if include_cta else ""
     hashtags = " #MacleensFoodHouse #Binalbagan" if include_hashtags else ""
     price_line = f" for {price_text}" if price_text else ""
     if str(language).upper() == "FILIPINO":
-        caption = f"{emoji}Try ang {product_name}{price_line}! Perfect ito para sa {audience_text}. {purpose_text.capitalize()}.{cta}{hashtags}"
+        caption_text = f"{emoji}Try ang {product_name}{price_line}! Perfect ito para sa {audience_text}. {purpose_text.capitalize()}.{cta}{hashtags}"
     elif str(language).upper() == "MIXED":
-        caption = f"{emoji}Craving for {product_name}{price_line}? Perfect for {audience_text}. {purpose_text.capitalize()}!{cta}{hashtags}"
+        caption_text = f"{emoji}Craving for {product_name}{price_line}? Perfect for {audience_text}. {purpose_text.capitalize()}!{cta}{hashtags}"
     else:
-        caption = f"{emoji}Try {product_name}{price_line}! A great choice for {audience_text}. {purpose_text.capitalize()}.{cta}{hashtags}"
-    return {"caption": caption, "model": "smart-template:caption", "fallback_note": fallback_note}
+        caption_text = f"{emoji}Try {product_name}{price_line}! A great choice for {audience_text}. {purpose_text.capitalize()}.{cta}{hashtags}"
+    return {"caption": caption_text, "model": "smart-template:caption", "fallback_note": fallback_note}
+
+
+def _marketing_schema(include_openai_constraints: bool = False):
+    string_caption = {"type": "string"}
+    string_reason = {"type": "string"}
+    if include_openai_constraints:
+        string_caption.update({"minLength": 1, "maxLength": 1800})
+        string_reason.update({"minLength": 1, "maxLength": 600})
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "should_post": {"type": "boolean"},
+            "business": {"type": "string", "enum": ["FOODHOUSE", "CRAFT"]},
+            "post_type": {"type": "string", "enum": MARKETING_POST_TYPES},
+            "source_kind": {"type": "string", "enum": ["PRODUCT", "CRAFT_ITEM", "PAGE"]},
+            "source_id": {"type": ["integer", "null"]},
+            "caption": string_caption,
+            "reason": string_reason,
+        },
+        "required": ["should_post", "business", "post_type", "source_kind", "source_id", "caption", "reason"],
+    }
+
+
+def _marketing_instructions() -> str:
+    return """
+You are the autonomous marketing planner for Macleen's Food House and Macleen's Crafts in the Philippines.
+Create one meaningful Facebook-ready post decision from ONLY the supplied business data.
+
+Goals:
+- Vary the post purpose and wording day by day; do not mechanically repeat yesterday's style.
+- Prefer useful business reasons: available inventory, slow sellers, featured/new items, top sellers occasionally, loyalty/community engagement, or brand awareness.
+- Keep captions warm, concise, natural, local-business friendly, and not spammy.
+- Never invent a price, discount, stock count, schedule, customer quote, award, delivery promise, or promotion.
+- Never claim urgency unless the supplied data supports it.
+- Never promote an inactive or out-of-stock in-stock item.
+- Respect recent-post history and avoid repeating a recently promoted product when alternatives exist.
+- When recent posts include aggregate Meta insights, learn from the strongest internally observed topics and actions while still varying the wording and format. Do not treat a single post as proof of causation.
+- If there is no worthwhile/safe post today, set should_post=false and explain why.
+- Do not put a URL in caption; the application attaches the verified link separately.
+- Use at most four hashtags.
+- For group-assisted posts, adapt the tone to the group's saved purpose/rules and avoid pretending the post was automatically published.
+- When the business context includes requested_food_names, those are explicit admin instructions: ALL of those names must be included in the marketing caption. Do not choose only one, omit any, or substitute another food.
+- When post_type_hint is OCCASION_ORDER, create a longer Facebook-ready post specifically calling out customers who are planning birthdays, fiestas, meetings, school events, office gatherings, family celebrations, or other occasions. Invite advance orders or inquiries without inventing prices, minimum orders, discounts, stock, delivery promises, or deadlines.
+- OCCASION_ORDER should be substantially longer than a normal product spotlight, with a strong opening, natural occasion examples, the supplied food lineup, and a clear call to action.
+- When requested_food_names is present, set should_post=true and treat every supplied name as an explicit requested topic. Do not skip the post merely because a name is not in the catalog or because there is no current product data. Use the names only and do not invent price, stock, availability, discount, or product link.
+- Preserve the requested food names exactly as supplied whenever practical, including names such as "Pichi2", "Sapin2 Cups", and "Puto Cheese".
+- When specific selected Food House products are supplied, stay within those selected products when choosing the food subject.
+- A manually typed food name that does not match a current catalog item may still be used as a creative topic, but do not invent its price, stock, availability, discount, or product link.
+""".strip()
+
+
+def _marketing_input_payload(context: dict, business_hint: str, post_type_hint: str, group_context=None):
+    return {
+        "today": datetime.now().astimezone().isoformat(),
+        "business_hint": business_hint,
+        "post_type_hint": post_type_hint,
+        "group": group_context or None,
+        "business_context": context,
+    }
+
+
+def _extract_openai_output_text(payload: dict) -> str:
+    texts = []
+    for item in payload.get("output", []) or []:
+        if item.get("type") != "message":
+            continue
+        for part in item.get("content", []) or []:
+            if part.get("type") == "output_text" and part.get("text"):
+                texts.append(part["text"])
+    return "\n".join(texts).strip()
+
+
+def _extract_gemini_output_text(payload: dict) -> str:
+    direct = payload.get("output_text") if isinstance(payload, dict) else None
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    texts = []
+    for step in (payload.get("steps", []) if isinstance(payload, dict) else []) or []:
+        if step.get("type") != "model_output":
+            continue
+        for part in step.get("content", []) or []:
+            if part.get("type") == "text" and part.get("text"):
+                texts.append(part["text"])
+    return "\n".join(texts).strip()
+
+
+def _template_insights_analysis(payload: dict, fallback_note: str = ""):
+    metrics = payload.get("metrics") or {}
+    reach = max(0, int(metrics.get("reach") or 0))
+    reactions = max(0, int(metrics.get("reactions") or 0))
+    comments = max(0, int(metrics.get("comments") or 0))
+    shares = max(0, int(metrics.get("shares") or 0))
+    saves = max(0, int(metrics.get("saves") or 0))
+    clicks = max(0, int(metrics.get("link_clicks") or 0))
+    engagement = reactions + comments + shares + saves
+    engagement_rate = (engagement / reach * 100.0) if reach else 0.0
+    click_rate = (clicks / reach * 100.0) if reach else 0.0
+    strongest = max(
+        [("reactions", reactions), ("comments", comments), ("shares", shares), ("saves", saves), ("link clicks", clicks)],
+        key=lambda item: item[1],
+    )
+    note = f" {fallback_note}" if fallback_note else ""
+    return {
+        "model": "smart-template:insights",
+        "analysis": (
+            f"Performance summary: Reach {reach:,}; total visible engagement {engagement:,} "
+            f"({engagement_rate:.2f}% of reach); link clicks {clicks:,} ({click_rate:.2f}% of reach). "
+            f"The strongest recorded action was {strongest[0]} ({strongest[1]:,}).\n\n"
+            "What to improve: compare the hook, product, offer, photo, posting time, and call-to-action with your other posts. "
+            "If reach is healthy but actions are low, make the first line and offer clearer. If shares/comments are strong, reuse the topic in a fresh format.\n\n"
+            "Next-post recommendation: repeat the strongest topic or product with a different opening line, one clear customer benefit, "
+            "one action request, and no more than four hashtags. Record the next post's insights after the same amount of time for a fair comparison."
+            + note
+        ),
+    }
+
+
+def analyze_marketing_insights(payload: dict, provider: str = "GEMINI"):
+    """Analyze manually entered Meta post insights; never receives customer-level data."""
+    provider = (provider or "GEMINI").upper()
+    prompt = (
+        "You are a practical Facebook performance analyst for Macleen's Food House and Macleen's Crafts in the Philippines. "
+        "Analyze only the supplied post caption and aggregate Meta insights. Do not invent missing metrics or claim causation. "
+        "Compare with supplied internal history when available. Return concise plain text with: Performance Summary, What Worked, "
+        "What to Improve, and Next Post Recommendation. Use specific numbers and practical language.\n\nDATA:\n"
+        + json.dumps(payload, ensure_ascii=False)
+    )
+    attempts = []
+    if provider in ("GEMINI", "AUTO") and gemini_configured():
+        try:
+            api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+            model = os.environ.get("GEMINI_MARKETING_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
+            response = requests.post(
+                GEMINI_INTERACTIONS_URL,
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json={"model": model, "input": prompt, "response_format": {"type": "text"}},
+                timeout=55,
+            )
+            body = response.json() if response.content else {}
+            if not response.ok:
+                raise RuntimeError(((body.get("error") or {}).get("message") if isinstance(body, dict) else None) or response.text)
+            analysis = _extract_gemini_output_text(body)
+            if not analysis:
+                raise RuntimeError("Gemini returned no analysis.")
+            return {"model": f"gemini:{model}", "analysis": analysis[:5000]}
+        except Exception as exc:
+            attempts.append(f"Gemini unavailable ({type(exc).__name__})")
+    if provider in ("OPENAI", "AUTO") and openai_configured():
+        try:
+            api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+            model = os.environ.get("OPENAI_MARKETING_MODEL", "gpt-5.5").strip() or "gpt-5.5"
+            response = requests.post(
+                OPENAI_RESPONSES_URL,
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={"model": model, "instructions": "Analyze aggregate Meta post insights accurately and concisely.", "input": prompt, "max_output_tokens": 1000},
+                timeout=50,
+            )
+            body = response.json() if response.content else {}
+            if not response.ok:
+                raise RuntimeError(((body.get("error") or {}).get("message") if isinstance(body, dict) else None) or response.text)
+            analysis = _extract_openai_output_text(body)
+            if not analysis:
+                raise RuntimeError("OpenAI returned no analysis.")
+            return {"model": f"openai:{model}", "analysis": analysis[:5000]}
+        except Exception as exc:
+            attempts.append(f"OpenAI unavailable ({type(exc).__name__})")
+    return _template_insights_analysis(payload, "; ".join(attempts))
+
+
+def _generate_with_gemini(context: dict, business_hint: str, post_type_hint: str, group_context=None):
+    api_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured in Render.")
+    model = os.environ.get("GEMINI_MARKETING_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
+    prompt = (
+        _marketing_instructions()
+        + "\n\nReturn the marketing decision as JSON matching the required schema.\n\nBUSINESS DATA:\n"
+        + json.dumps(_marketing_input_payload(context, business_hint, post_type_hint, group_context), ensure_ascii=False)
+    )
+    response = requests.post(
+        GEMINI_INTERACTIONS_URL,
+        headers={
+            "x-goog-api-key": api_key,
+            "x-goog-api-client": "macleens-marketing/1.1.0",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "input": prompt,
+            "response_format": {
+                "type": "text",
+                "mime_type": "application/json",
+                "schema": _marketing_schema(include_openai_constraints=False),
+            },
+        },
+        timeout=55,
+    )
+    payload = response.json() if response.content else {}
+    if not response.ok:
+        if isinstance(payload, dict):
+            error = payload.get("error") or {}
+            message = error.get("message") if isinstance(error, dict) else None
+        else:
+            message = None
+        raise RuntimeError(f"Gemini API error: {message or response.text}")
+    text = _extract_gemini_output_text(payload)
+    if not text:
+        raise RuntimeError("Gemini returned no marketing decision text.")
+    try:
+        decision = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Gemini returned an invalid marketing decision.") from exc
+    decision["model"] = f"gemini:{model}"
+    return decision
+
+
+def _generate_with_openai(context: dict, business_hint: str, post_type_hint: str, group_context=None):
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not configured in Render.")
+
+    model = os.environ.get("OPENAI_MARKETING_MODEL", "gpt-5.5").strip() or "gpt-5.5"
+    response = requests.post(
+        OPENAI_RESPONSES_URL,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "model": model,
+            "instructions": _marketing_instructions(),
+            "input": json.dumps(_marketing_input_payload(context, business_hint, post_type_hint, group_context), ensure_ascii=False),
+            "max_output_tokens": 900,
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "macleens_marketing_post",
+                    "strict": True,
+                    "schema": _marketing_schema(include_openai_constraints=True),
+                }
+            },
+        },
+        timeout=50,
+    )
+    payload = response.json() if response.content else {}
+    if not response.ok:
+        message = ((payload.get("error") or {}).get("message") if isinstance(payload, dict) else None) or response.text
+        raise RuntimeError(f"OpenAI API error: {message}")
+    text = _extract_openai_output_text(payload)
+    if not text:
+        raise RuntimeError("OpenAI returned no marketing decision text.")
+    try:
+        decision = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("OpenAI returned an invalid marketing decision.") from exc
+    decision["model"] = f"openai:{model}"
+    return decision
+
+
+def _stable_pick(items, seed_text: str):
+    if not items:
+        return None
+    digest = hashlib.sha256(seed_text.encode("utf-8")).hexdigest()
+    return items[int(digest[:12], 16) % len(items)]
+
+
+def _money(value) -> str:
+    try:
+        amount = float(value or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    if amount.is_integer():
+        return f"₱{int(amount):,}"
+    return f"₱{amount:,.2f}"
+
+
+def generate_template_marketing_decision(context: dict, business_hint: str = "AUTO", post_type_hint: str = "AUTO", group_context=None, fallback_note: str = ""):
+    """Offline/no-cost safety net. Uses only verified server context and never calls an AI API."""
+    foods = list(context.get("foodhouse_products") or [])
+    crafts = list(context.get("craft_items") or [])
+    recent = list(context.get("recent_posts") or [])
+    today = datetime.now().astimezone().date().isoformat()
+
+    requested_business = (business_hint or "AUTO").upper()
+    if requested_business in ("FOODHOUSE", "CRAFT"):
+        business = requested_business
+    else:
+        if foods and not crafts:
+            business = "FOODHOUSE"
+        elif crafts and not foods:
+            business = "CRAFT"
+        else:
+            recent_business = [str(p.get("business") or "").upper() for p in recent[:8]]
+            food_count = recent_business.count("FOODHOUSE")
+            craft_count = recent_business.count("CRAFT")
+            if food_count != craft_count:
+                business = "FOODHOUSE" if food_count < craft_count else "CRAFT"
+            else:
+                business = _stable_pick(["FOODHOUSE", "CRAFT"], f"business|{today}") or "FOODHOUSE"
+
+    rows = foods if business == "FOODHOUSE" else crafts
+    requested_food_names = [
+        str(name).strip()[:100]
+        for name in (context.get("requested_food_names") or [])
+        if str(name).strip()
+    ][:12]
+    if requested_food_names and business == "FOODHOUSE":
+        # Manually requested food names take priority over the generic catalog pool.
+        business = "FOODHOUSE"
+    if not rows and not requested_food_names:
+        other_business = "CRAFT" if business == "FOODHOUSE" else "FOODHOUSE"
+        other_rows = crafts if other_business == "CRAFT" else foods
+        if other_rows:
+            business, rows = other_business, other_rows
+
+    recent_pairs = {
+        (str(p.get("source_kind") or "").upper(), p.get("source_id"))
+        for p in recent[:18]
+        if p.get("source_id") is not None
+    }
+    source_kind = "PRODUCT" if business == "FOODHOUSE" else "CRAFT_ITEM"
+    fresh_rows = [r for r in rows if (source_kind, r.get("id")) not in recent_pairs] or rows
+
+    requested_type = (post_type_hint or "AUTO").upper()
+    if requested_type in MARKETING_POST_TYPES:
+        post_type = requested_type
+    else:
+        recent_types = [str(p.get("post_type") or "").upper() for p in recent[:6]]
+        if business == "FOODHOUSE":
+            slow_exists = any(int(r.get("qty_30d") or 0) <= 1 for r in fresh_rows)
+            featured_exists = any(r.get("featured") for r in fresh_rows)
+            top_exists = any(r.get("top_seller") for r in fresh_rows)
+            choices = ["PRODUCT_SPOTLIGHT", "VALUE_REMINDER", "ENGAGEMENT", "BRAND_AWARENESS"]
+            if slow_exists:
+                choices.append("SLOW_SELLER")
+            if featured_exists:
+                choices.append("NEW_OR_FEATURED")
+            if top_exists:
+                choices.append("TOP_SELLER")
+        else:
+            featured_exists = any(r.get("featured") for r in fresh_rows)
+            top_exists = any(r.get("top_seller") for r in fresh_rows)
+            choices = ["CRAFT_STORY", "PRODUCT_SPOTLIGHT", "VALUE_REMINDER", "ENGAGEMENT", "BRAND_AWARENESS"]
+            if featured_exists:
+                choices.append("NEW_OR_FEATURED")
+            if top_exists:
+                choices.append("TOP_SELLER")
+        non_recent = [x for x in choices if x not in recent_types] or choices
+        post_type = _stable_pick(non_recent, f"type|{business}|{today}") or "BRAND_AWARENESS"
+
+    page_types = {"ENGAGEMENT", "BRAND_AWARENESS", "LOYALTY"}
+    item = None
+    manual_food_name = None
+    if business == "FOODHOUSE" and requested_food_names and post_type not in page_types:
+        normalized_rows = {
+            re.sub(r"[^a-z0-9]+", " ", str(row.get("name") or "").lower()).strip(): row
+            for row in fresh_rows
+        }
+        matched = []
+        for requested_name in requested_food_names:
+            key = re.sub(r"[^a-z0-9]+", " ", requested_name.lower()).strip()
+            if key in normalized_rows:
+                matched.append(normalized_rows[key])
+                continue
+            partial = next(
+                (row for row in fresh_rows
+                 if key and key in re.sub(r"[^a-z0-9]+", " ", str(row.get("name") or "").lower()).strip()),
+                None,
+            )
+            if partial:
+                matched.append(partial)
+        if matched:
+            item = matched[0]
+        else:
+            manual_food_name = _stable_pick(
+                requested_food_names,
+                f"manual-food|{today}|{post_type}",
+            )
+    if rows and post_type not in page_types and item is None:
+        if post_type == "SLOW_SELLER" and business == "FOODHOUSE":
+            item = min(fresh_rows, key=lambda r: (int(r.get("qty_30d") or 0), -int(r.get("stock") or 0), str(r.get("name") or "")))
+        elif post_type == "TOP_SELLER":
+            flagged = [r for r in fresh_rows if r.get("top_seller")]
+            pool = flagged or fresh_rows
+            if business == "FOODHOUSE":
+                item = max(pool, key=lambda r: (int(r.get("qty_30d") or 0), int(r.get("likes") or 0)))
+            else:
+                item = max(pool, key=lambda r: (int(r.get("orders") or 0), int(r.get("likes") or 0), int(r.get("views") or 0)))
+        elif post_type == "NEW_OR_FEATURED":
+            item = _stable_pick([r for r in fresh_rows if r.get("featured")] or fresh_rows, f"featured|{today}|{business}")
+        else:
+            item = _stable_pick(fresh_rows, f"item|{today}|{business}|{post_type}")
+
+    if post_type == "OCCASION_ORDER" and business == "FOODHOUSE" and requested_food_names:
+        names_text = ", ".join(requested_food_names)
+        caption = (
+            "Planning a birthday, fiesta, school event, office gathering, family celebration, or another special occasion? 🎉 "
+            "Let Macleen's Food House be part of your food table!\n\n"
+            f"Our requested lineup includes: {names_text}.\n\n"
+            "Whether you're preparing food for a small get-together or a bigger celebration, you can message us to ask about your food needs and ordering options. "
+            "If you already have an upcoming occasion in mind, send us your preferred items and event details so we can help you plan your order. 💗\n\n"
+            "Planning ahead? Don't wait until the last minute—message Macleen's Food House and let's talk about your order! "
+            "#MacleensFoodHouse #OccasionOrders"
+        )
+        reason = "Generated a longer occasion-order post using all manually requested Food House names."
+        source_kind = "PAGE"
+        source_id = None
+    elif post_type == "OCCASION_ORDER" and business == "FOODHOUSE":
+        caption = (
+            "Got a birthday, fiesta, school event, office gathering, family celebration, or special occasion coming up? 🎉 "
+            "Macleen's Food House can be part of your food plans!\n\n"
+            "Message us with your occasion, expected order, and food preferences so we can help you plan what you'd like to serve. "
+            "Planning ahead makes it easier to organize your food before the big day. 💗\n\n"
+            "Have an upcoming celebration? Send us a message and let's talk about your order! "
+            "#MacleensFoodHouse #OccasionOrders"
+        )
+        reason = "Generated a longer occasion-order post for Food House inquiries."
+        source_kind = "PAGE"
+        source_id = None
+    elif requested_food_names:
+        names_text = ", ".join(requested_food_names)
+        caption = (
+            f"Today's Macleen's Food House food lineup ✨ {names_text}. "
+            "Which one would you choose? Tell us your pick and what you'd like to see featured! "
+            "#MacleensFoodHouse"
+        )
+        reason = "Used all manually requested Food House names as explicit name-only marketing topics."
+        source_kind = "PAGE"
+        source_id = None
+    elif manual_food_name:
+        name = manual_food_name
+        options = [
+            f"Putting {name} in the spotlight today 💗 What do you think about this one? Tell us if you'd like to see it featured at Macleen's Food House. #MacleensFoodHouse",
+            f"Today's food idea: {name} ✨ Would you order this from Macleen's Food House? Let us know! #MacleensFoodHouse",
+            f"Craving inspiration? 😋 {name} is on today's Macleen's conversation list. Tell us what you think! #MacleensFoodHouse",
+        ]
+        caption = _stable_pick(options, f"manual-caption|{today}|{name}|{post_type}")
+        reason = f"Used the manually requested Food House name '{name}' as a name-only marketing topic because it did not match a current catalog item."
+        source_kind = "PAGE"
+        source_id = None
+    elif item:
+        name = str(item.get("name") or "our featured item")
+        price = _money(item.get("price"))
+        if business == "FOODHOUSE":
+            variants = {
+                "SLOW_SELLER": [
+                    f"A little spotlight for {name} ✨ Enjoy it today for {price}. See what else is available at Macleen's Food House. #MacleensFoodHouse",
+                    f"Have you tried {name} yet? 😊 It's available for {price}. Take a look at today's Macleen's Food House choices. #MacleensFoodHouse",
+                ],
+                "TOP_SELLER": [
+                    f"Today's Macleen's pick: {name} — {price}. A simple favorite to add to your order today. #MacleensFoodHouse",
+                    f"Craving something from Macleen's? {name} is available for {price}. Check today's menu and order when you're ready. #MacleensFoodHouse",
+                ],
+                "NEW_OR_FEATURED": [
+                    f"Featured today at Macleen's Food House ✨ {name} is available for {price}. Check the menu for today's choices. #MacleensFoodHouse",
+                    f"Put {name} on your food list today 😋 Available for {price} at Macleen's Food House. #MacleensFoodHouse",
+                ],
+                "RESTOCK_OR_AVAILABILITY": [
+                    f"Available today: {name} for {price}. Check Macleen's Food House for current menu availability. #MacleensFoodHouse",
+                ],
+                "VALUE_REMINDER": [
+                    f"Good food doesn't have to be complicated 💗 {name} is available for {price}. Browse Macleen's Food House for more choices. #MacleensFoodHouse",
+                ],
+            }
+            options = variants.get(post_type) or [
+                f"Today's food spotlight: {name} ✨ Available for {price} at Macleen's Food House. Check the menu and choose your next favorite. #MacleensFoodHouse",
+                f"Something tasty for today: {name} — {price}. Browse Macleen's Food House for the rest of today's available choices. #MacleensFoodHouse",
+            ]
+        else:
+            availability = str(item.get("availability") or "IN_STOCK").upper()
+            availability_text = "Available for pre-order" if availability == "PREORDER" else "Available now"
+            variants = {
+                "CRAFT_STORY": [
+                    f"A small craft with a lot of charm 🎀 {name} is {price}. {availability_text} from Macleen's Crafts. #MacleensCrafts",
+                    f"Craft pick of the day ✨ {name} — {price}. {availability_text}. Browse Macleen's Crafts for more designs. #MacleensCrafts",
+                ],
+                "TOP_SELLER": [
+                    f"Today's Craft pick: {name} 🎀 {price}. {availability_text} from Macleen's Crafts. #MacleensCrafts",
+                ],
+                "NEW_OR_FEATURED": [
+                    f"Featured from Macleen's Crafts ✨ {name} is {price}. {availability_text}. #MacleensCrafts",
+                ],
+                "VALUE_REMINDER": [
+                    f"A cute little gift idea 🎁 {name} is {price}. {availability_text} from Macleen's Crafts. #MacleensCrafts",
+                ],
+            }
+            options = variants.get(post_type) or [
+                f"Craft spotlight 🎀 {name} — {price}. {availability_text} from Macleen's Crafts. #MacleensCrafts",
+                f"Looking for a small handmade-style gift? ✨ {name} is {price}. {availability_text} from Macleen's Crafts. #MacleensCrafts",
+            ]
+        caption = _stable_pick(options, f"caption|{today}|{business}|{item.get('id')}|{post_type}")
+        reason = f"Selected {name} from currently available {business.title()} inventory and varied the post from recent marketing history."
+        source_id = item.get("id")
+    else:
+        source_kind = "PAGE"
+        source_id = None
+        if business == "CRAFT":
+            options = [
+                "Which Macleen's Crafts design would you love to see next? 🎀 Browse the current collection and tell us your favorite. #MacleensCrafts",
+                "A little creativity can brighten the day ✨ Take a look around Macleen's Crafts and see what's currently available. #MacleensCrafts",
+                "Looking for a simple gift or something cute for yourself? 🎁 Browse Macleen's Crafts and discover the current collection. #MacleensCrafts",
+            ]
+        else:
+            options = [
+                "What are you craving today? 😋 Browse Macleen's Food House and check what's currently available. #MacleensFoodHouse",
+                "Your next snack or meal might already be waiting 💗 Take a look at today's Macleen's Food House choices. #MacleensFoodHouse",
+                "Food, drinks, and everyday favorites in one place ✨ Browse Macleen's Food House and see what's available today. #MacleensFoodHouse",
+            ]
+        caption = _stable_pick(options, f"page|{today}|{business}|{post_type}")
+        reason = f"Chose a {post_type.replace('_', ' ').lower()} page post to vary the recent {business.title()} marketing mix."
+
+    if group_context:
+        reason += f" Draft is intended for the saved group '{group_context.get('name') or 'Facebook group'}'."
+    if fallback_note:
+        reason += f" {fallback_note}"
+
+    return {
+        "should_post": True,
+        "business": business,
+        "post_type": post_type,
+        "source_kind": source_kind,
+        "source_id": source_id,
+        "caption": caption,
+        "reason": reason[:600],
+        "model": "smart-template-fallback",
+    }
+
+
+def generate_ai_marketing_decision(context: dict, business_hint: str = "AUTO", post_type_hint: str = "AUTO", group_context=None, provider: str = "GEMINI"):
+    """Generate a marketing decision using the selected provider with a zero-cost local fallback.
+
+    Provider behavior:
+    - GEMINI (default): Gemini first, then smart-template fallback.
+    - OPENAI: OpenAI first, then smart-template fallback.
+    - AUTO: Gemini -> OpenAI -> smart-template fallback.
+    - TEMPLATE: local smart-template generator only; no external API call.
+    """
+    provider = (provider or "GEMINI").strip().upper()
+    if provider not in ("GEMINI", "OPENAI", "AUTO", "TEMPLATE"):
+        provider = "GEMINI"
+
+    attempts = []
+    if provider in ("GEMINI", "AUTO") and gemini_configured():
+        try:
+            return _generate_with_gemini(context, business_hint, post_type_hint, group_context)
+        except Exception as exc:
+            attempts.append(f"Gemini unavailable ({type(exc).__name__})")
+
+    if provider in ("OPENAI", "AUTO") and openai_configured():
+        try:
+            return _generate_with_openai(context, business_hint, post_type_hint, group_context)
+        except Exception as exc:
+            attempts.append(f"OpenAI unavailable ({type(exc).__name__})")
+
+    if provider == "GEMINI" and not gemini_configured():
+        attempts.append("Gemini key not configured")
+    if provider == "OPENAI" and not openai_configured():
+        attempts.append("OpenAI key not configured")
+    if provider == "AUTO" and not gemini_configured() and not openai_configured():
+        attempts.append("No external AI key configured")
+
+    note = "Smart template fallback used."
+    if attempts:
+        note += " " + "; ".join(attempts) + "."
+    return generate_template_marketing_decision(
+        context,
+        business_hint=business_hint,
+        post_type_hint=post_type_hint,
+        group_context=group_context,
+        fallback_note=note,
+    )
+
 
 def extract_peso_amounts(text: str):
     amounts = []
