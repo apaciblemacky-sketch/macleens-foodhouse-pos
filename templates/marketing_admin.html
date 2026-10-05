@@ -201,39 +201,8 @@
 
   
 
-  <section class="card">
-    <h2>👥 Joined Facebook Groups — Manual Posting</h2>
-    <p class="muted">Save each group so AI can adapt captions to its purpose/rules. Use Copy Post + Open Group, post manually, then Mark Posted.</p>
-    <form action="{{ url_for('marketing_group_add') }}" method="post">
-      <div class="form-grid">
-        <div><label>Group Name</label><input name="name" required placeholder="Binalbagan Buy & Sell"></div>
-        <div><label>Facebook Group URL</label><input name="group_url" required placeholder="https://www.facebook.com/groups/..."></div>
-        <div><label>Business</label><select name="business_scope"><option value="BOTH">Food + Crafts</option><option value="FOODHOUSE">Food House</option><option value="CRAFT">Crafts</option></select></div>
-        <div><label>Cooldown Days</label><input type="number" name="cooldown_days" value="7" min="0" max="90"></div>
-        <div><label>Preferred Post Types</label><input name="post_types" placeholder="Food deals, value posts, new crafts"></div>
-        <div><label>Group Rules / Tone Notes</label><input name="notes" placeholder="No repeated posts; friendly local tone"></div>
-      </div>
-      <button class="btn btn-pink" style="margin-top:10px">Add Group</button>
-    </form>
-
-    <div style="margin-top:14px">
-      {% for group in groups %}
-      <div class="group-row">
-        <div class="connection">
-          <div><strong>{{ group.name }}</strong> <span class="status {{ 'ok' if group.is_active else 'warn' }}">{{ 'ACTIVE' if group.is_active else 'PAUSED' }}</span><br><span class="muted">{{ group.business_scope }} · {{ group.cooldown_days }}-day cooldown{% if group.last_posted_at %} · last marked posted {{ group.last_posted_at }}{% endif %}</span>{% if group.notes %}<div class="tiny">{{ group.notes }}</div>{% endif %}</div>
-          <div class="actions">
-            <form method="post" action="{{ url_for('marketing_group_generate', group_id=group.id) }}"><button class="btn btn-blue" {% if not group.is_active %}disabled{% endif %}>Marketing Draft</button></form>
-            <a href="{{ group.group_url }}" class="btn btn-light" target="_blank" rel="noopener">Open Group ↗</a>
-            <form method="post" action="{{ url_for('marketing_group_toggle', group_id=group.id) }}"><button class="btn btn-light">{{ 'Pause' if group.is_active else 'Resume' }}</button></form>
-            <form method="post" action="{{ url_for('marketing_group_delete', group_id=group.id) }}" onsubmit="return confirm('Remove this group from the assistant?')"><button class="btn btn-red">Delete</button></form>
-          </div>
-        </div>
-      </div>
-      {% else %}<p class="muted">No Facebook groups saved yet.</p>{% endfor %}
-    </div>
-  </section>
-
-  <section class="card">
+  
+<section class="card">
     <h2>📝 AI Marketing Memory & Manual Posting Queue</h2>
     <div class="scroll"><table>
       <thead><tr><th>ID / Status</th><th>Target</th><th>AI Decision</th><th>Caption</th><th>Manual Actions</th></tr></thead>
