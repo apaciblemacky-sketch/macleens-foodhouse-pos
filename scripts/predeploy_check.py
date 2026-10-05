@@ -1267,6 +1267,8 @@ def main() -> int:
         "Joined Facebook Groups — Manual Posting", "Copy Post", "Mark Posted",
         "Gemini Free (Recommended)", "Smart Template — No API", "Generate Marketing Draft",
         "Food Products Choices", "Specific Food Names", "name="food_product_ids"", "name="specific_food_names"",
+        "AI Marketing Creative Studio", "Generate Poster + Facebook Draft", "creative_image",
+        "creative_business", "creative_post_type",
     ]:
         if marker not in marketing_html:
             fail(f"AI Marketing UI is missing: {marker}")
@@ -1282,13 +1284,31 @@ def main() -> int:
         fail("No-cost smart-template fallback is missing")
     if "requested_food_names" not in source:
         fail("manual Food House name requests are not wired into the marketing context")
+    for marker in [
+        "@app.route('/admin/marketing/creative/generate'",
+        "_build_marketing_poster",
+        "generate_marketing_image_cutout",
+        "openai_image_configured",
+    ]:
+        if marker not in source:
+            fail(f"AI Creative Studio route/helper is missing: {marker}")
     if "food_product_ids=request.form.getlist('food_product_ids')" not in source:
         fail("multi-select Food House product choices are not wired into AI marketing generation")
     if "https://api.openai.com/v1/responses" not in marketing_py or '"type": "json_schema"' not in marketing_py:
         fail("Optional OpenAI structured-output integration is missing")
+    for marker in [
+        "https://api.openai.com/v1/images/edits",
+        "OPENAI_MARKETING_IMAGE_MODEL",
+        '"background": "transparent"',
+        '"input_fidelity": "high"',
+    ]:
+        if marker not in marketing_py:
+            fail(f"AI Creative Studio image-edit configuration is missing: {marker}")
     render_yaml = (ROOT / "render.yaml").read_text(encoding="utf-8")
     if "GEMINI_API_KEY" not in render_yaml or "GEMINI_MARKETING_MODEL" not in render_yaml:
         fail("Render Gemini environment placeholders are missing")
+    if "OPENAI_MARKETING_IMAGE_MODEL" not in render_yaml or "gpt-image-1.5" not in render_yaml:
+        fail("Render OpenAI Creative Studio image-model placeholder is missing")
     if "META_APP_ID" in render_yaml:
         fail("Render contains the retired META_APP_ID placeholder")
     if "publish_marketing_post" in source or "AUTO_PUBLISH" in source:
