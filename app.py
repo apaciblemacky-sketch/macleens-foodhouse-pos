@@ -35,8 +35,8 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
 
 from marketing_agent import (
     analyze_marketing_insights, extract_peso_amounts, generate_ai_marketing_decision,
-    gemini_configured, openai_configured, gemini_image_configured,
-    generate_marketing_image_poster, _extract_gemini_output_text, analyze_website_analytics,
+    gemini_configured, openai_configured, generate_marketing_caption,
+    _extract_gemini_output_text, analyze_website_analytics,
 )
 
 logging.basicConfig(
@@ -15112,8 +15112,8 @@ def marketing_admin():
         post_types=MARKETING_POST_TYPES,
         active_products=Product.query.filter_by(is_active=True).order_by(Product.name.asc()).all(),
         active_crafts=CraftItem.query.filter_by(is_active=True).order_by(CraftItem.name.asc()).all(),
-        gemini_image_ready=gemini_image_configured(),
-        gemini_image_model='Local Poster Engine (Free)',
+        caption_ai_ready=gemini_configured(),
+        caption_ai_model=os.environ.get('GEMINI_MARKETING_MODEL', 'gemini-3.5-flash-lite'),
         insight_imports=MarketingInsightImport.query.order_by(MarketingInsightImport.created_at.desc()).limit(10).all(),
         daily_menu_preview=daily_menu_preview,
         daily_menu_preview_error=daily_menu_preview_error,
@@ -15501,8 +15501,20 @@ def marketing_creative_generate():
         if post_type == 'AUTO' or post_type not in MARKETING_POST_TYPES:
             post_type = 'PRODUCT_SPOTLIGHT'
 
+        try:
+            word_target = max(10, min(int(request.form.get('caption_word_target', '80')), 500))
+        except (TypeError, ValueError):
+            word_target = 80
+        tone = request.form.get('caption_tone', 'FRIENDLY').upper()
+        language = request.form.get('caption_language', 'ENGLISH').upper()
+        audience = request.form.get('caption_audience', 'LOCAL_CUSTOMERS').upper()
+        emojis = request.form.get('caption_emojis', 'yes') == 'yes'
+        include_cta = request.form.get('caption_cta', 'yes') == 'yes'
+        include_hashtags = request.form.get('caption_hashtags', 'yes') == 'yes'
+
         product = craft_item = None
-        manual_name = re.sub(r's+', ' ', request.form.get('creative_manual_name', '').strip())[:100]
+        manual_name = re.sub(r'\s+', ' ', request.form.get('creative_manual_name', '').strip())[:100]
+
         if business == 'FOODHOUSE':
             product_id = parse_int(request.form.get('creative_product_id'), 0)
             if product_id:
@@ -15511,45 +15523,72 @@ def marketing_creative_generate():
                     raise OrderValidationError('Selected Food House product is no longer active.')
                 if parse_int(product.stock, 0) <= 0:
                     raise OrderValidationError(f'Selected Food House product "{product.name}" is currently out of stock.')
-            elif not manual_name:
+                product_name = product.name
+                price_text = f'₱{float(product.price or 0.0):,.2f}'
+                source_kind, source_id = 'FOOD_PRODUCT', product.id
+            elif manual_name:
+                product_name = manual_name
+                price_text = ''
+                source_kind, source_id = 'PAGE', None
+            else:
                 raise OrderValidationError('Choose a Food House product or enter a specific Food House name.')
         else:
             craft_id = parse_int(request.form.get('creative_craft_item_id'), 0)
             if not craft_id:
-                raise OrderValidationError('Choose a current Crafts item for a Creative Studio poster.')
+                raise OrderValidationError('Choose a current Crafts item for caption generation.')
             craft_item = db.session.get(CraftItem, craft_id)
             if not craft_item or not craft_item.is_active:
                 raise OrderValidationError('Selected Crafts item is no longer active.')
             availability = (craft_item.availability_type or 'IN_STOCK').upper()
             if availability == 'IN_STOCK' and parse_int(craft_item.stock_quantity, 0) <= 0:
                 raise OrderValidationError(f'Selected Crafts item "{craft_item.name}" is currently out of stock.')
+            product_name = craft_item.name
+            price_text = f'₱{float(craft_item.price or 0.0):,.2f}' if float(craft_item.price or 0.0) > 0 else ''
+            source_kind, source_id = 'CRAFT_ITEM', craft_item.id
 
-        # Generate the caption/draft first. Poster rendering is local and does not consume an image API quota.
-        post, product_name, price_text = _create_creative_marketing_post(
-            business, post_type, product=product, craft_item=craft_item, manual_name=manual_name,
-        )
-        upload = request.files.get('creative_image')
-        normalized, filename, mime_type = _creative_normalize_uploaded_image(upload)
-        image_result = generate_marketing_image_poster(
-            normalized, filename, mime_type,
+        result = generate_marketing_caption(
             product_name=product_name,
-            business=business,
-            post_type=post.post_type,
             price_text=price_text,
+            business=business,
+            post_type=post_type,
+            word_target=word_target,
+            tone=tone,
+            language=language,
+            emojis=emojis,
+            include_cta=include_cta,
+            include_hashtags=include_hashtags,
+            audience=audience,
         )
-        poster_data_url = 'data:' + image_result.get('mime_type', 'image/jpeg') + ';base64,' + image_result['b64_json']
+        caption = str(result.get('caption') or '').strip()
+        if not caption:
+            raise OrderValidationError('The caption generator returned an empty caption.')
+
+        post = MarketingPost(
+            target_type='FACEBOOK_PAGE',
+            business=business,
+            post_type=post_type,
+            source_kind=source_kind,
+            source_id=source_id,
+            caption=caption[:3000],
+            reason=f'Caption generated with {word_target}-word target, {tone.lower()} tone, {language.lower()} language.',
+            link_url=_marketing_source_link(source_kind, source_id, business) if source_id else _marketing_public_base_url() + '/',
+            status='DRAFT',
+            ai_model=str(result.get('model') or 'gemini:caption')[:100],
+        )
+        db.session.add(post)
+        db.session.commit()
 
         response = jsonify({
             'success': True,
             'post_id': post.id,
             'business': business,
-            'post_type': post.post_type,
+            'post_type': post_type,
             'product_name': product_name,
             'price_text': price_text,
-            'caption': post.caption,
-            'poster_data_url': poster_data_url,
-            'poster_filename': re.sub(r'[^A-Za-z0-9._-]+', '-', product_name).strip('-')[:80] + '-fb-poster.jpg',
-            'image_model': image_result['model'],
+            'caption': caption,
+            'word_target': word_target,
+            'actual_words': len(re.findall(r"\b\w+[’'\-]*\w*\b", caption)),
+            'ai_model': result.get('model') or 'gemini:caption',
         })
         response.headers['Cache-Control'] = 'no-store'
         return response
@@ -15558,8 +15597,8 @@ def marketing_creative_generate():
         return jsonify({'success': False, 'message': str(exc)}), 400
     except Exception as exc:
         db.session.rollback()
-        app.logger.exception('AI creative studio generation failed')
-        return jsonify({'success': False, 'message': f'Creative Studio could not generate the poster: {exc}'}), 500
+        app.logger.exception('AI caption generator failed')
+        return jsonify({'success': False, 'message': f'Caption Generator could not generate the caption: {exc}'}), 500
 
 @app.route('/admin/marketing/generate', methods=['POST'])
 @require_admin
