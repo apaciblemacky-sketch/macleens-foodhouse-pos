@@ -117,8 +117,9 @@ async function init(){
   await q(`CREATE TABLE IF NOT EXISTS ulam_voting_votes (cycle_date DATE NOT NULL, member_phone TEXT NOT NULL REFERENCES ulam_voting_members(phone) ON DELETE CASCADE, ulam_id BIGINT NOT NULL REFERENCES ulam_voting_ulams(id) ON DELETE RESTRICT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(cycle_date, member_phone, ulam_id))`);
   await q(`CREATE TABLE IF NOT EXISTS ulam_voting_suggestions (id BIGSERIAL PRIMARY KEY, text TEXT NOT NULL, member_phone TEXT REFERENCES ulam_voting_members(phone) ON DELETE SET NULL, member_name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'new' CHECK(status IN ('new','added','dismissed')), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
   await q(`CREATE TABLE IF NOT EXISTS ulam_voting_menus (cycle_date DATE PRIMARY KEY, ulam_names JSONB NOT NULL, saved_at TIMESTAMPTZ NOT NULL DEFAULT NOW())`);
-  const count=await q(`SELECT COUNT(*)::int AS n FROM ulam_voting_ulams`);
-  if(count.rows[0].n===0){ for(const n of DEFAULT_ULAMS) await q(`INSERT INTO ulam_voting_ulams(name,name_key) VALUES($1,$2) ON CONFLICT(name_key) DO NOTHING`,[n,n.toLowerCase()]); }
+  // Seed every requested default ulam if it is not already present.
+  // Existing ulams remain untouched; duplicates are prevented by name_key.
+  for(const n of DEFAULT_ULAMS) await q(`INSERT INTO ulam_voting_ulams(name,name_key) VALUES($1,$2) ON CONFLICT(name_key) DO NOTHING`,[n,n.toLowerCase()]);
 }
 
 app.get('/healthz',(req,res)=>res.json({ok:true,service:'ulam-voting'}));
