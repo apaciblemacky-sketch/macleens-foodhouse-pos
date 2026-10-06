@@ -138,7 +138,12 @@ app.post('/api/vote',auth,memberOnly,async(req,res)=>{
     await client.query(`INSERT INTO ulam_voting_submissions(cycle_date,member_phone) VALUES($1,$2)`,[c.cycle,req.auth.phone]);
     for(const id of ids) await client.query(`INSERT INTO ulam_voting_votes(cycle_date,member_phone,ulam_id) VALUES($1,$2,$3)`,[c.cycle,req.auth.phone,id]);
     await client.query('COMMIT'); res.json({ok:true,cycle_date:c.cycle,count:ids.length});
-  }catch(e){await client.query('ROLLBACK').catch(()=>{});console.error(e);res.status(500).json({error:'Could not submit votes.'});}
+  }catch(e){
+    await client.query('ROLLBACK').catch(()=>{});
+    console.error(e);
+    if(e && e.code==='23505') return res.status(409).json({error:'You already voted for this round.'});
+    res.status(500).json({error:'Could not submit votes.'});
+  }
   finally{client.release();}
 });
 
