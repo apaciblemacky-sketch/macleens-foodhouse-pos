@@ -33,3 +33,23 @@ services:
         sync: false
       - key: WEBPUSH_VAPID_SUBJECT
         sync: false
+  - type: web
+    # Shared server-backed Ulam Voting portal. It uses the same PostgreSQL
+    # connection URL you provide to the existing system.
+    name: macleens-ulam-voting
+    env: node
+    rootDir: ulam-voting
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: ADMIN_PIN
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ANALYZE_URL
+        sync: false
+      - key: AI_API_KEY
+        sync: false
