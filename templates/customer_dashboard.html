@@ -43,6 +43,121 @@
     .portal-chat-toggle{position:fixed;right:14px;bottom:78px;z-index:81;border:0;border-radius:999px;padding:11px 14px;background:linear-gradient(135deg,#0f766e,#14b8a6);box-shadow:0 10px 22px rgba(15,118,110,.28);color:white;font-size:.78rem;font-weight:900;cursor:pointer}.portal-chat-panel{position:fixed;right:14px;bottom:127px;z-index:82;width:min(365px,calc(100vw - 28px));background:#fff;border:1px solid #99f6e4;border-radius:18px;box-shadow:0 18px 46px rgba(15,23,42,.24);overflow:hidden;display:none}.portal-chat-panel.open{display:block}.portal-chat-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:11px 13px;background:linear-gradient(135deg,#0f766e,#14b8a6);color:white}.portal-chat-log{min-height:190px;max-height:280px;overflow:auto;padding:11px;background:#f8fafc}.portal-chat-msg{max-width:84%;margin:6px 0;padding:8px 10px;border-radius:12px;font-size:.76rem;line-height:1.38;white-space:pre-wrap}.portal-chat-msg.customer{margin-left:auto;background:#fce7f3;color:#831843}.portal-chat-msg.cashier,.portal-chat-msg.system{background:#ccfbf1;color:#134e4a}.portal-chat-compose{display:flex;gap:7px;padding:10px;border-top:1px solid #e2e8f0}.portal-chat-compose input{flex:1;min-width:0;padding:9px;border:1px solid #cbd5e1;border-radius:10px}.portal-chat-compose button{border:0;border-radius:10px;background:var(--pink);color:white;font-weight:900;padding:8px 11px;cursor:pointer}
     @media(max-width:650px){.action-grid{grid-template-columns:repeat(3,1fr)}.student-grid{grid-template-columns:1fr}.settings-grid{grid-template-columns:1fr}.reward-layout{align-items:flex-start}.reward-ring{width:94px;height:94px}.row{align-items:flex-start}.profile-card{padding:16px}.favorite{min-width:145px}}
   </style>
+
+  <style id="ulam-theme-overrides">
+    :root{
+      --bg:#fff0f5;
+      --pink:#ff9ebb;
+      --rose:#d6457a;
+      --soft:#ffd6e4;
+      --ink:#5a2a3c;
+      --white:#fff;
+      --muted:#9b6b7d;
+    }
+    body{
+      padding:0 12px 24px !important;
+      font-family:Quicksand,system-ui,sans-serif !important;
+      color:var(--ink) !important;
+      background:var(--bg) !important;
+      background-image:radial-gradient(var(--soft) 2px,transparent 2.5px) !important;
+      background-size:26px 26px !important;
+    }
+    h1,h2,h3{
+      font-family:Fredoka,Quicksand,sans-serif !important;
+      color:var(--ink);
+      font-weight:600 !important;
+    }
+    .wrap{max-width:880px !important}
+    body > header{
+      display:block;
+      text-align:center;
+      padding:24px 12px 10px !important;
+      margin:0 auto;
+      max-width:880px;
+      background:transparent !important;
+      box-shadow:none !important;
+      border:0 !important;
+    }
+    body > header h1{font-size:2rem;color:var(--rose) !important}
+    body > header p{margin:4px 0 0;color:var(--muted) !important;font-weight:600}
+    .card{
+      background:var(--white) !important;
+      border:3px solid var(--pink) !important;
+      border-radius:22px !important;
+      padding:18px !important;
+      margin:16px 0 !important;
+      box-shadow:0 6px 0 var(--soft) !important;
+    }
+    .profile-card{
+      background:var(--white) !important;
+      color:var(--ink) !important;
+      border:3px solid var(--pink) !important;
+    }
+    .profile-card .name{color:var(--rose) !important}
+    .profile-card .muted{color:var(--muted) !important;opacity:1 !important}
+    .avatar{border-color:var(--rose) !important;background:#fff5f7 !important}
+    .pill{
+      background:var(--soft) !important;
+      color:var(--rose) !important;
+      border-radius:99px !important;
+    }
+    .pill.active{background:var(--rose) !important;color:#fff !important}
+    .action-grid{grid-template-columns:repeat(3,1fr) !important}
+    .action{
+      border:2px solid var(--soft) !important;
+      border-radius:16px !important;
+      background:#fff !important;
+      color:var(--rose) !important;
+      box-shadow:none !important;
+    }
+    .action:hover{background:#fff7fb !important;border-color:var(--rose) !important}
+    .section-title{color:var(--rose) !important}
+    .reward-ring{
+      background:conic-gradient(var(--rose) var(--progress),var(--soft) 0) !important;
+    }
+    .reward-ring strong,.points{color:var(--rose) !important}
+    .progress{background:var(--soft) !important}
+    .progress>div{background:linear-gradient(90deg,var(--pink),var(--rose)) !important}
+    input,textarea{
+      border:2px solid var(--pink) !important;
+      border-radius:14px !important;
+      color:var(--ink) !important;
+      background:#fff !important;
+    }
+    input:focus,textarea:focus{
+      outline:3px solid var(--rose) !important;
+      outline-offset:2px !important;
+    }
+    .btn-pink,.portal-chat-toggle,.portal-chat-compose button{
+      background:var(--rose) !important;
+      color:#fff !important;
+      border-radius:99px !important;
+    }
+    .btn-ghost{background:var(--soft) !important;color:var(--rose) !important}
+    .btn-outline{background:#fff !important;border:2px solid var(--pink) !important;color:var(--rose) !important}
+    .status-pill{background:var(--soft) !important;color:var(--rose) !important}
+    .note{background:#fff7fb !important;border-color:var(--soft) !important;color:var(--muted) !important}
+    .history-row{border-bottom:2px dotted var(--soft) !important}
+    .portal-chat-toggle{
+      right:16px !important;
+      bottom:16px !important;
+      box-shadow:0 10px 22px rgba(214,69,122,.25) !important;
+    }
+    .portal-chat-panel{
+      right:16px !important;
+      bottom:68px !important;
+      border:3px solid var(--pink) !important;
+      border-radius:20px !important;
+    }
+    .portal-chat-head{background:var(--rose) !important}
+    .portal-chat-log{background:#fff7fb !important}
+    .portal-chat-msg.customer{background:var(--soft) !important;color:var(--ink) !important}
+    .portal-chat-msg.cashier,.portal-chat-msg.system{background:#fce7f3 !important;color:var(--ink) !important}
+    .portal-chat-compose{border-top:2px solid var(--soft) !important}
+    @media(max-width:650px){
+      .action-grid{grid-template-columns:1fr 1fr !important}
+    }
+  </style>
 </head>
 <body>
 <div class="wrap">
@@ -64,8 +179,7 @@
 
     <div class="action-grid">
       <a class="action" href="#rewards"><span>🎁</span>My Rewards</a>
-      <a class="action" href="/"><span>🛍️</span>Order / View Menu</a>
-      
+      <a class="action" href="#account"><span>⚙️</span>My Account</a>
       <a class="action" href="#salesVerification"><span>🧾</span>Verify a Sale</a>
     </div>
   </div>
@@ -123,29 +237,6 @@
     <div class="muted" style="margin-top:8px;">Only verified submissions count toward the verification-based accounted sales total. This does not create a duplicate online order.</div>
   </div>
 
-  <div class="card secondary-order" id="orders">
-    <div class="row" style="margin-bottom:9px;">
-      <div class="section-title" style="margin:0;">📦 Purchases & Orders</div>
-      <a class="btn btn-pink" style="width:auto; padding:7px 11px;" href="/">Order Online</a>
-    </div>
-    <div class="muted" style="margin-bottom:8px;">Online ordering is optional. Your walk-in purchases still count when the cashier links your member account.</div>
-    {% if orders %}
-      <div class="history">
-        {% for o in orders %}
-          <div class="history-row">
-            <div class="row"><strong>#{{ o.id }} • {{ o.order_type }}</strong><strong id="orderTotal-{{ o.id }}" style="color:var(--pink);">₱{{ "{:,.2f}".format(o.total_amount) }}</strong></div>
-            <div class="muted"><span class="status-pill">{{ (o.fulfillment_status or o.status).replace('_',' ').title() }}</span> • {{ o.dining_option or 'DINE-IN' }}</div>
-            <div class="order-actions">{% if o.public_token %}<a class="btn btn-soft" href="{{ url_for('order_tracking',token=o.public_token) }}">Track</a>{% endif %}<form action="{{ url_for('customer_reorder',order_id=o.id) }}" method="post"><button class="btn btn-outline" type="submit">Order again</button></form></div>
-            {% if o.status in ['VERIFICATION', 'COMPLETED'] and not (o.points_redeemed or 0) and (cust.points_balance or 0) >= 20 %}
-              <button id="applyPoints-{{ o.id }}" type="button" class="btn btn-pink" style="width:auto;padding:5px 8px;margin-top:5px;font-size:.7rem;" onclick="applyPointsToOrder({{ o.id }})">Use Points as Discount</button>
-            {% elif (o.points_redeemed or 0) > 0 %}
-              <div style="color:#059669;font-weight:900;margin-top:3px;font-size:.72rem;">✓ {{ "{:,.2f}".format(o.points_redeemed) }} points used (₱{{ "{:,.2f}".format(o.points_discount or 0) }} discount)</div>
-            {% endif %}
-          </div>
-        {% endfor %}
-      </div>
-    {% else %}<div class="muted" style="text-align:center; padding:10px;">No purchases linked to this member yet.</div>{% endif %}
-  </div>
 
   <div class="card" id="account">
     <div class="section-title">⚙️ Account</div>
@@ -165,7 +256,6 @@
   <div id="portalCashierChatLog" class="portal-chat-log"><div class="portal-chat-msg system">Your order chat appears here. Please standby while the cashier reviews your order.</div></div>
   <div class="portal-chat-compose"><input id="portalCashierChatInput" maxlength="500" placeholder="Message the cashier" onkeydown="if(event.key==='Enter'){event.preventDefault();sendPortalCashierChat();}"><button type="button" onclick="sendPortalCashierChat()">Send</button></div>
 </aside>
-<nav class="bottom-nav"><a href="/"><span>⌂</span>Home</a><a href="/#menu"><span>🍽</span>Menu</a><a class="active" href="#rewards"><span>★</span>Rewards</a><a href="#account"><span>◉</span>Account</a></nav>
 <script>
   if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{});}
   let portalOrderChatToken = '';
@@ -183,20 +273,6 @@
   async function sendPortalCashierChat(){const input=document.getElementById('portalCashierChatInput'),message=input.value.trim();if(!message)return;input.value='';try{const res=await fetch(portalChatUrl(),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message})}),data=await res.json();if(!res.ok||!data.success)return alert(data.message||'Could not send your message.');loadPortalCashierChat();}catch(_){alert('Could not send your message.');}}
   try{if(sessionStorage.getItem('macleens:open-order-chat')){sessionStorage.removeItem('macleens:open-order-chat');setTimeout(()=>togglePortalCashierChat(true),180);}}catch(_){}
   window.setInterval(loadPortalCashierChat,2500);
-  async function applyPointsToOrder(orderId){
-    const raw=prompt('How many points would you like to use?\nMinimum: 20 points • 1 point = ₱1');
-    if(raw===null)return;
-    const points=parseFloat(raw);
-    if(!Number.isFinite(points)||points<=0)return alert('Please enter a valid number of points.');
-    const res=await fetch('/api/redeem-order-points',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({order_id:orderId,redeem_points:points})});
-    const data=await res.json();
-    if(!data.success)return alert(data.message||'Could not apply points.');
-    const refundNote=data.refund_due>0?`\nShow this to the cashier. Refund/change due: ₱${data.refund_due.toFixed(2)}`:'';
-    alert(`Points applied!\nDiscount: ₱${data.discount.toFixed(2)}\nNew total: ₱${data.total.toFixed(2)}${refundNote}`);
-    const total=document.getElementById(`orderTotal-${orderId}`);if(total)total.textContent=`₱${data.total.toFixed(2)}`;
-    const button=document.getElementById(`applyPoints-${orderId}`);if(button){const note=document.createElement('div');note.style.cssText='color:#059669;font-weight:900;margin-top:3px;font-size:.72rem';note.textContent=`✓ ${data.points_redeemed.toFixed(2)} points used (₱${data.discount.toFixed(2)} discount)`;button.replaceWith(note);}
-    const balance=Number(data.points_balance||0),display=balance.toFixed(1);document.getElementById('pointsBalanceMain').textContent=display;document.getElementById('ringPoints').textContent=display;document.getElementById('rewardRing').style.setProperty('--progress',`${Math.min(100,balance/20*100)*3.6}deg`);document.getElementById('milestoneText').textContent=balance>=20?'20-point milestone reached!':`${(20-balance).toFixed(1)} pts to 20-point milestone`;
-  }
   function salesVerificationStatusClass(status){
     const value=String(status||'').toUpperCase();
     if(value==='VERIFIED')return {bg:'#dcfce7',color:'#166534',label:'Verified'};
