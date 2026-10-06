@@ -2,7 +2,7 @@ services:
   - type: web
     # Keep the existing Render service name to avoid accidentally provisioning a second service.
     name: macleens-foodhouse-pos
-    env: python
+    runtime: python
     buildCommand: pip install -r requirements.txt
     # One worker is safe with the bundled/local SQLite fallback. The threads
     # handle short concurrent requests without duplicating scheduled work.
