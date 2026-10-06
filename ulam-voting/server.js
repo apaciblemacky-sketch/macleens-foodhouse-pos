@@ -299,6 +299,24 @@ app.post('/api/admin/reset-current-cycle',(req,res)=>{
     }
   })();
 });
+app.get('/api/admin/voters',auth,adminOnly,async(req,res)=>{
+  try{
+    const c=cycleInfo();
+    const r=await q(`SELECT m.name, s.submitted_at
+      FROM ulam_voting_submissions s
+      JOIN ulam_voting_members m ON m.phone=s.member_phone
+      WHERE s.cycle_date=$1
+      ORDER BY s.submitted_at ASC`,[c.cycle]);
+    res.json({
+      cycle_date:c.cycle,
+      voters:r.rows.map(x=>({name:x.name,submitted_at:x.submitted_at}))
+    });
+  }catch(e){
+    console.error(e);
+    res.status(500).json({error:'Could not load voter names.'});
+  }
+});
+
 app.get('/api/results',async(req,res)=>{
   try {
     const c=cycleInfo(); let admin=false;
