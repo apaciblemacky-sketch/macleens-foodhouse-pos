@@ -38,7 +38,7 @@ button.ghost{background:var(--soft);color:var(--rose)}[hidden]{display:none!impo
 <button class="ghost" id="refresh">↻ Refresh</button>
 </div>
 <div id="results" style="margin-top:15px"></div>
-<div class="muted" style="margin-top:12px">Results refresh automatically every 15 seconds while this page is open.</div>
+<div class="muted" style="margin-top:12px">Results refresh automatically every second while this page is open.</div>
 </section>
 </div>
 <script>
@@ -79,7 +79,7 @@ async function verify(){
   }
 }
 $('login').onclick=verify;$('pin').addEventListener('keydown',e=>{if(e.key==='Enter')verify()});$('refresh').onclick=loadResults;
-verify();setInterval(()=>{if(!$('resultsBox').hidden)loadResults()},15000);
+verify();setInterval(()=>{if(!$('resultsBox').hidden)loadResults()},1000);
 </script>
 </body>
 </html>
