@@ -3,10 +3,10 @@ services:
     # Keep the existing Render service name to avoid accidentally provisioning a second service.
     name: macleens-foodhouse-pos
     runtime: python
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r requirements.txt && cd ulam-voting && npm install
     # One worker is safe with the bundled/local SQLite fallback. The threads
     # handle short concurrent requests without duplicating scheduled work.
-    startCommand: gunicorn --workers 1 --threads 4 --timeout 120 app:app
+    startCommand: bash render_start.sh
     healthCheckPath: /healthz
     envVars:
       - key: SECRET_KEY
