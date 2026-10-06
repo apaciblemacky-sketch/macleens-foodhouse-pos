@@ -45,13 +45,13 @@ function renderAdmin(){
   $('sugList').innerHTML=pend.map(function(s){return '<li><span>'+esc(s.text)+' <span class="muted">by '+esc(s.by)+'</span></span><span class="row"><button data-add="'+s.id+'">Add to voting</button><button class="ghost" data-skip="'+s.id+'">Dismiss</button></span></li>'}).join('')||'<li class="muted">No new suggestions.</li>';
   $('pickMenu').innerHTML=ranking.slice(0,10).map(function(x){return '<label class="ulam"><input type="checkbox" value="'+esc(x.name)+'"><span>'+esc(x.name)+' ('+x.n+')</span></label>'}).join('')||'<p class="muted">Results will appear here after there are votes.</p>';
 }
-async function refreshResults(admin){try{const j=await api('/api/results',{admin:admin});ranking=j.ranking||[];voters=j.voters||0;renderResults()}catch(e){if(admin)say('admMsg',e.message)}}
-async function refreshAdmin(){try{suggestions=(await api('/api/suggestions',{admin:true})).suggestions||[]}catch(e){say('admMsg',e.message)}}
+async function refreshResults(admin){try{const j=await api('/ulam-voting/api/results',{admin:admin});ranking=j.ranking||[];voters=j.voters||0;renderResults()}catch(e){if(admin)say('admMsg',e.message)}}
+async function refreshAdmin(){try{suggestions=(await api('/ulam-voting/api/suggestions',{admin:true})).suggestions||[]}catch(e){say('admMsg',e.message)}}
 async function refresh(){
   try{
-    state=await api('/api/state');ulams=(await api('/api/ulams')).ulams;
-    if(token){try{const me=await api('/api/me/status');votedIds=new Set(me.voted?me.ulam_ids:[])}catch(_){}}
-    renderMenu((await api('/api/menu')).menu);
+    state=await api('/ulam-voting/api/state');ulams=(await api('/ulam-voting/api/ulams')).ulams;
+    if(token){try{const me=await api('/ulam-voting/api/me/status');votedIds=new Set(me.voted?me.ulam_ids:[])}catch(_){}}
+    renderMenu((await api('/ulam-voting/api/menu')).menu);
     if(isAdmin){await refreshAdmin();await refreshResults(true)}else if(!state.open){await refreshResults(false)}else{ranking=[];voters=0}
   }catch(e){say('voteMsg',e.message)}
 }
@@ -77,41 +77,41 @@ $('authSwitch').onclick=function(){regMode=!regMode;$('aName').hidden=!regMode;$
 $('authGo').onclick=async function(){
   const phone=$('aPhone').value.replace(/\D/g,''),pin=$('aPin').value.trim(),name=$('aName').value.trim();
   if(phone.length<10)return say('authMsg','Enter a valid mobile number.');if(!/^\d{4}$/.test(pin))return say('authMsg','PIN must be exactly 4 digits.');
-  try{const body=regMode?{name:name,phone:phone,pin:pin}:{phone:phone,pin:pin};const j=await api(regMode?'/api/register':'/api/login',{method:'POST',body:JSON.stringify(body)});token=j.token;memberName=j.name;sessionStorage.setItem('ulam_member_token',token);sessionStorage.setItem('ulam_member_name',memberName);picked.clear();votedIds.clear();clearMsg('authMsg');await refresh();render()}catch(e){say('authMsg',e.message)}
+  try{const body=regMode?{name:name,phone:phone,pin:pin}:{phone:phone,pin:pin};const j=await api(regMode?'/ulam-voting/api/register':'/ulam-voting/api/login',{method:'POST',body:JSON.stringify(body)});token=j.token;memberName=j.name;sessionStorage.setItem('ulam_member_token',token);sessionStorage.setItem('ulam_member_name',memberName);picked.clear();votedIds.clear();clearMsg('authMsg');await refresh();render()}catch(e){say('authMsg',e.message)}
 };
 $('logout').onclick=function(){token='';memberName='';adminToken='';isAdmin=false;sessionStorage.clear();picked.clear();votedIds.clear();render()};
 $('adminBtn').onclick=async function(){
   if(isAdmin){isAdmin=false;render();return}
   const pin=prompt('Admin PIN');if(pin===null)return;
-  try{const j=await api('/api/admin/login',{method:'POST',body:JSON.stringify({pin:pin})});adminToken=j.token;sessionStorage.setItem('ulam_admin_token',adminToken);isAdmin=true;await refresh();render()}catch(e){alert(e.message)}
+  try{const j=await api('/ulam-voting/api/admin/login',{method:'POST',body:JSON.stringify({pin:pin})});adminToken=j.token;sessionStorage.setItem('ulam_admin_token',adminToken);isAdmin=true;await refresh();render()}catch(e){alert(e.message)}
 };
 $('submitVote').onclick=async function(){
-  try{const j=await api('/api/vote',{method:'POST',body:JSON.stringify({ulam_ids:Array.from(picked)})});picked.clear();say('voteMsg','Votes submitted ('+j.count+'). Thank you!');await refresh();render()}catch(e){say('voteMsg',e.message)}
+  try{const j=await api('/ulam-voting/api/vote',{method:'POST',body:JSON.stringify({ulam_ids:Array.from(picked)})});picked.clear();say('voteMsg','Votes submitted ('+j.count+'). Thank you!');await refresh();render()}catch(e){say('voteMsg',e.message)}
 };
 $('sGo').onclick=async function(){
   const text=$('sText').value.trim();if(!text||!token)return;
-  try{await api('/api/suggestions',{method:'POST',body:JSON.stringify({text:text})});$('sText').value='';say('sMsg','Thank you! Your suggestion was sent.')}catch(e){say('sMsg',e.message)}
+  try{await api('/ulam-voting/api/suggestions',{method:'POST',body:JSON.stringify({text:text})});$('sText').value='';say('sMsg','Thank you! Your suggestion was sent.')}catch(e){say('sMsg',e.message)}
 };
 $('addUlam').onclick=async function(){
-  try{await api('/api/ulams',{method:'POST',admin:true,body:JSON.stringify({names:$('newUlam').value})});$('newUlam').value='';await refresh();say('admMsg','Ulam list updated.')}catch(e){say('admMsg',e.message)}
+  try{await api('/ulam-voting/api/ulams',{method:'POST',admin:true,body:JSON.stringify({names:$('newUlam').value})});$('newUlam').value='';await refresh();say('admMsg','Ulam list updated.')}catch(e){say('admMsg',e.message)}
 };
 document.addEventListener('click',async function(e){
   const d=e.target.dataset;if(!d)return;
   try{
-    if(d.del){await api('/api/ulams/'+d.del,{method:'DELETE',admin:true});await refresh()}
-    if(d.add){await api('/api/suggestions/'+d.add,{method:'PATCH',admin:true,body:JSON.stringify({action:'add'})});await refresh()}
-    if(d.skip){await api('/api/suggestions/'+d.skip,{method:'PATCH',admin:true,body:JSON.stringify({action:'dismiss'})});await refresh()}
+    if(d.del){await api('/ulam-voting/api/ulams/'+d.del,{method:'DELETE',admin:true});await refresh()}
+    if(d.add){await api('/ulam-voting/api/suggestions/'+d.add,{method:'PATCH',admin:true,body:JSON.stringify({action:'add'})});await refresh()}
+    if(d.skip){await api('/ulam-voting/api/suggestions/'+d.skip,{method:'PATCH',admin:true,body:JSON.stringify({action:'dismiss'})});await refresh()}
   }catch(err){say('admMsg',err.message)}
 });
 $('saveMenu').onclick=async function(){
   const names=Array.from($('pickMenu').querySelectorAll('input:checked')).map(function(i){return i.value});if(!names.length)return say('admMsg','Pick at least one ulam for the menu.');
-  try{await api('/api/menu',{method:'POST',admin:true,body:JSON.stringify({cycle_date:state.cycle_date,ulam_names:names})});say('admMsg','Menu saved.');await refresh()}catch(e){say('admMsg',e.message)}
+  try{await api('/ulam-voting/api/menu',{method:'POST',admin:true,body:JSON.stringify({cycle_date:state.cycle_date,ulam_names:names})});say('admMsg','Menu saved.');await refresh()}catch(e){say('admMsg',e.message)}
 };
-$('aiGo').onclick=async function(){try{$('aiOut').textContent='Analyzing...';const j=await api('/api/analyze',{method:'POST',admin:true});$('aiOut').textContent=j.text||'No analysis returned.'}catch(e){$('aiOut').textContent=e.message}};
+$('aiGo').onclick=async function(){try{$('aiOut').textContent='Analyzing...';const j=await api('/ulam-voting/api/analyze',{method:'POST',admin:true});$('aiOut').textContent=j.text||'No analysis returned.'}catch(e){$('aiOut').textContent=e.message}};
 function tick(){const s=Math.max(0,Math.floor((state.target_ms-Date.now())/1000));$('clock').textContent=String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor(s%3600/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
 async function boot(){
   try{await refresh();render();tick();
-    setInterval(async function(){const old=state.cycle_date+'|'+state.open;try{state=await api('/api/state');if(old!==state.cycle_date+'|'+state.open){picked.clear();votedIds.clear();await refresh()}else if(isAdmin)await refreshResults(true);render();tick()}catch(_){ }},15000);
+    setInterval(async function(){const old=state.cycle_date+'|'+state.open;try{state=await api('/ulam-voting/api/state');if(old!==state.cycle_date+'|'+state.open){picked.clear();votedIds.clear();await refresh()}else if(isAdmin)await refreshResults(true);render();tick()}catch(_){ }},15000);
     setInterval(tick,1000);
   }catch(e){say('voteMsg',e.message)}
 }
