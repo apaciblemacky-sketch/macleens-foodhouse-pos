@@ -140,11 +140,36 @@ app.post('/api/register', async(req,res)=>{
 });
 app.post('/api/login', async(req,res)=>{
   try {
-    const phone=normalizePhone(req.body.phone), pin=String(req.body.pin||'');
-    const r=await q(`SELECT phone,name,pin_hash FROM ulam_voting_members WHERE phone=$1`,[phone]);
-    if(!r.rowCount || !(await bcrypt.compare(pin,r.rows[0].pin_hash)))return res.status(401).json({error:'Mobile number or PIN is incorrect.'});
-    const m=r.rows[0]; res.json({token:token({role:'member',phone:m.phone}),name:m.name,phone:m.phone});
-  } catch(e){ console.error(e); res.status(500).json({error:'Login failed.'}); }
+    const rawPhone=String(req.body.phone||'').trim();
+    const phone=normalizePhone(rawPhone);
+    const pin=String(req.body.pin||'').trim();
+    if(phone.length<10)return res.status(400).json({error:'Enter a valid mobile number.'});
+    if(!validPin(pin))return res.status(400).json({error:'PIN must be exactly 4 digits.'});
+
+    // Existing Ulam members are stored with one canonical Philippine format.
+    // Also accept +63 / 63 / 09 / 9xxxxxxxxx input without changing the saved data.
+    let r=await q(`SELECT phone,name,pin_hash FROM ulam_voting_members WHERE phone=$1`,[phone]);
+
+    // Safety net for older records that may have been stored as 10/11/12 digit
+    // variants. Match the last 10 digits, but never modify the stored member.
+    if(!r.rowCount){
+      const digits=rawPhone.replace(/\\D/g,'');
+      const last10=digits.slice(-10);
+      if(last10.length===10){
+        r=await q(`SELECT phone,name,pin_hash FROM ulam_voting_members WHERE RIGHT(phone,10)=$1 LIMIT 1`,[last10]);
+      }
+    }
+
+    if(!r.rowCount || !(await bcrypt.compare(pin,r.rows[0].pin_hash))){
+      return res.status(401).json({error:'Mobile number or PIN is incorrect. Use the same mobile number and 4-digit PIN you used when registering.'});
+    }
+
+    const m=r.rows[0];
+    res.json({token:token({role:'member',phone:m.phone}),name:m.name,phone:m.phone});
+  } catch(e){
+    console.error(e);
+    res.status(500).json({error:'Login failed. Please try again.'});
+  }
 });
 app.post('/api/admin/login',(req,res)=>{
   const pin=String(req.body.pin||'');
