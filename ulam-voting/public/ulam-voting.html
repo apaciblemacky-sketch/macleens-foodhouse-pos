@@ -18,7 +18,13 @@
 <section class="card"><div class="row" style="justify-content:space-between;align-items:center"><h2>Today's ulam list</h2><span class="pill" id="count">0 / 10 picked</span></div><div class="grid" id="ulamGrid"></div><div class="row" style="margin-top:14px;align-items:center"><button id="submitVote">Submit my votes</button><span class="muted" id="voteNote"></span></div><div class="msg" id="voteMsg"></div></section>
 <section class="card"><h2>Suggest an ulam</h2><p class="muted" style="margin:4px 0 10px">Not on the list? Tell us. We will consider adding it to the voting.</p><div class="row"><input id="sText" placeholder="Name of the ulam" maxlength="60"><button id="sGo">Send suggestion</button></div><div class="msg" id="sMsg"></div></section>
 <section class="card" id="resBox" hidden><h2>Top 10 results</h2><div class="muted" id="resNote"></div><div id="results"></div></section>
-<section class="card" id="admin" hidden><h2>Admin panel</h2><h3 style="margin-top:14px">Add ulams</h3><div class="row" style="margin-top:8px"><input id="newUlam" placeholder="Type an ulam (or several, separated by commas)"><button id="addUlam">Add to list</button></div><ul class="plain" id="adminUlams"></ul><h3 style="margin-top:14px">Suggested ulams</h3><ul class="plain" id="sugList"></ul><h3 style="margin-top:14px">AI analysis</h3><div class="row" style="margin-top:8px"><button id="aiGo">Analyze results</button></div><pre id="aiOut" class="muted"></pre><h3 style="margin-top:14px">Choose the menu from the top 10</h3><div id="pickMenu" class="grid"></div><div class="row" style="margin-top:10px"><button id="saveMenu">Save menu</button></div><div class="msg" id="admMsg"></div></section>
+<section class="card" id="admin" hidden><h2>Admin panel</h2><h3 style="margin-top:14px">Voting round controls</h3>
+<div class="row" style="margin-top:8px;align-items:center">
+  <button id="resetCurrentCycle" class="ghost">Reset current vote count</button>
+  <span class="muted">Clears only this cycle's member votes/submissions. Ulam names and members stay intact.</span>
+</div>
+<div class="msg" id="resetMsg"></div>
+<h3 style="margin-top:14px">Add ulams</h3><div class="row" style="margin-top:8px"><input id="newUlam" placeholder="Type an ulam (or several, separated by commas)"><button id="addUlam">Add to list</button></div><ul class="plain" id="adminUlams"></ul><h3 style="margin-top:14px">Suggested ulams</h3><ul class="plain" id="sugList"></ul><h3 style="margin-top:14px">AI analysis</h3><div class="row" style="margin-top:8px"><button id="aiGo">Analyze results</button></div><pre id="aiOut" class="muted"></pre><h3 style="margin-top:14px">Choose the menu from the top 10</h3><div id="pickMenu" class="grid"></div><div class="row" style="margin-top:10px"><button id="saveMenu">Save menu</button></div><div class="msg" id="admMsg"></div></section>
 </div>
 <script>
 const MAX_VOTES=10;
@@ -46,6 +52,17 @@ function renderAdmin(){
   $('pickMenu').innerHTML=ranking.slice(0,10).map(function(x){return '<label class="ulam"><input type="checkbox" value="'+esc(x.name)+'"><span>'+esc(x.name)+' ('+x.n+')</span></label>'}).join('')||'<p class="muted">Results will appear here after there are votes.</p>';
 }
 async function refreshResults(admin){try{const j=await api('/ulam-voting/api/results',{admin:admin});ranking=j.ranking||[];voters=j.voters||0;renderResults()}catch(e){if(admin)say('admMsg',e.message)}}
+async function resetCurrentCycle(){
+  const ok=window.confirm('Reset the current voting round? This will permanently clear all votes and vote submissions for this cycle only.');
+  if(!ok)return;
+  try{
+    const j=await api('/ulam-voting/api/admin/reset-current-cycle',{admin:true,method:'POST',body:JSON.stringify({})});
+    picked=new Set();votedIds=new Set();ranking=[];voters=0;
+    say('resetMsg','Current voting count has been reset for '+fmtDate(j.cycle_date)+'. Members can vote again.');
+    await refresh();
+    render();
+  }catch(e){say('resetMsg',e.message)}
+}
 async function refreshAdmin(){try{suggestions=(await api('/ulam-voting/api/suggestions',{admin:true})).suggestions||[]}catch(e){say('admMsg',e.message)}}
 async function refresh(){
   try{
