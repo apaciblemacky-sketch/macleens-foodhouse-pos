@@ -186,12 +186,24 @@ app.post('/api/login', async(req,res)=>{
       }
     }
 
-    if(!r.rowCount || !(await bcrypt.compare(pin,r.rows[0].pin_hash))){
-      return res.status(401).json({error:'Mobile number or PIN is incorrect. Use the same mobile number and 4-digit PIN you used when registering.'});
+    if(r.rowCount && await bcrypt.compare(pin,r.rows[0].pin_hash)){
+      const m=r.rows[0];
+      return res.json({token:token({role:'member',phone:m.phone}),name:m.name,phone:m.phone});
     }
 
-    const m=r.rows[0];
-    res.json({token:token({role:'member',phone:m.phone}),name:m.name,phone:m.phone});
+    // Existing Macleen's Rewards/Customer members use the main customer table.
+    // Authenticate their existing Werkzeug PIN hash and create only an additive
+    // Ulam-member mirror so the voting foreign keys remain isolated.
+    const customer=await q(`SELECT id,name,contact,pin_hash FROM customer WHERE contact=$1 OR regexp_replace(contact,'\\D','','g')=$2 LIMIT 1`,[phone,phone.replace(/\D/g,'')]);
+    if(customer.rowCount && verifyWerkzeugHash(customer.rows[0].pin_hash,pin)){
+      const c=customer.rows[0];
+      const votingPhone=normalizePhone(c.contact) || phone;
+      const votingHash=await bcrypt.hash(pin,12);
+      await q(`INSERT INTO ulam_voting_members(phone,name,pin_hash) VALUES($1,$2,$3) ON CONFLICT(phone) DO UPDATE SET name=EXCLUDED.name,pin_hash=EXCLUDED.pin_hash`,[votingPhone,c.name,votingHash]);
+      return res.json({token:token({role:'member',phone:votingPhone}),name:c.name,phone:votingPhone});
+    }
+
+    return res.status(401).json({error:"Mobile number or PIN is incorrect. Use your existing Macleen's member mobile number and 4-digit PIN."});
   } catch(e){
     console.error(e);
     res.status(500).json({error:'Login failed. Please try again.'});
