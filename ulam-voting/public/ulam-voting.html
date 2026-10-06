@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ulam Voting</title>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&family=Fredoka:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#fff0f5;--pink:#ff9ebb;--rose:#d6457a;--soft:#ffd6e4;--ink:#5a2a3c;--white:#fff}*{box-sizing:border-box}body{margin:0;font-family:Quicksand,system-ui,sans-serif;color:var(--ink);background:var(--bg);background-image:radial-gradient(var(--soft) 2px,transparent 2.5px);background-size:26px 26px;line-height:1.5}h1,h2,h3{font-family:Fredoka,Quicksand,sans-serif;margin:0;font-weight:600}.wrap{max-width:880px;margin:0 auto;padding:16px}header{text-align:center;padding:26px 16px 8px}header h1{font-size:2.2rem;color:var(--rose)}header p{margin:4px 0 0}.card{background:var(--white);border:3px solid var(--pink);border-radius:22px;padding:18px;margin:16px 0;box-shadow:0 6px 0 var(--soft)}.status{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}.pill{display:inline-block;padding:4px 14px;border-radius:99px;font-weight:700;background:var(--soft);color:var(--rose)}.pill.open{background:var(--rose);color:#fff}#clock{font-family:Fredoka;font-size:1.5rem;color:var(--rose)}button,input,textarea{font:inherit}button{cursor:pointer;border:0;border-radius:99px;padding:9px 20px;font-weight:700;background:var(--rose);color:#fff}button.ghost{background:var(--soft);color:var(--rose)}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--rose);outline-offset:2px}input,textarea{width:100%;padding:10px 14px;border:2px solid var(--pink);border-radius:14px;background:#fff;color:var(--ink)}.row{display:flex;gap:8px;flex-wrap:wrap}.row>input{flex:1;min-width:150px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px;margin-top:12px}.ulam{display:flex;gap:10px;align-items:center;padding:12px;border:2px solid var(--soft);border-radius:16px;cursor:pointer;background:#fff;user-select:none}.ulam.on{border-color:var(--rose);background:var(--soft)}.ulam input{width:20px;height:20px;accent-color:var(--rose);flex:none;padding:0}.bar{height:14px;border-radius:99px;background:var(--soft);overflow:hidden}.bar i{display:block;height:100%;background:var(--rose);border-radius:99px}.res{display:grid;grid-template-columns:34px 1fr auto;gap:4px 10px;align-items:center;margin:8px 0}.rank{font-family:Fredoka;color:var(--rose);font-size:1.2rem}.muted{color:#9b6b7d;font-size:.92rem}.msg{padding:10px 14px;border-radius:14px;background:var(--soft);margin-top:10px;display:none}.msg.show{display:block}ul.plain{list-style:none;padding:0;margin:8px 0}ul.plain li{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:8px 0;border-bottom:2px dotted var(--soft)}pre{white-space:pre-wrap;font-family:inherit;margin:8px 0 0}[hidden]{display:none!important}@media(max-width:650px){.row>*{min-width:100%}.status{align-items:flex-start}}
+</style>
+</head>
+<body>
+<header><h1>Ulam Voting</h1><p>Vote for tomorrow's menu. Up to 10 ulams, once a day.</p></header>
+<div class="wrap">
+<section class="card status"><div><span class="pill" id="state">...</span><div class="muted" id="when"></div></div><div style="text-align:right"><div class="muted" id="cdLabel"></div><div id="clock">--:--:--</div></div></section>
+<section class="card" id="menuBox" hidden><h2>Menu for the next day</h2><div class="muted" id="menuDate"></div><ul class="plain" id="menuList"></ul></section>
+<section class="card" id="authBox"><div class="row" style="justify-content:space-between;align-items:center"><h2 id="authTitle">Member login</h2><button class="ghost" id="authSwitch">New here? Register</button></div><div class="row" style="margin-top:10px"><input id="aName" placeholder="Full name" hidden><input id="aPhone" placeholder="Mobile number" inputmode="tel"><input id="aPin" placeholder="4-digit PIN" type="password" inputmode="numeric" maxlength="4"><button id="authGo">Log in</button></div><div class="msg" id="authMsg"></div></section>
+<section class="card" id="userBar" hidden><div class="row" style="justify-content:space-between;align-items:center"><div>Hi, <b id="uName"></b></div><div class="row"><button class="ghost" id="adminBtn">Admin</button><button class="ghost" id="logout">Log out</button></div></div></section>
+<section class="card"><div class="row" style="justify-content:space-between;align-items:center"><h2>Today's ulam list</h2><span class="pill" id="count">0 / 10 picked</span></div><div class="grid" id="ulamGrid"></div><div class="row" style="margin-top:14px;align-items:center"><button id="submitVote">Submit my votes</button><span class="muted" id="voteNote"></span></div><div class="msg" id="voteMsg"></div></section>
+<section class="card"><h2>Suggest an ulam</h2><p class="muted" style="margin:4px 0 10px">Not on the list? Tell us. We will consider adding it to the voting.</p><div class="row"><input id="sText" placeholder="Name of the ulam" maxlength="60"><button id="sGo">Send suggestion</button></div><div class="msg" id="sMsg"></div></section>
+<section class="card" id="resBox" hidden><h2>Top 10 results</h2><div class="muted" id="resNote"></div><div id="results"></div></section>
+<section class="card" id="admin" hidden><h2>Admin panel</h2><h3 style="margin-top:14px">Add ulams</h3><div class="row" style="margin-top:8px"><input id="newUlam" placeholder="Type an ulam (or several, separated by commas)"><button id="addUlam">Add to list</button></div><ul class="plain" id="adminUlams"></ul><h3 style="margin-top:14px">Suggested ulams</h3><ul class="plain" id="sugList"></ul><h3 style="margin-top:14px">AI analysis</h3><div class="row" style="margin-top:8px"><button id="aiGo">Analyze results</button></div><pre id="aiOut" class="muted"></pre><h3 style="margin-top:14px">Choose the menu from the top 10</h3><div id="pickMenu" class="grid"></div><div class="row" style="margin-top:10px"><button id="saveMenu">Save menu</button></div><div class="msg" id="admMsg"></div></section>
+</div>
+<script>
+const MAX_VOTES=10;
+let token=sessionStorage.getItem('ulam_member_token')||'',memberName=sessionStorage.getItem('ulam_member_name')||'',adminToken=sessionStorage.getItem('ulam_admin_token')||'';
+let state={open:false,cycle_date:null,target_ms:0},ulams=[],suggestions=[],ranking=[],voters=0,picked=new Set(),votedIds=new Set(),regMode=false,isAdmin=!!adminToken;
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]});
+function say(id,t){$(id).textContent=t;$(id).classList.add('show')}
+function clearMsg(id){$(id).classList.remove('show')}
+async function api(path,opt){
+  opt=opt||{};const headers={'Content-Type':'application/json'};
+  const auth=opt.admin?adminToken:token;if(auth)headers.Authorization='Bearer '+auth;
+  const r=await fetch(path,{method:opt.method||'GET',headers:headers,body:opt.body});
+  let j={};try{j=await r.json()}catch(_){}
+  if(!r.ok)throw new Error(j.error||'Request failed.');
+  return j;
+}
+function fmtDate(key){if(!key)return '';return new Date(key+'T00:00:00Z').toLocaleDateString('en-PH',{weekday:'long',month:'long',day:'numeric',timeZone:'UTC'})}
+function renderMenu(m){$('menuBox').hidden=!m;if(m){$('menuDate').textContent='From voting cycle '+fmtDate(m.cycle_date);$('menuList').innerHTML=(m.ulam_names||[]).map(function(n){return '<li>'+esc(n)+'</li>'}).join('')}}
+function renderResults(){const show=!state.open||isAdmin;$('resBox').hidden=!show;if(!show)return;$('resNote').textContent=String(voters)+' member(s) voted'+(state.open?' so far (live admin view).':'.');const max=Math.max(1,...ranking.map(function(x){return x.n}));$('results').innerHTML=ranking.slice(0,10).map(function(x,i){return '<div class="res"><span class="rank">'+(i+1)+'</span><span>'+esc(x.name)+'</span><b>'+x.n+'</b><span></span><div class="bar"><i style="width:'+(x.n/max*100)+'%"></i></div><span></span></div>'}).join('')||'<p class="muted">No votes yet.</p>'}
+function renderAdmin(){
+  $('adminUlams').innerHTML=ulams.map(function(u){return '<li><span>'+esc(u.name)+'</span><button class="ghost" data-del="'+u.id+'">Remove</button></li>'}).join('')||'<li class="muted">No ulams.</li>';
+  const pend=suggestions.filter(function(s){return s.status==='new'});
+  $('sugList').innerHTML=pend.map(function(s){return '<li><span>'+esc(s.text)+' <span class="muted">by '+esc(s.by)+'</span></span><span class="row"><button data-add="'+s.id+'">Add to voting</button><button class="ghost" data-skip="'+s.id+'">Dismiss</button></span></li>'}).join('')||'<li class="muted">No new suggestions.</li>';
+  $('pickMenu').innerHTML=ranking.slice(0,10).map(function(x){return '<label class="ulam"><input type="checkbox" value="'+esc(x.name)+'"><span>'+esc(x.name)+' ('+x.n+')</span></label>'}).join('')||'<p class="muted">Results will appear here after there are votes.</p>';
+}
+async function refreshResults(admin){try{const j=await api('/api/results',{admin:admin});ranking=j.ranking||[];voters=j.voters||0;renderResults()}catch(e){if(admin)say('admMsg',e.message)}}
+async function refreshAdmin(){try{suggestions=(await api('/api/suggestions',{admin:true})).suggestions||[]}catch(e){say('admMsg',e.message)}}
+async function refresh(){
+  try{
+    state=await api('/api/state');ulams=(await api('/api/ulams')).ulams;
+    if(token){try{const me=await api('/api/me/status');votedIds=new Set(me.voted?me.ulam_ids:[])}catch(_){}}
+    renderMenu((await api('/api/menu')).menu);
+    if(isAdmin){await refreshAdmin();await refreshResults(true)}else if(!state.open){await refreshResults(false)}else{ranking=[];voters=0}
+  }catch(e){say('voteMsg',e.message)}
+}
+function render(){
+  $('state').textContent=state.open?'Voting is open':'Voting is closed';$('state').className='pill'+(state.open?' open':'');
+  $('when').textContent=state.open?'Closes tomorrow at 12:00 NN. Voting cycle: '+fmtDate(state.cycle_date):'Opens today at 6:00 PM';
+  $('cdLabel').textContent=state.open?'Time left to vote':'Voting opens in';
+  $('authBox').hidden=!!token;$('userBar').hidden=!token;if(token)$('uName').textContent=memberName||'Member';
+  $('adminBtn').textContent=isAdmin?'Hide admin':'Admin';$('admin').hidden=!isAdmin;$('sGo').disabled=!token;
+  const grid=$('ulamGrid');grid.innerHTML='';
+  ulams.forEach(function(u){
+    const id=Number(u.id),on=votedIds.has(id)||picked.has(id),l=document.createElement('label');
+    l.className='ulam'+(on?' on':'');l.innerHTML='<input type="checkbox" '+(on?'checked ':'')+(votedIds.size||!state.open||!token?'disabled':'')+'><span>'+esc(u.name)+'</span>';
+    l.querySelector('input').onchange=function(e){if(e.target.checked){if(picked.size>=MAX_VOTES){e.target.checked=false;return say('voteMsg','You can pick up to 10 ulams only.')}picked.add(id)}else picked.delete(id);render()};
+    grid.appendChild(l);
+  });
+  const cnt=votedIds.size||picked.size;$('count').textContent=cnt+' / '+MAX_VOTES+' picked';
+  $('submitVote').disabled=!token||!state.open||votedIds.size>0||picked.size===0;
+  $('voteNote').textContent=!state.open?'Voting is closed. Come back at 6:00 PM.':!token?'Log in or register to vote.':votedIds.size?'You already voted for this round. Thank you!':'';
+  renderResults();if(isAdmin)renderAdmin();
+}
+$('authSwitch').onclick=function(){regMode=!regMode;$('aName').hidden=!regMode;$('authTitle').textContent=regMode?'Register as a member':'Member login';$('authGo').textContent=regMode?'Register':'Log in';$('authSwitch').textContent=regMode?'Have an account? Log in':'New here? Register';clearMsg('authMsg')};
+$('authGo').onclick=async function(){
+  const phone=$('aPhone').value.replace(/\D/g,''),pin=$('aPin').value.trim(),name=$('aName').value.trim();
+  if(phone.length<10)return say('authMsg','Enter a valid mobile number.');if(!/^\d{4}$/.test(pin))return say('authMsg','PIN must be exactly 4 digits.');
+  try{const body=regMode?{name:name,phone:phone,pin:pin}:{phone:phone,pin:pin};const j=await api(regMode?'/api/register':'/api/login',{method:'POST',body:JSON.stringify(body)});token=j.token;memberName=j.name;sessionStorage.setItem('ulam_member_token',token);sessionStorage.setItem('ulam_member_name',memberName);picked.clear();votedIds.clear();clearMsg('authMsg');await refresh();render()}catch(e){say('authMsg',e.message)}
+};
+$('logout').onclick=function(){token='';memberName='';adminToken='';isAdmin=false;sessionStorage.clear();picked.clear();votedIds.clear();render()};
+$('adminBtn').onclick=async function(){
+  if(isAdmin){isAdmin=false;render();return}
+  const pin=prompt('Admin PIN');if(pin===null)return;
+  try{const j=await api('/api/admin/login',{method:'POST',body:JSON.stringify({pin:pin})});adminToken=j.token;sessionStorage.setItem('ulam_admin_token',adminToken);isAdmin=true;await refresh();render()}catch(e){alert(e.message)}
+};
+$('submitVote').onclick=async function(){
+  try{const j=await api('/api/vote',{method:'POST',body:JSON.stringify({ulam_ids:Array.from(picked)})});picked.clear();say('voteMsg','Votes submitted ('+j.count+'). Thank you!');await refresh();render()}catch(e){say('voteMsg',e.message)}
+};
+$('sGo').onclick=async function(){
+  const text=$('sText').value.trim();if(!text||!token)return;
+  try{await api('/api/suggestions',{method:'POST',body:JSON.stringify({text:text})});$('sText').value='';say('sMsg','Thank you! Your suggestion was sent.')}catch(e){say('sMsg',e.message)}
+};
+$('addUlam').onclick=async function(){
+  try{await api('/api/ulams',{method:'POST',admin:true,body:JSON.stringify({names:$('newUlam').value})});$('newUlam').value='';await refresh();say('admMsg','Ulam list updated.')}catch(e){say('admMsg',e.message)}
+};
+document.addEventListener('click',async function(e){
+  const d=e.target.dataset;if(!d)return;
+  try{
+    if(d.del){await api('/api/ulams/'+d.del,{method:'DELETE',admin:true});await refresh()}
+    if(d.add){await api('/api/suggestions/'+d.add,{method:'PATCH',admin:true,body:JSON.stringify({action:'add'})});await refresh()}
+    if(d.skip){await api('/api/suggestions/'+d.skip,{method:'PATCH',admin:true,body:JSON.stringify({action:'dismiss'})});await refresh()}
+  }catch(err){say('admMsg',err.message)}
+});
+$('saveMenu').onclick=async function(){
+  const names=Array.from($('pickMenu').querySelectorAll('input:checked')).map(function(i){return i.value});if(!names.length)return say('admMsg','Pick at least one ulam for the menu.');
+  try{await api('/api/menu',{method:'POST',admin:true,body:JSON.stringify({cycle_date:state.cycle_date,ulam_names:names})});say('admMsg','Menu saved.');await refresh()}catch(e){say('admMsg',e.message)}
+};
+$('aiGo').onclick=async function(){try{$('aiOut').textContent='Analyzing...';const j=await api('/api/analyze',{method:'POST',admin:true});$('aiOut').textContent=j.text||'No analysis returned.'}catch(e){$('aiOut').textContent=e.message}};
+function tick(){const s=Math.max(0,Math.floor((state.target_ms-Date.now())/1000));$('clock').textContent=String(Math.floor(s/3600)).padStart(2,'0')+':'+String(Math.floor(s%3600/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+async function boot(){
+  try{await refresh();render();tick();
+    setInterval(async function(){const old=state.cycle_date+'|'+state.open;try{state=await api('/api/state');if(old!==state.cycle_date+'|'+state.open){picked.clear();votedIds.clear();await refresh()}else if(isAdmin)await refreshResults(true);render();tick()}catch(_){ }},15000);
+    setInterval(tick,1000);
+  }catch(e){say('voteMsg',e.message)}
+}
+boot();
+</script>
+</body></html>
