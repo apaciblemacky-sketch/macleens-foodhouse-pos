@@ -55,9 +55,11 @@ const DEFAULT_ULAMS = [
   "Pork Bicol Express",
   "Pork Bola-Bola",
   "Pork Chop",
+  "Pork Giniling",
   "Pork Humba",
   "Pork Igado",
   "Pork KBL",
+  "Pork Kaldereta",
   "Pork Lechon Paksiw",
   "Pork Nilaga",
   "Pork Pochero",
@@ -272,6 +274,31 @@ async function ranking(cycle){
   const r=await q(`SELECT u.id,u.name,COUNT(v.ulam_id)::int AS n FROM ulam_voting_ulams u LEFT JOIN ulam_voting_votes v ON v.ulam_id=u.id AND v.cycle_date=$1 WHERE u.active=true GROUP BY u.id,u.name ORDER BY n DESC, lower(u.name)`,[cycle]);
   return r.rows;
 }
+app.post('/api/admin/reset-current-cycle',(req,res)=>{
+  (async()=>{
+    const client=await pool.connect();
+    try{
+      const h=req.headers.authorization||'';
+      if(!h.startsWith('Bearer '))return res.status(401).json({error:'Admin login required.'});
+      let a;
+      try{a=jwt.verify(h.slice(7),JWT_SECRET);}catch(_){return res.status(401).json({error:'Admin login required.'});}
+      if(a.role!=='admin')return res.status(403).json({error:'Admin access required.'});
+
+      const c=cycleInfo();
+      await client.query('BEGIN');
+      await client.query('DELETE FROM ulam_voting_votes WHERE cycle_date=$1',[c.cycle]);
+      await client.query('DELETE FROM ulam_voting_submissions WHERE cycle_date=$1',[c.cycle]);
+      await client.query('COMMIT');
+      res.json({ok:true,cycle_date:c.cycle,message:'Current voting round votes and submissions have been reset.'});
+    }catch(e){
+      await client.query('ROLLBACK').catch(()=>{});
+      console.error(e);
+      res.status(500).json({error:'Could not reset the current voting round.'});
+    }finally{
+      client.release();
+    }
+  })();
+});
 app.get('/api/results',async(req,res)=>{
   try {
     const c=cycleInfo(); let admin=false;
