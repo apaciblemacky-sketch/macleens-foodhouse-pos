@@ -198,7 +198,7 @@
         <div style="font-size:.75rem;font-weight:900;color:var(--teal);margin-top:6px">🔥 {{ cust.login_streak or 1 }}-day check-in streak</div>
       </div>
       <div id="milestoneText" style="margin-left:auto;text-align:right; font-size:.75rem; font-weight:900; color:var(--dark);">
-        {% if points_to_reward > 0 %}{{ "{:.1f}".format(points_to_reward) }} pts to 20-point milestone{% else %}20-point milestone reached!{% endif %}
+        {% if points_to_reward > 0 %}{{ "{:.1f}".format(points_to_reward) }} pts to 30-point milestone{% else %}30-point milestone reached!{% endif %}
       </div>
     </div>
     <div class="progress"><div style="width:{{ reward_progress_pct|round(1) }}%;"></div></div>
@@ -305,7 +305,7 @@
       if(latest){
         const balance=Number(latest.points_balance||0),display=balance.toFixed(1);
         const main=document.getElementById('pointsBalanceMain'),ring=document.getElementById('ringPoints'),milestone=document.getElementById('milestoneText'),rewardRing=document.getElementById('rewardRing');
-        if(main)main.textContent=display;if(ring)ring.textContent=display;if(rewardRing)rewardRing.style.setProperty('--progress',`${Math.min(100,balance/20*100)*3.6}deg`);if(milestone)milestone.textContent=balance>=20?'20-point milestone reached!':`${(20-balance).toFixed(1)} pts to 20-point milestone`;
+        if(main)main.textContent=display;if(ring)ring.textContent=display;if(rewardRing)rewardRing.style.setProperty('--progress',`${Math.min(100,balance/30*100)*3.6}deg`);if(milestone)milestone.textContent=balance>=30?'30-point milestone reached!':`${(30-balance).toFixed(1)} pts to 30-point milestone`;
       }
       if(state){state.textContent='● Connected';state.style.background='#dcfce7';state.style.color='#166534';}
     }catch(e){if(state){state.textContent='● Reconnecting';state.style.background='#fef3c7';state.style.color='#92400e';}}
