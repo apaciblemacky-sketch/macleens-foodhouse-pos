@@ -4,13 +4,28 @@
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Macleen's Rewards Login</title>
   <style>
-    *{box-sizing:border-box;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif} body{background:radial-gradient(circle at 85% 10%,#ccfbf1,transparent 27%),linear-gradient(145deg,#fff1f7,#f0fdfa);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem}.card{background:rgba(255,255,255,.96);padding:2rem;border-radius:24px;border:1px solid #e2e8f0;width:100%;max-width:410px;box-shadow:0 22px 55px rgba(15,23,42,.12)} input{width:100%;padding:.82rem;margin:.3rem 0 1rem;border:1px solid #dbe7e4;border-radius:11px}input:focus{outline:0;border-color:#0f766e;box-shadow:0 0 0 4px rgba(15,118,110,.1)}.btn{width:100%;padding:.85rem;background:linear-gradient(135deg,#ec4899,#db2777);color:#fff;border:none;border-radius:12px;font-weight:900;cursor:pointer}a{color:#0f766e;text-decoration:none;font-size:.85rem;font-weight:800}.perk{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:14px 0}.perk div{background:#f0fdfa;border:1px solid #ccfbf1;border-radius:11px;padding:9px;text-align:center;font-size:.7rem;color:#115e59;font-weight:850}
-  </style>
+:root{--bg:#fff0f5;--pink:#ff9ebb;--rose:#d6457a;--soft:#ffd6e4;--ink:#5a2a3c;--muted:#9b6b7d}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;padding:16px;font-family:Quicksand,system-ui,sans-serif;color:var(--ink);background:var(--bg);background-image:radial-gradient(var(--soft) 2px,transparent 2.5px);background-size:26px 26px;display:flex;align-items:center;justify-content:center}
+h1,h2{font-family:Fredoka,Quicksand,sans-serif}
+.card{width:100%;max-width:440px;background:#fff;border:3px solid var(--pink);border-radius:22px;padding:22px;box-shadow:0 6px 0 var(--soft)}
+h1{margin:0;color:var(--rose);text-align:center;font-size:1.9rem}
+.subtitle{text-align:center;color:var(--muted);font-size:.84rem;margin:5px 0 14px}
+.perk{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}
+.perk div{background:#fff7fb;border:2px solid var(--soft);border-radius:14px;padding:9px;text-align:center;font-size:.73rem;color:var(--rose);font-weight:900}
+label{font-size:.8rem;font-weight:900}
+input{width:100%;padding:10px 14px;margin:4px 0 12px;border:2px solid var(--pink);border-radius:14px;color:var(--ink);font:inherit}
+input:focus{outline:3px solid var(--rose);outline-offset:2px}
+.btn{width:100%;padding:11px;background:var(--rose);color:#fff;border:0;border-radius:99px;font:inherit;font-weight:900;cursor:pointer}
+a{color:var(--rose);text-decoration:none;font-size:.82rem;font-weight:900}
+.error{background:#fee2e2;color:#991b1b;padding:9px 11px;border-radius:14px;font-size:.78rem;margin-bottom:10px;font-weight:800}
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@500;600;700&family=Fredoka:wght@500;600&display=swap" rel="stylesheet">
 </head>
 <body><div class="card">
   <h2 style="color:#831843;text-align:center;">🎁 Macleen's Rewards</h2>
   <p style="text-align:center;color:#6b7280;font-size:.82rem;margin-top:5px;">For walk-in customers too — no online order required.</p>
-  <div class="perk"><div>⭐ Earn Points</div><div>🔖 Save Favorites</div><div>🌐 Community</div><div>🔥 Member Deals</div></div>
+  <div class="perk"><div>🎁 My Rewards</div><div>⭐ Member Points</div><div>🧾 Sale Verification</div><div>⚙️ My Account</div></div>
   {% with msgs=get_flashed_messages() %}{% if msgs %}<div style="background:#fee2e2;color:#991b1b;padding:8px;border-radius:7px;font-size:.78rem;margin-bottom:8px;">{{ msgs[0] }}</div>{% endif %}{% endwith %}
   <form method="POST">
     <input type="hidden" name="next" value="{{ next_section or '' }}">
@@ -21,5 +36,4 @@
     <button class="btn" type="submit">Open My Benefits</button>
   </form>
   <div style="text-align:center;margin-top:1rem;"><a href="/portal/register{% if source and source != 'direct' %}?src={{ source }}{% if next_section %}&next={{ next_section }}{% endif %}{% endif %}">New member? Join in about 20 seconds</a></div>
-  <div style="text-align:center;margin-top:.7rem;"><a href="/" style="color:#64748b;">← Back to Menu</a></div>
 </div></body></html>
