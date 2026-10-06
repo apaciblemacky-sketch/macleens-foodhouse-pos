@@ -14,7 +14,7 @@
 <section class="card status"><div><span class="pill" id="state">...</span><div class="muted" id="when"></div></div><div style="text-align:right"><div class="muted" id="cdLabel"></div><div id="clock">--:--:--</div></div></section>
 <section class="card" id="menuBox" hidden><h2>Menu for the next day</h2><div class="muted" id="menuDate"></div><ul class="plain" id="menuList"></ul></section>
 <section class="card" id="authBox"><div class="row" style="justify-content:space-between;align-items:center"><h2 id="authTitle">Member login</h2><button class="ghost" id="authSwitch">New here? Register</button></div><div class="row" style="margin-top:10px"><input id="aName" placeholder="Full name" hidden><input id="aPhone" placeholder="Mobile number" inputmode="tel"><input id="aPin" placeholder="4-digit PIN" type="password" inputmode="numeric" maxlength="4"><button id="authGo">Log in</button></div><div class="msg" id="authMsg"></div></section>
-<section class="card" id="userBar" hidden><div class="row" style="justify-content:space-between;align-items:center"><div>Hi, <b id="uName"></b></div><div class="row"><button class="ghost" id="adminBtn">Admin</button><button class="ghost" id="logout">Log out</button></div></div></section>
+<section class="card" id="userBar" hidden><div class="row" style="justify-content:space-between;align-items:center"><div>Hi, <b id="uName"></b></div><div class="row"><button class="ghost" id="adminBtn" hidden>Admin</button><button class="ghost" id="logout">Log out</button></div></div></section>
 <section class="card"><div class="row" style="justify-content:space-between;align-items:center"><h2>Today's ulam list</h2><span class="pill" id="count">0 / 10 picked</span></div><div class="grid" id="ulamGrid"></div><div class="row" style="margin-top:14px;align-items:center"><button id="submitVote">Submit my votes</button><span class="muted" id="voteNote"></span></div><div class="msg" id="voteMsg"></div></section>
 <section class="card"><h2>Suggest an ulam</h2><p class="muted" style="margin:4px 0 10px">Not on the list? Tell us. We will consider adding it to the voting.</p><div class="row"><input id="sText" placeholder="Name of the ulam" maxlength="60"><button id="sGo">Send suggestion</button></div><div class="msg" id="sMsg"></div></section>
 <section class="card" id="resBox" hidden><h2>Top 10 results</h2><div class="muted" id="resNote"></div><div id="results"></div></section>
@@ -60,7 +60,7 @@ function render(){
   $('when').textContent=state.open?'Closes tomorrow at 12:00 NN. Voting cycle: '+fmtDate(state.cycle_date):'Opens today at 6:00 PM';
   $('cdLabel').textContent=state.open?'Time left to vote':'Voting opens in';
   $('authBox').hidden=!!token;$('userBar').hidden=!token;if(token)$('uName').textContent=memberName||'Member';
-  $('adminBtn').textContent=isAdmin?'Hide admin':'Admin';$('admin').hidden=!isAdmin;$('sGo').disabled=!token;
+  $('adminBtn').hidden=!!token && !isAdmin;$('adminBtn').textContent=isAdmin?'Hide admin':'Admin';$('admin').hidden=!isAdmin;$('sGo').disabled=!token;
   const grid=$('ulamGrid');grid.innerHTML='';
   ulams.forEach(function(u){
     const id=Number(u.id),on=votedIds.has(id)||picked.has(id),l=document.createElement('label');
