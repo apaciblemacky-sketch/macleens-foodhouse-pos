@@ -194,7 +194,7 @@ app.post('/api/login', async(req,res)=>{
     // Existing Macleen's Rewards/Customer members use the main customer table.
     // Authenticate their existing Werkzeug PIN hash and create only an additive
     // Ulam-member mirror so the voting foreign keys remain isolated.
-    const customer=await q(`SELECT id,name,contact,pin_hash FROM customer WHERE contact=$1 OR regexp_replace(contact,'\\D','','g')=$2 LIMIT 1`,[phone,phone.replace(/\D/g,'')]);
+    const customer=await q(`SELECT id,name,contact,pin_hash FROM customer WHERE contact=$1 OR regexp_replace(contact,'[^0-9]','','g')=$2 LIMIT 1`,[phone,phone.replace(/\D/g,'')]);
     if(customer.rowCount && verifyWerkzeugHash(customer.rows[0].pin_hash,pin)){
       const c=customer.rows[0];
       const votingPhone=normalizePhone(c.contact) || phone;
