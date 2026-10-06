@@ -45,12 +45,23 @@ services:
     healthCheckPath: /healthz
     envVars:
       - key: DATABASE_URL
-        sync: false
+        fromService:
+          name: macleens-foodhouse-pos
+          type: web
+          envVarKey: DATABASE_URL
       - key: ADMIN_PIN
         sync: false
       - key: JWT_SECRET
         generateValue: true
       - key: ANALYZE_URL
         sync: false
+      - key: GEMINI_API_KEY
+        fromService:
+          name: macleens-foodhouse-pos
+          type: web
+          envVarKey: GEMINI_API_KEY
       - key: AI_API_KEY
-        sync: false
+        fromService:
+          name: macleens-foodhouse-pos
+          type: web
+          envVarKey: GEMINI_API_KEY
