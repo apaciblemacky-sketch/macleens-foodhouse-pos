@@ -38,6 +38,9 @@ button.ghost{background:var(--soft);color:var(--rose)}[hidden]{display:none!impo
 <button class="ghost" id="refresh">↻ Refresh</button>
 </div>
 <div id="results" style="margin-top:15px"></div>
+<h2 style="margin-top:28px">👥 Members Who Voted</h2>
+<div class="muted" id="voterMeta"></div>
+<div id="voters" style="margin-top:12px"></div>
 <div class="muted" style="margin-top:12px">Results refresh automatically every second while this page is open.</div>
 </section>
 </div>
@@ -60,6 +63,10 @@ async function loadResults(){
     const rows=j.ranking||[],max=Math.max(1,...rows.map(x=>Number(x.n)||0));
     $('meta').textContent=j.voters+' member(s) voted · cycle '+j.cycle_date;
     $('results').innerHTML=rows.length?rows.map((x,i)=>'<div class="res"><span class="rank">#'+(i+1)+'</span><span><b>'+esc(x.name)+'</b></span><span class="votes">'+x.n+'</span><span></span><div class="bar"><i style="width:'+((Number(x.n)||0)/max*100)+'%"></i></div></div>').join(''):'<p class="muted">No votes yet for this cycle.</p>';
+    const voterData=await api('/ulam-voting/api/admin/voters');
+    const voters=voterData.voters||[];
+    $('voterMeta').textContent=voters.length+' member(s) · cycle '+voterData.cycle_date;
+    $('voters').innerHTML=voters.length?voters.map((x,i)=>'<div class="msg"><b>#'+(i+1)+'</b> '+esc(x.name)+' <span class="muted">· '+new Date(x.submitted_at).toLocaleTimeString([], {hour:'numeric',minute:'2-digit'})+'</span></div>').join(''):'<p class="muted">No members have voted yet.</p>';
   }catch(e){
     $('results').innerHTML='<p class="msg">'+esc(e.message)+'</p>';
   }
