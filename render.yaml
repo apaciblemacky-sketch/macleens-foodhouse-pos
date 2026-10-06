@@ -37,8 +37,9 @@ services:
     # Shared server-backed Ulam Voting portal. It uses the same PostgreSQL
     # connection URL you provide to the existing system.
     name: macleens-ulam-voting
-    env: node
+    runtime: node
     rootDir: ulam-voting
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /healthz
