@@ -2534,11 +2534,15 @@ def run_db_setup():
                 )
 
             if IS_PRODUCTION and not bootstrap_password:
-                raise RuntimeError(
-                    f'First-run {role} account needs a strong Render environment credential. '
-                    f'Set DEFAULT_{role}_PASSWORD to an 8-20 character alphanumeric password '
-                    f'with uppercase, lowercase, and a number.'
+                # Never block the entire web service when a production database
+                # simply has no bootstrap credential configured. Existing staff
+                # accounts are preserved above; this role is only skipped until
+                # the owner supplies a bootstrap password in Render.
+                app.logger.warning(
+                    'Skipping first-run %s bootstrap: DEFAULT_%s_PASSWORD is not configured.',
+                    role, role
                 )
+                continue
             bootstrap_password = bootstrap_password or secrets.token_urlsafe(12).replace('-', 'A').replace('_', '7')[:16]
             if IS_PRODUCTION and staff_password_error(bootstrap_password, username):
                 raise RuntimeError(
