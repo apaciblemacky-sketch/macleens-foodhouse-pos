@@ -2432,25 +2432,11 @@ def loyalty_points_per_purchase():
     """Return the current earning rule, never below one peso per point."""
     try:
         raw = StoreSetting.query.filter_by(key='loyalty_spend_per_point').first()
-        value = parse_float(raw.value if raw else 40.0, 40.0)
+        value = parse_float(raw.value if raw else 60.0, 60.0)
     except Exception:
         value = 40.0
     return max(1.0, min(100000.0, value))
 
-
-def daily_login_points():
-    """Return the admin-controlled daily check-in award.
-
-    Keep this deliberately small: it is a retention nudge, not a replacement
-    for purchase-earned points. The redemption safeguard below prevents a
-    sequence of logins from becoming an immediate no-purchase discount.
-    """
-    try:
-        raw = StoreSetting.query.filter_by(key='daily_login_points').first()
-        value = parse_float(raw.value if raw else 0.5, 0.5)
-    except Exception:
-        value = 0.5
-    return max(0.0, min(10.0, round(value, 2)))
 
 
 def loyalty_points_from_amount(amount):
@@ -2472,11 +2458,7 @@ def ensure_loyalty_and_delivery_upgrade_defaults():
     """Run one safe transition: ₱40 applies going forward, prior earned points stay intact."""
     point_setting = StoreSetting.query.filter_by(key='loyalty_spend_per_point').first()
     if not point_setting:
-        db.session.add(StoreSetting(key='loyalty_spend_per_point', value='40'))
-
-    login_setting = StoreSetting.query.filter_by(key='daily_login_points').first()
-    if not login_setting:
-        db.session.add(StoreSetting(key='daily_login_points', value='0.50'))
+        db.session.add(StoreSetting(key='loyalty_spend_per_point', value='60'))
 
     history_marker = StoreSetting.query.filter_by(key='loyalty_base_points_snapshot_v12').first()
     if not history_marker:
@@ -6019,7 +6001,7 @@ def inject_globals():
         digital_support_facebook_url = 'https://www.facebook.com/macleensdigital/'
         digital_support_faqs = []
     status = check_operating_status()
-    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link, digital_support_facebook_url=digital_support_facebook_url, digital_support_faqs=digital_support_faqs, loyalty_spend_per_point=loyalty_points_per_purchase(), daily_login_points=daily_login_points())
+    return dict(store_logo=logo, status=status, app_release=APP_RELEASE, mask_card_number=mask_card_number, product_option_groups=parse_product_option_schema, product_size_options=parse_product_size_schema, product_choice_groups=product_choice_groups, product_starting_price=product_starting_price, product_share_version=product_share_version, marketing_post_public_link=marketing_post_public_link, digital_support_facebook_url=digital_support_facebook_url, digital_support_faqs=digital_support_faqs, loyalty_spend_per_point=loyalty_points_per_purchase())
 
 
 # ==================== CRAFT SHOP HELPERS ====================
@@ -16586,26 +16568,17 @@ def update_investor_interest_status(lead_id):
 @app.route('/admin/loyalty-settings', methods=['POST'])
 @require_admin
 def admin_loyalty_settings():
-    spend_per_point = parse_float(request.form.get('spend_per_point'), 0.0)
-    login_points = parse_float(request.form.get('daily_login_points'), -1.0)
+    spend_per_point = parse_float(request.form.get('spend_per_point'), 60.0)
     if spend_per_point < 1 or spend_per_point > 100000:
         flash('Spend per point must be between ₱1 and ₱100,000.', 'error')
-        return redirect(url_for('admin_dashboard'))
-    if login_points < 0 or login_points > 10:
-        flash('Daily login points must be between 0 and 10.', 'error')
         return redirect(url_for('admin_dashboard'))
     setting = StoreSetting.query.filter_by(key='loyalty_spend_per_point').first()
     if setting:
         setting.value = f'{spend_per_point:.2f}'
     else:
         db.session.add(StoreSetting(key='loyalty_spend_per_point', value=f'{spend_per_point:.2f}'))
-    login_setting = StoreSetting.query.filter_by(key='daily_login_points').first()
-    if login_setting:
-        login_setting.value = f'{login_points:.2f}'
-    else:
-        db.session.add(StoreSetting(key='daily_login_points', value=f'{login_points:.2f}'))
     db.session.commit()
-    flash(f'New eligible purchases now earn 1 base point per ₱{spend_per_point:,.2f}; daily check-ins award {login_points:.2f} point(s). Existing completed orders keep their saved points.', 'success')
+    flash(f'New eligible purchases now earn 1 base point per ₱{spend_per_point:,.2f}. Existing completed orders keep their saved points.', 'success')
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/admin')
@@ -20244,19 +20217,6 @@ def customer_login():
             session['customer_id'] = cust.id
             session['portal_source'] = portal_source
             session.permanent = True
-            today = ph_today()
-            if cust.last_daily_login != today:
-                yesterday = today - timedelta(days=1)
-                cust.login_streak = (cust.login_streak or 0) + 1 if cust.last_daily_login == yesterday else 1
-                login_award = daily_login_points()
-                cust.points_balance = (cust.points_balance or 0.0) + login_award
-                cust.last_daily_login = today
-                if login_award:
-                    db.session.add(RewardLedger(
-                        customer_id=cust.id,
-                        points_change=login_award,
-                        reason=f'Daily Login Reward (Day {cust.login_streak})',
-                    ))
             cust.last_active_at = utc_now()
             track_portal_event('LOGIN', source=portal_source, customer_id=cust.id)
             db.session.commit()
@@ -20304,7 +20264,6 @@ def customer_register():
             return redirect(url_for('customer_login', src=source, next=next_section or None))
 
         today = ph_today()
-        welcome_award = daily_login_points()
         try:
             new_cust = Customer(
                 name=name,
@@ -20313,26 +20272,18 @@ def customer_register():
                 fb_messenger=messenger,
                 default_address=address,
                 default_landmark=landmark,
-                points_balance=welcome_award,
+                points_balance=0.0,
                 pin_hash=generate_password_hash(pin),
                 card_number=None,
                 card_status='ACTIVE',
                 card_expires_at=today + timedelta(days=365),
                 referred_by=ref if ref else None,
-                last_daily_login=today,
-                login_streak=1,
                 last_active_at=utc_now(),
             )
             db.session.add(new_cust)
             db.session.flush()
             new_cust.card_number = generate_unique_card_number(new_cust.id)
 
-            if welcome_award:
-                db.session.add(RewardLedger(
-                    customer_id=new_cust.id,
-                    points_change=welcome_award,
-                    reason='Welcome Login Bonus',
-                ))
             # Referral rewards are intentionally held until the new member completes a paid purchase.
             # This prevents fake registrations and rewards both sides for an actual new customer.
             track_portal_event('REGISTER', source=source, customer_id=new_cust.id)
@@ -20343,7 +20294,7 @@ def customer_register():
             session['portal_source'] = portal_source
             session.permanent = True
             if ref:
-                flash(f'🎉 Welcome! +{welcome_award:.2f} login point(s) added. Complete your first paid purchase to unlock the referral bonus for both of you!', 'success')
+                flash('🎉 Welcome! Complete your first paid purchase to start earning loyalty points and unlock the referral bonus for both of you!', 'success')
             else:
                 flash(f'🎉 Welcome! You earned {welcome_award:.2f} login point(s)!', 'success')
             if next_section == 'community':
@@ -20386,7 +20337,7 @@ def customer_dashboard():
     active_promos = [p for p in active_promos if (utc_now() - p.created_at).days <= 3]
     bonus_campaigns = get_active_bonus_campaigns()
 
-    reward_target = 20.0
+    reward_target = 30.0
     balance = float(cust.points_balance or 0.0)
     points_to_reward = max(0.0, reward_target - balance)
     reward_progress_pct = min(100.0, (balance / reward_target * 100.0) if reward_target else 100.0)
