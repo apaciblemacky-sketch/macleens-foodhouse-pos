@@ -188,30 +188,6 @@
     </div>
   </div>
 
-  <div class="card" id="rewards">
-    <div class="section-title">🎁 My Rewards</div>
-    <div class="reward-layout">
-      <div class="reward-ring" id="rewardRing" style="--progress:{{ (reward_progress_pct * 3.6)|round(1) }}deg"><strong><span id="ringPoints">{{ "{:.1f}".format(cust.points_balance or 0) }}</span><small>POINTS</small></strong></div>
-      <div>
-        <div class="points"><span id="pointsBalanceMain">{{ "{:,.1f}".format(cust.points_balance or 0.0) }}</span> pts</div>
-        <div class="muted">Earn 1 point per ₱{{ '%.0f'|format(loyalty_spend_per_point) }} eligible spend • +{{ '%.2f'|format(daily_login_points) }} daily login</div>
-        <div style="font-size:.75rem;font-weight:900;color:var(--teal);margin-top:6px">🔥 {{ cust.login_streak or 1 }}-day check-in streak</div>
-      </div>
-      <div id="milestoneText" style="margin-left:auto;text-align:right; font-size:.75rem; font-weight:900; color:var(--dark);">
-        {% if points_to_reward > 0 %}{{ "{:.1f}".format(points_to_reward) }} pts to 30-point milestone{% else %}30-point milestone reached!{% endif %}
-      </div>
-    </div>
-    <div class="progress"><div style="width:{{ reward_progress_pct|round(1) }}%;"></div></div>
-    <div class="muted">Your walk-in purchases earn points too. Tell the cashier you're a member before payment.</div>
-
-    {% if recent_rewards %}
-      <div style="margin-top:12px; font-size:.78rem; font-weight:900; color:var(--dark);">Recent reward activity</div>
-      {% for r in recent_rewards %}
-        <div class="history-row row"><span>{{ r.reason }}</span><strong style="color:{{ '#16a34a' if r.points_change >= 0 else '#dc2626' }};">{{ '+' if r.points_change >= 0 else '' }}{{ "{:.1f}".format(r.points_change) }}</strong></div>
-      {% endfor %}
-    {% endif %}
-  </div>
-
   <div class="card" id="salesVerification" style="border-color:#f9a8d4;background:linear-gradient(145deg,#fff,#fff7fb);">
     <div class="row" style="margin-bottom:8px;">
       <div><div class="section-title" style="margin:0;">🧾 Purchase Sales Verification</div><div class="muted">If you made a purchase in-store and want it recorded as an accounted sale, submit the amount below. A cashier must verify it before it counts.</div></div>
@@ -239,6 +215,30 @@
       {% else %}<div id="salesVerificationEmpty" class="muted" style="text-align:center;padding:10px;">No sales submissions yet.</div>{% endif %}
     </div>
     <div class="muted" style="margin-top:8px;">Only verified submissions count toward the verification-based accounted sales total. This does not create a duplicate online order.</div>
+  </div>
+
+  <div class="card" id="rewards">
+    <div class="section-title">🎁 My Rewards</div>
+    <div id="redeemableNotice" style="margin:10px 0;padding:10px 12px;border-radius:14px;background:#ecfdf5;border:1px solid #86efac;color:#166534;font-weight:900;font-size:.8rem;{% if (cust.points_balance or 0) < 30 %}display:none;{% endif %}">🎉 You reached 30 points! Your loyalty points are now redeemable.</div>
+    <div class="reward-layout">
+      <div class="reward-ring" id="rewardRing" style="--progress:{{ (reward_progress_pct * 3.6)|round(1) }}deg"><strong><span id="ringPoints">{{ "{:.1f}".format(cust.points_balance or 0) }}</span><small>POINTS</small></strong></div>
+      <div>
+        <div class="points"><span id="pointsBalanceMain">{{ "{:,.1f}".format(cust.points_balance or 0.0) }}</span> pts</div>
+        <div class="muted">Earn 1 point per ₱{{ '%.0f'|format(loyalty_spend_per_point) }} eligible spend</div>
+      </div>
+      <div id="milestoneText" style="margin-left:auto;text-align:right; font-size:.75rem; font-weight:900; color:var(--dark);">
+        {% if points_to_reward > 0 %}{{ "{:.1f}".format(points_to_reward) }} pts to 30-point milestone{% else %}30-point milestone reached!{% endif %}
+      </div>
+    </div>
+    <div class="progress"><div style="width:{{ reward_progress_pct|round(1) }}%;"></div></div>
+    <div class="muted">Your walk-in purchases earn points too. Tell the cashier you're a member before payment.</div>
+
+    {% if recent_rewards %}
+      <div style="margin-top:12px; font-size:.78rem; font-weight:900; color:var(--dark);">Recent reward activity</div>
+      {% for r in recent_rewards %}
+        <div class="history-row row"><span>{{ r.reason }}</span><strong style="color:{{ '#16a34a' if r.points_change >= 0 else '#dc2626' }};">{{ '+' if r.points_change >= 0 else '' }}{{ "{:.1f}".format(r.points_change) }}</strong></div>
+      {% endfor %}
+    {% endif %}
   </div>
 
 
@@ -305,7 +305,7 @@
       if(latest){
         const balance=Number(latest.points_balance||0),display=balance.toFixed(1);
         const main=document.getElementById('pointsBalanceMain'),ring=document.getElementById('ringPoints'),milestone=document.getElementById('milestoneText'),rewardRing=document.getElementById('rewardRing');
-        if(main)main.textContent=display;if(ring)ring.textContent=display;if(rewardRing)rewardRing.style.setProperty('--progress',`${Math.min(100,balance/30*100)*3.6}deg`);if(milestone)milestone.textContent=balance>=30?'30-point milestone reached!':`${(30-balance).toFixed(1)} pts to 30-point milestone`;
+        if(main)main.textContent=display;if(ring)ring.textContent=display;if(rewardRing)rewardRing.style.setProperty('--progress',`${Math.min(100,balance/30*100)*3.6}deg`);if(milestone)milestone.textContent=balance>=30?'30-point milestone reached!':`${(30-balance).toFixed(1)} pts to 30-point milestone`;const notice=document.getElementById('redeemableNotice');if(notice)notice.style.display=balance>=30?'block':'none';
       }
       if(state){state.textContent='● Connected';state.style.background='#dcfce7';state.style.color='#166534';}
     }catch(e){if(state){state.textContent='● Reconnecting';state.style.background='#fef3c7';state.style.color='#92400e';}}
