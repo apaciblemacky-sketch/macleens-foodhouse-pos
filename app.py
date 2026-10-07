@@ -2434,7 +2434,7 @@ def loyalty_points_per_purchase():
         raw = StoreSetting.query.filter_by(key='loyalty_spend_per_point').first()
         value = parse_float(raw.value if raw else 60.0, 60.0)
     except Exception:
-        value = 40.0
+        value = 60.0
     return max(1.0, min(100000.0, value))
 
 
@@ -20296,7 +20296,7 @@ def customer_register():
             if ref:
                 flash('🎉 Welcome! Complete your first paid purchase to start earning loyalty points and unlock the referral bonus for both of you!', 'success')
             else:
-                flash(f'🎉 Welcome! You earned {welcome_award:.2f} login point(s)!', 'success')
+                flash('🎉 Welcome! Complete your first paid purchase to start earning loyalty points.', 'success')
             if next_section == 'community':
                 next_section = ''
             target = url_for('customer_dashboard')
