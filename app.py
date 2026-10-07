@@ -2455,7 +2455,7 @@ def stored_order_base_points(order):
 
 
 def ensure_loyalty_and_delivery_upgrade_defaults():
-    """Run one safe transition: ₱40 applies going forward, prior earned points stay intact."""
+    """Run one safe transition: ₱60 applies going forward, prior earned points stay intact."""
     point_setting = StoreSetting.query.filter_by(key='loyalty_spend_per_point').first()
     if not point_setting:
         db.session.add(StoreSetting(key='loyalty_spend_per_point', value='60'))
